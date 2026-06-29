@@ -1,7 +1,12 @@
 .env
+auth.db
 venv/
 .venv/
 __pycache__/
 tools/token_cache.json
 *.pyc
 .gemini/
+cache/
+exports/*.pdf
+logs/*.csv
+logs/*.log
