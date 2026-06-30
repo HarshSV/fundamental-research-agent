@@ -146,6 +146,69 @@ STOCK_REGISTRY = [
     {"symbol": "JUBLFOOD", "name": "Jubilant FoodWorks Limited"}
 ]
 
+_NSE_NAMES_CACHE = os.path.join(_BASE_DIR, "cache", "nse_company_names.json")
+_NSE_NAMES_TTL = 7 * 24 * 3600  # refresh weekly
+
+
+def load_nse_company_names() -> dict:
+    """
+    Map every listed NSE symbol -> its full company name using NSE's public
+    EQUITY_L.csv. This gives proper "preview names" (e.g. MAFATIND ->
+    "Mafatlal Industries Limited") for the whole universe, not just the curated
+    top-100. Cached on disk for a week; best-effort (returns {} on failure).
+    """
+    import json as _json
+    import time as _time
+    # Serve fresh-enough disk cache first.
+    try:
+        if os.path.exists(_NSE_NAMES_CACHE) and _time.time() - os.path.getmtime(_NSE_NAMES_CACHE) <= _NSE_NAMES_TTL:
+            with open(_NSE_NAMES_CACHE, "r", encoding="utf-8") as fh:
+                cached = _json.load(fh)
+                if cached:
+                    print(f"[HTTP] Loaded {len(cached)} NSE company names from cache.")
+                    return cached
+    except Exception:
+        pass
+
+    import csv as _csv
+    import io as _io
+    urls = [
+        "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv",
+        "https://www1.nseindia.com/content/equities/EQUITY_L.csv",
+    ]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Accept": "text/csv,*/*",
+    }
+    names = {}
+    for url in urls:
+        try:
+            resp = requests.get(url, headers=headers, timeout=15)
+            if resp.status_code != 200 or not resp.text:
+                continue
+            reader = _csv.DictReader(_io.StringIO(resp.text))
+            for row in reader:
+                sym = (row.get("SYMBOL") or "").strip().upper()
+                nm = (row.get("NAME OF COMPANY") or "").strip()
+                if sym and nm:
+                    names[sym] = nm
+            if names:
+                print(f"[HTTP] Fetched {len(names)} NSE company names from {url}.")
+                break
+        except Exception as e:
+            print(f"[HTTP WARNING] NSE names fetch failed from {url}: {e}")
+
+    if names:
+        try:
+            os.makedirs(os.path.dirname(_NSE_NAMES_CACHE), exist_ok=True)
+            with open(_NSE_NAMES_CACHE, "w", encoding="utf-8") as fh:
+                _json.dump(names, fh)
+        except Exception:
+            pass
+    return names
+
+
 def load_scrip_master_async():
     global STOCK_REGISTRY
     try:
@@ -162,22 +225,28 @@ def load_scrip_master_async():
                     if sym:
                         nse_symbols[sym] = True
             
+            # Full company names for the whole NSE universe (proper "preview names").
+            nse_names = load_nse_company_names()
+
             # Merge with top 100+ stock names
             existing_symbols = {item['symbol'].upper(): item for item in STOCK_REGISTRY}
-            
+
             merged_registry = []
-            # Keep existing symbols with company names first
+            # Keep existing symbols with curated company names first
             for sym, item in existing_symbols.items():
                 merged_registry.append(item)
                 if sym in nse_symbols:
                     del nse_symbols[sym]
-            
-            # Add all other NSE symbols
+
+            # Add all other NSE symbols, with their full company name when known
+            # (falls back to the symbol itself if NSE names were unavailable).
             for sym in sorted(nse_symbols.keys()):
-                merged_registry.append({"symbol": sym, "name": sym})
-                
+                merged_registry.append({"symbol": sym, "name": nse_names.get(sym, sym)})
+
             STOCK_REGISTRY = merged_registry
-            print(f"[HTTP] Autocomplete registry enriched dynamically with {len(STOCK_REGISTRY)} NSE symbols.")
+            named = sum(1 for it in merged_registry if it["name"] != it["symbol"])
+            print(f"[HTTP] Autocomplete registry enriched dynamically with {len(STOCK_REGISTRY)} NSE symbols "
+                  f"({named} with full company names).")
     except Exception as e:
         print(f"[HTTP WARNING] Dynamic scrip master load failed: {e}")
 

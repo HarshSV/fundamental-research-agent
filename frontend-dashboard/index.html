@@ -1198,6 +1198,7 @@
             const [activeTab, setActiveTab] = useState(1); // 1-7 sidebar navigation tabs
             const [activeSubTab, setActiveSubTab] = useState({1:0,2:0,3:0,4:0,5:0,6:0,7:0});
             const [scrolled, setScrolled] = useState(false); // for the floating instrument card
+            const [showAllPeers, setShowAllPeers] = useState(false); // Peer table: top-N vs see-more
             const suggestionsRef = useRef(null);
 
             useEffect(() => {
@@ -1332,6 +1333,7 @@
 
                     if (response.ok && result.status === 'success') {
                         setReportData(result);
+                        setShowAllPeers(false); // collapse peer list for the new company
                         setStatus('SUCCESS');
                     } else {
                         throw new Error(result.message || 'Report generation failed');
@@ -1674,6 +1676,14 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                             <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1 flex items-center gap-1.5 font-sans">
                                                 <span className="px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 border border-blue-500/20 font-semibold font-mono">{reportData.data.symbol}</span>
                                                 <span>NSE · Equity</span>
+                                                {(() => {
+                                                    const tier = reportData.data.peer_synthesis_data?.cap_tier;
+                                                    if (!tier) return null;
+                                                    const cls = tier.startsWith('Large') ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                                                        : tier.startsWith('Mid') ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                                        : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+                                                    return <span className={`px-1.5 py-0.5 rounded-md border font-semibold ${cls}`}>{tier}</span>;
+                                                })()}
                                             </div>
                                         </div>
                                         <div className="sm:border-l sm:border-slate-800 sm:pl-5">
@@ -2131,9 +2141,21 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                  </div>
                                                  {/* Peer percentile view (also shown here so users don't have to hunt for it) */}
                                                  {(() => {
-                                                     const pcts = reportData.data.peer_synthesis_data?.sector_benchmark?.percentiles || {};
-                                                     const labels = { roe: 'Return on Equity', operatingMargin: 'Operating Margin', revenueGrowth: 'Revenue Growth', pe: 'Valuation (P/E)', debtToEquity: 'Balance Sheet (D/E)' };
-                                                     const order = ['roe', 'operatingMargin', 'revenueGrowth', 'pe', 'debtToEquity'];
+                                                     const psd = reportData.data.peer_synthesis_data || {};
+                                                     const spv = psd.screener_peer_view;
+                                                     // Prefer real peer-set percentiles; legacy sector_benchmark reports a
+                                                     // meaningless 100th on every metric for stocks outside a hardcoded group.
+                                                     const useScreener = !!(spv && spv.available && (spv.peers || []).length);
+                                                     let pcts, labels, order;
+                                                     if (useScreener) {
+                                                         pcts = spv.percentiles || {};
+                                                         labels = { roce: 'Return on Capital (ROCE)', pe: 'Valuation (P/E)', qtrProfitGrowth: 'Profit Growth (YoY)', qtrSalesGrowth: 'Sales Growth (YoY)' };
+                                                         order = ['roce', 'pe', 'qtrProfitGrowth', 'qtrSalesGrowth'];
+                                                     } else {
+                                                         pcts = psd.sector_benchmark?.percentiles || {};
+                                                         labels = { roe: 'Return on Equity', operatingMargin: 'Operating Margin', revenueGrowth: 'Revenue Growth', pe: 'Valuation (P/E)', debtToEquity: 'Balance Sheet (D/E)' };
+                                                         order = ['roe', 'operatingMargin', 'revenueGrowth', 'pe', 'debtToEquity'];
+                                                     }
                                                      const rows = order.filter(k => pcts[k] != null);
                                                      if (!rows.length) return null;
                                                      return (
@@ -2839,100 +2861,263 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                             </div>
 
                                             {/* Peer comparison */}
-                                            {(activeSubTab[5]??0) === 0 && (
-                                            <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg font-sans">
-                                                <div className="flex items-center justify-between mb-3">
-                                                    <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Sector Peer Comparison Multiples</h4>
-                                                    {reportData.data.peer_synthesis_data.sector && (
-                                                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-md">{reportData.data.peer_synthesis_data.sector}</span>
-                                                    )}
-                                                </div>
-                                                <div className="overflow-x-auto rounded-lg border border-slate-800">
-                                                    <table className="w-full text-left text-xs border-collapse">
-                                                        <thead>
-                                                            <tr className="border-b border-slate-800 bg-slate-950 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                                                                <th className="p-3 text-left">Symbol</th>
-                                                                <th className="p-3 text-right">Price</th>
-                                                                <th className="p-3 text-right">P/E</th>
-                                                                <th className="p-3 text-right">Op Margin</th>
-                                                                <th className="p-3 text-right">ROE</th>
-                                                                <th className="p-3 text-right">Rev Growth</th>
-                                                                <th className="p-3 text-right">D/E</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-slate-800 text-slate-300 bg-slate-950/10">
-                                                            {(() => {
-                                                                const t = reportData.data.peer_synthesis_data.target_metrics || {};
-                                                                const tr = t.rank || {};
-                                                                return (
-                                                                    <tr className="bg-blue-500/10 border-l-2 border-l-blue-500 font-semibold text-blue-700">
-                                                                        <td className="p-3 text-left uppercase font-bold">{t.symbol || reportData.data.symbol} <span className="text-[8px] bg-blue-600 text-white px-1 py-0.5 rounded ml-1 font-bold">Target</span></td>
-                                                                        <td className="p-3 text-right font-mono">{formatCurrency(t.lastPrice)}</td>
-                                                                        <td className={`p-3 text-right font-mono ${rankClass(tr.pe)}`}>{formatNum(t.pe, 2)}</td>
-                                                                        <td className={`p-3 text-right font-mono ${rankClass(tr.operatingMargin)}`}>{formatPercent(t.operatingMargin)}</td>
-                                                                        <td className={`p-3 text-right font-mono ${rankClass(tr.roe)}`}>{formatPercent(t.roe)}</td>
-                                                                        <td className={`p-3 text-right font-mono ${rankClass(tr.revenueGrowth)}`}>{formatPercent(t.revenueGrowth)}</td>
-                                                                        <td className={`p-3 text-right font-mono ${rankClass(tr.debtToEquity)}`}>{formatNum(t.debtToEquity, 2)}</td>
+                                            {(activeSubTab[5]??0) === 0 && (() => {
+                                                const psd = reportData.data.peer_synthesis_data || {};
+                                                const spv = psd.screener_peer_view;
+                                                const capTier = psd.cap_tier || spv?.cap_tier;
+
+                                                // Market-cap-tier chip colouring (Large/Mid/Small).
+                                                const tierChip = (tier) => {
+                                                    if (!tier) return null;
+                                                    const cls = tier.startsWith('Large') ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                                                        : tier.startsWith('Mid') ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                                        : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+                                                    return <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${cls}`}>{tier}</span>;
+                                                };
+                                                // ₹-crore formatter (10,870 Cr -> "₹10,870 Cr"; 9,64,968 -> "₹9.65 L Cr").
+                                                const fmtCr = (v) => {
+                                                    if (v === null || v === undefined || isNaN(v)) return 'N/A';
+                                                    if (Math.abs(v) >= 1e5) return `₹${(v/1e5).toFixed(2)} L Cr`;
+                                                    return `₹${Number(v).toLocaleString('en-IN', {maximumFractionDigits: 0})} Cr`;
+                                                };
+                                                const fmtPrice = (v) => (v === null || v === undefined || isNaN(v)) ? 'N/A' : `₹${Number(v).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                                                const fmtCell = (v, fmt) => {
+                                                    if (v === null || v === undefined || isNaN(v)) return 'N/A';
+                                                    if (fmt === 'cr') return fmtCr(v);
+                                                    if (fmt === 'inr') return fmtPrice(v);
+                                                    if (fmt === 'pct_raw') return `${Number(v).toFixed(2)}%`;
+                                                    return formatNum(v, 2);
+                                                };
+
+                                                // --- Preferred: size/sector-aware Screener peer view ---
+                                                if (spv && spv.available && (spv.peers || []).length) {
+                                                    const cols = spv.columns || [];
+                                                    const peers = spv.peers || [];
+                                                    const shown = showAllPeers ? peers : peers.slice(0, 5);
+                                                    const t = spv.target || {};
+                                                    const ai = spv.ai_guidance || {};
+                                                    const recSet = new Set(ai.recommended || []);
+                                                    const meds = spv.medians || {};
+                                                    const nameCell = (row, isTarget) => (
+                                                        <td className="p-3 text-left">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className={`font-semibold ${isTarget ? 'text-blue-300' : 'text-slate-300'}`}>{row.name || row.symbol}</span>
+                                                                {isTarget && <span className="text-[8px] bg-blue-600 text-white px-1 py-0.5 rounded font-bold">Target</span>}
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 mt-0.5">
+                                                                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-mono">{row.symbol}</span>
+                                                                {tierChip(row.capTier)}
+                                                            </div>
+                                                        </td>
+                                                    );
+                                                    return (
+                                                    <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg font-sans">
+                                                        <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+                                                            <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Peer Comparison</h4>
+                                                            <div className="flex items-center gap-1.5">
+                                                                {tierChip(capTier)}
+                                                                {ai.sector_guess && <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-md">{ai.sector_guess}</span>}
+                                                            </div>
+                                                        </div>
+                                                        <p className="text-[10px] text-slate-500 mb-3">Size &amp; sector-aware peers from Screener.in — comparables matched on industry and market-cap. Showing {shown.length} of {peers.length}.</p>
+
+                                                        {ai.note && (
+                                                            <div className="mb-3 p-3 rounded-lg border border-blue-500/20 bg-blue-500/5">
+                                                                <div className="flex items-center gap-1.5 mb-1">
+                                                                    <span className="text-[9px] font-bold uppercase tracking-wider text-blue-300">AI · What to compare &amp; why</span>
+                                                                </div>
+                                                                <p className="text-[11px] text-slate-300 leading-relaxed">{ai.note}</p>
+                                                                {!!(ai.recommended || []).length && (
+                                                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                                                        {(ai.recommended || []).map((k) => {
+                                                                            const c = cols.find(c => c.key === k);
+                                                                            return c ? <span key={k} className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-200 border border-blue-500/30">{c.label}</span> : null;
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+
+                                                        <div className="overflow-x-auto rounded-lg border border-slate-800">
+                                                            <table className="w-full text-left text-xs border-collapse">
+                                                                <thead>
+                                                                    <tr className="border-b border-slate-800 bg-slate-950 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                                                                        <th className="p-3 text-left">Company</th>
+                                                                        {cols.map(c => (
+                                                                            <th key={c.key} className={`p-3 text-right whitespace-nowrap ${recSet.has(c.key) ? 'text-blue-300' : ''}`}>
+                                                                                {c.label}{recSet.has(c.key) && <span className="ml-1 text-blue-400">★</span>}
+                                                                            </th>
+                                                                        ))}
                                                                     </tr>
-                                                                );
-                                                            })()}
-                                                            {reportData.data.peer_synthesis_data.peer_matrix?.map((peer, idx) => {
-                                                                const pr = peer.rank || {};
-                                                                return (
-                                                                    <tr key={idx} className="hover:bg-slate-850/20 font-sans">
-                                                                        <td className="p-3 text-left uppercase font-semibold text-slate-400">{peer.symbol}</td>
-                                                                        <td className="p-3 text-right font-mono">{formatCurrency(peer.lastPrice)}</td>
-                                                                        <td className={`p-3 text-right font-mono ${rankClass(pr.pe)}`}>{formatNum(peer.pe, 2)}</td>
-                                                                        <td className={`p-3 text-right font-mono ${rankClass(pr.operatingMargin)}`}>{formatPercent(peer.operatingMargin)}</td>
-                                                                        <td className={`p-3 text-right font-mono ${rankClass(pr.roe)}`}>{formatPercent(peer.roe)}</td>
-                                                                        <td className={`p-3 text-right font-mono ${rankClass(pr.revenueGrowth)}`}>{formatPercent(peer.revenueGrowth)}</td>
-                                                                        <td className={`p-3 text-right font-mono ${rankClass(pr.debtToEquity)}`}>{formatNum(peer.debtToEquity, 2)}</td>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-slate-800 text-slate-300 bg-slate-950/10">
+                                                                    <tr className="bg-blue-500/10 border-l-2 border-l-blue-500 font-semibold">
+                                                                        {nameCell(t, true)}
+                                                                        {cols.map(c => (
+                                                                            <td key={c.key} className={`p-3 text-right font-mono ${rankClass((t.rank||{})[c.key])} ${recSet.has(c.key) ? 'bg-blue-500/5' : ''}`}>{fmtCell(t[c.key], c.fmt)}</td>
+                                                                        ))}
                                                                     </tr>
-                                                                );
-                                                            })}
-                                                            {/* Sector Median (F-17) */}
-                                                            <tr className="bg-slate-850 font-bold text-slate-200 border-t-2 border-slate-700">
-                                                                <td className="p-3 text-left text-slate-200">Sector Median</td>
-                                                                <td className="p-3 text-right font-mono">—</td>
-                                                                <td className="p-3 text-right font-mono">{formatNum(reportData.data.peer_synthesis_data.sector_benchmark?.medians?.pe, 2)}</td>
-                                                                <td className="p-3 text-right font-mono">{formatPercent(reportData.data.peer_synthesis_data.sector_benchmark?.medians?.operatingMargin)}</td>
-                                                                <td className="p-3 text-right font-mono">{formatPercent(reportData.data.peer_synthesis_data.sector_benchmark?.medians?.roe)}</td>
-                                                                <td className="p-3 text-right font-mono">{formatPercent(reportData.data.peer_synthesis_data.sector_benchmark?.medians?.revenueGrowth)}</td>
-                                                                <td className="p-3 text-right font-mono">{formatNum(reportData.data.peer_synthesis_data.sector_benchmark?.medians?.debtToEquity, 2)}</td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
+                                                                    {shown.map((peer, idx) => (
+                                                                        <tr key={idx} className="hover:bg-slate-800/20">
+                                                                            {nameCell(peer, false)}
+                                                                            {cols.map(c => (
+                                                                                <td key={c.key} className={`p-3 text-right font-mono ${rankClass((peer.rank||{})[c.key])} ${recSet.has(c.key) ? 'bg-blue-500/5' : ''}`}>{fmtCell(peer[c.key], c.fmt)}</td>
+                                                                            ))}
+                                                                        </tr>
+                                                                    ))}
+                                                                    <tr className="bg-slate-800 font-bold text-slate-200 border-t-2 border-slate-700">
+                                                                        <td className="p-3 text-left text-slate-200">Peer Median</td>
+                                                                        {cols.map(c => (
+                                                                            <td key={c.key} className="p-3 text-right font-mono">{fmtCell(meds[c.key], c.fmt)}</td>
+                                                                        ))}
+                                                                    </tr>
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+
+                                                        {peers.length > 5 && (
+                                                            <div className="mt-3 text-center">
+                                                                <button onClick={() => setShowAllPeers(s => !s)}
+                                                                    className="px-4 py-1.5 text-[11px] font-semibold rounded-md border border-slate-700 bg-slate-900 text-slate-300 hover:text-blue-300 hover:border-blue-500/40 transition">
+                                                                    {showAllPeers ? 'Show top 5' : `See ${peers.length - 5} more peers`}
+                                                                </button>
+                                                            </div>
+                                                        )}
+
+                                                        <div className="flex items-center gap-4 mt-3 text-[9px] font-semibold text-slate-500 flex-wrap">
+                                                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500"></span>Best among peers</span>
+                                                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500"></span>Worst among peers</span>
+                                                            <span className="flex items-center gap-1"><span className="text-blue-400">★</span>AI-recommended for this sector</span>
+                                                        </div>
+                                                    </div>
+                                                    );
+                                                }
+
+                                                // --- Fallback: legacy sector-group matrix ---
+                                                return (
+                                                <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg font-sans">
+                                                    <div className="flex items-center justify-between mb-3">
+                                                        <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Sector Peer Comparison Multiples</h4>
+                                                        <div className="flex items-center gap-1.5">
+                                                            {tierChip(capTier)}
+                                                            {psd.sector && (
+                                                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-md">{psd.sector}</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="overflow-x-auto rounded-lg border border-slate-800">
+                                                        <table className="w-full text-left text-xs border-collapse">
+                                                            <thead>
+                                                                <tr className="border-b border-slate-800 bg-slate-950 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                                                                    <th className="p-3 text-left">Symbol</th>
+                                                                    <th className="p-3 text-right">Price</th>
+                                                                    <th className="p-3 text-right">P/E</th>
+                                                                    <th className="p-3 text-right">Op Margin</th>
+                                                                    <th className="p-3 text-right">ROE</th>
+                                                                    <th className="p-3 text-right">Rev Growth</th>
+                                                                    <th className="p-3 text-right">D/E</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-slate-800 text-slate-300 bg-slate-950/10">
+                                                                {(() => {
+                                                                    const t = psd.target_metrics || {};
+                                                                    const tr = t.rank || {};
+                                                                    return (
+                                                                        <tr className="bg-blue-500/10 border-l-2 border-l-blue-500 font-semibold text-blue-700">
+                                                                            <td className="p-3 text-left uppercase font-bold">{t.symbol || reportData.data.symbol} <span className="text-[8px] bg-blue-600 text-white px-1 py-0.5 rounded ml-1 font-bold">Target</span></td>
+                                                                            <td className="p-3 text-right font-mono">{formatCurrency(t.lastPrice)}</td>
+                                                                            <td className={`p-3 text-right font-mono ${rankClass(tr.pe)}`}>{formatNum(t.pe, 2)}</td>
+                                                                            <td className={`p-3 text-right font-mono ${rankClass(tr.operatingMargin)}`}>{formatPercent(t.operatingMargin)}</td>
+                                                                            <td className={`p-3 text-right font-mono ${rankClass(tr.roe)}`}>{formatPercent(t.roe)}</td>
+                                                                            <td className={`p-3 text-right font-mono ${rankClass(tr.revenueGrowth)}`}>{formatPercent(t.revenueGrowth)}</td>
+                                                                            <td className={`p-3 text-right font-mono ${rankClass(tr.debtToEquity)}`}>{formatNum(t.debtToEquity, 2)}</td>
+                                                                        </tr>
+                                                                    );
+                                                                })()}
+                                                                {psd.peer_matrix?.map((peer, idx) => {
+                                                                    const pr = peer.rank || {};
+                                                                    return (
+                                                                        <tr key={idx} className="hover:bg-slate-850/20 font-sans">
+                                                                            <td className="p-3 text-left uppercase font-semibold text-slate-400">{peer.symbol}</td>
+                                                                            <td className="p-3 text-right font-mono">{formatCurrency(peer.lastPrice)}</td>
+                                                                            <td className={`p-3 text-right font-mono ${rankClass(pr.pe)}`}>{formatNum(peer.pe, 2)}</td>
+                                                                            <td className={`p-3 text-right font-mono ${rankClass(pr.operatingMargin)}`}>{formatPercent(peer.operatingMargin)}</td>
+                                                                            <td className={`p-3 text-right font-mono ${rankClass(pr.roe)}`}>{formatPercent(peer.roe)}</td>
+                                                                            <td className={`p-3 text-right font-mono ${rankClass(pr.revenueGrowth)}`}>{formatPercent(peer.revenueGrowth)}</td>
+                                                                            <td className={`p-3 text-right font-mono ${rankClass(pr.debtToEquity)}`}>{formatNum(peer.debtToEquity, 2)}</td>
+                                                                        </tr>
+                                                                    );
+                                                                })}
+                                                                <tr className="bg-slate-850 font-bold text-slate-200 border-t-2 border-slate-700">
+                                                                    <td className="p-3 text-left text-slate-200">Sector Median</td>
+                                                                    <td className="p-3 text-right font-mono">—</td>
+                                                                    <td className="p-3 text-right font-mono">{formatNum(psd.sector_benchmark?.medians?.pe, 2)}</td>
+                                                                    <td className="p-3 text-right font-mono">{formatPercent(psd.sector_benchmark?.medians?.operatingMargin)}</td>
+                                                                    <td className="p-3 text-right font-mono">{formatPercent(psd.sector_benchmark?.medians?.roe)}</td>
+                                                                    <td className="p-3 text-right font-mono">{formatPercent(psd.sector_benchmark?.medians?.revenueGrowth)}</td>
+                                                                    <td className="p-3 text-right font-mono">{formatNum(psd.sector_benchmark?.medians?.debtToEquity, 2)}</td>
+                                                                </tr>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                    <div className="flex items-center gap-4 mt-2 text-[9px] font-semibold text-slate-500">
+                                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500"></span>Best in sector</span>
+                                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500"></span>Worst in sector</span>
+                                                    </div>
                                                 </div>
-                                                <div className="flex items-center gap-4 mt-2 text-[9px] font-semibold text-slate-500">
-                                                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500"></span>Best in sector</span>
-                                                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500"></span>Worst in sector</span>
-                                                </div>
-                                            </div>
-                                            )}
+                                                );
+                                            })()}
 
                                             {/* Sector comparison */}
-                                            {(activeSubTab[5]??0) === 1 && (
-                                            <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg font-sans space-y-4">
-                                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-800 pb-3">
-                                                    <div>
-                                                        <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Sector Percentile Standing</h4>
-                                                        <p className="text-[10px] text-slate-500 mt-0.5">Where the stock ranks within its sector (higher = better positioned).</p>
-                                                    </div>
-                                                    {reportData.data.peer_synthesis_data.sector_benchmark?.overall_percentile != null && (
-                                                        <div className="text-right">
-                                                            <div className="font-heading text-2xl font-extrabold text-blue-400">{reportData.data.peer_synthesis_data.sector_benchmark.overall_percentile}<span className="text-sm text-slate-500">th</span></div>
-                                                            <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Overall Percentile</div>
-                                                        </div>
-                                                    )}
-                                                </div>
+                                            {(activeSubTab[5]??0) === 1 && (() => {
+                                                const psd = reportData.data.peer_synthesis_data || {};
+                                                const spv = psd.screener_peer_view;
+                                                // Prefer the real Screener peer set (percentiles computed across actual
+                                                // peers). The legacy sector_benchmark gives a meaningless 100th on every
+                                                // metric when the stock isn't in a hardcoded sector group (population = itself).
+                                                const useScreener = !!(spv && spv.available && (spv.peers || []).length);
 
-                                                {(() => {
-                                                    const pcts = reportData.data.peer_synthesis_data.sector_benchmark?.percentiles || {};
-                                                    const labels = { roe: 'Return on Equity', operatingMargin: 'Operating Margin', revenueGrowth: 'Revenue Growth', pe: 'Valuation (P/E)', debtToEquity: 'Balance Sheet (D/E)' };
-                                                    const order = ['roe', 'operatingMargin', 'revenueGrowth', 'pe', 'debtToEquity'];
-                                                    const rows = order.filter(k => pcts[k] != null);
-                                                    if (rows.length === 0) return <p className="text-[10px] text-slate-500">Percentile data unavailable for this sector.</p>;
-                                                    return (
+                                                let pcts, labels, order, overall, peerCount, tags;
+                                                if (useScreener) {
+                                                    pcts = spv.percentiles || {};
+                                                    const colLabel = (k) => (spv.columns || []).find(c => c.key === k)?.label || k;
+                                                    labels = { roce: 'Return on Capital (ROCE)', pe: 'Valuation (P/E)', qtrProfitGrowth: 'Profit Growth (YoY)', qtrSalesGrowth: 'Sales Growth (YoY)' };
+                                                    order = ['roce', 'pe', 'qtrProfitGrowth', 'qtrSalesGrowth'];
+                                                    overall = spv.overall_percentile;
+                                                    peerCount = (spv.peers || []).length;
+                                                    tags = [];
+                                                    if (pcts.roce != null && pcts.roce >= 60) tags.push(pcts.roce >= 75 ? 'TOP-QUARTILE RETURNS' : 'ABOVE-MEDIAN RETURNS');
+                                                    if (pcts.pe != null && pcts.pe >= 50) tags.push('ATTRACTIVELY VALUED');
+                                                    if (pcts.qtrProfitGrowth != null && pcts.qtrProfitGrowth >= 60) tags.push('FASTER PROFIT GROWTH');
+                                                    if (pcts.qtrSalesGrowth != null && pcts.qtrSalesGrowth >= 60) tags.push('FASTER SALES GROWTH');
+                                                    if (!tags.length) tags.push('IN-LINE WITH PEERS');
+                                                } else {
+                                                    pcts = psd.sector_benchmark?.percentiles || {};
+                                                    labels = { roe: 'Return on Equity', operatingMargin: 'Operating Margin', revenueGrowth: 'Revenue Growth', pe: 'Valuation (P/E)', debtToEquity: 'Balance Sheet (D/E)' };
+                                                    order = ['roe', 'operatingMargin', 'revenueGrowth', 'pe', 'debtToEquity'];
+                                                    overall = psd.sector_benchmark?.overall_percentile;
+                                                    peerCount = (psd.peer_matrix || []).length;
+                                                    tags = psd.comparative_tags || [];
+                                                }
+                                                const rows = order.filter(k => pcts[k] != null);
+                                                return (
+                                                <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg font-sans space-y-4">
+                                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-800 pb-3">
+                                                        <div>
+                                                            <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">{useScreener ? 'Standing vs Peers' : 'Sector Percentile Standing'}</h4>
+                                                            <p className="text-[10px] text-slate-500 mt-0.5">{useScreener ? `Where the stock ranks against its ${peerCount} closest peers (higher = better positioned).` : 'Where the stock ranks within its sector (higher = better positioned).'}</p>
+                                                        </div>
+                                                        {overall != null && (
+                                                            <div className="text-right">
+                                                                <div className="font-heading text-2xl font-extrabold text-blue-400">{overall}<span className="text-sm text-slate-500">th</span></div>
+                                                                <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Overall Percentile</div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {rows.length === 0 ? (
+                                                        <p className="text-[10px] text-slate-500">Percentile data unavailable for this stock.</p>
+                                                    ) : (
                                                         <div className="space-y-3">
                                                             {rows.map(k => {
                                                                 const p = pcts[k];
@@ -2950,18 +3135,18 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                 );
                                                             })}
                                                         </div>
-                                                    );
-                                                })()}
+                                                    )}
 
-                                                <div className="flex flex-wrap gap-2 border-t border-slate-800 pt-3">
-                                                    {reportData.data.peer_synthesis_data.comparative_tags?.map((tag, i) => (
-                                                        <span key={i} className="text-[9px] font-bold uppercase tracking-wider text-blue-700 border border-blue-500/20 px-3 py-1 rounded bg-blue-500/5">
-                                                            {tag}
-                                                        </span>
-                                                    ))}
+                                                    <div className="flex flex-wrap gap-2 border-t border-slate-800 pt-3">
+                                                        {tags.map((tag, i) => (
+                                                            <span key={i} className="text-[9px] font-bold uppercase tracking-wider text-blue-700 border border-blue-500/20 px-3 py-1 rounded bg-blue-500/5">
+                                                                {tag}
+                                                            </span>
+                                                        ))}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            )}
+                                                );
+                                            })()}
                                         </section>
                                     )}
 

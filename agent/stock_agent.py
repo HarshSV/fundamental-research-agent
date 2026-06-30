@@ -465,11 +465,13 @@ def peer_synthesis_node(state: SystemState) -> dict:
     """
     symbol = state.get('symbol')
     print(f"\n[NODE: peer_synthesis_node] Executing peer synthesis analysis for: {symbol}")
-    
+
     peer_data = {}
     try:
         evaluator = PeerSectorEvaluator()
-        peer_data = evaluator.fetch_peer_comparison_matrix(symbol)
+        # Pass the already-fetched payload so the Screener peer view can reuse its
+        # peers/market-cap without an extra Apify call where possible.
+        peer_data = evaluator.fetch_peer_comparison_matrix(symbol, raw_payload=state.get('raw_financial_data'))
         print("[peer_synthesis_node] Peer synthesis completed successfully.")
     except Exception as e:
         print(f"[peer_synthesis_node] ERROR executing peer comparison: {e}")
@@ -480,6 +482,8 @@ def peer_synthesis_node(state: SystemState) -> dict:
             'sector_averages': {},
             'comparative_tags': [],
             'sector_benchmark': {'sector': None, 'medians': {}, 'percentiles': {}, 'overall_percentile': None},
+            'cap_tier': None,
+            'screener_peer_view': None,
             'error': str(e)
         }
         
