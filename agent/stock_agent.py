@@ -416,6 +416,32 @@ def analyze_quality_node(state: SystemState) -> dict:
             
     # Build parsed_sections for backwards compatibility and fallback text
     pdata = qualitative_payload.get('parsed_json') or {}
+
+    # --- F-20: replace the LLM-guessed / canned moat with a DATA-DRIVEN, company-
+    # specific moat score computed from real Screener.in fundamentals (ROCE level &
+    # consistency, margin stability, ROE track record, balance sheet, working-capital
+    # efficiency). Deterministic and genuinely differentiates companies. ---
+    try:
+        from tools.screener_scraper import fetch_screener_moat_data
+        from tools.moat_engine import compute_moat
+        _ratios = metrics.get('F-02_Ratio_Analysis') or []
+        _lr = _ratios[-1] if _ratios else {}
+        _margins_a = margins.get('margins_annual') or []
+        _fb = {
+            'debt_to_equity': solvency.get('debt_to_equity'),
+            'roce': (_lr.get('ROCE') * 100) if _lr.get('ROCE') is not None else None,
+            'roe': (_lr.get('ROE') * 100) if _lr.get('ROE') is not None else None,
+            'operating_margin': (_margins_a[-1].get('ebit_margin')) if _margins_a else None,
+        }
+        _moat_data = fetch_screener_moat_data(symbol, name=metrics.get('company_name'))
+        _moat = compute_moat(_moat_data, company_name=metrics.get('company_name'), fallback=_fb)
+        # Merge over whatever the LLM/fallback produced so downstream keys stay present.
+        pdata['F-20'] = {**(pdata.get('F-20') or {}), **_moat}
+        qualitative_payload['parsed_json'] = pdata
+        print(f"[analyze_quality_node] Data-driven moat: {_moat['moat_score']}/100 ({_moat['moat_strength']}).")
+    except Exception as _me:
+        print(f"[analyze_quality_node] Data-driven moat skipped: {_me}")
+
     f14 = pdata.get('F-14') or {}
     f15 = pdata.get('F-15') or {}
     f16 = pdata.get('F-16') or {}

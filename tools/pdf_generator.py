@@ -635,9 +635,14 @@ class StockReportGenerator:
         story.append(Paragraph("Competitive Moat Audit & Barriers Assessment", section_style))
         f20_moat = parsed_json.get('F-20', {}) or {}
         
+        _mscore = f20_moat.get('moat_score')
         moat_rows = [
             [Paragraph("Moat Strengths Parameters", table_header_style), Paragraph("Computed Assessment Status", table_header_style)],
-            [Paragraph("Business Moat Classification", body_style), Paragraph(f"<b>{f20_moat.get('moat_strength', 'Narrow Moat')} Moat</b>", body_bold_style)],
+            [Paragraph("Business Moat Classification", body_style), Paragraph(f"<b>{f20_moat.get('moat_strength', 'Narrow')} Moat</b>", body_bold_style)],
+        ]
+        if _mscore is not None:
+            moat_rows.append([Paragraph("Moat Score (data-driven)", body_style), Paragraph(f"<b>{_mscore} / 100</b>", body_bold_style)])
+        moat_rows += [
             [Paragraph("Moat confidence percentage", body_style), Paragraph(cls.format_percent(f20_moat.get('confidence_level')), body_style)],
             [Paragraph("Pricing Power score", body_style), Paragraph(f"{f20_moat.get('pricing_power', 5.0):.1f} / 10.0", body_style)],
             [Paragraph("Barriers to market Entry score", body_style), Paragraph(f"{f20_moat.get('barriers_to_entry', 5.0):.1f} / 10.0", body_style)]
@@ -654,7 +659,16 @@ class StockReportGenerator:
         ]))
         story.append(moat_table)
         story.append(Spacer(1, 6))
-        
+
+        # Computed moat signals / risks (data-driven).
+        for _lbl, _items in [("Moat Signals:", f20_moat.get('signals') or []),
+                             ("Moat Risks:", f20_moat.get('warnings') or [])]:
+            if _items:
+                story.append(Paragraph(f"<b>{_lbl}</b>", body_bold_style))
+                for _it in _items[:5]:
+                    story.append(Paragraph(f"•  {_it}", body_style))
+                story.append(Spacer(1, 4))
+
         story.append(Paragraph("<b>Barriers & Moat Narrative Memo:</b>", body_bold_style))
         story.append(Paragraph(f20_moat.get('memo_text', 'No moat assessment memo text generated.'), body_style))
         
