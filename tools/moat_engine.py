@@ -103,131 +103,147 @@ def compute_moat(data: dict, company_name: str = None, fallback: dict = None) ->
         debt_free = fallback["debt_to_equity"] < 0.3
 
     pillars, signals, warnings = [], [], []
-
-    def add_pillar(label, score, max_pts, note):
-        pillars.append({"label": label, "score": round(score, 1), "max": max_pts, "note": note})
-
     total = 0.0
     n_inputs = 0
 
+    def add_check(label, points, max_pts, basis):
+        """One transparent, threshold-based check (the exact aspect + measured value)."""
+        ratio = (points / max_pts) if max_pts else 0
+        result = "strong" if ratio >= 0.8 else "ok" if ratio >= 0.4 else "weak"
+        pillars.append({"label": label, "score": round(points, 1), "max": max_pts,
+                        "basis": basis, "result": result, "note": basis})
+        return points
+
+    def _band(x, thresholds):
+        """thresholds: list of (min_value, points) high->low; returns points for x."""
+        for mn, pts in thresholds:
+            if x >= mn:
+                return pts
+        return 0
+
     if not financial:
-        # ---- Non-financial: ROCE-led moat ----------------------------------
-        # 1) Return on capital (35) — level + consistency.
-        roce_level = _scale(roce, 10, 30)
-        roce_consist = _stability(roce_hist)
+        # ============ Non-financial: capital-efficiency-led moat ============
+        # 1) ROCE level (20) — the single strongest moat signal.
         if roce is not None:
             n_inputs += 1
-            p = 25 * roce_level + 10 * (roce_consist if roce_consist is not None else roce_level)
-            add_pillar("Return on Capital (ROCE)", p, 35,
-                       f"ROCE {roce:.0f}%" + (f", {len(roce_hist)}-yr history" if roce_hist else ""))
-            total += p
-            if roce >= 25 and (roce_consist is None or roce_consist >= 0.6):
-                signals.append(f"Sustained ROCE of {roce:.0f}% — exceptional, hard-to-replicate capital efficiency (hallmark of a wide moat).")
-            elif roce >= 16:
-                signals.append(f"Healthy ROCE of {roce:.0f}% — earns well above its cost of capital.")
+            p = _band(roce, [(20, 20), (15, 14), (12, 8), (10, 4)])
+            total += add_check("ROCE — level", p, 20,
+                               f"ROCE {roce:.0f}%  (≥20%→full · ≥15% · ≥12% · <10%→0)")
+            if roce >= 20:
+                signals.append(f"High ROCE of {roce:.0f}% — earns far above its cost of capital, the hallmark of a real moat.")
             elif roce < 12:
-                warnings.append(f"Low ROCE of {roce:.0f}% — little evidence of a durable competitive advantage.")
+                warnings.append(f"Low ROCE of {roce:.0f}% — little evidence of a durable competitive edge.")
 
-        # 2) Pricing power via operating margin (25) — level + stability.
+        # 2) ROCE consistency (10) — is the high return SUSTAINED?
+        if roce_hist and len(roce_hist) >= 2:
+            n_inputs += 1
+            lo = min(roce_hist)
+            p = _band(lo, [(18, 10), (14, 7), (10, 4)])
+            total += add_check("ROCE — consistency", p, 10,
+                               f"{len(roce_hist)}-yr ROCE low {lo:.0f}%, range {lo:.0f}–{max(roce_hist):.0f}%  (floor ≥18%→full)")
+            if lo >= 18:
+                signals.append(f"ROCE stayed above {lo:.0f}% every year — a consistently high return, not a one-off.")
+
+        # 3) Operating-margin level (15) — pricing power.
         if opm_mean is not None:
             n_inputs += 1
-            opm_level = _scale(opm_mean, 8, 25)
-            opm_stab = _stability(opm_hist)
-            p = 15 * opm_level + 10 * (opm_stab if opm_stab is not None else opm_level)
-            add_pillar("Pricing Power (Op. Margin)", p, 25,
-                       f"OPM ~{opm_mean:.0f}%" + (", stable" if (opm_stab or 0) >= 0.7 else ", variable" if opm_stab is not None else ""))
-            total += p
-            if opm_mean >= 20 and (opm_stab is None or opm_stab >= 0.7):
-                signals.append(f"Operating margins steady around {opm_mean:.0f}% — strong, defensible pricing power.")
-            elif opm_stab is not None and opm_stab < 0.5:
-                warnings.append("Operating margins are volatile — limited pricing power / cyclicality.")
+            p = _band(opm_mean, [(20, 15), (15, 10), (10, 5)])
+            total += add_check("Operating margin — level", p, 15,
+                               f"OPM ~{opm_mean:.0f}%  (≥20%→full · ≥15% · ≥10% · <10%→0)")
 
-        # 3) ROE track record (15)
+        # 4) Operating-margin stability (10) — pricing power = steady margins.
+        if opm_hist and len(opm_hist) >= 3:
+            n_inputs += 1
+            stab = _stability(opm_hist) or 0
+            p = round(10 * stab, 1)
+            total += add_check("Operating margin — stability", p, 10,
+                               f"OPM {min(opm_hist):.0f}–{max(opm_hist):.0f}% over {len(opm_hist)} yrs  ({'steady' if stab >= 0.7 else 'variable'})")
+            if opm_mean and opm_mean >= 18 and stab >= 0.7:
+                signals.append(f"Operating margins held steady around {opm_mean:.0f}% for years — defensible pricing power.")
+            elif stab < 0.5:
+                warnings.append("Operating margins are volatile year to year — limited pricing power / cyclical.")
+
+        # 5) ROE track record (15).
         if roe_track is not None:
             n_inputs += 1
-            p = 15 * _scale(roe_track, 10, 25)
-            add_pillar("ROE Track Record", p, 15, f"{roe_track:.0f}% (multi-year)")
-            total += p
+            p = _band(roe_track, [(18, 15), (15, 11), (12, 6)])
+            total += add_check("ROE — 3-yr track record", p, 15,
+                               f"{roe_track:.0f}%  (≥18%→full · ≥15% · ≥12% · <12%→0)")
             if roe_track < 12 and (sales_g or 0) >= 25:
-                warnings.append(f"ROE only {roe_track:.0f}% despite ~{sales_g:.0f}% sales growth — growth is capital-intensive with weak returns.")
+                warnings.append(f"ROE only {roe_track:.0f}% despite ~{sales_g:.0f}% sales growth — growth is capital-hungry with weak returns.")
 
-        # 4) Balance-sheet strength (10)
-        p = 10 if debt_free else 4
-        add_pillar("Balance-Sheet Strength", p, 10, "Debt-free / net cash" if debt_free else "Carries debt")
-        total += p
+        # 6) Balance-sheet strength (10).
+        n_inputs += 1
+        p = 10 if debt_free else (6 if (fallback.get("debt_to_equity") or 9) < 0.5 else 3)
+        total += add_check("Balance sheet — leverage", p, 10,
+                           "Debt-free / net cash" if debt_free else "Carries debt")
         if debt_free:
-            signals.append("Debt-free / net-cash balance sheet — resilience through cycles and reinvestment optionality.")
+            signals.append("Debt-free / net-cash balance sheet — resilience through downturns and reinvestment optionality.")
 
-        # 5) Working-capital efficiency (10)
+        # 7) Working-capital efficiency (10) — cash conversion cycle.
         if ccc is not None:
             n_inputs += 1
-            if ccc <= 0:
-                p = 10
-            elif ccc <= 60:
-                p = 7
-            elif ccc <= 120:
-                p = 4
-            elif ccc <= 200:
-                p = 2
-            else:
-                p = 0
-            add_pillar("Working-Capital Efficiency", p, 10, f"Cash conversion cycle {ccc:.0f} days")
-            total += p
+            p = _band(-ccc if ccc < 0 else -0.001, [(0, 10)]) or _band(ccc, [(9999, 0)])
+            p = 10 if ccc <= 0 else (7 if ccc <= 45 else 4 if ccc <= 90 else 2 if ccc <= 180 else 0)
+            total += add_check("Working-capital efficiency", p, 10,
+                               f"Cash conversion cycle {ccc:.0f} days  (negative→full · <45 · <90 · >180→0)")
             if ccc < 0:
-                signals.append("Negative cash conversion cycle — suppliers/customers fund growth (a structural advantage).")
+                signals.append("Negative cash-conversion cycle — suppliers/customers fund its growth, a structural advantage.")
             elif ccc > 180:
-                warnings.append(f"High cash conversion cycle ({ccc:.0f} days) — heavy working-capital lockup.")
+                warnings.append(f"High cash-conversion cycle ({ccc:.0f} days) — heavy working-capital lock-up.")
 
-        # 6) Growth durability (5)
+        # 8) Growth durability (10).
         if profit_g is not None or sales_g is not None:
+            n_inputs += 1
             g = max([x for x in [profit_g, sales_g] if x is not None])
-            p = 5 * _scale(g, 8, 25)
-            add_pillar("Growth Durability", p, 5, f"~{g:.0f}% compounded")
-            total += p
+            p = _band(g, [(18, 10), (12, 7), (8, 4)])
+            total += add_check("Growth durability", p, 10,
+                               f"~{g:.0f}% compounded  (≥18%→full · ≥12% · ≥8% · <8%→0)")
 
         pricing_power = round(_clamp((opm_mean or 0) / 3.0, 0, 10)) if opm_mean is not None else None
-        barriers = round(_clamp((roce or 0) / 3.5, 0, 10)) if roce is not None else None
+        # Barriers scaled to ROCE but capped down when margins are unstable (not a real moat).
+        _stab = _stability(opm_hist) if opm_hist else 1
+        barriers = round(_clamp((roce or 0) / 3.5, 0, 10) * (0.6 + 0.4 * (_stab or 1))) if roce is not None else None
+        if pricing_power is not None and (_stab or 1) < 0.5:
+            pricing_power = min(pricing_power, 5)  # unstable margins ≠ pricing power
 
     else:
-        # ---- Financials / lenders: ROE-led moat ----------------------------
-        # 1) ROE track record (50)
+        # ==================== Financials / lenders ====================
         if roe_track is not None:
             n_inputs += 1
-            p = 50 * _scale(roe_track, 8, 20)
-            add_pillar("ROE Track Record", p, 50, f"{roe_track:.0f}% (multi-year)")
-            total += p
-            if roe_track >= 16:
-                signals.append(f"Strong, consistent ROE of {roe_track:.0f}% — efficient deposit/loan franchise.")
+            p = _band(roe_track, [(18, 40), (15, 30), (12, 18), (10, 8)])
+            total += add_check("ROE — 3-yr track record", p, 40,
+                               f"{roe_track:.0f}%  (≥18%→full · ≥15% · ≥12% · <10%→0)")
+            if roe_track >= 15:
+                signals.append(f"Consistent ROE of {roe_track:.0f}% — an efficient deposit/loan franchise.")
             elif roe_track < 10:
                 warnings.append(f"Subdued ROE of {roe_track:.0f}% — weaker franchise economics.")
 
-        # 2) Profit-growth durability (25)
         if profit_g is not None:
             n_inputs += 1
-            p = 25 * _scale(profit_g, 8, 22)
-            add_pillar("Profit-Growth Durability", p, 25, f"~{profit_g:.0f}% CAGR")
-            total += p
+            p = _band(profit_g, [(18, 25), (12, 17), (8, 9)])
+            total += add_check("Profit-growth durability", p, 25, f"~{profit_g:.0f}% 5-yr CAGR")
             if profit_g >= 15:
                 signals.append(f"Compounded profit growth ~{profit_g:.0f}% — durable franchise expansion.")
 
-        # 3) Loan/sales-growth durability (15)
         if sales_g is not None:
             n_inputs += 1
-            p = 15 * _scale(sales_g, 8, 22)
-            add_pillar("Book / Income Growth", p, 15, f"~{sales_g:.0f}% CAGR")
-            total += p
+            p = _band(sales_g, [(18, 20), (12, 13), (8, 7)])
+            total += add_check("Book / income growth", p, 20, f"~{sales_g:.0f}% 5-yr CAGR")
 
-        # 4) Payout / prudence (10)
         payout = any("dividend payout" in p.lower() for p in (data.get("pros") or []))
-        p = 10 if payout else 5
-        add_pillar("Capital Prudence", p, 10, "Healthy dividend payout" if payout else "Standard")
-        total += p
+        n_inputs += 1
+        total += add_check("Capital prudence", 15 if payout else 7, 15,
+                           "Healthy dividend payout" if payout else "Standard payout")
 
         pricing_power = round(_clamp((roe_track or 0) / 2.0, 0, 10)) if roe_track is not None else None
         barriers = round(_clamp((roe_track or 0) / 2.0, 0, 10)) if roe_track is not None else None
 
-    moat_score = round(_clamp(total, 0, 100))
-    strength = _label(moat_score) if n_inputs >= 2 else "Unrated"
+    # Normalise to 0-100 across the aspects we actually had data for (so a stock
+    # missing one input isn't unfairly penalised vs the full 100-point scale).
+    max_possible = sum(pl["max"] for pl in pillars) or 1
+    moat_score = round(_clamp(total / max_possible * 100, 0, 100))
+    strength = _label(moat_score) if n_inputs >= 3 else "Unrated"
 
     # Confidence reflects how much real data backed the score.
     confidence = round(_clamp(40 + n_inputs * 12, 0, 95))

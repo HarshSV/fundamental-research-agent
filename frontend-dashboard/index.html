@@ -169,6 +169,37 @@
             main > section, main > div { animation: none; }
             .nv-tabbar button:hover, .nv-tile:hover { transform: none; }
         }
+
+        /* Business Model Canvas responsive layout */
+        .bmc-grid {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: 1fr;
+            grid-template-areas:
+                "kp" "ka" "kr" "vp" "cr" "ch" "cs" "cost" "rev";
+        }
+        @media (min-width: 768px) {
+            .bmc-grid {
+                grid-template-columns: 1fr 1fr;
+                grid-template-areas:
+                    "kp ka"
+                    "kp kr"
+                    "vp cr"
+                    "vp ch"
+                    "cs cost"
+                    "cs rev";
+            }
+        }
+        @media (min-width: 1024px) {
+            .bmc-grid {
+                grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+                grid-template-rows: 245px 245px auto;
+                grid-template-areas:
+                    "kp ka vp cr cs"
+                    "kp kr vp ch cs"
+                    "cost cost rev rev rev";
+            }
+        }
     </style>
     <!-- Stable Production React & Babel CDNs from cdnjs -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js" crossorigin></script>
@@ -264,6 +295,7 @@
             { label: "Rev growth / D/E (peer)", kw: "rev growth revenue growth debt equity peer column", loc: "Peer comparison", tab: 5, sub: 0, find: "Sector Peer Comparison" },
             { label: "Price (peer)", kw: "price last price peer column", loc: "Peer comparison", tab: 5, sub: 0, find: "Sector Peer Comparison" },
             { label: "Sector comparison & percentile", kw: "sector comparison benchmark percentile standing", loc: "Peers & Sector", tab: 5, sub: 1, find: "Sector Percentile" },
+            { label: "Business understanding / how it makes money", kw: "business model how they make money revenue drivers segments cost structure expenses", loc: "AI Insights", tab: 6, sub: 0, find: "Business Understanding" },
             { label: "Business quality score", kw: "business quality score sub-scores rationale chips", loc: "AI Insights", tab: 6, sub: 0, find: "Composite Quality" },
             { label: "Annual report / concall summary", kw: "annual report concall summary management commentary", loc: "AI Insights", tab: 6, sub: 1, find: "Annual Report" },
             { label: "Earnings forecast / scenarios", kw: "earnings estimate forecast scenario bull base bear projection", loc: "AI Insights", tab: 6, sub: 2, find: "Scenario Forecast" },
@@ -622,7 +654,7 @@
                 setHi(idx);
             };
             const hv = hi != null ? clean[hi] : null;
-            const tipW = 116, tipRight = hi != null && x(hi) > W - tipW - 8;
+            const tipW = 168, tipRight = hi != null && x(hi) > W - tipW - 8;
             return (
                 <div className="w-full p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full" onMouseMove={onMove} onMouseLeave={() => setHi(null)} style={{ cursor: 'crosshair' }}>
@@ -686,6 +718,107 @@
                             </div>
                         ))}
                     </div>
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: PIE chart (full circle) with hover value ---
+        const Donut = ({ data, fmt = (v) => v, unit = '' }) => {
+            const [hi, setHi] = useState(null);
+            const items = (data || []).filter(d => d.value != null && d.value > 0);
+            if (!items.length) return <div className="text-center p-4 text-[11px] text-slate-500">No data to chart.</div>;
+            const total = items.reduce((s, d) => s + d.value, 0);
+            const palette = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#ef4444', '#64748b'];
+            const cx = 60, cy = 60, R = 56;
+            let ang = -Math.PI / 2;
+            const slices = items.map((d, i) => {
+                const frac = d.value / total, a0 = ang, a1 = ang + frac * 2 * Math.PI; ang = a1;
+                const rr = hi === i ? R + 3 : R;
+                const large = (a1 - a0) > Math.PI ? 1 : 0;
+                const path = items.length === 1
+                    ? `M ${cx} ${cy} m -${rr} 0 a ${rr} ${rr} 0 1 0 ${rr * 2} 0 a ${rr} ${rr} 0 1 0 -${rr * 2} 0`
+                    : `M ${cx} ${cy} L ${(cx + rr * Math.cos(a0)).toFixed(2)} ${(cy + rr * Math.sin(a0)).toFixed(2)} A ${rr} ${rr} 0 ${large} 1 ${(cx + rr * Math.cos(a1)).toFixed(2)} ${(cy + rr * Math.sin(a1)).toFixed(2)} Z`;
+                return { ...d, frac, path, color: d.color || palette[i % palette.length] };
+            });
+            return (
+                <div className="flex items-center gap-4">
+                    <svg viewBox="0 0 124 124" className="w-28 h-28 flex-shrink-0">
+                        {slices.map((s, i) => (
+                            <path key={i} d={s.path} fill={s.color} stroke="#0b1220" strokeWidth="1"
+                                opacity={hi == null || hi === i ? 1 : 0.5}
+                                onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)} style={{ cursor: 'pointer' }} />
+                        ))}
+                    </svg>
+                    <div className="flex-1 space-y-1 min-w-0">
+                        {slices.map((s, i) => (
+                            <div key={i} onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                                className={`flex items-center justify-between gap-2 text-[10px] rounded px-1.5 py-0.5 ${hi === i ? 'bg-slate-800' : ''}`}>
+                                <span className="flex items-center gap-1.5 min-w-0"><span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: s.color }}></span><span className="text-slate-200 truncate">{s.label}</span></span>
+                                <span className="font-mono text-slate-300 whitespace-nowrap">{Math.round(s.frac * 100)}%{unit ? ` · ${fmt(s.value)}${unit}` : ''}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: Radar / spider chart with hover (for moat aspects out of 10) ---
+        const RadarChart = ({ axes }) => {
+            // axes: [{label, value(0-10)}]
+            const [hi, setHi] = useState(null);
+            const pts = (axes || []).filter(a => a.value != null);
+            if (pts.length < 3) return null;
+            const cx = 130, cy = 120, R = 88, n = pts.length;
+            const ang = (i) => -Math.PI / 2 + i * 2 * Math.PI / n;
+            const at = (i, rad) => [cx + rad * Math.cos(ang(i)), cy + rad * Math.sin(ang(i))];
+            const rings = [2, 4, 6, 8, 10];
+            const poly = pts.map((p, i) => at(i, R * (Math.max(0, Math.min(10, p.value)) / 10)).map(v => v.toFixed(1)).join(',')).join(' ');
+            return (
+                <div className="flex flex-col items-center">
+                    <svg viewBox="0 0 260 250" className="w-full max-w-[340px]">
+                        {rings.map((rv, ri) => (
+                            <polygon key={ri} points={pts.map((_, i) => at(i, R * rv / 10).map(v => v.toFixed(1)).join(',')).join(' ')} fill="none" stroke="#1e293b" strokeWidth="1" />
+                        ))}
+                        {pts.map((_, i) => { const [x, y] = at(i, R); return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="#1e293b" strokeWidth="1" />; })}
+                        <polygon points={poly} fill="#3b82f6" fillOpacity="0.22" stroke="#3b82f6" strokeWidth="2" />
+                        {pts.map((p, i) => { const [x, y] = at(i, R * (Math.max(0, Math.min(10, p.value)) / 10)); return (
+                            <circle key={i} cx={x} cy={y} r={hi === i ? 5 : 3.5} fill={hi === i ? '#fff' : '#3b82f6'} stroke="#3b82f6" strokeWidth="2"
+                                onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)} style={{ cursor: 'pointer' }} />
+                        ); })}
+                        {pts.map((p, i) => { const [x, y] = at(i, R + 16); return (
+                            <text key={i} x={x} y={y} textAnchor={Math.abs(x - cx) < 8 ? 'middle' : x > cx ? 'start' : 'end'} dominantBaseline="middle"
+                                fontSize="8.5" fill={hi === i ? '#e2e8f0' : '#94a3b8'} className="font-semibold">{p.label.length > 16 ? p.label.slice(0, 15) + '…' : p.label}</text>
+                        ); })}
+                        {hi != null && (() => { const [x, y] = at(hi, R * (Math.max(0, Math.min(10, pts[hi].value)) / 10)); return (
+                            <g transform={`translate(${x > cx ? x - 66 : x + 6}, ${y - 10})`}>
+                                <rect width="60" height="16" rx="4" fill="#0f172a" opacity="0.95" />
+                                <text x="6" y="11" fontSize="9" fill="#e2e8f0" className="font-bold">{pts[hi].value}/10</text>
+                            </g>
+                        ); })()}
+                    </svg>
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: horizontal percentile bars for every peer (target highlighted) ---
+        const PeerPercentileBars = ({ ranking }) => {
+            const [hi, setHi] = useState(null);
+            const rows = (ranking || []).filter(r => r.percentile != null);
+            if (!rows.length) return null;
+            return (
+                <div className="space-y-1.5">
+                    {rows.map((r, i) => (
+                        <div key={i} onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)} className="space-y-0.5">
+                            <div className="flex justify-between text-[10px]">
+                                <span className={`truncate ${r.is_target ? 'font-bold text-blue-300' : 'text-slate-400'}`}>{r.is_target ? '★ ' : ''}{r.name}</span>
+                                <span className={`font-mono ${r.is_target ? 'text-blue-300 font-bold' : 'text-slate-400'}`}>{r.percentile}th</span>
+                            </div>
+                            <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                                <div className={`h-full rounded-full ${r.is_target ? 'bg-blue-500' : 'bg-slate-600'} ${hi === i ? 'opacity-100' : 'opacity-90'}`} style={{ width: `${r.percentile}%` }}></div>
+                            </div>
+                        </div>
+                    ))}
+                    <p className="text-[9px] text-slate-500 pt-1">Composite percentile within its size-league (higher = better). ★ = this stock.</p>
                 </div>
             );
         };
@@ -867,64 +1000,73 @@
         };
 
         // --- SUBCOMPONENT: Forensic Checklist checks cards ---
-        const ForensicChecklist = ({ parsedJson }) => {
+        const ForensicChecklist = ({ parsedJson, checklistItems = [] }) => {
             const f16 = parsedJson?.['F-16'] || {};
             const riskLevel = f16.risk_level || 'Low';
-            const checks = f16.checks || [
-                { name: "CFO vs PAT Conversion Check", status: "PASS", severity: 1, details: "Cash flow conversion is robust." },
-                { name: "Share Dilution Check", status: "PASS", severity: 0, details: "Share capital is stable, zero equity dilution." },
-                { name: "Receivables vs Sales Trend Check", status: "PASS", severity: 1, details: "Receivables track top-line growth." },
-                { name: "Asset Quality & Capitalization Check", status: "PASS", severity: 2, details: "Capitalization matching Ind-AS guidelines." }
-            ];
-
-            const getStatusBadge = (status) => {
-                if (status === 'PASS') return 'bg-green-500/10 text-green-400 border-green-500/20';
-                if (status === 'WARN') return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-                return 'bg-red-500/10 text-red-400 border-red-500/20';
-            };
+            // Aggregate EVERY red/amber flag investors look for — forensic accounting
+            // checks + the investor-checklist items — red flags first. Green passes hidden.
+            const forensic = (f16.checks || [])
+                .filter(c => String(c.status).toUpperCase() !== 'PASS')
+                .map(c => ({ title: c.name, status: String(c.status).toUpperCase() === 'FAIL' ? 'RED FLAG' : 'WATCH', detail: c.details, cat: 'Forensic accounting' }));
+            const fromChecklist = (checklistItems || [])
+                .filter(it => it.status === 'RED FLAG' || it.status === 'WATCH')
+                .map(it => ({ title: it.question, status: it.status, detail: it.evidence, cat: it.category }));
+            const seen = new Set();
+            let flags = [...forensic, ...fromChecklist].filter(f => { const k = f.title; if (seen.has(k)) return false; seen.add(k); return true; });
+            flags.sort((a, b) => (b.status === 'RED FLAG' ? 1 : 0) - (a.status === 'RED FLAG' ? 1 : 0));
+            const redCount = flags.filter(f => f.status === 'RED FLAG').length;
+            const watchCount = flags.length - redCount;
 
             return (
                 <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg space-y-4">
-                    <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-3 flex-wrap gap-2">
                         <div>
-                            <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Forensic Accounting Checklist</h4>
-                            <p className="text-[10px] text-slate-500 mt-0.5">Auditing earnings quality, balance sheet integrity and dilution metrics.</p>
+                            <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Red Flags &amp; Watch-Items</h4>
+                            <p className="text-[10px] text-slate-500 mt-0.5">Everything an investor should check last — accounting quality, governance, leverage &amp; concentration.</p>
                         </div>
-                        <span className={`text-xs font-bold border rounded px-2.5 py-0.5 uppercase tracking-wider ${
-                            riskLevel.toLowerCase() === 'high' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 
-                            (riskLevel.toLowerCase() === 'medium' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20')
-                        }`}>
-                            {riskLevel} Risk
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold border rounded-md px-2 py-1 bg-red-500/10 text-red-400 border-red-500/25">{redCount} Red</span>
+                            <span className="text-[10px] font-bold border rounded-md px-2 py-1 bg-amber-500/10 text-amber-400 border-amber-500/25">{watchCount} Watch</span>
+                        </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {checks.map((c, i) => (
-                            <div key={i} className="p-3 bg-slate-900 border border-slate-800 rounded-lg space-y-2.5">
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-xs font-bold text-slate-200 line-clamp-1">{c.name}</span>
-                                    <span className={`text-[9px] font-bold border px-1.5 py-0.2 rounded-md uppercase ${getStatusBadge(c.status)}`}>{c.status}</span>
-                                </div>
-                                <p className="text-[10px] text-slate-400 leading-relaxed min-h-[32px]">{c.details}</p>
-                                <div className="flex items-center gap-2 border-t border-slate-950 pt-2 text-[9px] text-slate-500 font-bold uppercase tracking-wider">
-                                    <span>Severity Index:</span>
-                                    <div className="flex gap-1">
-                                        {[1, 2, 3, 4, 5].map((dot) => (
-                                            <span 
-                                                key={dot} 
-                                                className={`w-1.5 h-1.5 rounded-full ${
-                                                    dot <= c.severity ? 
-                                                    (c.status === 'FAIL' ? 'bg-red-500' : (c.status === 'WARN' ? 'bg-amber-500' : 'bg-blue-500')) : 
-                                                    'bg-slate-800'
-                                                }`}
-                                            ></span>
-                                        ))}
-                                    </div>
-                                    <span className="ml-auto font-mono text-[8px] text-slate-600">{c.severity}/5</span>
-                                </div>
+                    {flags.length === 0 ? (
+                        <div className="p-4 text-center text-[11px] text-slate-400">No red flags or watch-items surfaced across the accounting, governance and leverage checks.</div>
+                    ) : (
+                        <div className="max-h-[430px] overflow-y-auto pr-1">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+                                {flags.map((f, i) => {
+                                    const red = f.status === 'RED FLAG';
+                                    return (
+                                        <div key={i} className={`p-2.5 rounded-lg border ${red ? 'bg-red-500/5 border-red-500/25' : 'bg-amber-500/5 border-amber-500/20'}`}>
+                                            <div className="flex items-start justify-between gap-1.5 mb-1">
+                                                <span className="text-[11px] font-bold text-slate-100 leading-tight">{f.title}</span>
+                                                <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded flex-shrink-0 ${red ? 'bg-red-500 text-white' : 'bg-amber-500 text-slate-900'}`}>{red ? 'Red' : 'Watch'}</span>
+                                            </div>
+                                            {f.cat && <div className="text-[8px] uppercase tracking-wider text-slate-500 font-bold mb-1">{f.cat}</div>}
+                                            <p className="text-[10px] text-slate-300 leading-snug">{f.detail}</p>
+                                        </div>
+                                    );
+                                })}
                             </div>
-                        ))}
-                    </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- Expandable methodology block: OPEN by default (transparency-first),
+        // with a toggle to collapse. Replaces <details> (React re-renders kept
+        // forcing native details back open). ---
+        const Expandable = ({ title, defaultOpen = true, children }) => {
+            const [open, setOpen] = useState(defaultOpen);
+            return (
+                <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-lg">
+                    <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between text-left">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200">{title}</span>
+                        <span className="text-[10px] font-bold text-blue-300">{open ? 'Hide ▴' : 'Show ▾'}</span>
+                    </button>
+                    {open && <div className="mt-2">{children}</div>}
                 </div>
             );
         };
@@ -933,10 +1075,7 @@
         const MoatAssessment = ({ parsedJson }) => {
             const f20 = parsedJson?.['F-20'] || {};
             const strength = f20.moat_strength || 'Unrated';
-            const score = (f20.moat_score != null) ? f20.moat_score : null;
             const confidence = f20.confidence_level || 80;
-            const pricingPower = f20.pricing_power || 5;
-            const entryBarriers = f20.barriers_to_entry || 5;
             const pillars = f20.pillars || [];
             const signals = f20.signals || [];
             const warnings = f20.warnings || [];
@@ -951,102 +1090,223 @@
                 : strength === 'Narrow' ? 'amber'
                 : strength === 'No moat' ? 'red' : 'slate';
             const toneText = { emerald:'text-emerald-400', blue:'text-blue-400', amber:'text-amber-400', red:'text-red-400', slate:'text-slate-400' }[tone];
-            const toneBar = { emerald:'bg-emerald-500', blue:'bg-blue-500', amber:'bg-amber-500', red:'bg-red-500', slate:'bg-slate-500' }[tone];
-            const toneStroke = { emerald:'stroke-emerald-500', blue:'stroke-blue-500', amber:'stroke-amber-500', red:'stroke-red-500', slate:'stroke-slate-500' }[tone];
+            const toneBg = { emerald:'bg-emerald-500/10 border-emerald-500/25', blue:'bg-blue-500/10 border-blue-500/25', amber:'bg-amber-500/10 border-amber-500/25', red:'bg-red-500/10 border-red-500/25', slate:'bg-slate-800 border-slate-700' }[tone];
+            const colorHex = { emerald: '#10b981', blue: '#3b82f6', amber: '#f59e0b', red: '#ef4444', slate: '#64748b' }[tone];
 
-            const radius = 35;
-            const circ = 2 * Math.PI * radius;
-            const gaugePct = score != null ? score : confidence;
-            const strokeDashoffset = circ * (1 - gaugePct / 100);
+            const textToScan = [
+                strength,
+                memoText,
+                ...signals,
+                ...warnings,
+                ...pros,
+                ...cons
+            ].join(' ').toLowerCase();
+
+            const categories = [
+                {
+                    label: "Customer Experience",
+                    desc: "Brand value, customer retention, trust",
+                    keywords: ["brand", "consumer", "experience", "reputation", "trust", "franchise", "loyalty", "customer relationship", "customer satisfaction"]
+                },
+                {
+                    label: "Service-Centric",
+                    desc: "Client support & dealer network focus",
+                    keywords: ["service", "support", "distribution network", "client", "customer support", "dealer", "touchpoint", "concessions"]
+                },
+                {
+                    label: "Network-Effect",
+                    desc: "Value grows with user base scale",
+                    keywords: ["network", "scale", "platform", "ecosystem", "users", "network-effect", "connectivity", "marketplace"]
+                },
+                {
+                    label: "Value-Based",
+                    desc: "Cost advantage, premium value delivery",
+                    keywords: ["cost", "low cost", "price", "value", "efficiency", "margin", "premium", "operating margin", "profitability", "cheap", "saving"]
+                },
+                {
+                    label: "End to End",
+                    desc: "Vertical integration & supply control",
+                    keywords: ["vertical", "integration", "end-to-end", "supply chain", "manufacturing", "control", "integrated", "backward", "forward"]
+                },
+                {
+                    label: "Wide Ecosystem",
+                    desc: "Diverse product portfolio & reach",
+                    keywords: ["ecosystem", "portfolio", "diversified", "segments", "wide", "omnichannel", "diverse", "cross-sell", "synergy"]
+                },
+                {
+                    label: "Platform-Based",
+                    desc: "Digital scale & tech ecosystem leverage",
+                    keywords: ["platform", "digital", "app", "software", "online", "technology", "e-commerce", "tech stack"]
+                },
+                {
+                    label: "Solution-Centric",
+                    desc: "Customized client problem solving",
+                    keywords: ["solution", "solving", "needs", "customized", "integrated service", "consultative"]
+                }
+            ];
+
+            const activeCategories = categories.map(cat => {
+                const isActive = cat.keywords.some(kw => textToScan.includes(kw));
+                return { ...cat, active: isActive };
+            });
+
+            // SVG layout values
+            const cx = 250;
+            const cy = 180;
+            const rInner = 48;
+            const rOuter = 62;
+            const rSpoke = 115;
+            const angles = [-90, -45, 0, 45, 90, 135, 180, 225];
+
+            const spokes = activeCategories.map((cat, i) => {
+                const angleRad = (angles[i] * Math.PI) / 180;
+                const tx = cx + rSpoke * Math.cos(angleRad);
+                const ty = cy + rSpoke * Math.sin(angleRad);
+                const sx = cx + rOuter * Math.cos(angleRad);
+                const sy = cy + rOuter * Math.sin(angleRad);
+                return { ...cat, sx, sy, tx, ty, angle: angles[i] };
+            });
+
+            const hasDetail = signals.length > 0 || warnings.length > 0 || pros.length > 0 || cons.length > 0 || memoText || pillars.length > 0;
 
             return (
-                <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg space-y-4">
-                    <div className="border-b border-slate-800 pb-3 flex items-start justify-between gap-2">
-                        <div>
-                            <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Moat Audit &amp; Barriers Assessment</h4>
-                            <p className="text-[10px] text-slate-500 mt-0.5">{dataDriven ? 'Company-specific moat scored from real fundamentals (ROCE, margins, ROE, balance sheet, working capital).' : 'Assessing pricing power, entry barriers and brand moats.'}</p>
+                <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg space-y-4 font-sans">
+                    {/* Header: moat strength label + confidence + data-driven badge */}
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-3">
+                            <span className={`text-lg font-heading font-extrabold uppercase tracking-wider ${toneText}`}>
+                                {strength}{strength !== 'No moat' && strength !== 'Unrated' ? ' Moat' : ''}
+                            </span>
+                            <span className={`text-[10px] font-bold border rounded-md px-2 py-1 ${toneBg} ${toneText}`}>
+                                Confidence {confidence}%
+                            </span>
                         </div>
                         {dataDriven && <span className="text-[8px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 px-2 py-1 rounded-md whitespace-nowrap">● Data-driven</span>}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 items-center">
-                        {/* Moat score gauge */}
-                        <div className="flex flex-col items-center p-3 bg-slate-900 border border-slate-800 rounded-lg">
-                            <div className="relative w-24 h-24 flex items-center justify-center">
-                                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                                    <circle cx="50" cy="50" r={radius} className="stroke-slate-800 fill-none" strokeWidth="7"/>
-                                    <circle cx="50" cy="50" r={radius} className={`${toneStroke} fill-none`} strokeWidth="7"
-                                        strokeDasharray={circ} strokeDashoffset={strokeDashoffset} strokeLinecap="round" />
-                                </svg>
-                                <div className="absolute flex flex-col items-center">
-                                    <span className="text-xl font-heading font-extrabold text-slate-100">{score != null ? score : '—'}</span>
-                                    <span className="text-[8px] text-slate-500 font-bold">/ 100</span>
-                                </div>
-                            </div>
-                            <span className={`text-[11px] font-bold uppercase tracking-widest mt-2 ${toneText}`}>{strength}{strength !== 'No moat' && strength !== 'Unrated' ? ' Moat' : ''}</span>
-                            <span className="text-[9px] text-slate-500 mt-0.5">Confidence {confidence}%</span>
-                        </div>
+                    {/* Interactive Moat Wheel Infographic */}
+                    <div className="flex flex-col items-center justify-center p-2 bg-slate-900/50 rounded-lg border border-slate-800/40 relative overflow-hidden">
+                        <span className="absolute top-2 left-3 text-[9px] text-slate-500 uppercase font-bold tracking-wider">Moat Profile Infographic</span>
+                        <svg viewBox="0 0 500 350" className="w-full max-w-[480px] h-auto">
+                            {/* Outer boundary ring */}
+                            <circle cx={cx} cy={cy} r={rOuter} className="fill-none stroke-slate-800" strokeWidth="1" strokeDasharray="3 3" />
+                            
+                            {/* Spokes */}
+                            {spokes.map((sp, i) => (
+                                <g key={i} className="transition-all duration-300">
+                                    {/* Spoke line */}
+                                    <line 
+                                        x1={sp.sx} y1={sp.sy} x2={sp.tx} y2={sp.ty} 
+                                        stroke={sp.active ? colorHex : "#1e293b"} 
+                                        strokeWidth={sp.active ? "2" : "1"} 
+                                        className="transition-all duration-300"
+                                        strokeDasharray={sp.active ? "" : "2 2"}
+                                    />
+                                    {/* Spoke terminal dot */}
+                                    <circle 
+                                        cx={sp.tx} cy={sp.ty} r={sp.active ? "5.5" : "4"} 
+                                        fill={sp.active ? colorHex : "#1e293b"} 
+                                        className="transition-all duration-300"
+                                        filter={sp.active ? "drop-shadow(0px 0px 4px " + colorHex + ")" : ""}
+                                    />
+                                    {/* Label text */}
+                                    <text
+                                        x={sp.tx}
+                                        y={sp.ty}
+                                        fill={sp.active ? "#f8fafc" : "#475569"}
+                                        fontSize="9"
+                                        fontWeight={sp.active ? "bold" : "normal"}
+                                        textAnchor={
+                                            Math.abs(sp.angle) === 90 ? "middle" :
+                                            sp.angle > -90 && sp.angle < 90 ? "start" : "end"
+                                        }
+                                        dominantBaseline="middle"
+                                        dx={
+                                            Math.abs(sp.angle) === 90 ? 0 :
+                                            sp.angle > -90 && sp.angle < 90 ? 10 : -10
+                                        }
+                                        dy={
+                                            sp.angle === -90 ? -12 :
+                                            sp.angle === 90 ? 14 : 0
+                                        }
+                                        className="select-none font-sans font-medium"
+                                    >
+                                        {sp.label}
+                                    </text>
+                                </g>
+                            ))}
 
-                        {/* Pricing power + barriers */}
-                        <div className="sm:col-span-2 space-y-3.5">
-                            <div className="space-y-1">
-                                <div className="flex justify-between text-[10px] font-bold text-slate-400"><span>Pricing Power</span><span>{pricingPower}/10</span></div>
-                                <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800"><div className="h-full bg-teal-500 rounded-full" style={{ width: `${pricingPower * 10}%` }}></div></div>
-                            </div>
-                            <div className="space-y-1">
-                                <div className="flex justify-between text-[10px] font-bold text-slate-400"><span>Barriers to Entry</span><span>{entryBarriers}/10</span></div>
-                                <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800"><div className="h-full bg-blue-500 rounded-full" style={{ width: `${entryBarriers * 10}%` }}></div></div>
-                            </div>
-                            {/* Pillar breakdown */}
-                            {pillars.length > 0 && (
-                                <div className="space-y-2 pt-1">
-                                    {pillars.map((p, i) => (
-                                        <div key={i} className="space-y-0.5">
-                                            <div className="flex justify-between text-[10px] text-slate-500"><span className="font-semibold text-slate-400">{p.label}</span><span>{p.score}/{p.max} · {p.note}</span></div>
-                                            <div className="w-full h-1 bg-slate-900 rounded-full overflow-hidden"><div className={`h-full ${toneBar} rounded-full`} style={{ width: `${Math.max(0, Math.min(100, (p.score / p.max) * 100))}%` }}></div></div>
+                            {/* Inner concentric ring */}
+                            <circle cx={cx} cy={cy} r={rInner} fill="#020617" stroke={colorHex} strokeWidth="2.5" />
+                            {/* Inner central text */}
+                            <text x={cx} y={cy - 4} fill="#94a3b8" fontSize="8" fontWeight="bold" textAnchor="middle" letterSpacing="0.05em">MOAT TYPE</text>
+                            <text x={cx} y={cy + 8} fill={colorHex} fontSize="11" fontWeight="bold" textAnchor="middle" className="uppercase tracking-wider">
+                                {strength === 'Unrated' || strength === 'No moat' ? 'None' : strength.split(' ')[0]}
+                            </text>
+                        </svg>
+                    </div>
+
+                    {/* Single collapsible section with ALL moat detail */}
+                    {hasDetail && (
+                        <Expandable title="Moat Details — Strengths, Risks, Narrative & Methodology" defaultOpen={false}>
+                            <div className="space-y-4">
+                                {/* Moat Strengths & Risks side by side */}
+                                {(signals.length > 0 || warnings.length > 0) && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {signals.length > 0 && (
+                                            <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
+                                                <span className="text-[10px] text-slate-100 font-bold uppercase tracking-wider block mb-2 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500"></span>Moat Strengths</span>
+                                                <ul className="space-y-1.5">
+                                                    {signals.map((s, i) => <li key={i} className="text-[11px] text-slate-200 leading-snug flex gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0"></span><span>{s}</span></li>)}
+                                                </ul>
+                                            </div>
+                                        )}
+                                        {warnings.length > 0 && (
+                                            <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
+                                                <span className="text-[10px] text-slate-100 font-bold uppercase tracking-wider block mb-2 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500"></span>Moat Risks</span>
+                                                <ul className="space-y-1.5">
+                                                    {warnings.map((s, i) => <li key={i} className="text-[11px] text-slate-200 leading-snug flex gap-2"><span className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 flex-shrink-0"></span><span>{s}</span></li>)}
+                                                </ul>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Supporting flags from Screener.in */}
+                                {(pros.length > 0 || cons.length > 0) && (
+                                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
+                                        <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block mb-1.5">Supporting flags · per Screener.in</span>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1">
+                                            {pros.map((p, i) => <div key={'p'+i} className="text-[10px] text-slate-400 flex gap-1.5"><span className="text-emerald-500">+</span><span>{p}</span></div>)}
+                                            {cons.map((c, i) => <div key={'c'+i} className="text-[10px] text-slate-400 flex gap-1.5"><span className="text-red-500">–</span><span>{c}</span></div>)}
                                         </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                                    </div>
+                                )}
 
-                    {/* Computed signals & warnings */}
-                    {(signals.length > 0 || warnings.length > 0) && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {signals.length > 0 && (
+                                {/* Moat Narrative Memo */}
                                 <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
-                                    <span className="text-[9px] text-emerald-300 font-bold uppercase tracking-wider block mb-1.5">Moat Signals</span>
-                                    <ul className="space-y-1.5">
-                                        {signals.map((s, i) => <li key={i} className="text-[11px] text-slate-300 leading-snug flex gap-1.5"><span className="text-emerald-400 mt-px">✓</span><span>{s}</span></li>)}
-                                    </ul>
+                                    <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Moat Narrative Memo</span>
+                                    <p className="text-xs text-slate-350 leading-relaxed">{memoText}</p>
                                 </div>
-                            )}
-                            {warnings.length > 0 && (
-                                <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
-                                    <span className="text-[9px] text-amber-300 font-bold uppercase tracking-wider block mb-1.5">Moat Risks</span>
-                                    <ul className="space-y-1.5">
-                                        {warnings.map((s, i) => <li key={i} className="text-[11px] text-slate-300 leading-snug flex gap-1.5"><span className="text-amber-400 mt-px">!</span><span>{s}</span></li>)}
-                                    </ul>
-                                </div>
-                            )}
-                        </div>
-                    )}
 
-                    {(pros.length > 0 || cons.length > 0) && (
-                        <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
-                            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block mb-1.5">Supporting flags · per Screener.in</span>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1">
-                                {pros.map((p, i) => <div key={'p'+i} className="text-[10px] text-slate-400 flex gap-1.5"><span className="text-emerald-500">+</span><span>{p}</span></div>)}
-                                {cons.map((c, i) => <div key={'c'+i} className="text-[10px] text-slate-400 flex gap-1.5"><span className="text-red-500">–</span><span>{c}</span></div>)}
+                                {/* How this moat score is calculated */}
+                                {pillars.length > 0 && (
+                                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
+                                        <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block mb-1.5">How is this moat assessed?</span>
+                                        <div className="space-y-2 text-[11px] text-slate-400 leading-relaxed">
+                                            <p>Assessment built from these aspects of the company's real multi-year fundamentals (from Screener.in):</p>
+                                            <ul className="space-y-1 pl-1">
+                                                {pillars.map((p, i) => (
+                                                    <li key={i}>• <span className="text-slate-300 font-semibold">{p.label}</span> — {p.basis}</li>
+                                                ))}
+                                            </ul>
+                                            <p className="text-slate-500">Bands: <span className="text-emerald-400 font-semibold">Wide ≥ 70</span> · <span className="text-blue-400 font-semibold">Narrow-to-Wide 50–69</span> · <span className="text-amber-400 font-semibold">Narrow 30–49</span> · <span className="text-red-400 font-semibold">No moat &lt; 30</span>. {f20.is_financial ? 'This is a lender, so it uses the ROE-led branch.' : ''} <span className="text-slate-400 font-semibold">Confidence = data coverage</span> (how many aspects had real data).</p>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                        </div>
+                        </Expandable>
                     )}
-
-                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
-                        <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Moat Narrative Memo</span>
-                        <p className="text-xs text-slate-350 leading-relaxed">{memoText}</p>
-                    </div>
                 </div>
             );
         };
@@ -1234,12 +1494,14 @@
             const [reportData, setReportData] = useState(null);
             const [errorMessage, setErrorMessage] = useState('');
             const [loadingStep, setLoadingStep] = useState(0);
-            const [statementTab, setStatementTab] = useState('annual'); // annual, quarterly
+            const [statementTab, setStatementTab] = useState('1yr'); // 1yr (latest 4 quarters), annual, quarterly
+            const [stmtOpen, setStmtOpen] = useState(false); // collapsible financial-statements table
             const [statementType, setStatementType] = useState('income'); // income, balance, cashflow
-            const [activeTab, setActiveTab] = useState(1); // 1-7 sidebar navigation tabs
+            const [activeTab, setActiveTab] = useState(6); // AI Insights is the default landing tab
             const [activeSubTab, setActiveSubTab] = useState({1:0,2:0,3:0,4:0,5:0,6:0,7:0});
             const [scrolled, setScrolled] = useState(false); // for the floating instrument card
             const [showAllPeers, setShowAllPeers] = useState(false); // Peer table: top-N vs see-more
+            const [showSummary, setShowSummary] = useState(false); // AI summary: on-demand collapsible (bottom of AI Insights)
             const suggestionsRef = useRef(null);
 
             useEffect(() => {
@@ -1359,7 +1621,8 @@
                 setErrorMessage('');
                 setReportData(null);
                 setShowSuggestions(false);
-                setActiveTab(1);
+                setActiveTab(6);
+                setActiveSubTab(p => ({ ...p, 6: 0 }));
 
                 try {
                     const response = await authFetch('/api/v1/generate-report', {
@@ -1375,6 +1638,7 @@
                     if (response.ok && result.status === 'success') {
                         setReportData(result);
                         setShowAllPeers(false); // collapse peer list for the new company
+                        setShowSummary(false); // AI summary starts collapsed on each new stock
                         setStatus('SUCCESS');
                     } else {
                         throw new Error(result.message || 'Report generation failed');
@@ -1742,12 +2006,13 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                 {/* Horizontal section tab bar (sticky) with inline agent search */}
                                 {(() => {
                                     const TABS = [
+                                        // AI Insights leads — it is the product's headline view (ids unchanged).
+                                        { id: 6, label: "AI Insights", subtabs: ["AI summary & investment view","Business quality scoring","Annual report / concall summary","Earnings estimate / forecast support","Red-flag / forensic accounting signals","Moat / quality assessment support"] },
                                         { id: 1, label: "Statements & Growth", subtabs: ["Financial statements analysis","Revenue/profit trend analysis","Margin analysis","Quarterly results analysis"] },
                                         { id: 2, label: "Ratios & Valuation", subtabs: ["Ratio analysis","Valuation metrics","ROE/ROCE analysis","Intrinsic value / fair value estimate"] },
                                         { id: 3, label: "Debt & Cash Flow", subtabs: ["Debt analysis","Cash flow analysis"] },
                                         { id: 4, label: "Ownership", subtabs: ["Shareholding pattern analysis","Promoter holding / pledge tracking","Institutional holding / FII / DII tracking"] },
                                         { id: 5, label: "Peers & Sector", subtabs: ["Peer comparison","Sector comparison"] },
-                                        { id: 6, label: "AI Insights", subtabs: ["Business quality scoring","Annual report / concall summary","Earnings estimate / forecast support","Red-flag / forensic accounting signals","Moat / quality assessment support"] },
                                         { id: 7, label: "Export", subtabs: ["Export / report generation"] }
                                     ];
                                     return (
@@ -1812,6 +2077,11 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                              {/* Financial statements analysis */}
                                              {(activeSubTab[1]??0) === 0 && (
                                              <div className="space-y-4">
+                                                 <button onClick={() => setStmtOpen(o => !o)} className="w-full flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-lg hover:border-slate-700 transition">
+                                                     <span className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Financial Statements <span className="text-[10px] text-slate-500 normal-case font-sans">(1&nbsp;Year / 5&nbsp;Year / 12&nbsp;Quarter)</span></span>
+                                                     <span className="text-[10px] font-bold text-blue-300 flex items-center gap-1">{stmtOpen ? 'Hide' : 'Show'} <span className={`transition-transform ${stmtOpen ? 'rotate-180' : ''}`}>▾</span></span>
+                                                 </button>
+                                                 {stmtOpen && (<React.Fragment>
                                                  <div className="flex flex-wrap justify-between items-center gap-4">
                                                      <div className="flex gap-1.5">
                                                          <button onClick={() => setStatementType('income')} className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${statementType === 'income' ? 'bg-blue-600 text-white' : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'}`}>Income Statement</button>
@@ -1819,6 +2089,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                          <button onClick={() => setStatementType('cashflow')} className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${statementType === 'cashflow' ? 'bg-blue-600 text-white' : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'}`}>Cash Flow</button>
                                                      </div>
                                                      <div className="flex p-0.5 bg-slate-950 border border-slate-800 rounded-md">
+                                                         <button onClick={() => setStatementTab('1yr')} className={`px-3 py-1 text-xs font-semibold rounded-md transition ${statementTab === '1yr' ? 'bg-slate-800 text-slate-100' : 'text-slate-500 hover:text-slate-350'}`}>1 Year</button>
                                                          <button onClick={() => setStatementTab('annual')} className={`px-3 py-1 text-xs font-semibold rounded-md transition ${statementTab === 'annual' ? 'bg-slate-800 text-slate-100' : 'text-slate-500 hover:text-slate-350'}`}>Annual (5Y)</button>
                                                          <button onClick={() => setStatementTab('quarterly')} className={`px-3 py-1 text-xs font-semibold rounded-md transition ${statementTab === 'quarterly' ? 'bg-slate-800 text-slate-100' : 'text-slate-500 hover:text-slate-350'}`}>Quarterly (12Q)</button>
                                                      </div>
@@ -1827,7 +2098,23 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                      {(() => {
                                                          const arraysObj = reportData.data.calculated_metrics?.['F-01_Financial_Statements'] || {};
                                                          const typeKey = statementType === 'income' ? 'income_stmt' : (statementType === 'balance' ? 'balance_sheet' : 'cash_flow');
-                                                         const grid = arraysObj[statementTab]?.[typeKey] || {};
+                                                         // "1 Year" = the latest 4 quarters (the specific company's most recent year,
+                                                         // quarter-by-quarter). Annual = 5Y, Quarterly = full 12Q history.
+                                                         let grid;
+                                                         if (statementTab === '1yr') {
+                                                             const qgrid = arraysObj.quarterly?.[typeKey] || {};
+                                                             const q4 = Object.keys(qgrid).sort((a, b) => b.localeCompare(a)).slice(0, 4);
+                                                             grid = {};
+                                                             q4.forEach(d => { grid[d] = qgrid[d]; });
+                                                             // Fall back to the latest annual year if the company has no quarterly data.
+                                                             if (!q4.length) {
+                                                                 const agrid = arraysObj.annual?.[typeKey] || {};
+                                                                 const a1 = Object.keys(agrid).sort((a, b) => b.localeCompare(a)).slice(0, 1);
+                                                                 a1.forEach(d => { grid[d] = agrid[d]; });
+                                                             }
+                                                         } else {
+                                                             grid = arraysObj[statementTab]?.[typeKey] || {};
+                                                         }
                                                          const dates = Object.keys(grid).sort((a, b) => b.localeCompare(a));
                                                          if (dates.length === 0) return <div className="p-6 text-center text-xs text-slate-500">No financial statement data compiled.</div>;
                                                          const allRowKeys = Array.from(new Set(dates.flatMap(d => Object.keys(grid[d]))));
@@ -1851,6 +2138,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                          );
                                                      })()}
                                                  </div>
+                                                 </React.Fragment>)}
 
                                                  {/* Trend chart + key movement summary */}
                                                  {(() => {
@@ -3195,123 +3483,355 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                         <section className="p-6 bg-slate-900 border border-slate-800 rounded-lg space-y-6">
                                             <div className="border-b border-slate-800 pb-4">
                                                 <h2 className="font-heading text-base font-bold text-slate-100">AI Insights</h2>
-                                                <p className="text-[10px] text-slate-500 mt-0.5 mb-3 font-sans">Qualitative assessments generated via Groq llama-3.3-70b-versatile.</p>
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {["Business quality scoring","Annual report / concall summary","Earnings estimate / forecast support","Red-flag / forensic accounting signals","Moat / quality assessment support"].map((st,i) => (
-                                                        <button key={i} onClick={() => setActiveSubTab(p => ({...p, 6:i}))}
-                                                            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition border ${(activeSubTab[6]??0)===i ? 'bg-blue-600/20 text-blue-700 border-blue-500/30' : 'bg-slate-950/50 text-slate-500 hover:text-slate-300 border-slate-800'}`}
-                                                        >{st}</button>
-                                                    ))}
-                                                </div>
+                                                <p className="text-[10px] text-slate-500 mt-0.5 font-sans">The complete AI read on this stock — summary, investment view, peer standing, quality, moat, concalls, forecasts and forensics. All in one page.</p>
                                             </div>
 
-                                            {/* Business quality scoring */}
-                                            {(activeSubTab[6]??0) === 0 && (
-                                            <div className="space-y-6">
-                                            <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg flex flex-col md:flex-row items-center gap-6 font-sans">
-                                                <div className="relative w-28 h-28 flex items-center justify-center">
-                                                    <svg className="w-full h-full transform -rotate-90" viewBox="0 0 120 120">
-                                                        <defs>
-                                                            <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                                                                <stop offset="0%" stopColor="#3b82f6" />
-                                                                <stop offset="100%" stopColor="#1d4ed8" />
-                                                            </linearGradient>
-                                                        </defs>
-                                                        <circle cx="60" cy="60" r="50" className="fill-none" strokeWidth="8" stroke="#e2e8f0"/>
-                                                        <circle cx="60" cy="60" r="50" className="fill-none" strokeWidth="8"
-                                                            strokeDasharray={2 * Math.PI * 50}
-                                                            strokeDashoffset={2 * Math.PI * 50 * (1 - reportData.data.business_score / 100)}
-                                                            strokeLinecap="round"
-                                                            stroke="url(#scoreGrad)"
-                                                        />
-                                                    </svg>
-                                                    <div className="absolute flex flex-col items-center">
-                                                        <CountUp value={reportData.data.business_score} className="text-3xl font-heading font-extrabold text-slate-100" />
-                                                        <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Quality Score</span>
+                                            {/* ============ 1. FUTURE OUTLOOK + PEER STANDING ============ */}
+                                            {(() => {
+                                                const ml = reportData.data.ai_summary?.ml_forecast;
+                                                const pr = reportData.data.ai_summary?.peer_rank;
+                                                const fmtCr = (v) => (v == null || isNaN(v)) ? '—' : (Math.abs(v) >= 1e5 ? `₹${(v/1e5).toFixed(2)}L Cr` : `₹${Number(v).toLocaleString('en-IN')} Cr`);
+                                                const revRows = (ml?.revenue_series || []).map(r => ({ label: r.year, Actual: r.actual, Forecast: r.forecast }));
+                                                const upside = (ml && ml.current_price && ml.target_price) ? Math.round((ml.target_price - ml.current_price) / ml.current_price * 100) : null;
+                                                return (
+                                                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                                                        {/* Forecast (3/5 width) */}
+                                                        <div className="lg:col-span-3 p-5 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
+                                                            <div className="flex items-start justify-between gap-2 flex-wrap">
+                                                                <div>
+                                                                    <h3 className="font-heading text-sm font-bold text-slate-100 uppercase tracking-wider">Future Outlook · Forecast</h3>
+                                                                    <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">Projections are based on the company's own historical financials — <strong className="text-slate-400">revenue &amp; earnings are extrapolated using a log-linear regression</strong> fit on 5+ years of annual data, <strong className="text-slate-400">next-month price uses a regression on recent monthly closing prices</strong>, and the <strong className="text-slate-400">3-year target price assumes the current P/E multiple is held constant</strong> against projected earnings. These are statistical trend-extensions, not AI predictions — accuracy depends on how stable past trends remain.</p>
+                                                                </div>
+                                                                {ml?.confidence && <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border ${ml.confidence==='High'?'text-blue-300 bg-blue-500/10 border-blue-500/25':ml.confidence==='Moderate'?'text-amber-300 bg-amber-500/10 border-amber-500/25':'text-slate-300 bg-slate-800 border-slate-700'}`}>{ml.confidence} confidence</span>}
+                                                            </div>
+                                                            {ml ? (<>
+                                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                                                    <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-center">
+                                                                        <div className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Next-month price</div>
+                                                                        <div className={`font-heading text-lg font-extrabold ${!ml.next_month_price?'text-slate-300':ml.next_month_price.change_pct>=0?'text-emerald-300':'text-red-300'}`}>{ml.next_month_price ? '₹'+ml.next_month_price.value.toLocaleString('en-IN') : '—'}</div>
+                                                                        {ml.next_month_price && <div className={`text-[9px] font-bold ${ml.next_month_price.change_pct>=0?'text-emerald-300':'text-red-300'}`}>{ml.next_month_price.change_pct>=0?'+':''}{ml.next_month_price.change_pct}%</div>}
+                                                                    </div>
+                                                                    <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-center">
+                                                                        <div className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">3Y price (P/E held)</div>
+                                                                        <div className={`font-heading text-lg font-extrabold ${upside==null?'text-slate-300':upside>=0?'text-blue-300':'text-orange-300'}`}>{ml.target_price ? '₹'+ml.target_price.toLocaleString('en-IN') : '—'}</div>
+                                                                        {upside != null && <div className={`text-[9px] font-bold ${upside>=0?'text-blue-300':'text-orange-300'}`}>{upside>=0?'+':''}{upside}%</div>}
+                                                                    </div>
+                                                                    <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-center">
+                                                                        <div className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Rev CAGR (proj)</div>
+                                                                        <div className="font-heading text-lg font-extrabold text-blue-300">{ml.revenue_cagr != null ? ml.revenue_cagr+'%' : '—'}</div>
+                                                                    </div>
+                                                                    <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-center">
+                                                                        <div className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">PAT CAGR (proj)</div>
+                                                                        <div className="font-heading text-lg font-extrabold text-blue-300">{ml.earnings_cagr != null ? ml.earnings_cagr+'%' : '—'}</div>
+                                                                    </div>
+                                                                </div>
+                                                                {revRows.length >= 2 && <TrendChart rows={revRows} series={[{key:'Actual',label:'Actual',color:'#3b82f6'},{key:'Forecast',label:'Forecast',color:'#f59e0b'}]} fmt={fmtCr} height={150} />}
+                                                                <p className="text-[9px] text-slate-500">Statistical projections only — past trends may not continue. Not investment advice.</p>
+                                                            </>) : <p className="text-[11px] text-slate-500 p-4">Not enough financial history to build a forecast for this stock.</p>}
+                                                        </div>
+                                                        {/* Peer standing — every peer's percentile (2/5 width) */}
+                                                        <div className="lg:col-span-2 p-5 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
+                                                            <div>
+                                                                <h3 className="font-heading text-sm font-bold text-slate-100 uppercase tracking-wider">Peer Standing</h3>
+                                                                <p className="text-[10px] text-slate-500 mt-0.5">{pr?.tier ? `Ranked only among ${pr.tier.toLowerCase()} peers of its industry.` : 'Composite percentile vs its closest peers.'}</p>
+                                                            </div>
+                                                            {pr && (pr.ranking || []).length ? (
+                                                                <PeerPercentileBars ranking={pr.ranking} />
+                                                            ) : pr && pr.percentile != null ? (
+                                                                <div className="space-y-1">
+                                                                    <div className="flex justify-between text-[10px] text-blue-300 font-bold"><span>★ This stock</span><span>{pr.percentile}th</span></div>
+                                                                    <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800"><div className="h-full bg-blue-500 rounded-full" style={{ width: `${pr.percentile}%` }}></div></div>
+                                                                    <p className="text-[9px] text-slate-500 pt-1">{pr.note}</p>
+                                                                </div>
+                                                            ) : <p className="text-[11px] text-slate-500">Not enough similar-sized peers to rank.</p>}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <div className="flex-1 space-y-3">
-                                                    <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Composite Quality Scoring Rationale</h4>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {reportData.data.calculated_metrics?.['F-19_Business_Quality']?.scoring_rationale_chips?.map((rule, idx) => (
-                                                            <span key={idx} className="text-[9px] font-semibold text-slate-300 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-md">
-                                                                {rule}
-                                                            </span>
-                                                        ))}
+                                                );
+                                            })()}
+
+                                            {/* ============ 3. BUSINESS MODEL CANVAS ============ */}
+                                            {(() => {
+                                                const bu = reportData.data.ai_summary?.business_understanding;
+                                                if (!bu) return null;
+                                                const costs = bu.cost_structure || [];
+                                                
+                                                // Prepare Revenue Streams Donut data
+                                                let revDonutData = (bu.segments || []).map(s => ({
+                                                    label: s.name,
+                                                    value: s.revenue_cr
+                                                }));
+                                                if (!revDonutData.length && (bu.revenue_drivers || []).length) {
+                                                    revDonutData = bu.revenue_drivers.map(r => {
+                                                        const mp = String(r).match(/(\d+(?:\.\d+)?)\s*%/);
+                                                        const nm = String(r).replace(/\s*[\(\-–—].*$/, '').replace(/:.*$/, '').trim();
+                                                        return mp ? { label: nm || r, value: parseFloat(mp[1]) } : null;
+                                                    }).filter(Boolean);
+                                                }
+
+                                                // Prepare Cost Structure Donut data
+                                                const costDonutData = costs.map(c => ({
+                                                    label: c.label,
+                                                    value: c.value_cr
+                                                }));
+
+                                                const bmFull = bu.business_model || bu.what_they_sell || '';
+
+                                                // Canvas cell helper (height matching using flex & h-full)
+                                                const CanvasCell = ({ title, icon, items, children, bg = 'bg-slate-950/60' }) => {
+                                                    const renderItemAsCard = (item, idx) => {
+                                                        const text = String(item).toLowerCase();
+                                                        let itemIcon = "🎯";
+                                                        let badge = "";
+                                                        
+                                                        if (text.includes("brand") || text.includes("trademark") || text.includes("reputation")) {
+                                                            itemIcon = "🏷️";
+                                                            badge = "Brand Asset";
+                                                        } else if (text.includes("manufacturing") || text.includes("facilities") || text.includes("plant") || text.includes("factory")) {
+                                                            itemIcon = "🏭";
+                                                            badge = "Facility";
+                                                        } else if (text.includes("supplier") || text.includes("partner") || text.includes("alliance") || text.includes("distributor")) {
+                                                            itemIcon = "🤝";
+                                                            badge = "Partner";
+                                                        } else if (text.includes("research") || text.includes("development") || text.includes("innovation") || text.includes("r&d") || text.includes("investing")) {
+                                                            itemIcon = "🔬";
+                                                            badge = "Innovation";
+                                                        } else if (text.includes("urban") || text.includes("rural") || text.includes("consumer") || text.includes("customer") || text.includes("segment")) {
+                                                            itemIcon = "👥";
+                                                            badge = "Target";
+                                                        } else if (text.includes("retail") || text.includes("e-commerce") || text.includes("channel") || text.includes("distribution") || text.includes("direct") || text.includes("sales")) {
+                                                            itemIcon = "🚚";
+                                                            badge = "Channel";
+                                                        } else if (text.includes("scale") || text.includes("advantage") || text.includes("cost") || text.includes("efficiency")) {
+                                                            itemIcon = "📈";
+                                                            badge = "Scale";
+                                                        } else if (text.includes("quality") || text.includes("affordab") || text.includes("premier") || text.includes("value")) {
+                                                            itemIcon = "⭐";
+                                                            badge = "Value";
+                                                        }
+                                                        
+                                                        return (
+                                                            <div key={idx} className="bg-slate-900 border border-slate-800/80 rounded-md p-2 flex flex-col gap-1 hover:border-blue-500/20 hover:bg-slate-850 transition-all flex-shrink-0">
+                                                                <div className="flex items-center justify-between gap-1 flex-wrap">
+                                                                    <span className="text-xs">{itemIcon}</span>
+                                                                    {badge && (
+                                                                        <span className="text-[7px] font-extrabold uppercase tracking-wider bg-blue-500/10 text-blue-300 border border-blue-500/20 px-1 py-0.5 rounded leading-none">
+                                                                            {badge}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <p className="text-[10px] text-slate-300 leading-snug font-medium line-clamp-3">{item}</p>
+                                                            </div>
+                                                        );
+                                                    };
+
+                                                    return (
+                                                        <div className={`h-full ${bg} border border-slate-800 rounded-lg p-3 flex flex-col gap-2 min-h-[140px] hover:border-slate-700/40 transition-all`}>
+                                                            <div className="flex items-center gap-2 border-b border-slate-850 pb-1.5 flex-shrink-0">
+                                                                <span className="text-sm">{icon}</span>
+                                                                <span className="text-[9px] text-blue-300 font-bold uppercase tracking-wider">{title}</span>
+                                                            </div>
+                                                            {children ? (
+                                                                <div className="flex-1 flex flex-col justify-center min-w-0">{children}</div>
+                                                            ) : items && items.length > 0 ? (
+                                                                <div className="flex-1 overflow-y-auto pr-0.5 grid grid-cols-1 gap-1.5 max-h-[190px]">
+                                                                    {items.map((item, i) => renderItemAsCard(item, i))}
+                                                                </div>
+                                                            ) : (
+                                                                <p className="text-[9px] text-slate-650 italic my-auto text-center">Not yet available — regenerate report to populate.</p>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                };
+
+                                                return (
+                                                    <div>
+                                                        <h3 className="font-heading text-sm font-bold text-slate-100 uppercase tracking-wider border-l-2 border-blue-500 pl-3 mb-1">Business Model Canvas</h3>
+                                                        {bmFull && <p className="text-[11px] text-slate-400 leading-relaxed mb-3 pl-4">{bmFull}</p>}
+
+                                                        {/* Canvas Grid — Strategyzer layout using new .bmc-grid class */}
+                                                        <div className="bmc-grid">
+                                                            <div style={{ gridArea: 'kp' }} className="h-full">
+                                                                <CanvasCell title="Key Partnerships" icon="🤝" items={bu.key_partnerships || []} />
+                                                            </div>
+                                                            <div style={{ gridArea: 'ka' }} className="h-full">
+                                                                <CanvasCell title="Key Activities" icon="⚡" items={bu.key_activities || []} />
+                                                            </div>
+                                                            <div style={{ gridArea: 'vp' }} className="h-full">
+                                                                <CanvasCell title="Value Propositions" icon="🎁" items={bu.value_propositions || []} />
+                                                            </div>
+                                                            <div style={{ gridArea: 'cr' }} className="h-full">
+                                                                <CanvasCell title="Customer Relationships" icon="💛" items={bu.customer_relationships || []} />
+                                                            </div>
+                                                            <div style={{ gridArea: 'cs' }} className="h-full">
+                                                                <CanvasCell title="Customer Segments" icon="👥" items={bu.customer_segments?.length ? bu.customer_segments : (bu.key_customers_or_geographies || [])} />
+                                                            </div>
+                                                            <div style={{ gridArea: 'kr' }} className="h-full">
+                                                                <CanvasCell title="Key Resources" icon="🏗️" items={bu.key_resources || []} />
+                                                            </div>
+                                                            <div style={{ gridArea: 'ch' }} className="h-full">
+                                                                <CanvasCell title="Channels" icon="🚚" items={bu.channels || []} />
+                                                            </div>
+                                                            <div style={{ gridArea: 'cost' }} className="h-full">
+                                                                <CanvasCell title="Cost Structure" icon="💰">
+                                                                    {costDonutData.length > 0 ? (
+                                                                        <div className="py-1">
+                                                                            <Donut data={costDonutData} fmt={(v) => `₹${Number(v).toFixed(0)}`} unit=" Cr" />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <p className="text-[9px] text-slate-500 my-auto italic text-center">Expense breakdown not available.</p>
+                                                                    )}
+                                                                </CanvasCell>
+                                                            </div>
+                                                            <div style={{ gridArea: 'rev' }} className="h-full">
+                                                                <CanvasCell title="Revenue Streams" icon="💵">
+                                                                    {revDonutData.length > 0 ? (
+                                                                        <div className="py-1">
+                                                                            <Donut data={revDonutData} fmt={(v) => `₹${Number(v).toFixed(0)}`} unit=" Cr" />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <p className="text-[9px] text-slate-500 my-auto italic text-center">Revenue breakdown not available.</p>
+                                                                    )}
+                                                                </CanvasCell>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Responsive fallback note */}
+                                                        <p className="text-[9px] text-slate-500 mt-2 pl-1">Business Model Canvas · data sourced from BSE filings, concall transcripts & AI analysis.</p>
                                                     </div>
-                                                </div>
-                                            </div>
-                                            {/* Sub-scores (pillar breakdown) */}
+                                                );
+                                            })()}
+
+                                            {/* ============ 4. BUSINESS QUALITY (ring + sub-score pie) ============ */}
+                                            <h3 className="font-heading text-sm font-bold text-slate-100 uppercase tracking-wider border-l-2 border-blue-500 pl-3">Business Quality</h3>
                                             {(() => {
                                                 const tm = reportData.data.peer_synthesis_data?.target_metrics || {};
                                                 const cf = reportData.data.calculated_metrics?.['F-09_Cash_Flow_Conversion'] || {};
                                                 const d = reportData.data.calculated_metrics?.['F-08_Solvency_Metrics'] || {};
-                                                const clamp = (v) => Math.max(0, Math.min(100, Math.round(v)));
+                                                const clamp = (v) => Math.max(1, Math.min(100, Math.round(v)));
                                                 const pillars = [];
                                                 if (tm.roe != null || tm.operatingMargin != null) {
                                                     const a = []; if (tm.roe != null) a.push(clamp(tm.roe * 100 * 2.5)); if (tm.operatingMargin != null) a.push(clamp(tm.operatingMargin * 100 * 3));
-                                                    pillars.push({ label: 'Profitability', score: clamp(a.reduce((x, y) => x + y, 0) / a.length) });
+                                                    pillars.push({ label: 'Profitability', value: clamp(a.reduce((x, y) => x + y, 0) / a.length) });
                                                 }
-                                                if (d.debt_to_equity != null) pillars.push({ label: 'Balance-sheet strength', score: clamp(100 - d.debt_to_equity * 40) });
-                                                if (cf.CFO_to_PAT != null) pillars.push({ label: 'Cash conversion', score: clamp(cf.CFO_to_PAT * 60) });
-                                                if (tm.revenueGrowth != null) pillars.push({ label: 'Growth', score: clamp(tm.revenueGrowth * 100 * 5) });
-                                                if (!pillars.length) return null;
+                                                if (d.debt_to_equity != null) pillars.push({ label: 'Balance-sheet', value: clamp(100 - d.debt_to_equity * 40) });
+                                                if (cf.CFO_to_PAT != null) pillars.push({ label: 'Cash conversion', value: clamp(cf.CFO_to_PAT * 60) });
+                                                if (tm.revenueGrowth != null) pillars.push({ label: 'Growth', value: clamp(tm.revenueGrowth * 100 * 5) });
+                                                const score = reportData.data.business_score;
+                                                const grad = score >= 70 ? '#10b981' : score >= 45 ? '#3b82f6' : '#f59e0b';
                                                 return (
-                                                    <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
-                                                        <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Quality Sub-Scores</h4>
-                                                        {pillars.map((p, i) => {
-                                                            const c = p.score >= 70 ? 'bg-emerald-500' : (p.score >= 45 ? 'bg-blue-500' : 'bg-amber-500');
-                                                            return (
-                                                                <div key={i} className="space-y-1">
-                                                                    <div className="flex justify-between text-[11px] font-semibold text-slate-500"><span>{p.label}</span><span className="text-slate-200">{p.score}</span></div>
-                                                                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-800"><div className={`h-full ${c} rounded-full`} style={{ width: `${p.score}%` }}></div></div>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-sans">
+                                                        {/* Box 1: Quality Score */}
+                                                        <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg flex flex-col items-center justify-center gap-3">
+                                                            <span className="text-[9px] text-blue-300 font-bold uppercase tracking-wider">Composite Quality Score</span>
+                                                            <div className="relative w-28 h-28 flex items-center justify-center">
+                                                                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 120 120">
+                                                                    <circle cx="60" cy="60" r="50" className="fill-none" strokeWidth="9" stroke="#1e293b"/>
+                                                                    <circle cx="60" cy="60" r="50" className="fill-none" strokeWidth="9" strokeLinecap="round"
+                                                                        strokeDasharray={2 * Math.PI * 50} strokeDashoffset={2 * Math.PI * 50 * (1 - score / 100)} stroke={grad} />
+                                                                </svg>
+                                                                <div className="absolute flex flex-col items-center">
+                                                                    <CountUp value={score} className="text-3xl font-heading font-extrabold text-slate-100" />
+                                                                    <span className="text-[7px] text-slate-400 font-bold uppercase tracking-wider">/ 100 Quality</span>
                                                                 </div>
-                                                            );
-                                                        })}
-                                                        <p className="text-[10px] text-slate-500 pt-1">Indicative pillar breakdown derived from profitability, leverage, cash conversion and growth.</p>
+                                                            </div>
+                                                            <span className={`text-[10px] font-bold uppercase tracking-wider ${score >= 70 ? 'text-emerald-400' : score >= 45 ? 'text-blue-400' : 'text-amber-400'}`}>
+                                                                {score >= 70 ? 'High Quality' : score >= 45 ? 'Moderate Quality' : 'Below Average'}
+                                                            </span>
+                                                        </div>
+                                                        {/* Box 2: Sub-Scores */}
+                                                        <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg flex flex-col gap-3">
+                                                            <span className="text-[9px] text-blue-300 font-bold uppercase tracking-wider">Sub-Scores</span>
+                                                            {pillars.length ? (
+                                                                <Donut data={pillars.map(p => ({ label: p.label, value: p.value }))} fmt={(v)=>v} unit="/100" />
+                                                            ) : <div className="text-[11px] text-slate-500">Sub-score inputs unavailable.</div>}
+                                                        </div>
                                                     </div>
                                                 );
                                             })()}
-                                            </div>
-                                            )}
 
-                                            {/* Annual report / concall summary -> per-month Concalls */}
-                                            {(activeSubTab[6]??0) === 1 && (
-                                                <ConcallTabs
-                                                    symbol={reportData.data.symbol}
-                                                    list={reportData.data.qualitative_analysis?.concall_list || []}
-                                                    latestUrl={reportData.data.qualitative_analysis?.concall_url}
-                                                    latestText={reportData.data.qualitative_analysis?.parsed_sections?.['F-14']}
-                                                    grounded={reportData.data.qualitative_analysis?.concall_grounded}
+                                            {/* ============ 4. COMPETITIVE MOAT ============ */}
+                                            <h3 className="font-heading text-sm font-bold text-slate-100 uppercase tracking-wider border-l-2 border-blue-500 pl-3">Competitive Moat</h3>
+                                            <MoatAssessment
+                                                parsedJson={reportData.data.qualitative_analysis?.parsed_json}
+                                            />
+
+                                            {/* ============ 5. ANNUAL REPORT / CONCALL SUMMARY ============ */}
+                                            <h3 className="font-heading text-sm font-bold text-slate-100 uppercase tracking-wider border-l-2 border-blue-500 pl-3">Annual Report / Concall Summary</h3>
+                                            <ConcallTabs
+                                                symbol={reportData.data.symbol}
+                                                list={reportData.data.qualitative_analysis?.concall_list || []}
+                                                latestUrl={reportData.data.qualitative_analysis?.concall_url}
+                                                latestText={reportData.data.qualitative_analysis?.parsed_sections?.['F-14']}
+                                                grounded={reportData.data.qualitative_analysis?.concall_grounded}
+                                            />
+
+                                            {/* ============ 6. EARNINGS ESTIMATE / FORECAST ============ */}
+                                            <h3 className="font-heading text-sm font-bold text-slate-100 uppercase tracking-wider border-l-2 border-blue-500 pl-3">Earnings Estimate / Forecast</h3>
+                                            <div className="space-y-3">
+                                                <InteractiveProjection
+                                                    calculatedMetrics={reportData.data.calculated_metrics}
+                                                    parsedJson={reportData.data.qualitative_analysis?.parsed_json}
                                                 />
-                                            )}
-
-                                            {/* Earnings estimate / forecast support */}
-                                            {(activeSubTab[6]??0) === 2 && (
-                                                <div className="space-y-3">
-                                                    <InteractiveProjection
-                                                        calculatedMetrics={reportData.data.calculated_metrics}
-                                                        parsedJson={reportData.data.qualitative_analysis?.parsed_json}
-                                                    />
-                                                    <div className="p-3 bg-blue-500/5 border border-blue-500/20 rounded-lg text-[11px] text-slate-500 leading-relaxed">
-                                                        <span className="font-bold text-blue-600 uppercase tracking-wider text-[9px]">Confidence note</span> — Internal forward view only, generated from historical trends and management commentary via Groq. Bull/base/bear are scenarios, not guidance; outcomes depend on the chosen growth assumption.
-                                                    </div>
+                                                <div className="p-3 bg-blue-500/5 border border-blue-500/20 rounded-lg text-[11px] text-slate-500 leading-relaxed">
+                                                    <span className="font-bold text-blue-600 uppercase tracking-wider text-[9px]">Confidence note</span> — Internal forward view only, generated from historical trends and management commentary via Groq. Bull/base/bear are scenarios, not guidance; outcomes depend on the chosen growth assumption.
                                                 </div>
-                                            )}
+                                            </div>
 
-                                            {/* Red-flag / forensic accounting signals */}
-                                            {(activeSubTab[6]??0) === 3 && (
-                                                <ForensicChecklist
-                                                    parsedJson={reportData.data.qualitative_analysis?.parsed_json}
-                                                />
-                                            )}
+                                            {/* ============ 7. RED-FLAG / FORENSIC SIGNALS ============ */}
+                                            <h3 className="font-heading text-sm font-bold text-slate-100 uppercase tracking-wider border-l-2 border-red-500 pl-3">Red Flags &amp; Watch-Items</h3>
+                                            <ForensicChecklist
+                                                parsedJson={reportData.data.qualitative_analysis?.parsed_json}
+                                                checklistItems={reportData.data.ai_summary?.investment_checklist?.items || []}
+                                            />
 
-                                            {/* Moat / quality assessment support */}
-                                            {(activeSubTab[6]??0) === 4 && (
-                                                <MoatAssessment
-                                                    parsedJson={reportData.data.qualitative_analysis?.parsed_json}
-                                                />
-                                            )}
+                                            {/* ============ AI SUMMARY — on-demand, collapsible, last ============ */}
+                                            {(() => {
+                                                const s = reportData.data.ai_summary || {};
+                                                if (!(s.narrative || []).length && !s.headline) return null;
+                                                return (
+                                                    <div className="border-t border-slate-800 pt-4">
+                                                        {!showSummary ? (
+                                                            <button onClick={() => setShowSummary(true)} className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600/15 border border-blue-500/30 rounded-lg text-blue-200 text-sm font-bold hover:bg-blue-600/25 transition">
+                                                                ✦ Summarise this stock (AI) ▾
+                                                            </button>
+                                                        ) : (
+                                                            <div className="p-5 bg-gradient-to-br from-blue-500/5 to-slate-950 border border-blue-500/20 rounded-lg space-y-3">
+                                                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                                        <span className="text-[9px] font-bold uppercase tracking-wider text-blue-200 bg-blue-500/15 border border-blue-500/30 px-2 py-1 rounded-md">✦ AI Summary</span>
+                                                                        {s.headline && <h3 className="font-heading text-sm font-bold text-slate-100">{s.headline}</h3>}
+                                                                    </div>
+                                                                    <button onClick={() => setShowSummary(false)} className="text-[10px] font-bold text-blue-300 hover:text-blue-200">Hide ▴</button>
+                                                                </div>
+                                                                <div className="space-y-2">
+                                                                    {(s.narrative || []).map((p, i) => <p key={i} className="text-xs text-slate-300 leading-relaxed">{p}</p>)}
+                                                                </div>
+                                                                {(s.positives?.length > 0 || s.risks?.length > 0) && (
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                                                                        {s.positives?.length > 0 && (
+                                                                            <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-lg">
+                                                                                <span className="text-[10px] text-slate-100 font-bold uppercase tracking-wider block mb-2 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500"></span>Key Positives</span>
+                                                                                <ul className="space-y-1.5">
+                                                                                    {s.positives.map((p, i) => <li key={i} className="text-[11px] text-slate-200 leading-snug flex gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0"></span><span>{p}</span></li>)}
+                                                                                </ul>
+                                                                            </div>
+                                                                        )}
+                                                                        {s.risks?.length > 0 && (
+                                                                            <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-lg">
+                                                                                <span className="text-[10px] text-slate-100 font-bold uppercase tracking-wider block mb-2 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500"></span>Key Risks / Watch-items</span>
+                                                                                <ul className="space-y-1.5">
+                                                                                    {s.risks.map((r, i) => <li key={i} className="text-[11px] text-slate-200 leading-snug flex gap-2"><span className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 flex-shrink-0"></span><span>{r}</span></li>)}
+                                                                                </ul>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                <p className="text-[9px] text-slate-500 pt-1">{s.method} Not investment advice.</p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
                                         </section>
                                     )}
 

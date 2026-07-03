@@ -19,6 +19,7 @@ class SystemState(TypedDict):
     business_score: int
     qualitative_analysis: dict
     peer_synthesis_data: dict
+    ai_summary: dict
     verdict: str
 
 # 2. Create core workflow nodes
@@ -351,8 +352,21 @@ def analyze_quality_node(state: SystemState) -> dict:
         "    \"pricing_power\": 8.0,\n"
         "    \"barriers_to_entry\": 9.0,\n"
         "    \"memo_text\": \"Durable moat assessment details (switching costs, brand equity, pricing power)\"\n"
+        "  },\n"
+        "  \"F-21\": {\n"
+        "    \"what_they_sell\": \"one plain sentence: what products/services the company actually sells\",\n"
+        "    \"revenue_drivers\": [\"how it makes money - key segments/products/streams WITH approx revenue share % if stated in the transcript\", \"...\"],\n"
+        "    \"key_customers_or_geographies\": [\"major customer types, end-markets or geographies it depends on\", \"...\"],\n"
+        "    \"key_partnerships\": [\"major partners, suppliers, strategic alliances, joint ventures\", \"...\"],\n"
+        "    \"key_activities\": [\"core activities the company performs to deliver its value proposition (e.g. manufacturing, R&D, distribution)\", \"...\"],\n"
+        "    \"value_propositions\": [\"what unique value it delivers to customers - why they choose this company\", \"...\"],\n"
+        "    \"customer_relationships\": [\"how the company acquires and retains customers (e.g. dedicated support, self-service, brand loyalty)\", \"...\"],\n"
+        "    \"customer_segments\": [\"distinct target customer groups or market segments\", \"...\"],\n"
+        "    \"key_resources\": [\"critical assets the company relies on - brand, IP, patents, infrastructure, talent\", \"...\"],\n"
+        "    \"channels\": [\"how the company delivers products/services to customers (e.g. direct sales, distributors, online, retail)\", \"...\"]\n"
         "  }\n"
         "}\n\n"
+        "IMPORTANT for F-21: base it STRICTLY on the transcript/business context provided. If the revenue split or customers are not stated, return an empty list rather than guessing.\n"
         "Respond ONLY with the raw JSON string. Do not include markdown block ticks like ```json or any introductory text. Ensure the output is valid JSON."
     )
     
@@ -484,6 +498,1152 @@ def analyze_quality_node(state: SystemState) -> dict:
         'qualitative_analysis': qualitative_payload
     }
 
+def _next_month_price(symbol: str, price0):
+    """Short-horizon ML: fit a linear regression on the last ~12 monthly closes and
+    project one month ahead with a ±1σ range. Best-effort; returns None on failure."""
+    try:
+        import numpy as np
+        import yfinance as yf
+        sym = (symbol or "").strip().upper().replace(".NS", "")
+        hist = yf.Ticker(f"{sym}.NS").history(period="2y", interval="1mo")
+        closes = [float(c) for c in (hist["Close"].tolist() if hist is not None and not hist.empty else []) if c and not (c != c)]
+        closes = closes[-13:]
+        if len(closes) < 6:
+            return None
+        y = np.array(closes[-12:]) if len(closes) >= 12 else np.array(closes)
+        xs = np.arange(len(y), dtype=float)
+        b, a = np.polyfit(xs, y, 1)
+        pred = a + b * len(y)
+        resid = float(np.std(y - (a + b * xs))) or (float(np.std(y)) * 0.5)
+        base = price0 or (closes[-1] if closes else None)
+        if not base or pred <= 0:
+            return None
+        return {
+            "value": round(float(pred)),
+            "low": round(float(pred - resid)),
+            "high": round(float(pred + resid)),
+            "change_pct": round((float(pred) - base) / base * 100, 1),
+        }
+    except Exception as e:
+        print(f"[ml_forecast] next-month price skipped: {e}")
+        return None
+
+
+def build_ml_forecast(m: dict, info: dict, symbol: str = None) -> dict:
+    """
+    ML fundamentals forecast (stock-specific): fits a log-linear regression on the
+    company's OWN multi-year revenue & net-income history and projects 3-5 years
+    forward with an 80% confidence band, then derives an implied price trajectory
+    (holding today's P/E). Transparent and grounded — not a generic guess. Returns
+    None when there isn't enough history. Never raises.
+    """
+    try:
+        import numpy as np
+        inc = ((m.get('F-01_Financial_Statements', {}) or {}).get('annual', {}) or {}).get('income_stmt', {}) or {}
+        dates = sorted(inc.keys())
+        if len(dates) < 3:
+            return None
+        base_year = int(dates[-1][:4])
+
+        def _series(names):
+            out = []
+            for d in dates:
+                row = inc[d] or {}
+                v = None
+                for nm in names:
+                    for k in row:
+                        if nm in k.lower().replace(' ', '') and row[k] is not None:
+                            v = row[k]; break
+                    if v is not None:
+                        break
+                out.append(v)
+            return out
+
+        rev = _series(['totalrevenue', 'operatingrevenue', 'revenue', 'sales'])
+        ni = _series(['netincomecommon', 'netincome', 'profitfortheperiod', 'netprofit'])
+
+        def _fit(vals, horizon=5):
+            pts = [(i, float(v)) for i, v in enumerate(vals) if v is not None and float(v) > 0]
+            if len(pts) < 3:
+                return None
+            xs = np.array([p[0] for p in pts], dtype=float)
+            ys = np.log(np.array([p[1] for p in pts]))
+            b, a = np.polyfit(xs, ys, 1)
+            pred = a + b * xs
+            ss_res = float(np.sum((ys - pred) ** 2))
+            ss_tot = float(np.sum((ys - ys.mean()) ** 2)) or 1e-9
+            r2 = max(0.0, 1 - ss_res / ss_tot)
+            sd = float(np.std(ys - pred)) or 0.12
+            g = float(np.exp(b) - 1)
+            last_i = pts[-1][0]
+            proj = []
+            for k in range(1, horizon + 1):
+                mu = float(np.exp(a + b * (last_i + k)))
+                band = 1.28 * sd * (k ** 0.5)  # ~80% interval, widening with horizon
+                proj.append({'k': k, 'value': mu,
+                             'low': float(mu * np.exp(-band)), 'high': float(mu * np.exp(band))})
+            return {'growth': g, 'r2': r2, 'proj': proj, 'last_value': pts[-1][1], 'last_i': last_i}
+
+        rf, nf = _fit(rev), _fit(ni)
+        if not rf and not nf:
+            return None
+
+        HORIZON = 5
+
+        def _mk_series(vals, fit):
+            """Actual points + forecast points (with band) sharing a year axis."""
+            rows = []
+            for i, v in enumerate(vals):
+                rows.append({'year': f"FY{str(base_year - (len(vals) - 1 - i))[2:]}",
+                             'actual': (round(v / 1e7) if v is not None else None),
+                             'forecast': None, 'low': None, 'high': None})
+            if fit:
+                # bridge: forecast line starts at the last actual for visual continuity
+                rows[-1]['forecast'] = rows[-1]['actual']
+                for p in fit['proj']:
+                    rows.append({'year': f"FY{str(base_year + p['k'])[2:]}", 'actual': None,
+                                 'forecast': round(p['value'] / 1e7),
+                                 'low': round(p['low'] / 1e7), 'high': round(p['high'] / 1e7)})
+            return rows
+
+        # Implied price path: hold today's P/E, scale by projected earnings growth.
+        price0 = info.get('currentPrice') or info.get('regularMarketPrice')
+        price_path, price_cagr, target_price = [], None, None
+        if nf and price0:
+            e0 = nf['last_value']
+            price_path.append({'year': f"FY{str(base_year)[2:]}", 'price': round(price0)})
+            for p in nf['proj']:
+                fp = price0 * (p['value'] / e0) if e0 else None
+                price_path.append({'year': f"FY{str(base_year + p['k'])[2:]}",
+                                   'price': round(fp) if fp else None,
+                                   'low': round(price0 * (p['low'] / e0)) if e0 else None,
+                                   'high': round(price0 * (p['high'] / e0)) if e0 else None})
+            p3 = next((x for x in nf['proj'] if x['k'] == 3), nf['proj'][-1])
+            if e0:
+                target_price = round(price0 * (p3['value'] / e0))
+                yrs = p3['k']
+                price_cagr = round(((p3['value'] / e0) ** (1 / yrs) - 1) * 100, 1)
+
+        conf_r2 = max([f['r2'] for f in [rf, nf] if f] or [0])
+        confidence = ('High' if conf_r2 >= 0.9 and len(dates) >= 5 else
+                      'Moderate' if conf_r2 >= 0.7 else 'Low')
+
+        next_month = _next_month_price(symbol, price0)
+
+        return {
+            'method': f"Log-linear regression on {len(dates)} years of financials (fit R²={round(conf_r2, 2)}).",
+            'confidence': confidence,
+            'next_month_price': next_month,
+            'horizon_years': HORIZON,
+            'revenue_series': _mk_series(rev, rf) if rf else [],
+            'earnings_series': _mk_series(ni, nf) if nf else [],
+            'revenue_cagr': round(rf['growth'] * 100, 1) if rf else None,
+            'earnings_cagr': round(nf['growth'] * 100, 1) if nf else None,
+            'current_price': round(price0) if price0 else None,
+            'target_price': target_price,
+            'price_cagr': price_cagr,
+            'price_path': price_path,
+            'note': "Projection assumes past fundamental trends persist and the P/E holds — "
+                    "real outcomes vary with execution, cycles and re-rating. Not investment advice.",
+        }
+    except Exception as e:
+        print(f"[ml_forecast] skipped: {e}")
+        return None
+
+
+def build_executive_summary(state: SystemState) -> dict:
+    """
+    Compose a DETAILED, data-driven AI summary of the stock from the full analysis
+    (quality score, profitability, growth, valuation, balance sheet, moat, ownership,
+    red flags, peer standing). Deterministic — always available (works even when the
+    LLM/Screener are unreachable), so the default page always has a rich summary.
+    """
+    m = state.get('calculated_metrics', {}) or {}
+    q = (state.get('qualitative_analysis', {}) or {}).get('parsed_json', {}) or {}
+    peer = state.get('peer_synthesis_data', {}) or {}
+    raw = state.get('raw_financial_data', {}) or {}
+    info = raw.get('info', {}) or {}
+    score = state.get('business_score', 0) or 0
+
+    name = m.get('company_name') or state.get('symbol')
+    symbol = state.get('symbol')
+    val = m.get('F-03_Valuation_Metrics', {}) or {}
+    growth = m.get('F-05_Growth_Summary', {}) or {}
+    margins = m.get('F-06_Margin_Analysis', {}) or {}
+    solvency = m.get('F-08_Solvency_Metrics', {}) or {}
+    cashq = m.get('F-09_Cash_Flow_Conversion', {}) or {}
+    ratios = m.get('F-02_Ratio_Analysis', []) or []
+    latest_ratio = ratios[-1] if ratios else {}
+    dcf = (m.get('F-18_Reverse_DCF', {}) or {}).get('scenarios', {}) or {}
+    f14 = q.get('F-14', {}) or {}
+    f15 = q.get('F-15', {}) or {}
+    f16 = q.get('F-16', {}) or {}
+    f20 = q.get('F-20', {}) or {}
+    own = m.get('F-10_F-11_F-12_Ownership', {}) or {}
+    cap_tier = peer.get('cap_tier')
+    spv = peer.get('screener_peer_view') or {}
+    sector = (spv.get('ai_guidance') or {}).get('sector_guess') or peer.get('sector')
+
+    # Pull the multi-year Screener series (cached) so the summary can describe the
+    # actual trajectory (ROCE trend, margin trend, long-run growth) — this is what
+    # makes it specific to the company rather than generic.
+    moat_data = {}
+    try:
+        from tools.screener_scraper import fetch_screener_moat_data
+        moat_data = fetch_screener_moat_data(symbol, name=name) or {}
+    except Exception:
+        moat_data = {}
+
+    def pct(x, d=1):
+        try:
+            return f"{x * 100:.{d}f}%"
+        except Exception:
+            return None
+
+    def num(x, d=1):
+        try:
+            return f"{float(x):.{d}f}"
+        except Exception:
+            return None
+
+    def cr(x):
+        try:
+            v = float(x) / 1e7
+            return f"₹{v:,.0f} Cr" if abs(v) >= 1 else f"₹{float(x):,.0f}"
+        except Exception:
+            return None
+
+    def as_float(x):
+        try:
+            if x is None or x == "":
+                return None
+            return float(x)
+        except Exception:
+            return None
+
+    def first_value(*values):
+        for value in values:
+            if value is not None and value != "":
+                return value
+        return None
+
+    def pct_flex(x, d=1):
+        try:
+            v = float(x)
+            return f"{v * 100:.{d}f}%" if abs(v) <= 1 else f"{v:.{d}f}%"
+        except Exception:
+            return None
+
+    def text_list(items):
+        if isinstance(items, list):
+            return " ".join(str(x) for x in items if x)
+        return str(items or "")
+
+    def _stmt_series(row_names):
+        grid = ((m.get('F-01_Financial_Statements', {}) or {}).get('annual', {}) or {}).get('income_stmt', {}) or {}
+        dates = sorted(grid.keys())
+        out = []
+        for d in dates:
+            row = grid[d] or {}
+            v = None
+            for rn in row_names:
+                for k in row:
+                    if rn in k.lower().replace(' ', ''):
+                        v = row[k]; break
+                if v is not None:
+                    break
+            out.append((d, v))
+        return [(d, v) for d, v in out if v is not None]
+
+    def _trend(series):
+        vals = [v for v in (series or []) if v is not None]
+        if len(vals) < 2:
+            return None
+        if vals[-1] > vals[0] * 1.08:
+            return "expanding"
+        if vals[-1] < vals[0] * 0.92:
+            return "compressing"
+        return "broadly stable"
+
+    quality_word = ("high-quality" if score >= 75 else "above-average" if score >= 55
+                    else "average" if score >= 40 else "below-average")
+    cap_word = (cap_tier or "").lower()
+
+    roce = latest_ratio.get('ROCE') if latest_ratio.get('ROCE') is not None else (
+        (moat_data.get('roce_latest') / 100.0) if moat_data.get('roce_latest') is not None else None)
+    roe = latest_ratio.get('ROE') if latest_ratio.get('ROE') is not None else (
+        (moat_data.get('roe_last') / 100.0) if moat_data.get('roe_last') is not None else None)
+    opm = (margins.get('margins_annual') or [{}])[-1].get('ebit_margin') if margins.get('margins_annual') else None
+    prom = first_value(own.get('promoter_stake'), own.get('F-10_heldPercentInsiders'), own.get('heldPercentInsiders'))
+    pledge = first_value(own.get('promoter_pledge_of_stake'), own.get('F-11_promoterPledges'), own.get('promoterPledges'))
+    pledge_num = as_float(pledge)
+    own_hist = own.get('ownership_history') or []
+
+    paras = []
+
+    # 1) What it is + scale.
+    biz = (info.get('longBusinessSummary') or "").strip()
+    biz_short = ""
+    if biz:
+        biz_short = biz.split('. ')[0].rstrip('.')
+        if len(biz_short) > 220:
+            biz_short = biz_short[:217] + "…"
+    rev_series = _stmt_series(['totalrevenue', 'operatingrevenue', 'revenue', 'sales'])
+    latest_rev = rev_series[-1][1] if rev_series else None
+    mcap = info.get('marketCap')
+    lead = f"{name} ({symbol}) is a"
+    lead += f" {cap_word}" if cap_word else "n"
+    lead += f" {sector} company" if sector else " listed company"
+    scale_bits = []
+    if latest_rev: scale_bits.append(f"annual revenue of about {cr(latest_rev)}")
+    if mcap: scale_bits.append(f"a market capitalisation of {cr(mcap)}")
+    if scale_bits:
+        lead += " with " + " and ".join(scale_bits)
+    lead += f". On our composite quality model it scores {score}/100 — a {quality_word} business."
+    paras.append(lead)
+    if biz_short:
+        paras.append(f"Business: {biz_short}.")
+
+    # 2) How it has performed over the years (the trajectory, with real numbers).
+    sg5 = moat_data.get('sales_growth_5y'); pg5 = moat_data.get('profit_growth_5y')
+    sg3 = moat_data.get('sales_growth_3y'); pg3 = moat_data.get('profit_growth_3y')
+    roce_hist = moat_data.get('roce_history') or []
+    opm_hist = moat_data.get('opm_history') or []
+    perf = "Track record: "
+    seg = []
+    if sg5 is not None: seg.append(f"revenue has compounded ~{num(sg5,0)}% a year over five years")
+    elif sg3 is not None: seg.append(f"revenue has compounded ~{num(sg3,0)}% a year over three years")
+    if pg5 is not None: seg.append(f"profit ~{num(pg5,0)}% a year")
+    elif pg3 is not None: seg.append(f"profit ~{num(pg3,0)}% a year")
+    rev_range = None
+    if rev_series and len(rev_series) >= 2:
+        rev_range = f"revenue moved from {cr(rev_series[0][1])} to {cr(rev_series[-1][1])} over the years on file"
+    if seg:
+        perf += ", ".join(seg) + (f", with {rev_range}." if rev_range else ".")
+    elif rev_range:
+        perf += rev_range[0].upper() + rev_range[1:] + "."
+    else:
+        perf += "multi-year growth data is limited for this company."
+    # Margin & ROCE direction
+    mt = _trend(opm_hist)
+    rt = _trend(roce_hist)
+    tail = []
+    if mt: tail.append(f"operating margins have been {mt} ({num(min(opm_hist),0)}–{num(max(opm_hist),0)}%)")
+    if rt: tail.append(f"and returns on capital {rt} ({num(min(roce_hist),0)}–{num(max(roce_hist),0)}%)")
+    if tail:
+        perf += " Over the same window, " + " ".join(tail) + "."
+    paras.append(perf)
+
+    # 3) Profitability now.
+    prof_bits = []
+    if roce is not None: prof_bits.append(f"ROCE of {pct(roce)}")
+    if roe is not None: prof_bits.append(f"ROE of {pct(roe)}")
+    if opm is not None: prof_bits.append(f"operating margins of {pct(opm)}")
+    if prof_bits:
+        mtag = margins.get('margin_status_tag')
+        interp = ("which points to a genuinely high-return business" if (roce or 0) > 0.20
+                  else "which is around the cost of capital" if (roce or 0) > 0.10
+                  else "which is on the low side")
+        paras.append("Profitability today: it earns " + ", ".join(prof_bits) + f", {interp}" +
+                     (f", and margins are {str(mtag).lower()}." if mtag else "."))
+
+    # 4) Balance sheet & cash.
+    de = solvency.get('debt_to_equity'); cfo_pat = cashq.get('CFO_to_PAT'); ccc = moat_data.get('cash_conversion_cycle')
+    bs = []
+    if de is not None: bs.append(f"debt-to-equity of {num(de, 2)}" + (" (effectively debt-free)" if de < 0.25 else ""))
+    if cfo_pat is not None: bs.append(f"cash conversion (operating cash flow ÷ profit) of {num(cfo_pat, 2)}" + (" — profits convert well into cash" if cfo_pat >= 0.8 else " — cash conversion is weak" if cfo_pat < 0.5 else ""))
+    if ccc is not None: bs.append(f"a cash-conversion cycle of {num(ccc,0)} days")
+    if bs:
+        paras.append("Balance sheet & cash: " + ", ".join(bs) + ".")
+
+    # 5) Valuation with context + fair value.
+    pe = val.get('PE'); pb = val.get('PB')
+    pe_band = val.get('pe_band') or {}
+    if pe is not None or pb is not None:
+        v = "Valuation: the stock trades at "
+        segs = []
+        if pe is not None: segs.append(f"a P/E of {num(pe)}")
+        if pb is not None: segs.append(f"a P/B of {num(pb)}")
+        v += " and ".join(segs)
+        if pe is not None and pe_band.get('median'):
+            v += f", versus a 5-year median P/E of {num(pe_band['median'])} ({'a premium to' if pe > pe_band['median'] else 'a discount to'} its own history)"
+        gg = pg5 or pg3
+        if pe is not None and gg:
+            v += (f". Against ~{num(gg,0)}% profit growth, the market is paying up for quality/stability" if pe > 1.5 * gg
+                  else f". Relative to ~{num(gg,0)}% profit growth, that is not demanding")
+        v += "."
+        paras.append(v)
+    base_fv = dcf.get('Base_Value'); price = val.get('last_price') or info.get('currentPrice')
+    if base_fv and price:
+        try:
+            up = (base_fv - price) / price * 100
+            paras.append(f"Our reverse-DCF puts base-case fair value near ₹{base_fv:,.0f} against a price of ₹{price:,.0f} — about {up:+.0f}% {'upside' if up >= 0 else 'downside'} on base assumptions (sensitive to the growth/discount inputs).")
+        except Exception:
+            pass
+
+    # 6) Moat.
+    if f20.get('moat_strength') and f20.get('moat_strength') != 'Unrated':
+        mo = f"Competitive moat: assessed {f20.get('moat_strength')}"
+        if f20.get('moat_score') is not None:
+            mo += f" ({f20.get('moat_score')}/100)"
+        sig = (f20.get('signals') or [])
+        if sig:
+            mo += f" — {sig[0][0].lower() + sig[0][1:]}"
+        if f20.get('warnings'):
+            mo += f" That said, {f20['warnings'][0][0].lower() + f20['warnings'][0][1:]}"
+        paras.append(mo)
+
+    # 7) Ownership.
+    if prom is not None:
+        o = f"Ownership: promoters hold {pct_flex(prom)}"
+        if pledge_num and pledge_num > 0:
+            o += f", with {pct_flex(pledge_num)} of their stake pledged — a governance watch-item"
+        else:
+            o += " with no pledging on record"
+        paras.append(o + ".")
+
+    # 8) Outlook / what to expect (scenario-based, not a point forecast).
+    base_g = (f15.get('base') or {}).get('revenue_growth')
+    bull_g = (f15.get('bull') or {}).get('revenue_growth')
+    bear_g = (f15.get('bear') or {}).get('revenue_growth')
+    guidance = (q.get('F-14', {}) or {}).get('guidance')
+    if base_g is not None or bull_g is not None:
+        out = "Outlook: our scenario model frames the next few years at roughly "
+        out += f"{num(bear_g,0)}% (bear) / {num(base_g,0)}% (base) / {num(bull_g,0)}% (bull) revenue growth"
+        out += ". " + ("Sustained high returns plus that growth would let it compound shareholder value steadily" if (roce or 0) > 0.18
+                       else "Execution on growth while lifting returns on capital is the key swing factor")
+        out += "."
+        if guidance and isinstance(guidance, str) and len(guidance) > 4 and guidance not in ('—',):
+            out += f" Management guidance: {guidance[:200]}"
+        paras.append(out)
+
+    # 9) Management commentary — latest concall / annual-report read.
+    if f14.get('summary'):
+        cc = f"Management commentary (latest concall): {str(f14['summary']).strip()}"
+        if f14.get('tone'):
+            cc += f" Overall tone: {str(f14['tone']).lower()}."
+        paras.append(cc)
+
+    # 10) Forensic read — what the red-flag checks actually found.
+    checks = f16.get('checks') or []
+    if checks:
+        passed = [c for c in checks if str(c.get('status', '')).upper() == 'PASS']
+        flagged = [c for c in checks if str(c.get('status', '')).upper() != 'PASS']
+        fr = f"Forensic screen: {len(passed)} of {len(checks)} accounting checks pass ({str(f16.get('risk_level', '—')).lower()} overall risk)"
+        if flagged:
+            fr += " — flagged: " + "; ".join(f"{c.get('name')} ({c.get('status')})" for c in flagged[:2])
+        paras.append(fr + ".")
+
+    # 11) Size-aware framing.
+    if cap_word.startswith('small'):
+        paras.append("Because this is a small-cap, expect higher share-price volatility, thinner liquidity and greater dependence on a few customers/promoters — position sizing and a longer horizon matter more here.")
+    elif cap_word.startswith('mid'):
+        paras.append("As a mid-cap it sits between growth potential and stability — more re-rating scope than large-caps but more cyclicality than blue-chips.")
+    elif cap_word.startswith('large'):
+        paras.append("As a large-cap it offers relative stability, liquidity and institutional coverage, with more modest (but more dependable) growth than smaller peers.")
+
+    # ------------------------------------------------------------------
+    # INVESTMENT VIEW — "should one consider investing?" (absolute score)
+    # Weighted blend of quality, moat, valuation, growth and risk. Distinct
+    # from the peer rank below, which is relative to similar-sized peers.
+    # ------------------------------------------------------------------
+    moat_sc = f20.get('moat_score')
+    upside = None
+    if base_fv and price:
+        try:
+            upside = (base_fv - price) / price * 100
+        except Exception:
+            upside = None
+    val_score = None
+    if upside is not None:
+        val_score = 100 if upside >= 30 else 75 if upside >= 10 else 50 if upside >= -10 else 25 if upside >= -30 else 5
+    if pe is not None and pe_band.get('median'):
+        band_score = 75 if pe <= pe_band['median'] else 35
+        val_score = band_score if val_score is None else round(0.7 * val_score + 0.3 * band_score)
+    gg2 = pg5 if pg5 is not None else pg3
+    growth_score = max(0, min(100, round((gg2 - 5) / 20 * 100))) if gg2 is not None else None
+    risk_score = 100
+    rl = str(f16.get('risk_level') or '').lower()
+    if 'high' in rl:
+        risk_score = 20
+    elif 'med' in rl or 'moderate' in rl:
+        risk_score = 60
+    if pledge_num and pledge_num > 0:
+        risk_score = max(0, risk_score - (30 if pledge_num > 25 else 15))
+
+    comp_parts, comp_wts, comp_detail = [], [], []
+    for label, v, w in [("Business quality", score, 0.30), ("Moat", moat_sc, 0.25),
+                        ("Valuation", val_score, 0.20), ("Growth", growth_score, 0.15),
+                        ("Risk (forensics/pledge)", risk_score, 0.10)]:
+        if v is not None:
+            comp_parts.append(v * w)
+            comp_wts.append(w)
+            comp_detail.append({"label": label, "score": round(v), "weight": int(w * 100)})
+    invest_score = round(sum(comp_parts) / sum(comp_wts)) if comp_wts else None
+
+    if invest_score is None:
+        verdict_label, verdict_reason = "Insufficient data", "Not enough inputs to form a view."
+    elif invest_score >= 70:
+        verdict_label = "Strong candidate"
+        verdict_reason = "Quality, moat and valuation broadly align — merits serious research for a position."
+    elif invest_score >= 55:
+        verdict_label = "Attractive, with caveats"
+        verdict_reason = "Good business with at least one weak link (valuation, growth or risk) — buy discipline matters."
+    elif invest_score >= 40:
+        verdict_label = "Watchlist"
+        verdict_reason = "Not compelling today — track for improvement in returns, growth or price."
+    else:
+        verdict_label = "Avoid for now"
+        verdict_reason = "Weak fundamentals and/or unfavourable risk-reward at the current price."
+
+    investment_view = {
+        "invest_score": invest_score,
+        "verdict": verdict_label,
+        "reason": verdict_reason,
+        "components": comp_detail,
+        "upside_pct": round(upside) if upside is not None else None,
+        "note": "Absolute view: graded against fixed thresholds (not against peers). Not investment advice.",
+    }
+
+    # ------------------------------------------------------------------
+    # PEER RANK — relative standing among SIMILAR-SIZED sector peers only.
+    # ------------------------------------------------------------------
+    tb = (spv.get('tier_benchmark') or {}) if spv else {}
+    peer_rank = None
+    if tb.get('rank'):
+        peer_rank = {
+            "tier": tb.get("tier"),
+            "rank": tb.get("rank"),
+            "of": tb.get("of"),
+            "percentile": tb.get("overall_percentile"),
+            "ranking": tb.get("ranking") or [],
+            "peer_names": tb.get("peer_names") or [],
+            "note": f"Ranked only against {tb.get('of', 0) - 1} other {str(tb.get('tier', '')).lower()} companies in its industry — "
+                    "similar-sized businesses with comparable growth runway, never index giants.",
+        }
+        paras.append(
+            f"Peer standing: among {tb.get('of')} comparable {str(tb.get('tier','')).lower()} peers it ranks #{tb.get('rank')}"
+            + (f" ({tb.get('overall_percentile')}th percentile)" if tb.get('overall_percentile') is not None else "")
+            + ". We deliberately rank it only against similar-sized companies in its industry, not mega-caps."
+        )
+    elif spv and (spv.get('ranking') or spv.get('overall_percentile') is not None):
+        # Not enough same-tier peers for a tier benchmark — still show EVERY peer's
+        # percentile across the full industry peer set (what the user asked for).
+        peer_rank = {
+            "tier": cap_tier, "rank": None, "of": len(spv.get('ranking') or []) or None,
+            "percentile": spv.get('overall_percentile'),
+            "ranking": spv.get('ranking') or [],
+            "peer_names": [p.get('name') for p in (spv.get('peers') or [])[:8]],
+            "note": "Ranked against its full industry peer set (too few exact same-size peers for a size-league benchmark).",
+        }
+
+    # ------------------------------------------------------------------
+    # INVESTMENT CHECKLIST - the user's default lens. Each row is grounded in
+    # actual data when available; otherwise it is explicitly marked insufficient.
+    # ------------------------------------------------------------------
+    checklist = []
+
+    def add_check(category, question, status, severity, evidence, parameter):
+        checklist.append({
+            "category": category,
+            "question": question,
+            "status": status,
+            "severity": severity,
+            "evidence": evidence,
+            "parameter": parameter,
+            "red_flag": status == "RED FLAG",
+        })
+
+    def status_from(value, good, watch, evidence_good, evidence_watch, evidence_bad, parameter, category, question):
+        if value is None:
+            add_check(category, question, "INSUFFICIENT DATA", 1, "No reliable field was available in this run.", parameter)
+        elif good(value):
+            add_check(category, question, "PASS", 0, evidence_good(value), parameter)
+        elif watch(value):
+            add_check(category, question, "WATCH", 2, evidence_watch(value), parameter)
+        else:
+            add_check(category, question, "RED FLAG", 3, evidence_bad(value), parameter)
+
+    def one_line(value, fallback="Not available"):
+        return value if value else fallback
+
+    def stability_score(vals):
+        clean = [as_float(v) for v in (vals or []) if as_float(v) is not None]
+        if len(clean) < 3:
+            return None
+        mean = sum(clean) / len(clean)
+        if abs(mean) < 1e-9:
+            return None
+        variance = sum((v - mean) ** 2 for v in clean) / len(clean)
+        cov = (variance ** 0.5) / abs(mean)
+        return max(0, min(1, 1 - cov / 0.5))
+
+    def contains_any(text, words):
+        hay = text_list(text).lower()
+        return any(w in hay for w in words)
+
+    rev_cagr_pct = first_value(
+        sg5,
+        sg3,
+        (growth.get('cagr_3y_revenue') * 100) if growth.get('cagr_3y_revenue') is not None else None,
+    )
+    pat_cagr_pct = first_value(
+        pg5,
+        pg3,
+        (growth.get('cagr_3y_pat') * 100) if growth.get('cagr_3y_pat') is not None else None,
+    )
+    latest_growth = (growth.get('growth_trends') or [])[-1] if growth.get('growth_trends') else {}
+    prev_growth = (growth.get('growth_trends') or [])[-2] if len(growth.get('growth_trends') or []) >= 2 else {}
+    latest_rev_g = latest_growth.get('revenue_growth_yoy')
+    latest_pat_g = latest_growth.get('pat_growth_yoy')
+    opm_stability = stability_score(opm_hist)
+    roce_track = moat_data.get('roe_3y') or moat_data.get('roe_5y') or moat_data.get('roe_last')
+    peer_pct = (peer_rank or {}).get('percentile')
+    sector_pcts = ((peer.get('sector_benchmark') or {}).get('percentiles') or {})
+    rel_profit_pct = first_value(sector_pcts.get('roe'), peer_pct)
+    rel_valuation_pct = sector_pcts.get('pe')
+    f14_text = " ".join([
+        str(f14.get('summary') or ""),
+        text_list(f14.get('risks')),
+        text_list(f14.get('what_matters')),
+        str(f14.get('guidance') or ""),
+    ])
+    f16_checks = f16.get('checks') or []
+    related_check = next((c for c in f16_checks if "related" in str(c.get('name', '')).lower()), None)
+
+    add_check(
+        "Business & Industry",
+        "Do I clearly understand how this company makes money?",
+        "PASS" if biz_short else "INSUFFICIENT DATA",
+        0 if biz_short else 1,
+        one_line(biz_short, "Business description was not available from the source payload."),
+        "Requires a clear business description / segment understanding.",
+    )
+    status_from(
+        rev_cagr_pct,
+        lambda v: v >= 8,
+        lambda v: v >= 0,
+        lambda v: f"Revenue growth is healthy at about {num(v, 1)}% CAGR.",
+        lambda v: f"Revenue growth is positive but modest at about {num(v, 1)}% CAGR.",
+        lambda v: f"Revenue CAGR is negative at about {num(v, 1)}%, implying shrinkage.",
+        "Growing: >=8% CAGR; stable: 0-8%; shrinking: <0%.",
+        "Business & Industry",
+        "Is the industry growing, stable, or shrinking?",
+    )
+    pricing = as_float(f20.get('pricing_power'))
+    status_from(
+        pricing,
+        lambda v: v >= 7,
+        lambda v: v >= 4,
+        lambda v: f"Pricing-power score is {num(v, 1)}/10, supported by margin/moat data.",
+        lambda v: f"Pricing-power score is only {num(v, 1)}/10; monitor margin resilience.",
+        lambda v: f"Pricing-power score is weak at {num(v, 1)}/10.",
+        "Pricing power: >=7 strong, 4-6 watch, <4 weak.",
+        "Business & Industry",
+        "Does the company have pricing power?",
+    )
+    moat_sc = f20.get('moat_score')
+    competition_value = first_value(moat_sc, peer_pct)
+    status_from(
+        competition_value,
+        lambda v: v >= 60,
+        lambda v: v >= 35,
+        lambda v: f"Moat/peer signal is healthy at {num(v, 0)}; competition appears manageable.",
+        lambda v: f"Moat/peer signal is middling at {num(v, 0)}; competition needs monitoring.",
+        lambda v: f"Moat/peer signal is weak at {num(v, 0)}, suggesting intense competition.",
+        "Uses moat score first, then peer percentile. >=60 good; 35-59 watch; <35 red.",
+        "Business & Industry",
+        "How intense is competition?",
+    )
+    cyclicality_value = opm_stability
+    status_from(
+        cyclicality_value,
+        lambda v: v >= 0.65 and margins.get('margin_status_tag') != 'DETERIORATING',
+        lambda v: v >= 0.35,
+        lambda v: f"Operating margins have been relatively stable; stability score {num(v, 2)}.",
+        lambda v: f"Margins show some variability; stability score {num(v, 2)}.",
+        lambda v: f"Margins are volatile or deteriorating; stability score {num(v, 2)}.",
+        "Predictability uses operating-margin stability: >=0.65 pass, 0.35-0.64 watch, <0.35 red.",
+        "Business & Industry",
+        "Is the business cyclical or predictable?",
+    )
+
+    tone = str(f14.get('tone') or "").lower()
+    mgmt_value = None if not tone and pledge is None else 0
+    if mgmt_value is not None:
+        mgmt_value = 80
+        if "negative" in tone:
+            mgmt_value = 25
+        elif "cautious" in tone:
+            mgmt_value = 55
+        if pledge_num and pledge_num > 25:
+            mgmt_value = min(mgmt_value, 35)
+        elif pledge_num and pledge_num > 0:
+            mgmt_value = min(mgmt_value, 60)
+    status_from(
+        mgmt_value,
+        lambda v: v >= 70,
+        lambda v: v >= 45,
+        lambda v: f"Management tone is {tone or 'available'} and promoter pledge is {pct_flex(pledge_num or 0)}.",
+        lambda v: f"Management/governance needs monitoring: tone={tone or 'not available'}, pledge={pct_flex(pledge_num or 0)}.",
+        lambda v: f"Governance red flag: tone={tone or 'not available'}, pledge={pct_flex(pledge_num or 0)}.",
+        "Positive/neutral tone and low pledge pass; negative tone or high pledge is a red flag.",
+        "Management & Governance",
+        "Is the promoter/management credible and respected?",
+    )
+    bad_times_evidence = contains_any(f14_text, ["slowdown", "downturn", "covid", "recession", "weak demand", "bad times", "challenging"])
+    add_check(
+        "Management & Governance",
+        "How has management behaved in bad times?",
+        "WATCH" if bad_times_evidence else "INSUFFICIENT DATA",
+        2 if bad_times_evidence else 1,
+        "Management commentary mentions stress-period execution; read the concall notes for detail." if bad_times_evidence else "No explicit bad-times track record was captured in this run.",
+        "Needs evidence from prior downturns, concalls, annual reports, or capital-allocation history.",
+    )
+    prom_delta = None
+    prom_vals = [as_float(h.get('promoter')) for h in own_hist if as_float(h.get('promoter')) is not None]
+    if len(prom_vals) >= 2:
+        prom_delta = prom_vals[-1] - prom_vals[0]
+    status_from(
+        prom_delta,
+        lambda v: v >= -1,
+        lambda v: v >= -3,
+        lambda v: f"Promoter holding is stable/increasing over the available history ({num(v, 1)} pp change).",
+        lambda v: f"Promoter holding has slipped modestly ({num(v, 1)} pp change).",
+        lambda v: f"Promoter holding has fallen materially ({num(v, 1)} pp change).",
+        "Stable/increasing: change >= -1 percentage point; -1 to -3 watch; below -3 red.",
+        "Management & Governance",
+        "Is promoter shareholding stable or increasing?",
+    )
+    if related_check:
+        rel_status = "PASS" if str(related_check.get('status', '')).upper() == "PASS" else "RED FLAG"
+        add_check(
+            "Management & Governance",
+            "Are related-party transactions reasonable?",
+            rel_status,
+            0 if rel_status == "PASS" else 3,
+            related_check.get('details') or "Related-party check was present in forensic screen.",
+            "Uses forensic related-party transaction check when available.",
+        )
+    else:
+        add_check(
+            "Management & Governance",
+            "Are related-party transactions reasonable?",
+            "INSUFFICIENT DATA",
+            1,
+            "No related-party transaction field/check was available in this run.",
+            "Requires annual-report RPT schedule or a specific forensic RPT check.",
+        )
+    add_check(
+        "Management & Governance",
+        "Does management communicate clearly and honestly?",
+        "PASS" if f14.get('summary') and "negative" not in tone else "WATCH" if f14.get('summary') else "INSUFFICIENT DATA",
+        0 if f14.get('summary') and "negative" not in tone else 2 if f14.get('summary') else 1,
+        "Latest concall/annual-report summary and guidance were captured." if f14.get('summary') else "No grounded management commentary was captured.",
+        "Requires recent commentary with concrete guidance, risks, and numbers.",
+    )
+
+    de = solvency.get('debt_to_equity')
+    status_from(
+        de,
+        lambda v: v < 0.7,
+        lambda v: v < 1.2,
+        lambda v: f"Debt/equity is comfortable at {num(v, 2)}x.",
+        lambda v: f"Debt/equity is moderate at {num(v, 2)}x.",
+        lambda v: f"Debt/equity is high at {num(v, 2)}x.",
+        "Comfortable D/E <0.7x; 0.7-1.2x watch; >1.2x red.",
+        "Financial Quality",
+        "Is debt at a comfortable level?",
+    )
+    ic = solvency.get('interest_coverage')
+    debt_service_value = 99 if (de is not None and de < 0.3 and ic is None) else ic
+    status_from(
+        debt_service_value,
+        lambda v: v >= 4,
+        lambda v: v >= 2,
+        lambda v: "Interest coverage is strong or leverage is effectively low.",
+        lambda v: f"Interest coverage is only {num(v, 2)}x.",
+        lambda v: f"Interest coverage is weak at {num(v, 2)}x.",
+        "Interest coverage >=4x pass; 2-4x watch; <2x red. Low-debt companies pass.",
+        "Financial Quality",
+        "Can the company easily service its debt?",
+    )
+    ccc = moat_data.get('cash_conversion_cycle')
+    status_from(
+        ccc,
+        lambda v: v <= 90,
+        lambda v: v <= 180,
+        lambda v: f"Cash-conversion cycle is under control at {num(v, 0)} days.",
+        lambda v: f"Cash-conversion cycle is stretched at {num(v, 0)} days.",
+        lambda v: f"Cash-conversion cycle is high at {num(v, 0)} days.",
+        "CCC <=90 days pass; 91-180 watch; >180 red.",
+        "Financial Quality",
+        "Is working capital under control?",
+    )
+    cfo_pat = cashq.get('CFO_to_PAT')
+    status_from(
+        cfo_pat,
+        lambda v: v >= 0.8,
+        lambda v: v >= 0.5,
+        lambda v: f"CFO/PAT is healthy at {num(v, 2)}x.",
+        lambda v: f"CFO/PAT is middling at {num(v, 2)}x.",
+        lambda v: f"CFO/PAT is weak at {num(v, 2)}x; profits may not be cash-backed.",
+        "CFO/PAT >=0.8x pass; 0.5-0.8x watch; <0.5x red.",
+        "Financial Quality",
+        "Does the company generate real cash, not just accounting profits?",
+    )
+    status_from(
+        roce_track,
+        lambda v: v >= 15,
+        lambda v: v >= 10,
+        lambda v: f"ROE track record is healthy at about {num(v, 1)}%.",
+        lambda v: f"ROE track record is average at about {num(v, 1)}%.",
+        lambda v: f"ROE track record is weak at about {num(v, 1)}%.",
+        "ROE track record >=15% pass; 10-15% watch; <10% red.",
+        "Financial Quality",
+        "Has return on equity been consistently healthy?",
+    )
+    margin_value = None
+    if opm is not None:
+        margin_value = 80 if margins.get('margin_status_tag') in ("STABLE", "IMPROVING") else 45
+        if opm_stability is not None and opm_stability < 0.35:
+            margin_value = 30
+    status_from(
+        margin_value,
+        lambda v: v >= 70,
+        lambda v: v >= 40,
+        lambda v: f"Margins are {str(margins.get('margin_status_tag', 'stable')).lower()} with latest EBIT margin {pct(opm)}.",
+        lambda v: f"Margins need watching: status {margins.get('margin_status_tag')}, latest EBIT margin {pct(opm)}.",
+        lambda v: f"Margin pattern is weak/volatile: status {margins.get('margin_status_tag')}.",
+        "Stable/improving margins pass; deterioration or volatility is a watch/red flag.",
+        "Financial Quality",
+        "Are margins stable or improving over time?",
+    )
+    growth_support_value = None
+    if rev_cagr_pct is not None and pat_cagr_pct is not None:
+        growth_support_value = 80 if pat_cagr_pct >= max(0, rev_cagr_pct * 0.6) else 45 if pat_cagr_pct > 0 else 20
+    status_from(
+        growth_support_value,
+        lambda v: v >= 70,
+        lambda v: v >= 40,
+        lambda v: f"Profit growth ({num(pat_cagr_pct, 1)}%) supports revenue growth ({num(rev_cagr_pct, 1)}%).",
+        lambda v: f"Profit growth ({num(pat_cagr_pct, 1)}%) lags revenue growth ({num(rev_cagr_pct, 1)}%).",
+        lambda v: f"Revenue growth is not translating into profit growth: PAT CAGR {num(pat_cagr_pct, 1)}%.",
+        "PAT growth should be positive and at least ~60% of revenue growth.",
+        "Financial Quality",
+        "Is revenue growth supported by profit growth?",
+    )
+    status_from(
+        rel_profit_pct,
+        lambda v: v >= 60,
+        lambda v: v >= 40,
+        lambda v: f"Profitability stands well versus peers (percentile {num(v, 0)}).",
+        lambda v: f"Profitability is around peer average (percentile {num(v, 0)}).",
+        lambda v: f"Profitability trails peers (percentile {num(v, 0)}).",
+        "Peer profitability percentile >=60 pass; 40-59 watch; <40 red.",
+        "Financial Quality",
+        "How does profitability compare with peers?",
+    )
+    slowdown_value = None
+    if latest_rev_g is not None and prev_growth.get('revenue_growth_yoy') is not None:
+        slowing = latest_rev_g < prev_growth.get('revenue_growth_yoy')
+        margin_ok = margins.get('margin_status_tag') in ("STABLE", "IMPROVING")
+        slowdown_value = 80 if slowing and margin_ok else 45 if slowing else 70
+    status_from(
+        slowdown_value,
+        lambda v: v >= 70,
+        lambda v: v >= 40,
+        lambda v: "Cost control looks acceptable during the latest growth phase.",
+        lambda v: "Growth slowed and cost/margin control needs monitoring.",
+        lambda v: "Growth slowed with poor margin control.",
+        "Checks latest revenue slowdown against margin trend.",
+        "Financial Quality",
+        "Is cost control visible during slowdowns?",
+    )
+    status_from(
+        roce,
+        lambda v: v >= 0.15,
+        lambda v: v >= 0.10,
+        lambda v: f"ROCE is efficient at {pct(v)}.",
+        lambda v: f"ROCE is average at {pct(v)}.",
+        lambda v: f"ROCE is weak at {pct(v)}.",
+        "ROCE >=15% pass; 10-15% watch; <10% red.",
+        "Financial Quality",
+        "Is capital employed efficiently?",
+    )
+
+    priced_value = None
+    if pe is not None:
+        priced_value = 80
+        if gg2 is not None and pe > max(40, 2 * gg2):
+            priced_value = 25
+        elif gg2 is not None and pe > max(25, 1.5 * gg2):
+            priced_value = 45
+    status_from(
+        priced_value,
+        lambda v: v >= 70,
+        lambda v: v >= 40,
+        lambda v: f"P/E of {num(pe, 1)} does not look priced for perfection against available growth.",
+        lambda v: f"P/E of {num(pe, 1)} needs discipline against growth of {num(gg2, 1) if gg2 is not None else 'N/A'}%.",
+        lambda v: f"P/E of {num(pe, 1)} appears demanding versus growth of {num(gg2, 1) if gg2 is not None else 'N/A'}%.",
+        "Flags perfection risk when P/E is very high versus profit growth.",
+        "Valuation & Risk",
+        "Is the stock priced for perfection?",
+    )
+    own_history_value = None
+    if pe is not None and pe_band.get('median'):
+        premium = (pe / pe_band['median']) - 1
+        own_history_value = 80 if premium <= 0 else 45 if premium <= 0.25 else 25
+    status_from(
+        own_history_value,
+        lambda v: v >= 70,
+        lambda v: v >= 40,
+        lambda v: f"P/E is at/below its 5-year median ({num(pe_band.get('median'), 1)}).",
+        lambda v: f"P/E is modestly above its 5-year median ({num(pe_band.get('median'), 1)}).",
+        lambda v: f"P/E is materially above its 5-year median ({num(pe_band.get('median'), 1)}).",
+        "Own-history valuation: <=median pass; up to 25% premium watch; >25% premium red.",
+        "Valuation & Risk",
+        "How does valuation compare to its own history?",
+    )
+    status_from(
+        rel_valuation_pct,
+        lambda v: v >= 60,
+        lambda v: v >= 40,
+        lambda v: f"Peer valuation percentile is attractive at {num(v, 0)}.",
+        lambda v: f"Peer valuation percentile is average at {num(v, 0)}.",
+        lambda v: f"Peer valuation percentile is weak at {num(v, 0)}.",
+        "Peer valuation percentile >=60 pass; 40-59 watch; <40 red.",
+        "Valuation & Risk",
+        "How does valuation compare with peers?",
+    )
+    growth_justify_value = None
+    if priced_value is not None and gg2 is not None:
+        growth_justify_value = 80 if gg2 >= 15 and priced_value >= 40 else 45 if gg2 >= 8 else 25
+    status_from(
+        growth_justify_value,
+        lambda v: v >= 70,
+        lambda v: v >= 40,
+        lambda v: f"Growth of about {num(gg2, 1)}% can justify a reasonable valuation.",
+        lambda v: f"Growth of about {num(gg2, 1)}% only partly supports the valuation.",
+        lambda v: f"Growth of about {num(gg2, 1)}% does not justify a demanding valuation.",
+        "Growth visibility should be >15% for rich valuations; 8-15% watch; <8% red.",
+        "Valuation & Risk",
+        "Is growth visible to justify the valuation?",
+    )
+    risk_texts = list(f20.get('warnings') or []) + list(f14.get('risks') or [])
+    top_risk = risk_texts[0] if risk_texts else (f"Forensic screen: {f16.get('risk_level')} risk" if f16.get('risk_level') else None)
+    add_check(
+        "Valuation & Risk",
+        "What could go wrong from here?",
+        "WATCH" if top_risk else "INSUFFICIENT DATA",
+        2 if top_risk else 1,
+        top_risk or "No specific forward risk was captured.",
+        "Uses moat warnings, concall risks, and forensic risk level.",
+    )
+    moat_strength = str(f20.get('moat_strength') or "")
+    moat_value = None
+    if moat_strength:
+        moat_value = 80 if moat_strength in ("Wide", "Narrow to Wide") else 45 if moat_strength == "Narrow" else 25
+    status_from(
+        moat_value,
+        lambda v: v >= 70,
+        lambda v: v >= 40,
+        lambda v: f"Moat assessment is {moat_strength} with score {f20.get('moat_score')}/100.",
+        lambda v: f"Moat assessment is only {moat_strength}; disruption risk needs monitoring.",
+        lambda v: f"Moat assessment is weak ({moat_strength}).",
+        "Wide/Narrow-to-Wide pass; Narrow watch; No moat red.",
+        "Valuation & Risk",
+        "Is the business protected from disruption?",
+    )
+    reg_seen = contains_any(f14_text, ["regulation", "regulatory", "policy", "license", "tariff", "rbi", "sebi"])
+    add_check(
+        "Valuation & Risk",
+        "Does regulation help or hurt the company?",
+        "WATCH" if reg_seen else "INSUFFICIENT DATA",
+        2 if reg_seen else 1,
+        "Regulatory/policy exposure appears in management risks/commentary." if reg_seen else "No explicit regulatory exposure was captured.",
+        "Needs industry-specific regulation and policy-risk review.",
+    )
+    concentration_seen = contains_any(f14_text + " " + biz_short, ["single customer", "customer concentration", "one customer", "one product", "single product", "geography", "export dependence"])
+    add_check(
+        "Valuation & Risk",
+        "Is the company dependent on one product, customer, or geography?",
+        "WATCH" if concentration_seen else "INSUFFICIENT DATA",
+        2 if concentration_seen else 1,
+        "Potential concentration/dependency language appears in available text." if concentration_seen else "No product/customer/geography concentration data was captured.",
+        "Requires segment/customer/geography disclosure; absence of data is not a clean pass.",
+    )
+    culture_value = None
+    if prom is not None or pledge is not None or roce is not None:
+        culture_value = 80
+        if pledge_num and pledge_num > 25:
+            culture_value = 25
+        elif pledge_num and pledge_num > 0:
+            culture_value = 55
+        if roce is not None and roce < 0.10:
+            culture_value = min(culture_value, 45)
+    status_from(
+        culture_value,
+        lambda v: v >= 70,
+        lambda v: v >= 40,
+        lambda v: "Ownership, pledge, and return profile do not show an obvious long-term-alignment issue.",
+        lambda v: "Culture/alignment needs monitoring due to pledge or weaker returns.",
+        lambda v: "High pledge or weak returns raise long-term alignment concerns.",
+        "Proxy check: promoter stake/pledge plus capital returns.",
+        "Long-Term Fit",
+        "Is corporate culture aligned with long-term value creation?",
+    )
+    hold_value = invest_score
+    if hold_value is not None and any(c["status"] == "RED FLAG" for c in checklist):
+        hold_value = min(hold_value, 55)
+    status_from(
+        hold_value,
+        lambda v: v >= 70,
+        lambda v: v >= 45,
+        lambda v: f"Investment score is {invest_score}/100 with no unresolved severe checklist block.",
+        lambda v: f"Investment score is {invest_score}/100; suitable for watchlist/position sizing discipline.",
+        lambda v: f"Investment score is {invest_score}/100 or red flags are too severe for comfort.",
+        "5-10 year comfort requires high investment score and no severe red flags.",
+        "Long-Term Fit",
+        "Would I be comfortable holding this stock for 5-10 years?",
+    )
+
+    checklist_counts = {
+        "pass": sum(1 for c in checklist if c["status"] == "PASS"),
+        "watch": sum(1 for c in checklist if c["status"] == "WATCH"),
+        "red_flags": sum(1 for c in checklist if c["status"] == "RED FLAG"),
+        "insufficient_data": sum(1 for c in checklist if c["status"] == "INSUFFICIENT DATA"),
+        "total": len(checklist),
+    }
+    scored = [c for c in checklist if c["status"] != "INSUFFICIENT DATA"]
+    checklist_score = None
+    if scored:
+        points = sum(1 if c["status"] == "PASS" else 0.5 if c["status"] == "WATCH" else 0 for c in scored)
+        checklist_score = round(points / len(scored) * 100)
+    checklist_summary = {
+        "score": checklist_score,
+        "counts": checklist_counts,
+        "red_flags": [c for c in checklist if c["status"] == "RED FLAG"],
+        "watch_items": [c for c in checklist if c["status"] == "WATCH"],
+        "method": "30-point investment checklist scored from available report fields; unknowns stay marked as insufficient data.",
+    }
+    # --- Positives & risks (specific, from the computed checks) ---
+    positives = list(f20.get('signals') or [])[:3]
+    risks = list(f20.get('warnings') or [])[:2]
+    if f16.get('risk_level'):
+        risks.append(f"Forensic/red-flag screen: {f16.get('risk_level')} risk.")
+    for item in checklist_summary["red_flags"][:3]:
+        risks.append(f"{item['question']} - {item['evidence']}")
+    if pledge_num and pledge_num > 0:
+        risks.append("Promoter pledging is present — monitor it.")
+    for chip in (m.get('F-19_Business_Quality', {}) or {}).get('scoring_rationale_chips', []):
+        if any(w in chip for w in ('High', 'Excellent', 'Very Low')) and len(positives) < 4:
+            positives.append(chip)
+    for c in (moat_data.get('cons') or [])[:2]:
+        if c and len(risks) < 4:
+            risks.append(c)
+
+    headline = f"{name}: {quality_word} business ({score}/100)"
+    if f20.get('moat_strength') and f20['moat_strength'] not in ('Unrated', 'No moat'):
+        headline += f", {f20['moat_strength']} moat"
+    if cap_tier:
+        headline += f" · {cap_tier}"
+
+    # ------------------------------------------------------------------
+    # BUSINESS UNDERSTANDING — "how does it make money?" (all dynamic):
+    #  - business model  : real company description
+    #  - revenue drivers : LLM-extracted from the concall + description (F-21)
+    #  - cost structure  : computed live from the income statement
+    # ------------------------------------------------------------------
+    f21 = q.get('F-21', {}) or {}
+    inc_grid = ((m.get('F-01_Financial_Statements', {}) or {}).get('annual', {}) or {}).get('income_stmt', {}) or {}
+    cost_structure = []
+    if inc_grid:
+        _ld = sorted(inc_grid.keys())[-1]
+        _row = inc_grid[_ld] or {}
+
+        def _rg(names):
+            for nm in names:
+                for k, v in _row.items():
+                    if nm in k.lower().replace(' ', '') and v is not None:
+                        return v
+            return None
+        _rev = _rg(['totalrevenue', 'operatingrevenue', 'revenue'])
+        if _rev:
+            for label, val in [
+                ('Operating & material costs', _rg(['totalexpenses', 'operatingexpense', 'costofrevenue'])),
+                ('Depreciation & amortisation', _rg(['depreciation'])),
+                ('Interest / finance cost', _rg(['interestexpense', 'interest'])),
+                ('Tax', _rg(['taxprovision', 'tax'])),
+            ]:
+                if val is not None and val >= 0:
+                    cost_structure.append({
+                        'label': label,
+                        'value_cr': round(val / 1e7),
+                        'pct': round(val / _rev * 100, 1),
+                    })
+
+    # Prefer AUDITED revenue-by-segment from the BSE quarterly result filing; fall back
+    # to what the concall stated (F-21). Both dynamic — nothing hardcoded.
+    segments, segment_source = [], None
+    try:
+        from tools.bse_scraper import fetch_bse_segments
+        _bse = fetch_bse_segments(symbol, name=name) or {}
+        if _bse.get('segments'):
+            segments = _bse['segments']
+            segment_source = _bse.get('source', 'BSE result filing')
+    except Exception as _se:
+        print(f"[summary] BSE segments skipped: {_se}")
+
+    if segments:
+        revenue_drivers = [f"{s['name']} — {s['pct']}% of revenue (₹{s['revenue_cr']:,} Cr)" for s in segments]
+    else:
+        revenue_drivers = [d for d in (f21.get('revenue_drivers') or []) if d]
+        if revenue_drivers:
+            segment_source = "management concall / filings"
+
+    business_understanding = {
+        'business_model': (biz or f21.get('what_they_sell') or biz_short or None),
+        'what_they_sell': f21.get('what_they_sell'),
+        'revenue_drivers': revenue_drivers,
+        'segments': segments,
+        'segment_source': segment_source,
+        'key_customers_or_geographies': [k for k in (f21.get('key_customers_or_geographies') or []) if k],
+        'cost_structure': cost_structure,
+        'segment_note': (None if revenue_drivers else
+                         "This looks like a single-segment company, or its audited segment table "
+                         "wasn't machine-readable this run. Source for precise splits: the company's "
+                         "BSE quarterly 'Segment-wise Revenue' filing or Annual Report segment note."),
+        # Business Model Canvas fields (from F-21)
+        'key_partnerships': [p for p in (f21.get('key_partnerships') or []) if p],
+        'key_activities': [a for a in (f21.get('key_activities') or []) if a],
+        'value_propositions': [v for v in (f21.get('value_propositions') or []) if v],
+        'customer_relationships': [r for r in (f21.get('customer_relationships') or []) if r],
+        'customer_segments': [s for s in (f21.get('customer_segments') or []) if s],
+        'key_resources': [r for r in (f21.get('key_resources') or []) if r],
+        'channels': [c for c in (f21.get('channels') or []) if c],
+    }
+
+    ml_forecast = build_ml_forecast(m, info, symbol)
+
+    return {
+        'headline': headline,
+        'narrative': paras,
+        'positives': [p for p in positives if p],
+        'risks': [r for r in risks if r],
+        'quality_word': quality_word,
+        'investment_view': investment_view,
+        'ml_forecast': ml_forecast,
+        'peer_rank': peer_rank,
+        'business_understanding': business_understanding,
+        'investment_checklist': {
+            'items': checklist,
+            'summary': checklist_summary,
+        },
+        'method': 'Synthesized from this company\'s own multi-year fundamentals, valuation, moat, concalls, forensics, ownership and scenario model.',
+    }
+
+
 def peer_synthesis_node(state: SystemState) -> dict:
     """
     Instantiates the PeerSectorEvaluator, performs peer comparison,
@@ -513,9 +1673,20 @@ def peer_synthesis_node(state: SystemState) -> dict:
             'error': str(e)
         }
         
+    # Compose the detailed AI summary for the default page now that peer/cap-tier data
+    # is available (this node runs last, so state has the full analysis).
+    ai_summary = {}
+    try:
+        state_with_peers = {**state, 'peer_synthesis_data': peer_data}
+        ai_summary = build_executive_summary(state_with_peers)
+        print(f"[peer_synthesis_node] AI summary composed ({len(ai_summary.get('narrative', []))} paragraphs).")
+    except Exception as e:
+        print(f"[peer_synthesis_node] AI summary skipped: {e}")
+
     print("[NODE: peer_synthesis_node] Finished.")
     return {
-        'peer_synthesis_data': peer_data
+        'peer_synthesis_data': peer_data,
+        'ai_summary': ai_summary,
     }
 
 # 3. Build and compile the workflow using LangGraph's StateGraph
