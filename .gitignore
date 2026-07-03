@@ -10,3 +10,4 @@ cache/
 exports/*.pdf
 logs/*.csv
 logs/*.log
+logs/*/

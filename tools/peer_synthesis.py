@@ -138,8 +138,6 @@ def suggest_comparison_parameters(target_name: str, peer_names: list, cap_tier: 
 
     try:
         import json as _json
-        from groq import Groq
-        client = Groq(api_key=api_key.strip())
         cols_desc = ", ".join([f'{c["key"]} ({c["label"]})' for c in SCREENER_PEER_COLUMNS])
         prompt = (
             f"A peer-comparison table is being shown for the Indian listed company "
@@ -152,16 +150,16 @@ def suggest_comparison_parameters(target_name: str, peer_names: list, cap_tier: 
             "Respond ONLY with compact JSON: "
             '{"sector_guess": "...", "recommended": ["key1","key2",...], "note": "one short sentence why"}'
         )
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+        from tools.groq_client import groq_chat
+        text = (groq_chat(
             messages=[
                 {"role": "system", "content": "You are an equity research analyst. Reply with strict JSON only."},
                 {"role": "user", "content": prompt},
             ],
             max_tokens=300,
             temperature=0.2,
-        )
-        text = (completion.choices[0].message.content or "").strip()
+            api_key=api_key.strip(),
+        ) or "").strip()
         if text.startswith("```"):
             import re as _re
             text = _re.sub(r"^```(?:json)?\n", "", text)
@@ -195,6 +193,15 @@ def build_screener_peer_comparison(symbol: str, screener_peers: list,
 
     target_sym = (symbol or "").upper()
     target_row = next((r for r in rows if r.get("symbol") == target_sym), None)
+    # Renamed/demerged tickers (e.g. NSE TATAMOTORS -> Screener slug TMCV) won't match
+    # by symbol, so fall back to a normalised company-name match before synthesising.
+    if target_row is None and target_name:
+        def _norm(s):
+            import re as _re
+            return _re.sub(r"\s+", " ", _re.sub(r"\b(ltd|limited|ltd\.)\b", "", (s or "").lower())).strip()
+        tn = _norm(target_name)
+        if tn:
+            target_row = next((r for r in rows if _norm(r.get("name")) == tn), None)
     if target_row is None:
         # Screener didn't include the target in its own peer list — synthesize a
         # minimal target row so the table still anchors on it.
@@ -243,6 +250,79 @@ def build_screener_peer_comparison(symbol: str, screener_peers: list,
     valid_pcts = [p for p in percentiles.values() if p is not None]
     overall_pct = round(sum(valid_pcts) / len(valid_pcts)) if valid_pcts else None
 
+    # --- Tier-matched benchmark: rank the target ONLY among similar-sized peers
+    # (comparing a small-cap against index heavyweights is like comparing a 5th-
+    # grader's marks with a 12th-class topper — meaningless). Needs >=3 same-tier
+    # rows (target included) to be statistically sensible.
+    tier = target_row.get("capTier")
+    tier_rows = [r for r in all_rows if tier and r.get("capTier") == tier]
+    tier_benchmark = None
+    ranked_cols = [c for c in SCREENER_PEER_COLUMNS if c["higher_is_better"] is not None]
+
+    def _row_metric_pcts(row, rows_pop):
+        """Per-metric raw value + percentile for one row, within the given population."""
+        out = {}
+        for col in ranked_cols:
+            population = [r.get(col["key"]) for r in rows_pop]
+            out[col["key"]] = {
+                "value": row.get(col["key"]),
+                "pct": PeerSectorEvaluator._percentile(population, row.get(col["key"]), col["higher_is_better"]),
+            }
+        return out
+
+    table_columns = [{"key": c["key"], "label": c["label"], "fmt": c["fmt"]} for c in ranked_cols]
+
+    if tier and len(tier_rows) >= 3:
+        def _row_composite(row):
+            vals = []
+            for col in ranked_cols:
+                population = [r.get(col["key"]) for r in tier_rows]
+                p = PeerSectorEvaluator._percentile(population, row.get(col["key"]), col["higher_is_better"])
+                if p is not None:
+                    vals.append(p)
+            return sum(vals) / len(vals) if vals else None
+
+        composites = [(r, _row_composite(r)) for r in tier_rows]
+        ranked = sorted([c for c in composites if c[1] is not None], key=lambda x: -x[1])
+        rank = next((i + 1 for i, (r, _c) in enumerate(ranked) if r.get("symbol") == target_row.get("symbol")), None)
+        # Per-peer composite percentile + per-metric breakdown (peer-standing table).
+        ranking = [{"name": r.get("name"), "symbol": r.get("symbol"), "percentile": round(_c),
+                    "is_target": r.get("symbol") == target_row.get("symbol"),
+                    "metrics": _row_metric_pcts(r, tier_rows)} for r, _c in ranked]
+        t_pcts = {}
+        for col in ranked_cols:
+            population = [r.get(col["key"]) for r in tier_rows]
+            t_pcts[col["key"]] = PeerSectorEvaluator._percentile(population, target_row.get(col["key"]), col["higher_is_better"])
+        t_valid = [p for p in t_pcts.values() if p is not None]
+        tier_benchmark = {
+            "tier": tier,
+            "rank": rank,
+            "of": len(ranked),
+            "overall_percentile": round(sum(t_valid) / len(t_valid)) if t_valid else None,
+            "percentiles": t_pcts,
+            "ranking": ranking,
+            "table_columns": table_columns,
+            "peer_names": [r.get("name") for r in tier_rows if not r.get("isTarget")],
+        }
+
+    # Full-peer-set ranking — EVERY peer's composite percentile (always available, so
+    # the peer-standing chart shows all peers even when there aren't enough same-tier
+    # ones for a tier benchmark).
+    def _composite_all(row):
+        vals = []
+        for col in ranked_cols:
+            pop = [r.get(col["key"]) for r in all_rows]
+            p = PeerSectorEvaluator._percentile(pop, row.get(col["key"]), col["higher_is_better"])
+            if p is not None:
+                vals.append(p)
+        return sum(vals) / len(vals) if vals else None
+    ranking_all = sorted(
+        [{"name": r.get("name"), "symbol": r.get("symbol"), "percentile": round(_composite_all(r)),
+          "is_target": r.get("symbol") == target_sym,
+          "metrics": _row_metric_pcts(r, all_rows)}
+         for r in all_rows if _composite_all(r) is not None],
+        key=lambda x: -x["percentile"])
+
     ai_guidance = suggest_comparison_parameters(
         target_row.get("name"), [p.get("name") for p in peers], target_row.get("capTier")
     )
@@ -255,6 +335,9 @@ def build_screener_peer_comparison(symbol: str, screener_peers: list,
         "medians": medians,
         "percentiles": percentiles,
         "overall_percentile": overall_pct,
+        "ranking": ranking_all,
+        "table_columns": table_columns,
+        "tier_benchmark": tier_benchmark,
         "cap_tier": target_row.get("capTier"),
         "peer_count": len(peers),
         "ai_guidance": ai_guidance,
@@ -352,7 +435,20 @@ class PeerSectorEvaluator:
                 if mc:
                     target_market_cap_cr = mc / 1e7  # absolute INR -> ₹ crore
 
-            # Not in the payload (yfinance was primary) -> use the cached Screener API.
+            # Not in the payload (yfinance was primary). Prefer the FREE direct
+            # Screener.in scrape — it has no API-key/cost and works from cloud hosts
+            # (screener.in is globally reachable; yfinance per-peer is rate-limited and
+            # the Apify actor needs a token that may be absent in production).
+            if not screener_peers:
+                try:
+                    from tools.screener_scraper import fetch_screener_peers
+                    free_peers = fetch_screener_peers(symbol, name=target_name)
+                    if free_peers:
+                        screener_peers = free_peers
+                except Exception as e:
+                    print(f"[PeerSectorEvaluator] Free Screener peer scrape failed for {symbol}: {e}")
+
+            # Last resort: the Apify Screener API (only fires if the free scrape failed).
             if not screener_peers:
                 try:
                     from tools.screener_api import fetch_screener_fundamentals
@@ -383,8 +479,30 @@ class PeerSectorEvaluator:
         sector, peers = self._resolve_peers(clean_symbol)
         print(f"[PeerSectorEvaluator] {clean_symbol} -> sector '{sector}', peers: {peers}")
 
-        target_metrics = self._fetch_stock_metrics(clean_symbol)
-        peer_matrix = [self._fetch_stock_metrics(p) for p in peers]
+        # Size/sector-aware Screener peer view is the PRIMARY source now (reliable on
+        # cloud). Build it first so we can skip the slow legacy yfinance per-peer calls
+        # (they get rate-limited / time out on cloud hosts and return all-N/A) whenever
+        # the Screener view succeeds.
+        screener_view = self._resolve_screener_peer_view(clean_symbol, raw_payload)
+
+        if screener_view and screener_view.get('available'):
+            # Map the Screener target row into the legacy `target_metrics` shape so the
+            # P/E peer-valuation table and quality pillars keep working without yfinance.
+            t = screener_view.get('target') or {}
+            target_metrics = {
+                'symbol': clean_symbol,
+                'lastPrice': t.get('price'),
+                'pe': t.get('pe'),
+                'operatingMargin': None,
+                'roe': None,
+                'revenueGrowth': (t.get('qtrSalesGrowth') / 100.0) if t.get('qtrSalesGrowth') is not None else None,
+                'debtToEquity': None,
+                'rank': {},
+            }
+            peer_matrix = []  # the rich Screener peer list is in `screener_view.peers`
+        else:
+            target_metrics = self._fetch_stock_metrics(clean_symbol)
+            peer_matrix = [self._fetch_stock_metrics(p) for p in peers]
 
         all_rows = [target_metrics] + peer_matrix
 
@@ -444,12 +562,7 @@ class PeerSectorEvaluator:
         if not comparative_tags:
             comparative_tags.append("IN-LINE WITH SECTOR")
 
-        # --- Size/sector-aware peer comparison from Screener.in (company-specific
-        # peers + market-cap tier + AI-suggested parameters). Works for the whole
-        # universe, including small/mid-caps absent from the hardcoded sector groups.
-        screener_view = self._resolve_screener_peer_view(clean_symbol, raw_payload)
-
-        # Pick the market-cap tier for the target (Screener view preferred).
+        # Pick the market-cap tier for the target (Screener view, computed above, preferred).
         cap_tier = screener_view.get('cap_tier') if screener_view else None
         if cap_tier is None and raw_payload:
             mc = (raw_payload.get('info') or {}).get('marketCap') or raw_payload.get('marketCap')

@@ -21,8 +21,15 @@ except Exception:
 from tools.screener_scraper import download_transcript, _read_cache, _write_cache
 
 
+def _to_text(x):
+    """Models sometimes emit list items as objects — flatten to readable text."""
+    if isinstance(x, dict):
+        return " — ".join(str(v) for v in x.values() if v)
+    return str(x) if x is not None else ""
+
+
 def _bullets(items):
-    return "\n".join([f"•  {x}" for x in (items or []) if x]) or "•  (not specified)"
+    return "\n".join([f"•  {_to_text(x)}" for x in (items or []) if x]) or "•  (not specified)"
 
 
 def _format_summary(f14):
@@ -82,19 +89,17 @@ def summarize_concall(symbol, url, date=""):
         return out
 
     try:
-        from groq import Groq
-        client = Groq(api_key=api_key)
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+        from tools.groq_client import groq_chat
+        raw = groq_chat(
             messages=[
                 {"role": "system", "content": _SYS},
                 {"role": "user", "content": f"Company: {symbol}. Concall period: {date}.\n\nTRANSCRIPT:\n{text}"},
             ],
             temperature=0.3,
-        )
-        raw = completion.choices[0].message.content.strip()
-        raw = raw.replace("```json", "").replace("```", "").strip()
-        f14 = json.loads(raw)
+            api_key=api_key,
+        ).strip()
+        from tools.groq_client import parse_json_loose
+        f14 = parse_json_loose(raw)
         out = {
             "available": True,
             "date": date,
