@@ -311,6 +311,335 @@ def _ranges_table(html, title_substr):
     return out
 
 
+# ===========================================================================
+# PRIMARY FINANCIALS SOURCE (P0 rework)
+# Parse the P&L / balance sheet / cash flow / quarterly tables straight off the
+# Screener.in company page — ONE HTML GET that replaces 6+ serial yfinance calls.
+# Output matches the payload shape angel_scraper produces, so metrics_engine needs
+# zero changes. INR throughout (no USD->INR conversion needed). Never raises.
+# ===========================================================================
+
+_MONTHS = {"jan": "01", "feb": "02", "mar": "03", "apr": "04", "may": "05", "jun": "06",
+           "jul": "07", "aug": "08", "sep": "09", "oct": "10", "nov": "11", "dec": "12"}
+
+
+def _period_to_date(p):
+    """'Mar 2023' -> '2023-03-31' so string sorting == chronological (metrics_engine
+    sorts period keys as strings). Falls back to a bare year, else the raw label."""
+    p = (p or "").strip()
+    m = re.match(r"([A-Za-z]{3})\s*'?\s*(\d{2,4})", p)
+    if m:
+        mon = _MONTHS.get(m.group(1).lower(), "03")
+        yr = m.group(2)
+        if len(yr) == 2:
+            yr = "20" + yr
+        return f"{yr}-{mon}-31"
+    m2 = re.match(r"(\d{4})", p)
+    return f"{m2.group(1)}-03-31" if m2 else p
+
+
+def _parse_data_table(html, section_id):
+    """Parse a Screener data-table (id=profit-loss|balance-sheet|cash-flow|quarters)
+    into {'periods': [labels], 'rows': {row_label_lower: [values]}}."""
+    m = re.search(rf'id="{section_id}".*?</table>', html or "", re.S)
+    if not m:
+        return {"periods": [], "rows": {}}
+    block = m.group(0)
+    periods, rows = [], {}
+    for r in re.findall(r"<tr[^>]*>(.*?)</tr>", block, re.S):
+        ths = re.findall(r"<th[^>]*>(.*?)</th>", r, re.S)
+        if ths and not periods:
+            cells = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", c)).strip() for c in ths]
+            periods = [c for c in cells[1:] if c]
+            continue
+        tds = re.findall(r"<td[^>]*>(.*?)</td>", r, re.S)
+        if not tds:
+            continue
+        clean = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", c)).strip() for c in tds]
+        label = clean[0].replace("+", "").strip().rstrip("%").strip().lower()
+        if label:
+            rows[label] = [_num(c) for c in clean[1:]]
+    return {"periods": periods, "rows": rows}
+
+
+def _row_pick(rows, names):
+    """First matching row series for any of the candidate labels (exact, then
+    substring)."""
+    for n in names:
+        if n in rows:
+            return rows[n]
+    for n in names:
+        for label, vals in rows.items():
+            if n in label:
+                return vals
+    return None
+
+
+def _build_income_grid(parsed):
+    """Screener P&L/quarters table -> {date: {yfinance_row: value}} (INR)."""
+    periods, rows = parsed["periods"], parsed["rows"]
+    if not periods or not rows:
+        return {}
+    sales = _row_pick(rows, ["sales", "revenue", "total revenue", "revenue from operations",
+                             "total income", "interest earned", "income"])
+    expenses = _row_pick(rows, ["expenses", "total expenses"])
+    op_profit = _row_pick(rows, ["operating profit", "financing profit"])  # Screener OP ~ EBITDA
+    opm = _row_pick(rows, ["opm", "financing margin"])
+    other_income = _row_pick(rows, ["other income"])
+    interest = _row_pick(rows, ["interest"])
+    depreciation = _row_pick(rows, ["depreciation"])
+    pbt = _row_pick(rows, ["profit before tax", "profit before tax "])
+    net_profit = _row_pick(rows, ["net profit", "profit after tax"])
+    eps = _row_pick(rows, ["eps in rs", "eps"])
+
+    grid = {}
+    for i, p in enumerate(periods):
+        col = {}
+
+        def put(key, series, scale=1e7):
+            if series and i < len(series) and series[i] is not None:
+                col[key] = series[i] * scale
+
+        put("Total Revenue", sales)
+        put("Revenue", sales)
+        put("Total Expenses", expenses)
+        put("EBITDA", op_profit)
+        put("Normalized EBITDA", op_profit)
+        put("Other Income", other_income)
+        put("Interest Expense", interest)
+        put("Depreciation", depreciation)
+        put("Pretax Income", pbt)
+        put("Net Income", net_profit)
+        put("Net Income Common Stockholders", net_profit)
+        # EBIT = operating profit - depreciation (Screener "Operating Profit" is pre-dep).
+        if op_profit and i < len(op_profit) and op_profit[i] is not None:
+            dep = depreciation[i] if (depreciation and i < len(depreciation) and depreciation[i] is not None) else 0.0
+            col["EBIT"] = (op_profit[i] - dep) * 1e7
+            col["Operating Income"] = col["EBIT"]
+        if opm and i < len(opm) and opm[i] is not None:
+            col["Operating Margins"] = opm[i] / 100.0
+        if eps and i < len(eps) and eps[i] is not None:
+            col["Diluted EPS"] = eps[i]
+            col["Basic EPS"] = eps[i]
+        if col:
+            grid[_period_to_date(p)] = col
+    return grid
+
+
+def _build_balance_grid(parsed):
+    """Screener balance-sheet table -> {date: {yfinance_row: value}} (INR)."""
+    periods, rows = parsed["periods"], parsed["rows"]
+    if not periods or not rows:
+        return {}
+    equity_cap = _row_pick(rows, ["equity capital", "share capital"])
+    reserves = _row_pick(rows, ["reserves"])
+    borrowings = _row_pick(rows, ["borrowings", "borrowing"])
+    other_liab = _row_pick(rows, ["other liabilities", "other liability"])
+    total_assets = _row_pick(rows, ["total assets", "total liabilities"])
+    fixed_assets = _row_pick(rows, ["fixed assets"])
+    investments = _row_pick(rows, ["investments"])
+    grid = {}
+    for i, p in enumerate(periods):
+        col = {}
+
+        def v(series):
+            return series[i] if (series and i < len(series) and series[i] is not None) else None
+
+        ec, rv = v(equity_cap), v(reserves)
+        if ec is not None or rv is not None:
+            eq = (ec or 0.0) + (rv or 0.0)
+            col["Stockholders Equity"] = eq * 1e7
+            col["Common Stock Equity"] = eq * 1e7
+            col["Total Equity Gross Minor Interest"] = eq * 1e7
+        if v(borrowings) is not None:
+            col["Total Debt"] = v(borrowings) * 1e7
+            col["Long Term Debt"] = v(borrowings) * 1e7
+        if v(total_assets) is not None:
+            col["Total Assets"] = v(total_assets) * 1e7
+        # Screener has no clean current-liabilities row; use Other Liabilities as a
+        # proxy so ROCE (Total Assets - Current Liabilities) is computable (mirrors
+        # the Apify-path convention in screener_api._build_balance_sheet).
+        if v(other_liab) is not None:
+            col["Current Liabilities"] = v(other_liab) * 1e7
+            col["Total Current Liabilities"] = v(other_liab) * 1e7
+        if v(fixed_assets) is not None:
+            col["Net PPE"] = v(fixed_assets) * 1e7
+        if v(investments) is not None:
+            col["Investments"] = v(investments) * 1e7
+        if col:
+            grid[_period_to_date(p)] = col
+    return grid
+
+
+def _build_cashflow_grid(parsed):
+    """Screener cash-flow table -> {date: {yfinance_row: value}} (INR)."""
+    periods, rows = parsed["periods"], parsed["rows"]
+    if not periods or not rows:
+        return {}
+    cfo = _row_pick(rows, ["cash from operating activity", "cash from operating activities"])
+    cfi = _row_pick(rows, ["cash from investing activity", "cash from investing activities"])
+    cff = _row_pick(rows, ["cash from financing activity", "cash from financing activities"])
+    grid = {}
+    for i, p in enumerate(periods):
+        col = {}
+
+        def put(key, series):
+            if series and i < len(series) and series[i] is not None:
+                col[key] = series[i] * 1e7
+
+        put("Operating Cash Flow", cfo)
+        put("Cash Flow From Continuing Operating Activities", cfo)
+        put("Net Cash Provided By Operating Activities", cfo)
+        put("Investing Cash Flow", cfi)
+        put("Financing Cash Flow", cff)
+        if col:
+            grid[_period_to_date(p)] = col
+    return grid
+
+
+def _parse_top_ratios(html):
+    """Screener 'top-ratios' list -> {name_lower: number}."""
+    top = {}
+    m = re.search(r'id="top-ratios".*?</ul>', html or "", re.S)
+    if not m:
+        return top
+    for li in re.findall(r"<li[^>]*>(.*?)</li>", m.group(0), re.S):
+        nm = re.search(r'class="name">(.*?)<', li, re.S)
+        num = re.search(r'class="(?:number|value)">(.*?)</span>', li, re.S)
+        if nm and num:
+            key = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", nm.group(1))).strip().lower()
+            top[key] = _num(re.sub(r"<[^>]+>", "", num.group(1)))
+    return top
+
+
+def _parse_about(html):
+    """Best-effort company description from the 'About' profile block."""
+    m = re.search(r'class="company-profile.*?<p[^>]*>(.*?)</p>', html or "", re.S)
+    if not m:
+        m = re.search(r'About</[^>]+>\s*<p[^>]*>(.*?)</p>', html or "", re.S)
+    if m:
+        txt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", m.group(1))).strip()
+        return txt or None
+    return None
+
+
+def fetch_screener_financials(symbol, name=None):
+    """
+    PRIMARY financials source. Parse the full P&L / balance sheet / cash flow /
+    quarterly tables + key ratios off the Screener.in company page in ONE GET.
+    Returns a payload in angel_scraper's shape (lastPrice, info, financial_arrays,
+    ownership_metrics, shareholding, screener_peers), or None if the page has no
+    usable income statement (caller then falls through to yfinance/Apify). Cached
+    12h. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    cache_key = f"fin_{sym}"
+    cached = _read_cache(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        slug = _SYMBOL_MAP.get(sym, sym)
+        html = _get(f"https://www.screener.in/company/{slug}/consolidated/")
+        if not html or 'id="profit-loss"' not in html:
+            html = _get(f"https://www.screener.in/company/{slug}/")
+        if not html or 'id="profit-loss"' not in html:
+            r_slug = _resolve_slug(sym, name)
+            if r_slug and r_slug != slug:
+                html = _get(f"https://www.screener.in/company/{r_slug}/consolidated/") or \
+                       _get(f"https://www.screener.in/company/{r_slug}/")
+        if not html or 'id="profit-loss"' not in html:
+            return None
+
+        income = _build_income_grid(_parse_data_table(html, "profit-loss"))
+        # Validation gate: no revenue -> unusable, let the fallback chain take over.
+        if not income or not any("Total Revenue" in col for col in income.values()):
+            print(f"[screener] financials for {sym}: no parseable revenue; deferring to fallback.")
+            return None
+        balance = _build_balance_grid(_parse_data_table(html, "balance-sheet"))
+        cashflow = _build_cashflow_grid(_parse_data_table(html, "cash-flow"))
+        quarterly = _build_income_grid(_parse_data_table(html, "quarters"))
+
+        top = _parse_top_ratios(html)
+        price = top.get("current price")
+        mcap_cr = top.get("market cap")
+        pe = top.get("stock p/e") or top.get("p/e")
+        book_value = top.get("book value")
+        roe = top.get("roe")
+        div_yield = top.get("dividend yield")
+        market_cap = (mcap_cr * 1e7) if mcap_cr else None
+        shares = (market_cap / price) if (market_cap and price and price > 0) else None
+
+        info = {
+            "symbol": sym,
+            "longName": name or sym,
+            "shortName": name or sym,
+            "currentPrice": price,
+            "regularMarketPrice": price,
+            "previousClose": price,
+            "trailingPE": pe,
+            "priceToBook": (price / book_value) if (price and book_value and book_value > 0) else None,
+            "bookValue": book_value,
+            "returnOnEquity": (roe / 100.0) if roe is not None else None,
+            "dividendYield": (div_yield / 100.0) if div_yield is not None else None,
+            "marketCap": market_cap,
+            "sharesOutstanding": shares,
+            "impliedSharesOutstanding": shares,
+            "financialCurrency": "INR",
+            "longBusinessSummary": _parse_about(html),
+        }
+
+        # Shareholding + peers + concall links come off the SAME page fetch already
+        # done by fetch_screener(); reuse it (cached) rather than re-GETting.
+        sh, peers = None, []
+        try:
+            sh = _parse_shareholding(html)
+        except Exception:
+            sh = None
+        try:
+            company_id = re.search(r'data-warehouse-id="(\d+)"', html)
+            if company_id:
+                peers = _parse_peers_table(_get(f"https://www.screener.in/api/company/{company_id.group(1)}/peers/")) or []
+        except Exception:
+            peers = []
+
+        ownership = {
+            "F-10_heldPercentInsiders": (sh or {}).get("latest", {}).get("promoter") if sh else None,
+            "F-11_promoterPledges": None,
+            "F-12_heldPercentInstitutions": (
+                ((sh or {}).get("latest", {}).get("fii") or 0) + ((sh or {}).get("latest", {}).get("dii") or 0)
+            ) if sh else None,
+        }
+
+        payload = {
+            "symbol": sym,
+            "lastPrice": price,
+            "volume": None,
+            "marketCap": market_cap,
+            "sharesOutstanding": shares,
+            "ohlc": {"open": price, "high": price, "low": price, "close": price},
+            "ownership_metrics": ownership,
+            "info": info,
+            "financial_arrays": {
+                "income_stmt": income,
+                "balance_sheet": balance,
+                "cash_flow": cashflow,
+                "quarterly_income_stmt": quarterly,
+                "quarterly_balance_sheet": {},
+                "quarterly_cash_flow": {},
+            },
+            "shareholding": sh or {},
+            "screener_peers": peers,
+            "data_source": "screener_scrape",
+        }
+        _write_cache(cache_key, payload)
+        print(f"[screener] financials for {sym}: {len(income)} annual / {len(quarterly)} quarterly periods "
+              f"(price={price}, mcap={mcap_cr}Cr).")
+        return payload
+    except Exception as e:
+        print(f"[screener] financials fetch failed for {sym}: {e}")
+        return None
+
+
 def fetch_screener_moat_data(symbol, name=None):
     """
     Scrape the moat-relevant fundamentals Screener.in publishes for a company:

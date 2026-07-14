@@ -435,10 +435,9 @@ class PeerSectorEvaluator:
                 if mc:
                     target_market_cap_cr = mc / 1e7  # absolute INR -> ₹ crore
 
-            # Not in the payload (yfinance was primary). Prefer the FREE direct
+            # Not in the payload (yfinance was primary). Use the FREE direct
             # Screener.in scrape — it has no API-key/cost and works from cloud hosts
-            # (screener.in is globally reachable; yfinance per-peer is rate-limited and
-            # the Apify actor needs a token that may be absent in production).
+            # (screener.in is globally reachable; yfinance per-peer is rate-limited).
             if not screener_peers:
                 try:
                     from tools.screener_scraper import fetch_screener_peers
@@ -447,20 +446,6 @@ class PeerSectorEvaluator:
                         screener_peers = free_peers
                 except Exception as e:
                     print(f"[PeerSectorEvaluator] Free Screener peer scrape failed for {symbol}: {e}")
-
-            # Last resort: the Apify Screener API (only fires if the free scrape failed).
-            if not screener_peers:
-                try:
-                    from tools.screener_api import fetch_screener_fundamentals
-                    sp = fetch_screener_fundamentals(symbol)
-                    if sp:
-                        screener_peers = sp.get("screener_peers")
-                        if not target_name:
-                            target_name = (sp.get("info") or {}).get("longName")
-                        if target_market_cap_cr is None and sp.get("marketCap"):
-                            target_market_cap_cr = sp["marketCap"] / 1e7
-                except Exception as e:
-                    print(f"[PeerSectorEvaluator] Screener peer fetch failed for {symbol}: {e}")
 
             if not screener_peers:
                 return None

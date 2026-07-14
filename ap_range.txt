@@ -1,0 +1,2122 @@
+=====PAGE 174=====
+344
+Integrated Annual Report 2024-25
+Asian Paints Limited
+345
+Financial statements
+Annexure “A” to The Independent Auditor’s Report
+(Referred to in paragraph 1(f) under 
+‘Report on Other Legal and Regulatory 
+Requirements’ section of our report of 
+even date)
+Report on the Internal Financial Controls 
+with reference to Standalone Financial 
+Statements under Clause (i) of Sub-
+section 3 of Section 143 of the Companies 
+Act, 2013 (the “Act”)
+We have audited the internal financial controls with 
+reference to Standalone Financial Statements of Asian 
+Paints Limited (“the Company”) as at 31st March 2025 
+in conjunction with our audit of the Standalone Ind AS 
+Financial Statements of the Company for the year ended 
+on that date.
+Management’s and Board of Directors’ 
+Responsibility for Internal Financial 
+Controls
+The Company’s management and Board of Directors is 
+responsible for establishing and maintaining internal 
+financial controls with reference to Standalone Financial 
+Statements based on the internal control with reference 
+to Standalone Financial Statements criteria established 
+by the Company considering the essential components of 
+internal control stated in the Guidance Note on Audit of 
+Internal Financial Controls Over Financial Reporting issued 
+by the Institute of Chartered Accountants of India (“ICAI”). 
+These responsibilities include the design, implementation 
+and maintenance of adequate internal financial controls 
+that were operating effectively for ensuring the orderly 
+and efficient conduct of its business, including adherence 
+to the respective Company’s policies, the safeguarding 
+of its assets, the prevention and detection of frauds and 
+errors, the accuracy and completeness of the accounting 
+records, and the timely preparation of reliable financial 
+information, as required under the Companies Act, 2013.
+Auditor’s Responsibility
+Our responsibility is to express an opinion on the 
+Company’s internal financial controls with reference to 
+Standalone Financial Statements of the Company based 
+on our audit. We conducted our audit in accordance with 
+the Guidance Note on Audit of Internal Financial Controls 
+Over Financial Reporting (the “Guidance Note”) issued by 
+the Institute of Chartered Accountants of India and the 
+Standards on Auditing prescribed under Section 143(10) 
+of the Companies Act, 2013, to the extent applicable to 
+an audit of internal financial controls with reference to 
+Standalone Financial Statements. Those Standards and 
+the Guidance Note require that we comply with ethical 
+requirements and plan and perform the audit to obtain 
+reasonable assurance about whether adequate internal 
+financial controls with reference to Standalone Financial 
+Statements was established and maintained and if such 
+controls operated effectively in all material respects.
+Our audit involves performing procedures to obtain 
+audit evidence about the adequacy of the internal 
+financial controls with reference to Standalone Financial 
+Statements and their operating effectiveness. Our audit 
+of internal financial controls with reference to Standalone 
+Financial Statements included obtaining an understanding 
+of internal financial controls with reference to Standalone 
+Financial Statements, assessing the risk that a material 
+weakness exists, and testing and evaluating the design 
+and operating effectiveness of internal control based on 
+the assessed risk. The procedures selected depend on 
+the auditor’s judgement, including the assessment of the 
+risks of material misstatement of the financial statements, 
+whether due to fraud or error.
+We believe that the audit evidence we have obtained is 
+sufficient and appropriate to provide a basis for our audit 
+opinion on the Company’s internal financial controls with 
+reference to Standalone Financial Statements.
+Meaning of Internal Financial Controls 
+with reference to Standalone Financial 
+Statements 
+A Company’s internal financial control with reference to 
+Standalone Financial Statements is a process designed 
+to provide reasonable assurance regarding the reliability 
+of financial reporting and the preparation of financial 
+statements for external purposes in accordance with 
+generally accepted accounting principles. A Company’s 
+internal financial control with reference to Standalone 
+Financial Statements includes those policies and 
+procedures that (1) pertain to the maintenance of 
+records that, in reasonable detail, accurately and fairly 
+reflect the transactions and dispositions of the assets 
+of the Company; (2) provide reasonable assurance 
+that transactions are recorded as necessary to permit 
+preparation of financial statements in accordance with 
+generally accepted accounting principles, and that receipts 
+and expenditures of the Company are being made only 
+in accordance with authorisations of management and 
+directors of the Company; and (3) provide reasonable 
+assurance regarding prevention or timely detection 
+of unauthorised acquisition, use, or disposition of the 
+Company’s assets that could have a material effect on the 
+financial statements.
+Inherent Limitations of Internal Financial 
+Controls with reference to Standalone 
+Financial Statements 
+Because of the inherent limitations of internal financial 
+controls with reference to Standalone Financial 
+Statements, including the possibility of collusion or 
+improper management override of controls, material 
+misstatements due to error or fraud may occur and not 
+be detected. Also, projections of any evaluation of the 
+internal financial controls with reference to Standalone 
+Financial Statements to future periods are subject to the 
+risk that the internal financial control with reference to 
+Standalone Financial Statements may become inadequate 
+because of changes in conditions, or that the degree 
+of compliance with the policies or procedures may 
+deteriorate.
+Opinion
+In our opinion, to the best of our information and 
+according to the explanations given to us, the Company 
+has, in all material respects, an adequate internal 
+financial controls with reference to Standalone Financial 
+Statements and such internal financial controls with 
+reference to Standalone Financial Statements were 
+operating effectively as at 31st March 2025, based on 
+the criteria for internal financial control with reference 
+to Standalone Financial Statements established by the 
+Company considering the essential components of internal 
+control stated in the Guidance Note on Audit of Internal 
+Financial Controls Over Financial Reporting issued by the 
+Institute of Chartered Accountants of India.
+For Deloitte Haskins & Sells LLP
+Chartered Accountants
+Firm‘s Registration No.: 117366W/W-100018
+Rupen K. Bhatt
+Partner
+Place : Mumbai 	
+Membership No. 046930
+Date : 8th May 2025 	
+UDIN : 25046930BMODQW4057
+This space has been intentionally left blank
+
+
+=====PAGE 175=====
+346
+Integrated Annual Report 2024-25
+Asian Paints Limited
+347
+Financial statements
+(Referred to in paragraph 2 under 
+‘Report on Other Legal and Regulatory 
+Requirements’ section of our report of 
+even date)
+In terms of the information and explanations sought by us 
+and given by the Company and the books of account and 
+records examined by us in the normal course of audit and 
+to the best of our knowledge and belief, we state that :
+(i)	
+(a)	 (A) 	 The Company has maintained proper 
+records showing full particulars, including 
+quantitative details and situation of Property, 
+Plant and Equipment, Capital work-in-
+progress, and relevant details of Right-of-Use 
+assets.
+	
+	
+(B) 	 The Company has maintained proper records 
+showing full particulars of intangible assets.
+	
+(b)	 The Company has a program of verification 
+to cover all the items of Property, Plant and 
+Equipment in a phased manner over a period 
+of 3 years which, in our opinion, is reasonable 
+having regard to the size of the Company and the 
+nature of its assets. Pursuant to the program, 
+certain Property, Plant and Equipment and 
+Capital work-in-progress were physically verified 
+by the management during the year. According 
+to the information and explanations given to us, 
+no material discrepancies were noticed on such 
+verification.
+	
+(c)	 Based on the examination of the registered sale 
+deed / transfer deed / conveyance deed provided 
+to us, we report that, the title deeds, of all the 
+immovable properties (other than immovable 
+properties where the Company is the lessee 
+and the lease agreements are duly executed in 
+favour of the Company) disclosed in the Financial 
+Statements included in Property, Plant and 
+Equipment and Capital work-in progress are held 
+in the name of the Company as at the balance 
+sheet date. 
+	
+(d) 	 The Company has not revalued its Property, Plant 
+and Equipment (including Right-of-Use assets) 
+and intangible assets during the year.
+	
+(e) 	 No proceedings have been initiated or are 
+pending against the Company as at 31st March 
+2025 for holding any benami property under the 
+Benami Transactions (Prohibition) Act, 1988 (as 
+amended in 2016) and rules made thereunder.
+(ii)	 (a) 	 The inventories, except goods-in-transit and 
+stocks lying with third parties, have been 
+physically verified by the management during 
+the year. In our opinion and based on information 
+and explanations given to us, the coverage 
+and procedure of such verification by the 
+management is appropriate having regard to 
+the size of the Company and the nature of its 
+operations. For stocks held with third parties at 
+the year-end, written confirmations have been 
+obtained. No discrepancies of 10% or more 
+in the aggregate for each class of inventories 
+were noticed on such physical verification of 
+inventories. 
+	
+(b) 	 According to the information and explanations 
+given to us, at any point of time of the year, the 
+Company has not been sanctioned any working 
+capital facility from banks or financial institutions 
+on the basis of security of current assets, and 
+hence reporting under clause 3(ii)(b) of the Order 
+is not applicable.
+(iii)	 The Company has not provided any guarantee or 
+security or granted any loans or advances in the nature 
+of loans, secured or unsecured, to companies, firms, 
+Limited Liability Partnerships or any other parties 
+during the year, and hence sub-clauses (iii) (a), (c), (d), 
+(e), (f) under clause (iii) of the Order are not applicable.
+	
+(b) The investments made, during the year are, prima 
+facie, not prejudicial to the Company’s interest.
+(iv)	 The Company has complied with the provisions of 
+Sections 185 and 186 of the Companies Act, 2013 in 
+respect of grant of loans, making investments and 
+providing guarantees and securities, as applicable.
+(v)	 The Company has not accepted any deposit or 
+amounts which are deemed to be deposits. Hence, 
+reporting under clause (v) of the Order is not 
+applicable.
+(vi)	 We have broadly reviewed the cost records maintained 
+by the Company pursuant to the Companies (Cost 
+Records and Audit) Rules, 2014, as amended 
+prescribed by the Central Government under sub-
+section (1) of Section 148 of the Companies Act, 2013, 
+and are of the opinion that, prima facie, the prescribed 
+cost records have been made and maintained.
+(vii)	 (a) 	 Undisputed statutory dues, including Goods 
+and Service tax, Provident Fund, Employees’ 
+State Insurance, Income-tax, Sales Tax, duty of 
+Customs, duty of Excise, Value Added Tax, Cess 
+and other material statutory dues applicable to 
+the Company have been regularly deposited by it  
+with the appropriate authorities in all cases 
+during the year.
+	
+	
+There were no undisputed amounts payable in 
+respect of Goods and Services tax, Provident 
+Fund, Employees’ State Insurance, Income Tax, 
+Sales Tax, Service Tax, Customs Duty, Excise 
+Duty, Value Added Tax, Cess and other material 
+statutory dues in arrears as at 31st March 2025, for 
+a period of more than six months from the date 
+they became payable.
+	
+(b)	 Details of statutory dues referred to in sub clause (a) above which have not been deposited as on  
+31st March 2025 on account of disputes are given below :
+Name of Statute
+Nature of Dues
+Forum where dispute 
+is pending
+Period to which the Amount 
+Relates
+Amount 
+involved 
+(` in Cores)
+Amount 
+Unpaid 
+(` in Crores)
+Income Tax
+IT Matters under 
+dispute
+CIT (A)/ITAT
+A.Y. 2021-22
+ 17.40 
+ 16.04 
+Assessing Officer
+A.Y. 2018-19
+ 9.51 
+ - 
+Assessing Officer
+A.Y. 2017-18
+ 8.72 
+ - 
+Assessing Officer
+A.Y. 2016-17
+ 7.38 
+ - 
+Assessing Officer
+A.Y. 2015-16
+ 5.08 
+ - 
+Assessing Officer
+A.Y. 2014-15
+ 9.29 
+ - 
+Assessing Officer
+A.Y. 2013-14
+ 2.30 
+ - 
+Assessing Officer
+A.Y. 2012-13
+ 2.72 
+ - 
+Assessing Officer
+A.Y. 2006-07
+ 0.82 
+ - 
+High Court
+A.Y. 2007-08
+ 0.09 
+ 0.09 
+Assessing Officer
+A.Y. 2009-10
+ 0.11 
+ 0.11 
+Assessing officer
+A.Y. 2010-11
+ 0.13 
+ 0.13 
+CIT (A)
+A.Y. 2011-12
+ 0.40 
+ 0.32 
+Assessing Officer
+A.Y. 2020-21
+ 7.22 
+ - 
+CIT (A)
+A.Y. 2022-23
+ 47.33 
+ 37.78 
+ 
+ 
+ 
+Total 
+118.50 
+ 54.47 
+Sales tax
+Assessment dues
+Assessing Authority
+F.Y. 1997-98,
+ 21.27 
+ 20.27 
+F.Y. 2002-03,
+F.Y. 2004-05 to F.Y. 2017-18
+First Appellate level
+F.Y. 1997-98,
+ 105.61 
+ 98.96 
+F.Y. 2000-01 to F.Y. 2008-09,
+F.Y. 2010-11 to F.Y. 2017-18
+Second Appellate 
+level
+F.Y. 1998-99,
+ 0.59 
+ 0.27 
+F.Y. 2000-01 to F.Y. 2003-04,
+F.Y. 2013-14
+Tribunal
+F.Y. 1991-92,
+ 8.88 
+ 6.59 
+F.Y. 1993-94,
+F.Y. 1996-97 to F.Y. 1999-00,
+F.Y. 2001-02 to F.Y. 2002-03,
+F.Y. 2005-06 to F.Y. 2008-09,
+F.Y. 2010-11 to F.Y. 2011-12,
+F.Y. 2013-14 to F.Y. 2017-18 
+High court
+F.Y. 2000-01 to F.Y. 2005-06,
+ 5.83 
+ 4.69 
+F.Y. 2007-08 to F.Y. 2010-11,
+F.Y. 2012-13 to F.Y. 2017-18
+ 
+ 
+ 
+Total 
+142.18 
+ 130.78 
+Central Excise Act, 
+1944  Finance Act, 1994 
+and Customs Act 1962
+Assessment dues
+First Appellate
+F.Y. 1986-87,
+ 4.60 
+ 0.75 
+F.Y. 1996-97,
+F.Y. 2012-13,
+F.Y. 2016-17,
+Tribunal
+F.Y. 2005-06 to F.Y. 2016-17
+ 11.10 
+ 9.19 
+ 
+ 
+ 
+Total 
+ 15.70 
+ 9.94 
+Annexure “B” to The Independent Auditor’s Report
+
+
+=====PAGE 176=====
+348
+Integrated Annual Report 2024-25
+Asian Paints Limited
+349
+Financial statements
+Name of Statute
+Nature of Dues
+Forum where dispute 
+is pending
+Period to which the Amount 
+Relates
+Amount 
+involved 
+(` in Cores)
+Amount 
+Unpaid 
+(` in Crores)
+Goods and Service Tax 
+Act, 2017
+ 
+Assessment dues
+ 
+First Appellate
+F.Y. 2017-18 to F.Y. 2024-25
+ 68.46 
+ 63.48 
+Second Appellate
+F.Y. 2017-18 to F.Y. 2018-19
+ 1.77 
+ 1.68 
+Tribunal
+F.Y. 2018-19 and F.Y. 2024-25
+ 0.02 
+-
+ 
+Total 
+ 70.25 
+ 65.16 
+Employee Provident 
+Fund Act
+PF contribution
+High Court
+F.Y. 2006-07 to F.Y. 2007-08, 
+F.Y. 2017-18
+0.46
+0.46 
+Commission
+F.Y. 2017-18
+ 1.18 
+ 0.47 
+Minimum Wages Act
+Wage Payments
+High Court
+F.Y. 2002-03
+ 2.73 
+ 2.59 
+Municipal Corporation 
+Act
+Property tax 
+Municipal 
+Corporation
+F.Y. 2013-14
+ 0.34 
+ - 
+Octroi
+Municipal 
+Corporation
+F.Y. 2012-13 to F.Y. 2013-14
+ 0.68
+ - 
+Employee State 
+Insurance Act
+ESI Contributions
+High Court
+F.Y. 2005-06
+0.01
+0.01
+Ministry of Labour & 
+Employment
+F.Y. 2018-19 to F.Y. 2021-22
+ 0.35 
+ 0.32 
+The Building and 
+Construction Workers 
+(Regulation of 
+Employment and 
+Conditions of Service), 
+Act 1996
+Labour Cess 
+on Plant & 
+Machinery
+Joint commissioner 
+of Labour 
+F.Y. 2018-19
+ 8.73 
+ 8.23 
+ 
+ 
+ 
+Total 
+ 14.48 
+ 12.08 
+ 
+ 
+ 
+Grand Total 
+361.11 
+ 272.43
+(viii)	There were no transactions relating to previously 
+unrecorded income that were surrendered or 
+disclosed as income in the tax assessments under the 
+Income Tax Act, 1961 (43 of 1961) during the year.
+(ix)	 (a) 	 In our opinion, the Company has not defaulted in 
+the repayment of loans or other borrowings or 
+in the payment of interest thereon to any lender 
+during the year.
+	
+(b)	 The Company has not been declared wilful 
+defaulter by any bank or financial institution or 
+government or any government authority.
+	
+(c)	 The Company has not taken any term loan during 
+the year and there are no unutilised term loans 
+at the beginning of the year and hence, reporting 
+under clause (ix)(c) of the Order is not  
+applicable.
+	
+(b)	 The Company has not made any preferential 
+allotment or private placement of shares 
+or convertible debenture (fully or partly or 
+optionally) during the year and hence reporting 
+under clause (x)(b) of the Order is not applicable 
+to Company. 
+(xi)	 (a) 	 To the best of our knowledge, no fraud by the 
+Company and no material fraud on the Company 
+has been noticed or reported during the year.
+	
+(b) 	 A report under sub-section (12) of Section 143 
+of the Act has been filed by us in Form ADT-4 
+as prescribed under Rule 13 of the Companies 
+(Audit and Auditors) Rules, 2014 with the 
+Central Government. However, this has not been 
+considered for our reporting in clause (a) above on 
+the basis of materiality.
+	
+(c) 	 We have taken into consideration, the whistle 
+blower complaints received by the Company 
+during the year (and up to the date of this report) 
+and provided to us, when performing our audit.
+(xii)	The Company is not a Nidhi Company and hence 
+reporting under clause (xii) of the Order is not 
+applicable.
+(xiii)	In our opinion, the Company is in compliance with 
+Sections 177 and 188 of the Companies Act, where 
+applicable, for all transactions with the related parties 
+and the details of related party transactions have 
+been disclosed in the Financial Statements as required 
+by the applicable Accounting Standards.
+(xiv)	(a) 	 In our opinion, the Company has an adequate 
+internal audit system commensurate with the size 
+and the nature of its business.
+	
+(b)	 We have considered, the internal audit reports 
+issued to the Company during the year and 
+covering the period up to 31st March 2025.
+(xv)	In our opinion, during the year, the Company has not 
+entered into any non-cash transactions with any of its 
+directors or persons connected with such directors 
+and hence provisions of Section 192 of the Companies 
+Act, 2013 are not applicable to the Company.
+(xvi)	The Company is not required to be registered under 
+Section 45-IA of the Reserve Bank of India Act, 1934. 
+Hence, reporting under clause (xvi)(a), (b), (c) and (d) of 
+the Order are not applicable. 
+(xvii)The Company has not incurred cash losses during 
+the financial year covered by our audit and the 
+immediately preceding financial year. 
+(xviii)There has been no resignation of the statutory 
+auditors of the Company during the year.
+(xix)	On the basis of the financial ratios, ageing and 
+expected dates of realization of financial assets  
+and payment of financial liabilities, other  
+information accompanying the financial  
+statements and our knowledge of the Board of 
+Directors and management plans and based on 
+our examination of the evidence supporting the 
+assumptions, nothing has come to our attention, 
+which causes us to believe that any material 
+uncertainty exists as on the date of the audit  
+report indicating that Company is not capable of 
+meeting its liabilities existing at the date of balance 
+sheet and when they fall due within a period of  
+one year from the balance sheet date. We,  
+however, state that this is not an assurance as  
+to the future viability of the Company. We further 
+state that our reporting is based on the facts up  
+to the date of the audit report and we neither  
+give any guarantee nor any assurance that all  
+liabilities falling due within a period of one year  
+from the balance sheet date, will get discharged  
+by the Company as and when they fall due.
+(xx)	The Company has fully spent the required amount 
+towards Corporate Social Responsibility (CSR)  
+and there is no unspent CSR amount for the year  
+requiring a transfer to a Fund specified in  
+Schedule VII to the Companies Act or special  
+account in compliance with the provision of sub-
+section (6) of Section 135 of the said Act. Accordingly, 
+reporting under clause (xx) of the Order is not 
+applicable for the year. 
+For Deloitte Haskins & Sells LLP
+Chartered Accountants
+Firm‘s Registration No.: 117366W/W-100018
+Rupen K. Bhatt
+Partner
+Place : Mumbai 	
+Membership No. 046930
+Date : 8th May 2025 	
+UDIN: 25046930BMODQW4057
+Annexure “B” to The Independent Auditor’s Report (Contd.)
+	
+(d)	 On an overall examination of the Financial 
+Statements of the Company, funds raised on 
+short-term basis have, prima facie, not been 
+utilised during the year for long-term purposes by 
+the Company.
+	
+(e)	 The Company has not taken any funds from any 
+entity or person on account of or to meet the 
+obligations of its subsidiaries or associates during 
+the year and hence, reporting under clause (ix)(e) 
+of the Order is not applicable.
+	
+(f)	 The Company has not raised loans during the year 
+on the pledge of securities held in its subsidiaries 
+or associate companies.
+(x)	 (a) 	 The Company has not raised moneys by way 
+of initial public offer or further public offer 
+(including debt instruments) during the year and 
+hence reporting under clause (x)(a) of the Order is 
+not applicable.
+
+
+=====PAGE 177=====
+350
+Integrated Annual Report 2024-25
+Asian Paints Limited
+351
+Financial statements
+(` in Crores)
+Particulars
+Notes
+As at 
+31.03.2025
+As at 
+31.03.2024
+ASSETS
+Non-Current Assets
+Property, Plant and Equipment
+2A
+ 6,285.40 
+ 3,830.36 
+Right-of-Use Asset
+2B
+ 1,512.22 
+ 1,530.72 
+Capital work-in-progress
+3
+ 386.15 
+ 2,561.17 
+Goodwill
+4A
+ 47.27 
+ 47.27 
+Other Intangible Assets
+4B
+ 85.78 
+ 85.62 
+Investments in Subsidiaries and Associates
+5
+ 2,058.53 
+ 1,562.43 
+Financial Assets
+	
+Investments
+5
+ 871.31 
+ 800.03 
+	
+Trade Receivables
+10
+ 7.35 
+-
+	
+Other Financial Assets
+6
+ 854.39 
+ 622.03 
+Income Tax Assets (Net)
+7
+ 184.28 
+ 165.56 
+Other Non-Current Assets
+8
+ 72.49 
+ 116.27 
+ 12,365.17 
+ 11,321.46
+Current Assets
+ 
+Inventories
+9
+ 5,848.23 
+ 5,155.59 
+Financial Assets
+	
+Investments
+5
+ 3,113.67 
+ 3,108.50
+	
+Trade Receivables
+10
+ 3,197.55 
+ 3,699.84 
+	
+Cash and Cash Equivalents
+11A
+ 176.19 
+ 326.34 
+	
+Other Balances with Banks
+11B
+ 26.09 
+ 23.84 
+	
+Other Financial Assets
+6
+ 1,265.27 
+ 1,770.53 
+Other Current Assets
+8
+ 660.94 
+ 629.54
+ 14,287.94 
+ 14,714.18
+TOTAL ASSETS
+ 26,653.11 
+ 26,035.64 
+EQUITY AND LIABILITIES
+Equity
+Equity Share Capital
+12
+ 95.92 
+ 95.92 
+Other Equity
+13
+ 18,887.56 
+ 18,192.74 
+ 18,983.48 
+ 18,288.66 
+Liabilities
+Non-Current Liabilities
+Financial Liabilities
+	
+Borrowings
+14
+ 37.25 
+ 35.58 
+	
+Lease Liabilities
+15
+ 900.80 
+ 893.87 
+	
+Other Financial Liabilities
+16
+ 41.47 
+ 28.80 
+Provisions
+17
+ 191.13
+ 165.83 
+Deferred Tax Liabilities (Net)
+18C
+ 237.22 
+ 187.68 
+Other Non-current Liabilities
+19
+ 45.56 
+ 34.47 
+ 1,453.43 
+ 1,346.23 
+Current Liabilities
+Financial Liabilities
+	
+Borrowings
+14
+ 2.15 
+ 117.27 
+	
+Lease Liabilities
+15
+ 258.62 
+ 233.51 
+	
+Trade Payables
+	
+	
+Total Outstanding dues of Micro Enterprises and Small Enterprises
+20
+ 180.13 
+ 201.14 
+	
+	
+Total Outstanding dues of creditors other than Micro Enterprises  
+and Small Enterprises
+20
+ 2,943.56 
+ 3,054.00 
+	
+Other Financial Liabilities
+16
+ 2,304.86 
+ 2,248.63 
+Other Current liabilities
+19
+ 380.33
+ 426.76 
+Provisions
+17
+ 51.26 
+ 43.09 
+Income Tax Liabilities (Net)
+21
+ 95.29 
+ 76.35 
+ 6,216.20 
+ 6,400.75
+TOTAL EQUITY AND LIABILITIES
+ 26,653.11 
+ 26,035.64 
+Material accounting policies and key accounting estimates and judgements
+1
+See accompanying notes to the Standalone Financial Statements
+2-43
+as at 31st March 2025
+for the year ended 31st March 2025
+Balance Sheet
+Statement of Profit and Loss
+(₹ in Crores)
+Particulars
+Notes
+Year 
+2024-25
+Year 
+2023-24
+REVENUE FROM OPERATIONS
+	
+Revenue from Sale of Products
+22A
+ 29,270.69 
+ 30,988.16 
+	
+Revenue from Sale of Services
+22A
+ 150.42 
+ 105.67 
+	
+Other Operating Revenue
+22A
+ 131.54 
+ 133.15 
+Other Income
+23
+ 770.15 
+ 821.92 
+Total Income (I)
+ 30,322.80 
+ 32,048.90 
+EXPENSES
+Cost of Materials Consumed
+24A
+ 13,238.32 
+ 13,450.17 
+Purchases of Stock-in-Trade
+24B
+ 3,733.99 
+ 3,654.08 
+Changes in Inventories of Finished Goods, Stock-in-Trade and Work-in-Progress
+24C
+ (180.47)
+ 367.64 
+Employee Benefits Expense
+25
+ 2,013.58 
+ 1,816.19 
+Other Expenses
+26
+ 5,194.95 
+ 4,895.08 
+Total Expenses (II)
+ 24,000.37 
+ 24,183.16 
+EARNING BEFORE INTEREST, TAX, DEPRECIATION AND AMORTISATION 
+(EBITDA) (I-II)
+ 6,322.43
+ 7,865.74 
+Finance Costs
+27
+ 143.77 
+ 124.09 
+Depreciation and Amortisation Expense
+28
+ 901.85 
+ 742.93 
+PROFIT BEFORE EXCEPTIONAL ITEMS AND TAX
+ 5,276.81 
+ 6,998.72 
+Exceptional Items
+40
+ 379.63
+ - 
+PROFIT BEFORE TAX
+ 4,897.18 
+ 6,998.72 
+Tax Expense
+18
+	
+Current Tax
+ 1,317.96 
+ 1,730.03 
+	
+(Excess) tax provision for earlier years
+ (11.26)
+ (51.72)
+	
+Deferred Tax
+ 5.60
+ 5.40 
+Total tax expense
+ 1,312.30 
+ 1,683.71 
+PROFIT AFTER TAX
+ 3,584.88 
+ 5,315.01 
+OTHER COMPREHENSIVE INCOME (OCI)
+A. 	Items that will not be reclassified to Profit or Loss
+(i) 	(a) 	Remeasurement of the defined benefit plans
+ 0.47 
+ 7.91 
+	
+(b) 	Income tax (expense) on remeasurement of defined benefit plans
+ (0.12)
+ (2.03)
+(ii) 	(a) 	Net fair value gain on investments in equity instruments through OCI
+ 273.30 
+ 7.77 
+	
+(b) 	Income tax (expense) on net fair value gain on investments in equity 
+instruments through OCI
+ (42.86)
+ (0.55)
+B. Items that will be reclassified to Profit or Loss
+	
+(a) 	Net fair value gain on investments in debt instruments through OCI
+ 3.67 
+ 16.20 
+	
+(b) 	Income tax (expense) on net fair value gain on investments in debt 
+instruments through OCI
+ (0.96)
+ (1.85)
+Total Other Comprehensive Income (A+B)
+ 233.50 
+ 27.45 
+TOTAL COMPREHENSIVE INCOME FOR THE YEAR
+ 3,818.38 
+ 5,342.46 
+Earnings per equity share (Face value of ₹ 1 each) 
+31
+	
+Basic (in ₹)
+ 37.39
+ 55.43 
+	
+Diluted (in ₹)
+ 37.39 
+ 55.42 
+Material accounting policies and key accounting estimates and judgements
+1
+See accompanying notes to the Standalone Financial Statements
+2-43
+As per our report of even date attached 
+For and on behalf of the Board of Directors of Asian Paints Limited
+CIN : L24220MH1945PLC004598
+For Deloitte Haskins & Sells LLP 
+Chartered Accountants 
+F.R.N : 117366W/W-100018
+R Seshasayee 
+Chairman 
+DIN : 00047985
+Amit Syngle 
+Managing Director & CEO 
+DIN : 07232566
+Rupen K. Bhatt 
+Partner 
+Membership No. : 046930
+Milind Sarwate 
+Chairman of Audit Committee 
+DIN : 00109854
+R J Jeyamurugan 
+CFO & Company Secretary
+Mumbai 
+8th May 2025
+Mumbai
+8th May 2025
+As per our report of even date attached 
+For and on behalf of the Board of Directors of Asian Paints Limited
+CIN : L24220MH1945PLC004598
+For Deloitte Haskins & Sells LLP 
+Chartered Accountants 
+F.R.N : 117366W/W-100018
+R Seshasayee 
+Chairman 
+DIN : 00047985
+Amit Syngle 
+Managing Director & CEO 
+DIN : 07232566
+Rupen K. Bhatt 
+Partner 
+Membership No. : 046930
+Milind Sarwate 
+Chairman of Audit Committee 
+DIN : 00109854
+R J Jeyamurugan 
+CFO & Company Secretary
+Mumbai 
+8th May 2025
+Mumbai
+8th May 2025
+
+
+=====PAGE 178=====
+352
+Integrated Annual Report 2024-25
+Asian Paints Limited
+353
+Financial statements
+Statement of Changes In Equity
+Statement of Cash Flows
+for the year ended 31st March 2025
+for the year ended 31st March 2025
+A) Equity Share Capital	
+(₹ in Crores)
+Particulars
+As at 
+31.03.2025
+As at 
+31.03.2024
+Balance at the beginning of the reporting year (Refer note 12(a))
+ 95.92 
+ 95.92
+Changes in Equity Share capital due to prior period errors
+ - 
+ -
+Restated balance at the beginning of the current reporting period (Refer note 12(a))
+ 95.92 
+ 95.92
+Changes in Equity Share capital during the year
+ - 
+ -
+Balance at the end of the reporting year
+ 95.92 
+ 95.92
+B) Other Equity	 	
+(₹ in Crores)
+Particulars
+Reserves and Surplus
+Items of Other  
+Comperehensive Income  (OCI)
+Total
+Capital 
+Reserve
+Capital 
+Redemption 
+Reserve
+General 
+ Reserve
+Retained 
+Earnings
+Remeasurement 
+ of defined 
+ benefit plans
+Share based 
+payment 
+reserve
+Treasury 
+shares
+Trust 
+ reserve
+Debt 
+instruments 
+ through OCI
+Equity 
+instruments 
+ through OCI
+Balance as at 1st April 2023 
+ 44.38 
+ 0.50
+ 4,166.74
+ 11,166.17
+ (29.25)
+ 26.77
+(110.89)
+ 0.37
+ (3.05)
+ 227.90
+ 15,489.64
+Changes on account of amalgamation (Refer note 36(A))
+ (34.29)
+ -
+ 1.18
+ (96.70)
+ 0.07
+ -
+ -
+ -
+ -
+ -
+ (129.74)
+Restated balance as at 1st April 2023 (A)
+10.09
+0.50
+4,167.92
+ 11,069.47 
+(29.18)
+26.77
+(110.89)
+0.37
+(3.05)
+227.90
+15.359.90
+Additions during the year :
+Profit for the year
+-
+ -
+ -
+ 5,315.01 
+ -
+ -
+ -
+ -
+ -
+ -
+ 5,315.01
+Items of OCI for the year, net of tax
+	
+Remeasurement of the defined benefit plans
+-
+ -
+ -
+ -
+ 5.88
+ -
+ -
+ -
+ -
+ -
+ 5.88
+	
+Net fair value gain on investments in equity instruments through OCI
+-
+ -
+ -
+ -
+ -
+ -
+ -
+ -
+ -
+ 7.22
+ 7.22
+	
+Net fair value gain on investments in debt instruments through OCI
+-
+ -
+ -
+ -
+ -
+ -
+ -
+ -
+ 14.35
+ -
+ 14.35
+Total Comprehensive Income for the year 2023-24 (B)
+-
+ -
+ -
+ 5,315.01 
+ 5.88
+-
+ -
+ -
+ 14.35
+ 7.22
+ 5,342.46
+Reductions during the year :
+	
+Dividends (Refer note 12(b))
+-
+ -
+ -
+ (2,532.38)
+ -
+ -
+ -
+ -
+ -
+ -
+ (2,532.38)
+Share based payment expense
+-
+ -
+ -
+ -
+ -
+ 21.84
+ -
+ -
+ -
+ -
+ 21.84
+Net Income of ESOP Trust for the year
+-
+ -
+ -
+ -
+ -
+ -
+ -
+ 0.22
+ -
+ -
+ 0.22
+ESOP exercised during the year
+-
+ -
+ -
+ (0.03)
+ -
+ (0.35)
+0.70
+ 0.38
+ -
+ -
+ 0.70
+Total (C)
+-
+ -
+ -
+ (2,532.41)
+ -
+ 21.49
+0.70
+ 0.60
+ -
+ -
+ (2,509.62)
+Balance as at 31st March 2024 (D) = (A+B+C)
+ 10.09
+ 0.50
+ 4,167.92
+ 13,852.07 
+ (23.30)
+ 48.26
+(110.19)
+ 0.97
+ 11.30
+ 235.12
+ 18,192.74
+Additions during the year :
+Profit for the year
+-
+ -
+ -
+ 3,584.88 
+ -
+ -
+ -
+ -
+ -
+ -
+ 3,584.88
+Items of OCI for the year, net of tax
+	
+Remeasurement of the defined benefit plans
+-
+ -
+ -
+ -
+ 0.35 
+ -
+ -
+ -
+ -
+ -
+0.35
+	
+Net fair value gain on investments in equity instruments through OCI
+-
+ -
+ -
+ -
+ -
+ -
+ -
+ -
+-
+ 230.44 
+ 230.44 
+	
+Net fair value gain on investments in debt instruments through OCI
+-
+ -
+ -
+ -
+ -
+ -
+ -
+ -
+ 2.71 
+ -
+ 2.71 
+Total Comprehensive Income for the year 2024-25 (E)
+-
+ -
+ -
+ 3,584.88 
+ 0.35 
+ -
+ -
+ -
+ 2.71 
+ 230.44 
+ 3,818.38 
+Reductions during the year :
+	
+Dividends (Refer note 12(b))
+-
+ -
+ -
+ (3,107.91)
+ -
+ -
+ -
+ -
+ -
+ -
+ (3,107.91)
+Share based payment expense
+-
+ -
+ -
+ -
+ -
+ 21.25
+ -
+ -
+ -
+ -
+ 21.25 
+Net Income of ESOP Trust for the year
+-
+ -
+ -
+ -
+ -
+-
+ -
+ 1.11 
+ -
+ -
+ 1.11 
+Purchase of Treasury shares by ESOP trust during the year
+-
+-
+-
+-
+-
+-
+(50.08)
+-
+-
+-
+ (50.08)
+ESOP exercised during the year
+-
+ -
+ -
+ (0.80)
+ -
+ (12.67)
+ 25.54
+ -
+ -
+ -
+ 12.07 
+Total (F)
+-
+ -
+ -
+ (3,108.71)
+ -
+ 8.58 
+(24.54)
+ 1.11 
+ -
+ -
+ (3,123.56)
+Balance as at 31st March 2025 (D+E+F)
+ 10.09
+ 0.50
+ 4,167.92
+ 14,328.24 
+ (22.95)
+ 56.84 
+ (134.73)
+ 2.08 
+ 14.01 
+ 465.56 
+ 18,887.56 
+Material accounting policies and key accounting estimates and judgements (Refer note 1)
+See accompanying notes to the Standalone Financial Statements (Refer note 2-43)
+As per our report of even date attached
+For and on behalf of the Board of Directors of Asian Paints Limited 
+CIN : L24220MH1945PLC004598
+For Deloitte Haskins & Sells LLP
+Chartered Accountants 
+F.R.N : 117366W/W-100018
+R Seshasayee	
+Chairman
+DIN : 00047985	
+Amit Syngle
+Managing Director & CEO
+DIN : 07232566
+Rupen K. Bhatt
+Partner 
+Membership No : 046930
+Milind Sarwate
+Chairman of Audit Committee
+DIN : 00109854
+R J Jeyamurugan
+CFO & Company Secretary
+Mumbai
+8th May 2025
+Mumbai
+8th May 2025
+(` in Crores)
+Particulars	
+Year 
+2024-25
+Year 
+2023-24
+(A)	 CASH FLOW FROM OPERATING ACTIVITIES
+	
+Profit before tax
+ 4,897.18 
+ 6,998.72 
+	
+Adjustments for : 
+	
+Depreciation and amortisation expense
+ 901.85 
+ 742.93 
+	
+Interest income
+ (155.32)
+ (136.34)
+	
+Dividend income
+ (146.24)
+ (142.76)
+	
+Finance costs
+ 143.77 
+ 124.09 
+	
+Allowance for expected credit lossess on receivables ( trade and others) and advances (net)
+ 244.30 
+ 84.67 
+	
+Bad debts written off (net)
+ 1.78 
+ 1.23 
+	
+Deferred income arising from government grant
+ (4.69)
+ (5.29)
+	
+Net unrealised foreign exchange (gain)/loss
+ (9.96)
+ 7.59 
+	
+Net gain on disposal of property, plant and equipment and other intangible assets
+ (2.91)
+ (2.00)
+	
+Net gain on modification/ termination of leases
+ (1.90)
+ (4.00)
+	
+Net gain arising on financial assets measured at fair value through profit or loss (FVTPL)
+ (174.07)
+ (222.29)
+	
+Share based payment expenses (net)
+ 18.23 
+ 19.37 
+	
+Net fair valuation loss/(gain) on derivatives
+ 164.52 
+ (49.25)
+	
+Impairment loss on non-current investments - subsidiaries
+ 201.84 
+ -  
+	
+Reversal for expected credit loss on government grants
+ (1.78)
+ (10.90)
+	
+Operating Profit before working capital changes
+ 6,076.60 
+ 7,405.77 
+	
+Adjustments for :
+	
+Decrease/(Increase) in trade receivables
+ 259.27 
+ (266.99)
+	
+Decrease in financial assets
+ 2.97 
+ 20.60 
+	
+(Increase)/Decrease in inventories
+ (692.64)
+ 263.73 
+	
+(Increase) in other assets
+ (8.68)
+ (204.73)
+	
+(Decrease)/Increase in trade payables
+ (318.24)
+ 272.05 
+	
+Increase/(Decrease) in other financial liabilities
+ 149.68 
+ (27.92)
+	
+Increase in other liabilities and provisions
+ 3.28 
+ 26.70 
+	
+Cash generated from Operating activities
+ 5,472.24 
+ 7,489.21 
+	
+Income Tax paid (net of refund)
+ (1,306.48)
+ (1,731.81)
+	
+Net Cash generated from Operating activities
+ 4,165.76 
+ 5,757.40 
+(B)	 CASH FLOW FROM INVESTING ACTIVITIES
+	
+Purchase of property, plant and equipment and other intangible assets
+ (1,048.25)
+ (1,986.45)
+	
+Sale of property, plant and equipment
+ 8.16 
+ 4.65 
+	
+Payment for acquiring right-of-use assets
+ (18.92)
+ (203.05)
+	
+Investment in subsidiary and associate companies
+ (697.94)
+ (262.77)
+	
+Payment of earnout
+ -  
+ (37.71)
+	
+Purchase of non-current investments - others
+ (0.50)
+ (211.86)
+	
+Sale of non-current investments 
+ -  
+ 0.50 
+	
+Purchase of term deposits
+ (877.96)
+ (1,435.99)
+	
+Proceeds from maturity of term deposits
+ 1,150.98 
+ 1,327.69 
+	
+Sale of current investments (net)
+ 384.42 
+ 272.02 
+	
+Interest received 
+ 127.70 
+ 106.36 
+	
+Dividend received from subsidiary and associate companies
+ 119.20 
+ 136.82 
+	
+Dividend received from others
+ 20.64 
+ 20.16 
+	
+Net Cash used in Investing activities
+ (832.47)
+ (2,269.63)
+
+
+=====PAGE 179=====
+354
+Integrated Annual Report 2024-25
+Asian Paints Limited
+355
+Financial statements
+Statement of Cash Flows (Contd.)
+Statement of Cash Flows (Contd.)
+for the year ended 31st March 2025
+for the year ended 31st March 2025
+(` in Crores)
+Particulars	
+Year 
+2024-25
+Year 
+2023-24
+(C)	 CASH FLOW FROM FINANCING ACTIVITIES
+	
+Repayment of long term borrowings
+ (17.86)
+ -  
+	
+(Repayment)/Proceeds from short term borrowings 
+ (39.00)
+ 39.00 
+	
+Acceptances (net)
+ 194.74 
+ (83.65)
+	
+Repayment of principal portion of lease liabilities 
+ (267.05)
+ (251.48)
+	
+Finance costs (including interest on lease liabilities) paid
+ (141.68)
+ (120.03)
+	
+(Purchase) of treasury shares by ESOP Trust/ Proceeds from ESOP Trust (net) 
+ (36.92)
+ 0.91 
+	
+Dividend paid 
+ (3,107.91)
+ (2,532.38)
+	
+Net Cash used in Financing activities
+ (3,415.68)
+ (2,947.63)
+(D)	 NET (DECREASE)/ INCREASE IN CASH AND CASH EQUIVALENTS [A+B+C]
+ (82.39)
+ 540.14 
+	
+Add : Cash and cash equivalents as at 1st April
+ 3,157.65 
+ 2,617.51 
+	
+Cash and cash equivalents as at 31st March
+ 3,075.26 
+ 3,157.65 
+Notes :
+(a) 	 The above Standalone Statement of Cash Flows has been prepared under the “Indirect Method” as set out in the Indian Accounting Standard 
+(Ind AS 7) - Statement of Cash Flows.
+(` in Crores)
+Particulars	
+As at 
+31.03.2025
+As at 
+31.03.2024
+(b)	 Cash and Cash Equivalents comprise of :
+	
+Cash on hand
+ - 
+ 0.01 
+	
+Balances with Banks :
+	
+- 	
+Current Accounts
+ 43.73 
+ 113.51 
+	
+- 	
+Cash Credit Accounts
+ 5.95 
+ 1.11 
+	
+- 	
+Deposits with original maturity of less than 3 months
+ 82.02 
+ 124.15 
+	
+Cheques, draft on hand
+ 44.49 
+ 87.56 
+Cash and cash equivalents (Refer note 11A)
+ 176.19 
+ 326.34 
+Add : Investments in Liquid Mutual Funds (Refer note 5(II)(B)(a))
+ 2,899.26 
+ 2,891.72 
+Less : Loan repayable on demand - Overdraft Account
+ (0.19)
+ (60.41)
+Cash and cash equivalents in Standalone Statement of Cash Flows
+ 3,075.26 
+ 3,157.65 
+(c) 	 Changes in liabilities arising from financing activities
+(` in Crores)
+Particulars
+As at 
+01.04.2024
+Cash 
+Flows
+Other 
+changes in 
+cash and cash 
+equivalents
+Non-cash changes
+As at 
+31.03.2025
+Net 
+additions
+Fair value 
+changes
+Current/ 
+Non-current 
+classification
+Borrowings (Refer note 14)
+ 152.85 
+ (56.86)
+ (60.22)
+ - 
+ 3.63 
+ - 
+ 39.40 
+Lease Liabilities (Refer note 15)
+ 1,127.38 
+ (267.05)
+-
+ 299.09 
+ -   
+ - 
+ 1,159.42 
+Other Liabilities (Refer note 19)
+ 39.17 
+ - 
+-
+ - 
+ (4.69)
+ - 
+ 34.48 
+(` in Crores)
+Particulars
+As at 
+01.04.2023
+Cash 
+Flows
+Other 
+changes in 
+cash and cash 
+equivalents
+Non-cash changes
+As at 
+31.03.2024
+Net 
+additions
+Fair value 
+changes
+Current/ 
+Non-current 
+classification
+Borrowings (Refer note 14)
+ 138.32 
+ 39.00 
+ (28.55)
+ - 
+ 4.08 
+ - 
+ 152.85 
+Lease Liabilities (Refer note 15)
+ 852.28 
+ (251.48)
+-
+ 526.58 
+ -  
+ - 
+ 1,127.38 
+Other Liabilities (Refer note 19)
+ 44.46 
+ - 
+-
+ - 
+ (5.29)
+ - 
+ 39.17 
+Material accounting policies and key accounting estimates and judgements (Refer note 1)
+See accompanying notes to the Standalone Financial Statements  (Refer note 2-43)
+As per our report of even date attached 
+For and on behalf of the Board of Directors of Asian Paints Limited
+CIN:L24220MH1945PLC004598
+For Deloitte Haskins & Sells LLP 
+Chartered Accountants 
+F.R.N : 117366W/W-100018
+R Seshasayee 
+Chairman 
+DIN : 00047985
+Amit Syngle 
+Managing Director & CEO 
+DIN : 07232566
+Rupen K. Bhatt 
+Partner 
+Membership No.: 046930
+Milind Sarwate 
+Chairman of Audit Committee 
+DIN : 00109854
+R J Jeyamurugan 
+CFO & Company Secretary
+Mumbai 
+8th May 2025
+Mumbai
+8th May 2025
+
+
+=====PAGE 180=====
+356
+Integrated Annual Report 2024-25
+Asian Paints Limited
+357
+Financial statements
+for the year ended 31st March 2025
+Notes to the Standalone Financial Statements 
+Company Background
+Asian Paints Limited (the ‘Company’) is a public limited 
+Company domiciled and incorporated in India under the 
+Indian Companies Act, 1913. The registered office of the 
+Company is located at 6A & 6B, Shantinagar, Santacruz 
+East, Mumbai, India.
+The Company is engaged in the business of manufacturing, 
+selling and distribution of paints, coatings, products 
+related to home décor, bath fittings, kitchen, wardrobe 
+and providing related services.
+1. 	Material Accounting Policies and 
+Key accounting estimates and 
+judgements
+	
+Material Accounting Policies:
+1.1. Basis of preparation of Financial Statements
+	
+These Financial Statements are the separate Financial 
+Statements of the Company (also called Standalone 
+Financial Statements) prepared in accordance with 
+Indian Accounting Standards (‘Ind AS’) notified under 
+section 133 of the Companies Act 2013, read together 
+with the Companies (Indian Accounting Standards) 
+Rules, 2015 (as amended).
+	
+These Financial Statements have been prepared and 
+presented under the historical cost convention, on the 
+accrual basis of accounting except for certain financial 
+assets and financial liabilities that are measured at fair 
+values at the end of each reporting period, as stated in 
+the accounting policies set out below. The accounting 
+policies have been applied consistently over all the 
+periods presented in these Financial Statements.
+	
+The Financial Statements are presented in Indian 
+Rupees (which is also the functional currency of the 
+Company) and is rounded off to the nearest crores 
+except otherwise indicated. Amounts less than  
+` 50,000 have been presented as “#”.
+1.2. Current / Non- Current Classification
+	
+Any asset or liability is classified as current if it satisfies 
+any of the following conditions: 
+	
+i. 	
+the asset/liability is expected to be realized/
+settled in the Company’s normal operating cycle;
+	
+ii. 	 the asset is intended for sale or consumption;
+	
+iii. 	 the asset/liability is held primarily for the purpose 
+of trading;
+	
+	
+Where the consideration transferred exceeds  
+the fair value of the net identifiable assets 
+acquired and liabilities assumed, the excess is 
+recorded as goodwill. Alternatively, in case of 
+a bargain purchase wherein the consideration 
+transferred is lower than the fair value of the 
+net identifiable assets acquired and liabilities 
+assumed, the Company after assessing fair  
+value of all identified assets and liabilities,  
+record the difference as a gain in other 
+comprehensive income and accumulate the  
+gain in equity as capital reserve. The transaction 
+costs, other than costs relating to the issue  
+of equity or debt securities in connection  
+with a business combination are expensed  
+as incurred.
+	
+	
+In case of business combinations involving  
+entities under common control, the above 
+policy does not apply. Business combinations 
+involving entities under common control are 
+accounted for using the pooling of interests 
+method. The net assets of the transferor entity 
+or business are accounted at their carrying 
+amounts on the date of the acquisition subject 
+to necessary adjustments required to harmonise 
+accounting policies. Any excess or shortfall of 
+the consideration paid over the share capital of 
+transferor entity or business is recognised as 
+capital reserve under equity.
+	
+b) 	 Property, plant and equipment
+	
+	
+Measurement at recognition:
+	
+	
+An item of property, plant and equipment 
+(PPE)  that qualifies as an asset is measured 
+on initial recognition at cost. Following initial 
+recognition, items of PPE are carried at their cost 
+less accumulated depreciation  and accumulated 
+impairment losses, if any. Item of PPE which 
+reflects significant cost and has different useful 
+life from the remaining part of PPE is recognised 
+as a separate component.
+	
+	
+The cost of an item of PPE comprises of its 
+purchase price net of discounts, if any including 
+import duties and other non-refundable taxes  
+or levies and directly attributable cost of  
+bringing the asset to its working condition 
+for its intended use and the initial estimate 
+of decommissioning, restoration and similar 
+liabilities, if any. Cost includes cost of replacing  
+a part of a plant and equipment if the recognition 
+criteria are met. Expenses like plans, designs,  
+and drawings of buildings or plant and  
+machinery, borrowing cost on qualifying assets, 
+directly attributable to new manufacturing  
+facility during its construction period are 
+capitalized under the relevant head of PPE if the 
+recognition criteria are met.
+	
+	
+Subsequent costs are included in the asset’s 
+carrying amount or recognised as a separate 
+asset, as appropriate, only when it is probable 
+that future economic benefits associated with 
+the item will flow to the Company and the cost of 
+the item can be measured reliably. The carrying 
+amount of any component accounted for as a 
+separate asset is derecognised when replaced.
+	
+	
+Items such as spare parts, stand-by equipment 
+and servicing equipment that meet the definition 
+of PPE are capitalized at cost and depreciated 
+over their useful life. Costs in nature of repairs 
+and maintenance are recognised in the Statement 
+of Profit and Loss as and when incurred.
+	
+	
+The Company had elected to consider the carrying 
+value of all its PPE appearing in the Financial 
+Statements and used the same as deemed cost in 
+the opening Ind AS Balance sheet prepared on  
+1st April 2015.
+	
+	
+Capital work in progress and Capital advances:
+	
+	
+Cost of assets not ready for intended use, as on 
+the balance sheet date, is shown as capital work 
+in progress. Advances given towards acquisition  
+of fixed assets outstanding at each balance sheet 
+date are disclosed as Other Non-Current Assets.
+	
+	
+Depreciation:
+	
+	
+Depreciation on each part of an item / component 
+of PPE is provided on pro-rata basis using the 
+Straight-Line Method based on the expected 
+useful life of the asset and is charged to 
+the Statement of Profit and Loss as per the 
+requirement of Schedule II of the Companies Act, 
+2013. The estimated useful life has been assessed 
+based on technical evaluation, taking into account 
+the nature of the asset and the estimated usage 
+basis management’s best judgement of economic 
+benefits from those classes of assets.  
+	
+iv. 	 the asset/liability is expected to be realized/
+settled within twelve months after the reporting 
+period;
+	
+v. 	
+the asset is cash or cash equivalent unless it is 
+restricted from being exchanged or used to settle 
+a liability for at least twelve months after the 
+reporting date;
+	
+vi. 	 in the case of a liability, the Company does not 
+have an unconditional right to defer settlement 
+of the liability for at least twelve months after the 
+reporting date.
+	
+	
+All other assets and liabilities are classified as 
+non-current.
+	
+	
+For the purpose of current/non-current 
+classification of assets and liabilities, the 
+Company has ascertained its normal operating 
+cycle as twelve months. This is based on the 
+nature of services and the time between  
+the acquisition of assets or inventories for  
+processing and their realization in cash and  
+cash equivalents.
+1.3. Summary of Material accounting policies
+	
+a) 	 Business combinations
+	
+	
+Business combinations are accounted for using 
+the acquisition method under the provisions 
+of Ind AS 103, Business Combinations. At the 
+acquisition date, identifiable assets acquired 
+and liabilities assumed are measured at fair 
+value except deferred tax asset or liability 
+and any liability or asset relating to employee 
+benefit arrangements arising from a business 
+combination are measured and recognised 
+in accordance with the requirements of Ind 
+AS 12, Income Taxes and Ind AS 19, Employee 
+Benefits, respectively. For this purpose, the 
+liabilities assumed include contingent liabilities 
+representing present obligation and they are 
+measured at their acquisition date fair values 
+irrespective of the fact that outflow of resources 
+embodying economic benefits is not probable. 
+The consideration transferred is measured at  
+fair value at the acquisition date and includes  
+the fair value of any contingent consideration.  
+Contingent consideration (earn out) is 
+remeasured at fair value at each reporting date 
+and changes in the fair value of the contingent 
+consideration are recognised in the Statement of 
+Profit and Loss.
+
+

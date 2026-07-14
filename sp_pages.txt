@@ -1,0 +1,186 @@
+=====150=====
+Standalone Statement of Profit and Loss
+for the year ended March 31, 2025
+` in Million
+Particulars
+Notes
+Year ended
+March 31, 2025
+Year ended
+March 31, 2024
+(I)
+Revenue from operations
+30
+ 230,033.3 
+ 202,751.7 
+(II)
+Other income
+31
+ 3,694.3 
+ 4,657.6 
+(III)
+Total income (I + II)
+ 233,727.6 
+ 207,409.3 
+(IV)
+Expenses
+Cost of materials consumed
+32
+ 46,906.7 
+ 44,293.8 
+Purchases of stock-in-trade
+ 13,595.3 
+ 9,944.1 
+Changes in inventories of finished goods, stock-in-trade and work-in-progress
+33
+ (691.7)
+ 1,803.2 
+Employee benefits expense
+34
+ 26,082.6 
+ 23,739.5 
+Finance costs
+35
+ 8,932.1 
+ 7,840.8 
+Depreciation and amortisation expense
+3 (a) , 3 (b) & 4
+ 12,382.7 
+ 16,006.2 
+Other expenses
+36
+ 78,759.6 
+ 67,972.2 
+Net (gain)/loss on foreign currency transactions
+ (2,545.4)
+ (877.2)
+Total expenses (IV)
+ 183,421.9 
+ 170,722.6 
+(V)
+Profit/(loss) before exceptional item and tax (III - IV)
+
+
+=====176=====
+Notes to the Standalone Financial Statements
+for the year ended March 31, 2025
+NOTE: 10 INCOME TAX ASSETS (NET) (NON-CURRENT)
+` in Million
+As at
+March 31, 2025
+As at
+March 31, 2024
+Advance income tax*
+-
+ 5,033.8 
+	
+Net of provisions (March 31, 2024: ` 19,150.7 Million)
+-
+ 5,033.8 
+*includes amount paid under protest.
+NOTE: 11 OTHER ASSETS (NON-CURRENT)
+` in Million
+As at
+March 31, 2025
+As at
+March 31, 2024
+Capital advances
+ 640.2 
+ 330.0 
+Prepaid expenses
+ 81.4 
+ 100.6 
+Balances with government authorities*
+ 2,197.3 
+ 1,976.6 
+ 2,918.9 
+ 2,407.2 
+*includes amount paid under protest.
+NOTE: 12 INVENTORIES	
+	
+	
+	
+	
+` in Million
+As at
+March 31, 2025
+As at
+March 31, 2024
+Lower of cost and net realisable value
+Raw materials and packing materials 
+ 16,143.4 
+ 13,485.8 
+Goods in transit
+ 184.2 
+ 205.4 
+ 16,327.6 
+ 13,691.2 
+Work-in-progress
+ 11,306.3 
+ 11,575.5 
+Finished goods
+ 8,730.0 
+ 7,808.
+
+=====182=====
+Notes to the Standalone Financial Statements
+for the year ended March 31, 2025
+NOTE: 31 OTHER INCOME
+` in Million
+Year ended
+March 31, 2025
+Year ended
+March 31, 2024
+Interest income on:
+	
+Bank deposits at amortised cost
+118.0 
+ 26.1 
+	
+Loans at amortised cost
+2,507.6 
+ 2,692.3 
+	
+Others [includes interest on income tax refund of ` 574.0 Million (March 31, 2024: ` 1,214.9 Million)]
+ 584.7 
+ 1,245.9 
+3,210.3 
+ 3,964.3 
+Net gain on sale of financial assets measured at fair value through profit or loss
+ 25.9 
+ 220.3 
+Profit on sale / write off of property, plant and equipment and intangible assets, net
+ 79.4 
+ -   
+Sundry balances written back, net
+ 27.5 
+ 215.6 
+Gain on derecognition of Right-of-use assets
+ 7.0 
+ 1.3 
+Insurance claims
+ 38.2 
+ 42.1 
+Lease rental and hire charges
+ 69.3 
+ 78.3 
+Miscellaneous income
+ 236.7 
+ 135.7 
+ 3,694.3 
+ 4,657.6 
+NOTE: 32 COST OF MATERIALS CONSUMED
+` in
+
+=====203=====
+Notes to the Standalone Financial Statements
+for the year ended March 31, 2025
+Mobile Healthcare Unit :- This is an ongoing activity, and a portion of the funds allocated for the project this year remained unutilised due to 
+changes in circumstances. These included rescheduling of planned activities and dependencies on external stakeholders.
+An amount of ` 72.4 million was allocated to ongoing projects and remained unspent as of March 31, 2025. It has been transferred to the Unspent 
+CSR Account for FY 2024-25 within the prescribed timelines, in accordance with the provisions of Section 135 of the Companies Act, 2013.
+9	
+The Company considers climate-related matters in estimates and assumptions, where appropriate. This assessment includes a 
+wide range of possible impacts on the Company due to both physical and transition risks. Even though the Company believes its 
+business model and p
+

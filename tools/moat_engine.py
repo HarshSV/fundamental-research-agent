@@ -95,8 +95,10 @@ def compute_moat(data: dict, company_name: str = None, fallback: dict = None) ->
         opm_mean = fallback["operating_margin"] * 100  # fraction -> %
     roe_track = data.get("roe_3y") or data.get("roe_5y") or data.get("roe_latest") or fallback.get("roe")
     ccc = data.get("cash_conversion_cycle")
-    sales_g = data.get("sales_growth_5y") or data.get("sales_growth_3y")
-    profit_g = data.get("profit_growth_5y") or data.get("profit_growth_3y")
+    # Fall back to our own metrics-engine CAGRs when Screener's ranges-tables don't
+    # parse (common for insurers/NBFCs) — this keeps lenders from scoring "Unrated".
+    sales_g = data.get("sales_growth_5y") or data.get("sales_growth_3y") or fallback.get("sales_growth")
+    profit_g = data.get("profit_growth_5y") or data.get("profit_growth_3y") or fallback.get("profit_growth")
 
     debt_free = any("debt free" in p.lower() or "reduced debt" in p.lower() for p in (data.get("pros") or []))
     if not debt_free and fallback.get("debt_to_equity") is not None:

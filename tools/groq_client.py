@@ -77,24 +77,37 @@ def groq_chat(messages, temperature=None, max_tokens=None, api_key=None):
     if not key or key == "your_api_key_here":
         raise RuntimeError("GROQ_API_KEY not configured")
 
+    import time as _time
+
     client = Groq(api_key=key)
     last_err = None
     for model, budget, tok_cap in MODEL_CHAIN:
-        try:
-            kwargs = {"model": model, "messages": _fit_messages(messages, budget)}
-            if temperature is not None:
-                kwargs["temperature"] = temperature
-            mt = max_tokens
-            if tok_cap is not None:
-                mt = min(mt, tok_cap) if mt else tok_cap
-            if mt is not None:
-                kwargs["max_tokens"] = mt
-            completion = client.chat.completions.create(**kwargs)
-            text = completion.choices[0].message.content
-            if model != MODEL_CHAIN[0][0]:
-                print(f"[groq_chat] served by fallback model {model}")
-            return text
-        except Exception as e:
-            print(f"[groq_chat] {model} failed ({str(e)[:160]}); trying next model...")
-            last_err = e
+        kwargs = {"model": model, "messages": _fit_messages(messages, budget)}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        mt = max_tokens
+        if tok_cap is not None:
+            mt = min(mt, tok_cap) if mt else tok_cap
+        if mt is not None:
+            kwargs["max_tokens"] = mt
+        # Retry transient network blips (Groq connection/timeout errors) a couple of
+        # times with backoff before falling through to the next model. Rate-limit (429)
+        # and other API errors fall through immediately so the model chain can react.
+        for attempt in range(2):  # 1 retry — recovers blips without stalling a hard outage
+            try:
+                completion = client.chat.completions.create(**kwargs)
+                text = completion.choices[0].message.content
+                if model != MODEL_CHAIN[0][0]:
+                    print(f"[groq_chat] served by fallback model {model}")
+                return text
+            except Exception as e:
+                last_err = e
+                msg = str(e).lower()
+                transient = any(w in msg for w in ("connection", "timeout", "timed out", "temporarily", "503", "502"))
+                if transient and attempt < 1:
+                    print(f"[groq_chat] {model} transient error ({str(e)[:80]}); retrying once...")
+                    _time.sleep(1.5)
+                    continue
+                print(f"[groq_chat] {model} failed ({str(e)[:160]}); trying next model...")
+                break
     raise last_err

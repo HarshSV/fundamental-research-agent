@@ -265,25 +265,6 @@ class AngelDataScraper:
             print(f"[AngelDataScraper] Warning: DataFrame serialization failed: {e}")
             return {}
 
-    def _fetch_from_screener_api(self, symbol: str) -> dict:
-        """
-        Primary fallback: Apify Screener.in API for accurate Indian stock data.
-        Returns the full payload or None if unavailable.
-        """
-        try:
-            from tools.screener_api import fetch_screener_fundamentals
-            result = fetch_screener_fundamentals(symbol)
-            if result and result.get('lastPrice') is not None:
-                print(f"[AngelDataScraper] ✅ Screener API returned real data for {symbol}.")
-                return result
-            elif result and result.get('financial_arrays'):
-                # Got financials but no live price — still usable
-                print(f"[AngelDataScraper] Screener API returned financials (no live price) for {symbol}.")
-                return result
-        except Exception as e:
-            print(f"[AngelDataScraper] Screener API unavailable for {symbol}: {e}")
-        return None
-
     def _fetch_from_yfinance_fallback(self, symbol: str) -> dict:
         """
         Last-resort fallback fetching fundamental/market metrics using yfinance.
@@ -357,19 +338,24 @@ class AngelDataScraper:
 
     def _fetch_with_fallback_chain(self, symbol: str) -> dict:
         """
-        Cascading data fetch: yfinance (fast) → Apify Screener (only if yfinance empty).
+        Cascading data fetch, Screener-primary (P0 rework):
+          1. Direct Screener.in scrape — ONE HTML page, INR, complete financials.
+             Replaces 6+ serial yfinance calls; fast and cloud-reliable.
+          2. yfinance — fallback for tickers Screener can't parse (odd slugs, banks).
         Returns the first result that actually has financial statements.
         """
-        # 1. yfinance first — fast and complete for the large majority of stocks.
+        # 1. Direct Screener.in scrape (PRIMARY).
+        try:
+            from tools.screener_scraper import fetch_screener_financials
+            screener = fetch_screener_financials(symbol)
+            if screener is not None and (screener.get('financial_arrays') or {}).get('income_stmt'):
+                print(f"[AngelDataScraper] Screener.in scrape is primary source for {symbol}.")
+                return screener
+        except Exception as e:
+            print(f"[AngelDataScraper] Screener.in scrape unavailable for {symbol}: {e}")
+
+        # 2. yfinance fallback.
         result = self._fetch_from_yfinance_fallback(symbol)
-        if result and (result.get('financial_arrays') or {}).get('income_stmt'):
-            return result
-
-        # 2. Only if yfinance came back empty (renamed/missing ticker), try Apify Screener.
-        screener_result = self._fetch_from_screener_api(symbol)
-        if screener_result is not None and (screener_result.get('financial_arrays') or {}).get('income_stmt'):
-            return screener_result
-
         return result
 
     def fetch_live_quote(self, symbol: str) -> dict:
@@ -442,7 +428,7 @@ class AngelDataScraper:
             symbol_clean = symbol_clean[:-3]
             
         if not self.authenticated or not self.smart_connect:
-            print("[AngelDataScraper] Angel One client not authenticated. Using Screener API → yfinance chain.")
+            print("[AngelDataScraper] Angel One client not authenticated. Using Screener API -> yfinance chain.")
             return self._fetch_with_fallback_chain(symbol_clean)
             
         try:
@@ -473,8 +459,8 @@ class AngelDataScraper:
                         'close': data.get('close')
                     }
                     
-                    # Financials: yfinance PRIMARY (fast, complete). Apify Screener is a
-                    # last-resort fallback only when yfinance returns nothing (e.g. a
+                    # Financials: yfinance PRIMARY (fast, complete). Direct Screener.in
+                    # scrape is the fallback only when yfinance returns nothing (e.g. a
                     # renamed/demerged ticker like TATAMOTORS that 404s on yfinance).
                     financial_arrays = {}
                     shareholding = {}
@@ -493,14 +479,14 @@ class AngelDataScraper:
                         print(f"[AngelDataScraper] Warning: yfinance financials failed: {yf_fin_err}")
                     if not financial_arrays.get('income_stmt'):
                         try:
-                            from tools.screener_api import fetch_screener_fundamentals
-                            screener_data = fetch_screener_fundamentals(symbol_clean)
+                            from tools.screener_scraper import fetch_screener_financials
+                            screener_data = fetch_screener_financials(symbol_clean)
                             if screener_data and screener_data.get('financial_arrays'):
                                 financial_arrays = screener_data['financial_arrays']
                                 shareholding = screener_data.get('shareholding', {})
-                                print(f"[AngelDataScraper] yfinance empty -> Screener API financials for {symbol_clean}.")
+                                print(f"[AngelDataScraper] yfinance empty -> Screener.in scrape financials for {symbol_clean}.")
                         except Exception as scr_err:
-                            print(f"[AngelDataScraper] Screener API fallback failed ({scr_err}).")
+                            print(f"[AngelDataScraper] Screener.in scrape fallback failed ({scr_err}).")
 
                     # Use ownership from Screener if available, else try yfinance
                     ownership = {
@@ -547,7 +533,7 @@ class AngelDataScraper:
                     'close': data.get('close')
                 }
                 
-                # Financials: yfinance PRIMARY, Apify Screener fallback only if empty.
+                # Financials: yfinance PRIMARY, direct Screener.in scrape fallback if empty.
                 financial_arrays = {}
                 try:
                     ticker = yf.Ticker(f"{symbol_clean}.NS")
@@ -563,11 +549,11 @@ class AngelDataScraper:
                     print(f"[AngelDataScraper] Warning: yfinance financials failed: {yf_fin_err}")
                 if not financial_arrays.get('income_stmt'):
                     try:
-                        from tools.screener_api import fetch_screener_fundamentals
-                        screener_data = fetch_screener_fundamentals(symbol_clean)
+                        from tools.screener_scraper import fetch_screener_financials
+                        screener_data = fetch_screener_financials(symbol_clean)
                         if screener_data and screener_data.get('financial_arrays'):
                             financial_arrays = screener_data['financial_arrays']
-                            print(f"[AngelDataScraper] ltpData path: yfinance empty -> Screener API.")
+                            print(f"[AngelDataScraper] ltpData path: yfinance empty -> Screener.in scrape.")
                     except Exception:
                         pass
 
@@ -598,14 +584,14 @@ class AngelDataScraper:
                     'financial_arrays': financial_arrays
                 }
                 
-            print("[AngelDataScraper] Angel One SmartAPI calls unsuccessful. Using Screener API → yfinance chain.")
+            print("[AngelDataScraper] Angel One SmartAPI calls unsuccessful. Using Screener API -> yfinance chain.")
             return self._fetch_with_fallback_chain(symbol_clean)
             
         except Exception as e:
             if "App Deactive" in str(e) or "auth" in str(e).lower() or "active" in str(e).lower() or "session" in str(e).lower():
-                print(f"[AngelDataScraper] Warning: SmartAPI connection throws App Deactive / authentication exception ({e}). Using Screener API → yfinance chain.")
+                print(f"[AngelDataScraper] Warning: SmartAPI connection throws App Deactive / authentication exception ({e}). Using Screener API -> yfinance chain.")
             else:
-                print(f"[AngelDataScraper] Error fetching data for {symbol}: {e}. Using Screener API → yfinance chain.")
+                print(f"[AngelDataScraper] Error fetching data for {symbol}: {e}. Using Screener API -> yfinance chain.")
             return self._fetch_with_fallback_chain(symbol_clean)
 
 if __name__ == '__main__':

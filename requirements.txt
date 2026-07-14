@@ -134,3 +134,4 @@ yfinance==1.4.1
 zope.interface==8.5
 zstandard==0.25.0
 pypdf>=6.0.0
+pymupdf>=1.28.0

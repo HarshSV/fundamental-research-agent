@@ -7,6 +7,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import tools.ssl_bootstrap  # noqa: E402  (must run before requests/yfinance/Angel)
 
+import asyncio
 import threading
 import requests
 from fastapi import FastAPI, HTTPException, Depends
@@ -405,7 +406,7 @@ async def research_endpoint(request: ResearchRequest, _: dict = Depends(auth.req
     
     try:
         print(f"[HTTP] Invoking LangGraph workflow for ticker: {incoming_symbol}...")
-        final_state = app_graph.invoke(initial_state)
+        final_state = await asyncio.to_thread(app_graph.invoke, initial_state)
         print(f"[HTTP] Workflow completed successfully for symbol: {incoming_symbol}")
         
         # Log to CSV Database (Skip saving PDF on disk)
@@ -424,6 +425,44 @@ async def research_endpoint(request: ResearchRequest, _: dict = Depends(auth.req
             "verdict": "ERROR"
         }
 
+# --- Report cache -----------------------------------------------------------
+# The full pipeline (multi-source scrape + several LLM calls) is expensive, so a
+# repeat lookup of the same symbol used to redo everything. This disk cache makes
+# repeat lookups return INSTANTLY (like Screener serving a pre-computed page).
+# 6h TTL keeps data reasonably fresh; delete cache/reports/<SYMBOL>.json to force
+# a rebuild for one stock.
+_REPORT_CACHE_DIR = os.path.join(_BASE_DIR, "cache", "reports")
+_REPORT_CACHE_TTL = 6 * 3600
+
+
+def _report_cache_path(symbol: str) -> str:
+    safe = "".join(c if c.isalnum() else "_" for c in (symbol or "").upper())
+    return os.path.join(_REPORT_CACHE_DIR, f"{safe}.json")
+
+
+def _read_report_cache(symbol: str):
+    import json as _json
+    import time as _time
+    try:
+        p = _report_cache_path(symbol)
+        if os.path.exists(p) and _time.time() - os.path.getmtime(p) <= _REPORT_CACHE_TTL:
+            with open(p, "r", encoding="utf-8") as fh:
+                return _json.load(fh)
+    except Exception as e:
+        print(f"[HTTP] report cache read skipped for {symbol}: {e}")
+    return None
+
+
+def _write_report_cache(symbol: str, state: dict):
+    import json as _json
+    try:
+        os.makedirs(_REPORT_CACHE_DIR, exist_ok=True)
+        with open(_report_cache_path(symbol), "w", encoding="utf-8") as fh:
+            _json.dump(state, fh, default=str)
+    except Exception as e:
+        print(f"[HTTP] report cache write skipped for {symbol}: {e}")
+
+
 @app.post("/generate-report")
 @app.post("/api/v1/generate-report")
 async def generate_report_endpoint(request: ReportRequest, _: dict = Depends(auth.require_session)):
@@ -438,7 +477,19 @@ async def generate_report_endpoint(request: ReportRequest, _: dict = Depends(aut
         raise HTTPException(status_code=400, detail="Stock ticker/symbol must not be empty.")
         
     print(f"\n[HTTP POST /generate-report] Request received for symbol: {incoming_symbol}")
-    
+
+    # Fast path: serve a fresh cached report instantly instead of re-running the
+    # whole pipeline (this is what makes a repeat lookup feel Screener-fast).
+    cached = _read_report_cache(incoming_symbol)
+    if cached is not None:
+        print(f"[HTTP] Serving cached report for {incoming_symbol} (instant).")
+        return {
+            "status": "success",
+            "message": "Research complete (cached).",
+            "pdf_path": None,
+            "data": cached,
+        }
+
     # Initialize the workflow state schema
     initial_state = {
         'symbol': incoming_symbol,
@@ -451,16 +502,19 @@ async def generate_report_endpoint(request: ReportRequest, _: dict = Depends(aut
     
     try:
         print(f"[HTTP] Invoking LangGraph workflow for ticker: {incoming_symbol}...")
-        final_state = app_graph.invoke(initial_state)
+        final_state = await asyncio.to_thread(app_graph.invoke, initial_state)
         print(f"[HTTP] Workflow completed successfully for symbol: {incoming_symbol}")
         
+        # Cache the completed report so the next lookup of this symbol is instant.
+        _write_report_cache(incoming_symbol, final_state)
+
         # Log to CSV Database (Skip saving PDF on disk)
         try:
             from tools.db_logger import StockDatabaseLogger
             StockDatabaseLogger.log_research(final_state)
         except Exception as db_err:
             print(f"[HTTP WARNING] Database logging failed: {db_err}")
-            
+
         return {
             "status": "success",
             "message": "Research complete.",
@@ -514,6 +568,285 @@ async def concall_summary_endpoint(request: dict, _: dict = Depends(auth.require
         print(f"[HTTP ERROR] Concall summary failed: {e}")
         return {"available": False, "reason": f"Error: {e}"}
 
+
+@app.post("/api/v1/concall-intelligence")
+async def concall_intelligence_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Deep concall tracking (#2/#5): extract EVERY past call, build a sentiment
+    timeline + walk-the-talk guidance-vs-outcome scorecard. Runs off the event loop;
+    the frontend calls this AFTER the core report so the page stays fast."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"available": False, "reason": "Symbol required."}
+    try:
+        from tools.concall_intelligence import build_concall_intelligence
+        return await asyncio.to_thread(
+            build_concall_intelligence, sym,
+            request.get("name"), request.get("financials_context", ""),
+        )
+    except Exception as e:
+        print(f"[HTTP ERROR] Concall intelligence failed for {sym}: {e}")
+        return {"available": False, "reason": f"Error: {e}"}
+
+
+@app.post("/api/v1/business-evolution")
+async def business_evolution_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Business Evolution (#4): then-vs-now + a categorized list/timeline of business
+    changes (acquisitions, divestitures, new businesses, JVs, expansion, tech,
+    management/strategy). Runs off the event loop; the frontend calls it after the core."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"available": False, "reason": "Symbol required."}
+    try:
+        from tools.business_evolution import build_business_evolution
+        return await asyncio.to_thread(
+            build_business_evolution, sym,
+            request.get("name"), request.get("description", ""),
+        )
+    except Exception as e:
+        print(f"[HTTP ERROR] Business evolution failed for {sym}: {e}")
+        return {"available": False, "reason": f"Error: {e}"}
+
+
+@app.post("/api/v1/inventory-turnover")
+async def inventory_turnover_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Inventory Turnover = COGS (a+b+c) / Average Inventory, computed from the
+    company's OWN audited NSE XBRL standalone filings. Runs off the event loop; the
+    frontend calls it after the core report. Returns {applicable: False} for lenders
+    (no inventory) — never a fabricated number."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_inventory_turnover
+        return await asyncio.to_thread(fetch_inventory_turnover, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Inventory turnover failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/receivables-turnover")
+async def receivables_turnover_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Receivables Turnover = Revenue from Operations / Average Trade Receivables,
+    computed from the company's OWN audited Annual Report (Revenue used as a proxy
+    for Net Credit Sales — Indian Annual Reports don't split cash vs. credit sales).
+    Runs off the event loop. Returns {applicable: False} for lenders/financial
+    businesses (receivables concept differs — loans/advances instead)."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_receivables_turnover
+        return await asyncio.to_thread(fetch_receivables_turnover, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Receivables turnover failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/payables-turnover")
+async def payables_turnover_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Payables Turnover = Purchases / Average Trade Payables, computed from the
+    company's OWN audited Annual Report (Purchases = Cost of materials consumed +
+    Purchases of stock-in-trade, falling back to COGS minus the inventory movement
+    only if that split isn't available). Runs off the event loop. Returns
+    {applicable: False} for lenders/financial businesses."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_payables_turnover
+        return await asyncio.to_thread(fetch_payables_turnover, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Payables turnover failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/asset-turnover")
+async def asset_turnover_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Asset Turnover = Revenue from Operations / Average Total Assets, computed
+    from the company's OWN audited Annual Report. Runs off the event loop. Returns
+    {applicable: False} for lenders/financial businesses."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_asset_turnover
+        return await asyncio.to_thread(fetch_asset_turnover, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Asset turnover failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/working-capital-turnover")
+async def working_capital_turnover_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Working Capital Turnover = Revenue from Operations / Average Working Capital
+    (Total Current Assets - Total Current Liabilities), computed from the company's
+    OWN audited Annual Report. Runs off the event loop. Returns {applicable: False}
+    for lenders/financial businesses, and when Average Working Capital is
+    zero/negative (never silently reports a sign-inverted ratio)."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_working_capital_turnover
+        return await asyncio.to_thread(fetch_working_capital_turnover, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Working capital turnover failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/current-ratio")
+async def current_ratio_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Current Ratio = Total Current Assets / Total Current Liabilities (closing
+    balance, not averaged), computed from the company's OWN audited Annual Report.
+    Runs off the event loop. Returns {applicable: False} for lenders/financial
+    businesses."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_current_ratio
+        return await asyncio.to_thread(fetch_current_ratio, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Current ratio failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/quick-ratio")
+async def quick_ratio_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Quick Ratio = (Total Current Assets - Inventories) / Total Current Liabilities
+    (closing balance, not averaged), computed from the company's OWN audited Annual
+    Report. Runs off the event loop. Returns {applicable: False} for lenders/financial
+    businesses."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_quick_ratio
+        return await asyncio.to_thread(fetch_quick_ratio, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Quick ratio failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/cash-ratio")
+async def cash_ratio_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Cash Ratio = Cash and Cash Equivalents / Total Current Liabilities (closing
+    balance, not averaged), computed from the company's OWN audited Annual Report.
+    Runs off the event loop. Returns {applicable: False} for lenders/financial
+    businesses."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_cash_ratio
+        return await asyncio.to_thread(fetch_cash_ratio, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Cash ratio failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/gross-profit-margin")
+async def gross_profit_margin_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Gross Profit Margin = (Revenue from Operations - COGS) / Revenue from Operations,
+    computed from the company's OWN audited Annual Report (COGS reuses the same a+b+c
+    components validated for Inventory Turnover). Runs off the event loop. Returns
+    {applicable: False} for lenders/financial businesses."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_gross_profit_margin
+        return await asyncio.to_thread(fetch_gross_profit_margin, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Gross profit margin failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/operating-profit-margin")
+async def operating_profit_margin_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Operating Profit Margin (EBITDA-basis) = (Revenue - COGS - Employee Benefit
+    Expense - Other Expenses) / Revenue, computed from the company's OWN audited
+    Annual Report. Runs off the event loop. Returns {applicable: False} for
+    lenders/financial businesses."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_operating_profit_margin
+        return await asyncio.to_thread(fetch_operating_profit_margin, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Operating profit margin failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/net-profit-margin")
+async def net_profit_margin_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Net Profit Margin = Profit After Tax (owners-attributable) / Revenue from
+    Operations, computed from the company's OWN audited Annual Report. Runs off
+    the event loop. Returns {applicable: False} for lenders/financial businesses."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_net_profit_margin
+        return await asyncio.to_thread(fetch_net_profit_margin, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Net profit margin failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/return-on-equity")
+async def return_on_equity_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Return on Equity = Profit After Tax (owners-attributable) / Average Total
+    Equity (owners-attributable), computed from the company's OWN audited Annual
+    Report. Runs off the event loop. Returns {applicable: False} for
+    lenders/financial businesses and negative-equity companies."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_return_on_equity
+        return await asyncio.to_thread(fetch_return_on_equity, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Return on equity failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/return-on-capital-employed")
+async def return_on_capital_employed_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """ROCE = EBIT (Profit Before Tax + Finance Costs) / Average Capital Employed
+    (Total Assets - Total Current Liabilities), computed from the company's OWN
+    audited Annual Report. Runs off the event loop. Returns {applicable: False}
+    for lenders/financial businesses and zero/negative Capital Employed."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_return_on_capital_employed
+        return await asyncio.to_thread(fetch_return_on_capital_employed, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Return on capital employed failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/debt-to-equity")
+async def debt_to_equity_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Debt-to-Equity = Total Debt (Long-term + Short-term Borrowings + Current
+    Maturities) / Total Equity (owners-attributable), both closing balance,
+    computed from the company's OWN audited Annual Report. Runs off the event
+    loop. Returns {applicable: False} for lenders/financial businesses and
+    negative/zero-equity companies."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_debt_to_equity
+        return await asyncio.to_thread(fetch_debt_to_equity, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Debt-to-Equity failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
 @app.post("/test-flow")
 @app.post("/api/v1/test-flow")
 async def test_flow_endpoint(request: ReportRequest, _: dict = Depends(auth.require_session)):
@@ -538,7 +871,7 @@ async def test_flow_endpoint(request: ReportRequest, _: dict = Depends(auth.requ
     
     try:
         print(f"[HTTP] Running validation workflow for: {incoming_symbol}...")
-        final_state = app_graph.invoke(initial_state)
+        final_state = await asyncio.to_thread(app_graph.invoke, initial_state)
         return {
             "status": "success",
             "message": "Workflow dry-run completed successfully.",

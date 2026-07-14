@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 
 # Standard path fix to allow running the script directly and importing tools packages
@@ -293,10 +294,17 @@ def analyze_quality_node(state: SystemState) -> dict:
 
     api_key = os.getenv("GROQ_API_KEY")
     
+    # Business description (from the data payload) — grounds F-21 so the Business
+    # Model Canvas is populated even when the concall doesn't spell it out.
+    _info = (state.get('raw_financial_data') or {}).get('info') or {}
+    _biz_desc = (_info.get('longBusinessSummary') or "").strip()
+
     # Construct details context for LLM
     data_context = (
         f"Stock: {symbol}\n"
-        f"Latest Price: {val.get('last_price')}\n"
+        f"Company: {metrics.get('company_name')}\n"
+        + (f"Business description: {_biz_desc}\n" if _biz_desc else "")
+        + f"Latest Price: {val.get('last_price')}\n"
         f"Valuation: PE={val.get('PE')}, PB={val.get('PB')}, EV/EBITDA={val.get('EV_EBITDA')}, FCF Yield={val.get('FCF_Yield')}\n"
         f"Solvency: Debt/Equity={solvency.get('debt_to_equity')}, Interest Coverage={solvency.get('interest_coverage')}\n"
         f"3Y CAGR Revenue: {growth.get('cagr_3y_revenue')}, 3Y CAGR PAT: {growth.get('cagr_3y_pat')}\n"
@@ -355,18 +363,23 @@ def analyze_quality_node(state: SystemState) -> dict:
         "  },\n"
         "  \"F-21\": {\n"
         "    \"what_they_sell\": \"one plain sentence: what products/services the company actually sells\",\n"
-        "    \"revenue_drivers\": [\"how it makes money - key segments/products/streams WITH approx revenue share % if stated in the transcript\", \"...\"],\n"
-        "    \"key_customers_or_geographies\": [\"major customer types, end-markets or geographies it depends on\", \"...\"],\n"
-        "    \"key_partnerships\": [\"major partners, suppliers, strategic alliances, joint ventures\", \"...\"],\n"
-        "    \"key_activities\": [\"core activities the company performs to deliver its value proposition (e.g. manufacturing, R&D, distribution)\", \"...\"],\n"
-        "    \"value_propositions\": [\"what unique value it delivers to customers - why they choose this company\", \"...\"],\n"
-        "    \"customer_relationships\": [\"how the company acquires and retains customers (e.g. dedicated support, self-service, brand loyalty)\", \"...\"],\n"
-        "    \"customer_segments\": [\"distinct target customer groups or market segments\", \"...\"],\n"
-        "    \"key_resources\": [\"critical assets the company relies on - brand, IP, patents, infrastructure, talent\", \"...\"],\n"
-        "    \"channels\": [\"how the company delivers products/services to customers (e.g. direct sales, distributors, online, retail)\", \"...\"]\n"
+        "    \"revenue_drivers\": [\"a specific revenue stream a non-expert can understand: name the product/segment AND briefly how it earns, e.g. 'Protection plans - premiums from term & health life cover sold to individuals'; append approx revenue share % only if stated\", \"...\"],\n"
+        "    \"revenue_streams\": [{ \"name\": \"short stream name, e.g. 'Premium income' or 'Investment income'\", \"approx_pct\": 40, \"how_it_earns\": \"one plain-English sentence: how this stream actually earns money for the company\" }, \"... 2 to 6 streams whose approx_pct sum to about 100 ...\"],\n"
+        "    \"key_customers_or_geographies\": [\"a specific customer type, end-market or geography with a clause on why it matters, e.g. 'Salaried urban individuals - main buyers of savings & protection policies'\", \"...\"],\n"
+        "    \"key_partnerships\": [\"name the partner AND why it matters, e.g. 'State Bank of India - parent bank that sells policies through its branches (bancassurance)'\", \"...\"],\n"
+        "    \"key_activities\": [\"name the activity AND what it involves, e.g. 'Underwriting - pricing and assessing the risk of each policy before issuing it'\", \"...\"],\n"
+        "    \"value_propositions\": [\"a specific benefit customers get and why they choose this company, e.g. 'Trusted brand backed by SBI - reassurance the insurer will pay claims'\", \"...\"],\n"
+        "    \"customer_relationships\": [\"name the relationship model AND how it works, e.g. 'Agency network - individual agents give face-to-face advice and after-sales service'\", \"...\"],\n"
+        "    \"customer_segments\": [\"a distinct customer group described specifically, e.g. 'High-net-worth individuals buying large savings/ULIP policies'\", \"...\"],\n"
+        "    \"key_resources\": [\"a critical asset AND why it is critical, e.g. 'Nationwide agent & bank-branch distribution network that reaches customers'\", \"...\"],\n"
+        "    \"channels\": [\"name the channel AND explain what it is, e.g. 'Bancassurance - selling policies through partner bank branches'; 'Agency - network of individual insurance agents'\", \"...\"]\n"
         "  }\n"
         "}\n\n"
-        "IMPORTANT for F-21: base it STRICTLY on the transcript/business context provided. If the revenue split or customers are not stated, return an empty list rather than guessing.\n"
+        "IMPORTANT for F-21: for revenue_drivers and any quantified split, use ONLY figures stated in the transcript/data (empty list if not stated). BUT the Business Model Canvas blocks (key_partnerships, key_activities, value_propositions, customer_relationships, customer_segments, key_resources, channels) must ALWAYS be populated: infer them from the Business description and known business model of this company — never leave them empty. These are structural facts about how the business operates, not speculative claims.\n"
+        "STYLE for EVERY F-21 list item: write it so a non-expert instantly understands it - NEVER a bare 2-3 word label like 'Agency channel', 'Savings products' or 'Investment management'. Use the pattern 'Short label - brief plain-English explanation'. Keep each item concise (roughly 6-14 words) so it is specific but not text-heavy.\n"
+        "COVERAGE for EVERY F-21 list: be COMPREHENSIVE - include ALL the material points this business genuinely has, not just one or two. Where the business warrants it, list about 4-7 distinct items per block. In particular revenue_drivers must cover EVERY major way the company makes money (each product line/segment, plus investment income, fee income or other income when relevant) so the reader fully understands how it earns. Do NOT pad with generic filler - only real, distinct points grounded in the provided context.\n"
+        "SECTOR HINT for revenue_drivers: if the company is a LIFE/GENERAL INSURER, cover all premium sources it mentions (e.g. protection/term, participating & non-participating savings, ULIP/unit-linked, group/corporate, annuity/pension) AND its investment income on the policyholder book. If it is a BANK/NBFC, cover net interest income plus fee/commission, treasury/trading and other income. Only include the ones actually evidenced in the provided transcript/context - never invent a stream that is not mentioned.\n"
+        "REVENUE_STREAMS (ALWAYS fill - this is different from revenue_drivers): break the company's revenue into 2 to 6 DISTINCT streams that reflect how THIS business model genuinely earns money - for a LIFE INSURER: premium income (by major type) plus investment income on the float; for a BANK/NBFC: net interest income plus fee/commission plus treasury/other income; for a MANUFACTURER or SERVICE company: its main product/service lines plus other/interest income. Give each stream an APPROXIMATE percentage share (approx_pct) based on the known economics of this kind of business - these are explicitly understood by the reader as ESTIMATES, so it is acceptable and expected to approximate when exact disclosed figures are unavailable. The approx_pct values should sum to roughly 100. NEVER return a single 100% stream for a company that plainly has more than one source of income (almost every company does). Each how_it_earns must be one clear plain-English sentence a non-expert understands.\n"
         "Respond ONLY with the raw JSON string. Do not include markdown block ticks like ```json or any introductory text. Ensure the output is valid JSON."
     )
     
@@ -456,6 +469,10 @@ def analyze_quality_node(state: SystemState) -> dict:
             'roce': (_lr.get('ROCE') * 100) if _lr.get('ROCE') is not None else None,
             'roe': (_lr.get('ROE') * 100) if _lr.get('ROE') is not None else None,
             'operating_margin': (_margins_a[-1].get('ebit_margin')) if _margins_a else None,
+            # Our own multi-year CAGRs so lenders/insurers (whose Screener growth
+            # ranges-tables often don't parse) still get a rated moat, not "Unrated".
+            'sales_growth': (growth.get('cagr_3y_revenue') * 100) if growth.get('cagr_3y_revenue') is not None else None,
+            'profit_growth': (growth.get('cagr_3y_pat') * 100) if growth.get('cagr_3y_pat') is not None else None,
         }
         _moat_data = fetch_screener_moat_data(symbol, name=metrics.get('company_name'))
         _moat = compute_moat(_moat_data, company_name=metrics.get('company_name'), fallback=_fb)
@@ -1633,16 +1650,31 @@ def build_executive_summary(state: SystemState) -> dict:
                         'value_cr': round(val / 1e7),
                         'pct': round(val / _rev * 100, 1),
                     })
+            # Fallback so Cost Structure never shows empty when the itemized expense
+            # rows aren't in the statement (e.g. demerged/newly-listed tickers with
+            # sparse data): split revenue into total costs vs the net profit that
+            # survives — derived straight from the income statement.
+            if not cost_structure:
+                _ni = _rg(['netincome', 'netincomecommonstockholders', 'profitaftertax', 'netprofit'])
+                if _ni is not None:
+                    _tot_cost = max(_rev - _ni, 0)
+                    cost_structure = [
+                        {'label': 'Total costs & expenses', 'value_cr': round(_tot_cost / 1e7),
+                         'pct': round(_tot_cost / _rev * 100, 1)},
+                        {'label': 'Net profit (retained)', 'value_cr': round(max(_ni, 0) / 1e7),
+                         'pct': round(max(_ni, 0) / _rev * 100, 1)},
+                    ]
 
     # Prefer AUDITED revenue-by-segment from the BSE quarterly result filing; fall back
     # to what the concall stated (F-21). Both dynamic — nothing hardcoded.
-    segments, segment_source = [], None
+    segments, segment_source, segment_period = [], None, None
     try:
         from tools.bse_scraper import fetch_bse_segments
         _bse = fetch_bse_segments(symbol, name=name) or {}
         if _bse.get('segments'):
             segments = _bse['segments']
             segment_source = _bse.get('source', 'BSE result filing')
+            segment_period = _bse.get('period')
     except Exception as _se:
         print(f"[summary] BSE segments skipped: {_se}")
 
@@ -1661,28 +1693,89 @@ def build_executive_summary(state: SystemState) -> dict:
             ]
             segment_source = 'derived from the income statement (interest vs fee/other income)'
 
+    # --- Structured revenue streams for the pie + expandable "how it earns" -------
+    # Primary source for the revenue pie: the LLM's business-model breakdown
+    # (F-21 revenue_streams) — 2-6 streams, each with an APPROXIMATE % share and a
+    # one-line explanation. Being an explicit estimate, it works for every stock
+    # instead of collapsing to a single "100%" line. Normalised to {name, pct, desc}.
+    revenue_streams = []
+    for _it in (f21.get('revenue_streams') or []):
+        if not isinstance(_it, dict):
+            continue
+        _snm = _f21_text(_it.get('name') or _it.get('stream') or _it.get('label'))
+        _spct = _it.get('approx_pct', _it.get('pct', _it.get('share')))
+        try:
+            _spct = float(str(_spct).replace('%', '').strip())
+        except Exception:
+            _spct = None
+        _sdesc = _f21_text(_it.get('how_it_earns') or _it.get('description') or _it.get('details'))
+        if _snm:
+            revenue_streams.append({'name': _snm, 'pct': _spct, 'desc': _sdesc})
+
     if segments:
+        # Audited ₹ segments win; mirror them into streams so the pie shows real values.
         revenue_drivers = [f"{s['name']} — {s['pct']}% of revenue (₹{s['revenue_cr']:,} Cr)" for s in segments]
+        if not revenue_streams:
+            revenue_streams = [{'name': s['name'], 'pct': s.get('pct'),
+                                'desc': f"₹{s['revenue_cr']:,} Cr of revenue in the latest reported period"}
+                               for s in segments]
     else:
         revenue_drivers = _f21_list('revenue_drivers')
         if revenue_drivers:
             segment_source = "management concall / filings"
+        if revenue_streams and not segment_source:
+            segment_source = 'approximate business-model mix (AI estimate)'
 
-    # Last resort so the Revenue Streams box is never empty: state the single
-    # reported segment with its actual revenue.
-    if not segments and not revenue_drivers and inc_grid:
+    # Keep the text driver list in sync when only structured streams were returned.
+    if revenue_streams and not revenue_drivers:
+        revenue_drivers = [
+            s['name'] + (f" — ~{s['pct']:.0f}% of revenue" if s.get('pct') is not None else "")
+            + (f" ({s['desc']})" if s.get('desc') else "")
+            for s in revenue_streams
+        ]
+
+    # Last-resort floor so a pie ALWAYS renders even with no LLM streams: split
+    # reported revenue into operating core vs other income from the income statement
+    # (both real ₹, additive lines). Labels are sector-aware — insurers read as
+    # premium income, banks as interest earned, everyone else as operating revenue.
+    if not segments and not revenue_streams and inc_grid:
         _norm = {k.lower().replace(' ', ''): v for k, v in _row.items()}
-        _rev2 = _norm.get('totalrevenue') or _norm.get('operatingrevenue')
-        if _rev2:
-            revenue_drivers = [f"Single reported segment — ₹{round(_rev2 / 1e7):,} Cr total revenue in the latest financial year"]
-            segment_source = 'income statement'
+        _rev2 = _norm.get('totalrevenue') or _norm.get('operatingrevenue') or _norm.get('revenue')
+        _other = _norm.get('otherincome')
+        _nm = (name or symbol or '').lower()
+        _is_insurer = any(w in _nm for w in ['insurance', 'insurer', 'life', 'assurance', 'gic '])
+        _is_bank = any(w in _nm for w in ['bank', 'financ', 'finance', 'nbfc', 'housing finance',
+                                          'capital', 'fintech', 'amc'])
+        if _is_insurer:
+            _core_nm, _oth_nm = 'Premium & policy income', 'Investment & other income'
+        elif _is_bank:
+            _core_nm, _oth_nm = 'Interest earned', 'Other income (treasury / fees)'
+        else:
+            _core_nm, _oth_nm = 'Operating revenue (core business)', 'Other income'
+        if _rev2 and _rev2 > 0:
+            if _other is not None and _other > 0:
+                _tot = _rev2 + _other
+                revenue_streams = [
+                    {'name': _core_nm, 'pct': round(_rev2 / _tot * 100, 1),
+                     'desc': f"₹{round(_rev2 / 1e7):,} Cr — the company's core operating income"},
+                    {'name': _oth_nm, 'pct': round(_other / _tot * 100, 1),
+                     'desc': f"₹{round(_other / 1e7):,} Cr — income earned outside the core operations"},
+                ]
+            else:
+                revenue_streams = [{'name': _core_nm, 'pct': 100.0,
+                                    'desc': f"₹{round(_rev2 / 1e7):,} Cr of reported revenue"}]
+            if not revenue_drivers:
+                revenue_drivers = [f"{s['name']} — ~{s['pct']:.0f}% of revenue" for s in revenue_streams]
+            segment_source = segment_source or 'derived from the income statement (operating vs other income)'
 
     business_understanding = {
         'business_model': (biz or _f21_text(f21.get('what_they_sell')) or biz_short or None),
         'what_they_sell': _f21_text(f21.get('what_they_sell')),
         'revenue_drivers': revenue_drivers,
+        'revenue_streams': revenue_streams,
         'segments': segments,
         'segment_source': segment_source,
+        'segment_period': segment_period,
         'key_customers_or_geographies': _f21_list('key_customers_or_geographies'),
         'cost_structure': cost_structure,
         'segment_note': (None if revenue_drivers else
@@ -1701,6 +1794,25 @@ def build_executive_summary(state: SystemState) -> dict:
 
     ml_forecast = build_ml_forecast(m, info, symbol)
 
+    # SOIC-style deterministic financial analysis (Piotroski F-Score, DuPont ROE,
+    # green/amber/red financial-health checklist) — computed from the 12-yr
+    # statements, rendered as scorecards/tables (not prose).
+    financial_analysis = {}
+    try:
+        from tools.financial_analysis import compute_financial_analysis
+        financial_analysis = compute_financial_analysis(m)
+    except Exception as _fae:
+        print(f"[summary] financial analysis skipped: {_fae}")
+
+    # Forward valuation (#10) — forward EPS/PE/PEG/EV-Sales/EV-EBITDA/MCap-Sales
+    # from the model's projected growth applied to latest actuals.
+    forward_valuation = {}
+    try:
+        from tools.forward_valuation import compute_forward_valuation
+        forward_valuation = compute_forward_valuation(m, ml_forecast, info)
+    except Exception as _fve:
+        print(f"[summary] forward valuation skipped: {_fve}")
+
     return {
         'headline': headline,
         'narrative': paras,
@@ -1709,6 +1821,8 @@ def build_executive_summary(state: SystemState) -> dict:
         'quality_word': quality_word,
         'investment_view': investment_view,
         'ml_forecast': ml_forecast,
+        'financial_analysis': financial_analysis,
+        'forward_valuation': forward_valuation,
         'peer_rank': peer_rank,
         'business_understanding': business_understanding,
         'investment_checklist': {

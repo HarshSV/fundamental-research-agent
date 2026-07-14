@@ -1,0 +1,117 @@
+=====226=====
+Consolidated Statement of Profit and Loss
+for the year ended March 31, 2025
+` in Million
+Particulars
+Notes
+Year ended
+March 31, 2025
+Year ended
+March 31, 2024
+(I)
+Revenue from operations
+30
+ 525,784.4 
+ 484,968.5 
+(II)
+Other income
+31
+ 19,650.4 
+ 13,541.9 
+(III)
+Total income (I + II)
+ 545,434.8 
+ 498,510.4 
+(IV)
+Expenses
+Cost of materials consumed
+32
+ 64,491.0 
+ 69,043.3 
+Purchases of stock-in-trade
+ 41,479.5 
+ 34,661.5 
+Changes in inventories of finished goods, stock-in-trade and work-in-progress
+33
+ 1,503.1 
+ 2,921.3 
+Employee benefits expense
+34
+ 99,731.2 
+ 94,290.6 
+Finance costs
+35
+ 2,313
+
+=====253=====
+Notes to the Consolidated Financial Statements
+for the year ended March 31, 2025
+NOTE: 7 LOANS (NON-CURRENT)
+` in Million
+As at
+March 31, 2025
+As at
+March 31, 2024
+Loans to employees 
+	
+Secured, considered good 
+ -   
+ 0.1 
+	
+Unsecured, considered good
+ 27.9 
+ 8.4 
+ 27.9 
+ 8.5 
+NOTE: 8 OTHER FINANCIAL ASSETS (NON-CURRENT)
+` in Million
+As at
+March 31, 2025
+As at
+March 31, 2024
+Security deposits - unsecured, considered good
+524.8
+ 517.9 
+Share application money pending allotment and money paid towards equity based agreements *
+641.1
+ 58.1 
+Others 
+604.5
+ 603.5 
+ 1,770.4 
+ 1,179.5 
+*March 2025:
+
+=====260=====
+Notes to the Consolidated Financial Statements
+for the year ended March 31, 2025
+NOTE: 32 COST OF MATERIALS CONSUMED
+` in Million
+Year ended
+March 31, 2025
+Year ended
+March 31, 2024
+Raw materials and packing materials
+	
+Inventories at the beginning of the year
+ 31,295.6 
+ 34,784.5 
+	
+Purchases during the year
+ 67,269.4 
+ 65,805.0 
+	
+Foreign currency translation difference
+ 289.2 
+ (250.6)
+	
+Inventories at the end of the year
+ (34,363.2)
+ (31,295.6)
+ 64,491.0 
+ 69,043.3 
+NOTE: 33 CHANGES IN INVENTORIES OF FINISHED GOODS, STOCK-IN-TRADE AND WORK-IN-PROGRESS	
+` in Million
+Year ended
+March 31,
+
