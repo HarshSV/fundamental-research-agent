@@ -1,0 +1,115 @@
+@import './theme/tokens.css';
+@import './styles/design-system.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', 'Helvetica', 'Arial', sans-serif;
+            background-color: rgb(var(--slate-950));
+            /* Gradient stops read the themed tokens, so the page background adapts
+               to light/dark automatically. The subtle blue accent stays in both. */
+            background-image:
+                radial-gradient(900px circle at 50% -160px, rgb(var(--blue-500) / 0.07), transparent 60%),
+                linear-gradient(180deg, rgb(var(--slate-950)) 0%, rgb(var(--slate-955)) 100%);
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            color: rgb(var(--slate-300)); /* slate body text */
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .font-heading {
+            font-family: 'Arial', 'Helvetica', sans-serif;
+            letter-spacing: -0.01em;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgb(var(--slate-955));
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgb(var(--slate-700));
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgb(var(--slate-600));
+        }
+
+        /* ---------- Premium polish ---------- */
+        @keyframes nvFade {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: none; }
+        }
+        /* Tab panels fade/slide in on switch + soft elevation */
+        main > section, main > div {
+            animation: nvFade .30s cubic-bezier(.22,.61,.36,1) both;
+        }
+        main > section {
+            box-shadow: 0 1px 2px rgb(var(--shadow-rgb) / .05), 0 14px 36px -20px rgb(var(--shadow-rgb) / .22);
+        }
+        /* Reusable elevation for the header + tab bar */
+        .nv-elevate {
+            box-shadow: 0 1px 2px rgb(var(--shadow-rgb) / .05), 0 10px 28px -18px rgb(var(--shadow-rgb) / .18);
+        }
+        /* Dropdown / popover that must clearly float above the page */
+        .nv-float {
+            box-shadow: 0 16px 40px -10px rgb(var(--shadow-rgb) / .32), 0 4px 10px rgb(var(--shadow-rgb) / .14);
+        }
+        /* Smooth transitions on the top tab pills */
+        .nv-tabbar button {
+            transition: transform .15s ease, background-color .15s ease, color .15s ease, box-shadow .15s ease;
+        }
+        .nv-tabbar button:hover { transform: translateY(-1px); }
+        /* Opt-in hover-lift for clickable stat tiles */
+        .nv-tile {
+            transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+        }
+        .nv-tile:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 24px -12px rgb(var(--shadow-rgb) / .22);
+            border-color: rgb(var(--slate-700));
+        }
+        @media (prefers-reduced-motion: reduce) {
+            main > section, main > div { animation: none; }
+            .nv-tabbar button:hover, .nv-tile:hover { transform: none; }
+        }
+
+        /* Business Model Canvas — Strategyzer 9-box layout.
+           Rows are content-sized (no fixed heights): cells in the same row always
+           match heights via grid stretch, and nothing clips or scrolls. */
+        .bmc-grid {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: 1fr;
+            grid-template-areas:
+                "kp" "ka" "kr" "vp" "cr" "ch" "cs";
+        }
+        @media (min-width: 768px) {
+            .bmc-grid {
+                /* minmax(0,1fr): keep columns truly equal regardless of content */
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                grid-template-areas:
+                    "kp ka"
+                    "kr vp"
+                    "cr ch"
+                    "cs cs";
+            }
+        }
+        @media (min-width: 1024px) {
+            .bmc-grid {
+                grid-template-columns: repeat(10, minmax(0, 1fr));
+                grid-template-areas:
+                    "kp kp ka ka vp vp cr cr cs cs"
+                    "kp kp kr kr vp vp ch ch cs cs";
+            }
+        }
+        /* Thin scrollbar for canvas / revenue / cost blocks that hold long lists,
+           so every point stays reachable without stretching the layout. */
+        .bmc-scroll { scrollbar-width: thin; scrollbar-color: rgb(var(--slate-700)) transparent; }
+        .bmc-scroll::-webkit-scrollbar { width: 6px; }
+        .bmc-scroll::-webkit-scrollbar-track { background: transparent; }
+        .bmc-scroll::-webkit-scrollbar-thumb { background: rgb(var(--slate-700)); border-radius: 3px; }

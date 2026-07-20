@@ -1,0 +1,119 @@
+/*
+ * NAVRIST DESIGN SYSTEM — ground-up rebuild.
+ * Language: Inter typography, 8px spacing, 16px radii, hairline borders,
+ * minimal shadows, NO gradients on cards, semantic color only, restrained motion.
+ * All colors resolve through the light/dark tokens in theme/tokens.css.
+ */
+
+:root {
+  --nv-radius: 16px;
+  --nv-radius-sm: 10px;
+  --nv-radius-lg: 20px;
+  --nv-hairline: rgb(var(--slate-800));
+  --nv-ring: rgb(var(--blue-500));
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
+
+/* Typography rhythm */
+.nv-display { font-weight: 800; letter-spacing: -0.03em; line-height: 1.02; }
+.nv-h1 { font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+.nv-h2 { font-weight: 700; letter-spacing: -0.015em; }
+.nv-eyebrow { font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
+.nv-num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'cv01' 1; letter-spacing: -0.01em; }
+
+/* Surfaces — flat, hairline, 16px, whisper-soft shadow. No gradients. */
+.nv-card {
+  background: rgb(var(--slate-900));
+  border: 1px solid var(--nv-hairline);
+  border-radius: var(--nv-radius);
+}
+.nv-card-sm { border-radius: var(--nv-radius-sm); }
+.nv-inset { background: rgb(var(--slate-950)); border: 1px solid var(--nv-hairline); border-radius: var(--nv-radius-sm); }
+.nv-hoverable { transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.nv-hoverable:hover {
+  border-color: rgb(var(--slate-700));
+  box-shadow: 0 8px 24px -16px rgb(var(--shadow-rgb) / .30);
+  transform: translateY(-1px);
+}
+.nv-elev { box-shadow: 0 1px 2px rgb(var(--shadow-rgb) / .04), 0 12px 32px -24px rgb(var(--shadow-rgb) / .22); }
+.nv-float2 { box-shadow: 0 18px 48px -14px rgb(var(--shadow-rgb) / .36), 0 4px 12px rgb(var(--shadow-rgb) / .12); }
+
+/* Chips / pills */
+.nv-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--nv-hairline);
+  background: rgb(var(--slate-900));
+  color: rgb(var(--slate-300));
+  font-size: 13px; font-weight: 600;
+  transition: border-color .16s ease, color .16s ease, background .16s ease;
+}
+.nv-chip:hover { border-color: rgb(var(--blue-500)); color: rgb(var(--blue-600)); }
+
+/* Buttons */
+.nv-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 38px; padding: 0 16px; border-radius: 10px; font-weight: 600; font-size: 14px;
+  transition: background .16s ease, color .16s ease, border-color .16s ease, transform .12s ease; }
+.nv-btn:active { transform: translateY(1px); }
+.nv-btn-primary { background: rgb(var(--blue-600)); color: #fff; }
+.nv-btn-primary:hover { background: rgb(var(--blue-700)); }
+.nv-btn-ghost { background: transparent; color: rgb(var(--slate-400)); border: 1px solid var(--nv-hairline); }
+.nv-btn-ghost:hover { color: rgb(var(--slate-100)); border-color: rgb(var(--slate-700)); background: rgb(var(--slate-850)); }
+.nv-icon-btn { display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:10px;
+  border:1px solid var(--nv-hairline); color: rgb(var(--slate-400)); background: transparent; transition: all .16s ease; }
+.nv-icon-btn:hover { color: rgb(var(--blue-600)); border-color: rgb(var(--slate-700)); background: rgb(var(--slate-850)); }
+
+/* Focus ring (a11y) */
+.nv-focus:focus-visible, .nv-btn:focus-visible, .nv-chip:focus-visible, .nv-icon-btn:focus-visible {
+  outline: 2px solid rgb(var(--blue-500) / .6); outline-offset: 2px;
+}
+
+/* Semantic text */
+.nv-pos { color: rgb(var(--emerald-500)); }
+.nv-neg { color: rgb(var(--red-500)); }
+.nv-muted { color: rgb(var(--slate-500)); }
+
+/* Landing background: soft gradient + very subtle animated grid. */
+.nv-landing-bg { position: relative; isolation: isolate; }
+.nv-grid-bg::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgb(var(--slate-800) / .55) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(var(--slate-800) / .55) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 78%);
+          mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 78%);
+  animation: nvGridDrift 24s linear infinite;
+}
+@keyframes nvGridDrift { from { background-position: 0 0; } to { background-position: 48px 48px; } }
+.nv-glow::after {
+  content: ''; position: absolute; z-index: -1; top: -220px; left: 50%; transform: translateX(-50%);
+  width: 900px; height: 520px; pointer-events: none;
+  background: radial-gradient(circle, rgb(var(--blue-500) / .12), transparent 62%);
+}
+
+/* Motion */
+@keyframes nvRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.nv-rise { animation: nvRise .5s cubic-bezier(.22,.61,.36,1) both; }
+.nv-rise-1 { animation-delay: .05s; } .nv-rise-2 { animation-delay: .12s; }
+.nv-rise-3 { animation-delay: .19s; } .nv-rise-4 { animation-delay: .26s; }
+
+/* Skeleton shimmer */
+.nv-skeleton { position: relative; overflow: hidden; background: rgb(var(--slate-850)); border-radius: 8px; }
+.nv-skeleton::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgb(var(--slate-800) / .8), transparent);
+  transform: translateX(-100%); animation: nvShimmer 1.4s infinite;
+}
+@keyframes nvShimmer { to { transform: translateX(100%); } }
+
+/* Sparkline stroke helper */
+.nv-spark { stroke-linecap: round; stroke-linejoin: round; fill: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nv-grid-bg::before, .nv-rise, .nv-skeleton::after { animation: none; }
+  .nv-rise { opacity: 1; transform: none; }
+  .nv-hoverable:hover { transform: none; }
+}

@@ -118,22 +118,48 @@ def _resolve_scrip_code(symbol, name):
             if r.status_code != 200:
                 continue
             # Each option: liclick('500510','LARSEN  TOUBRO LTD') ... <span>LT&nbsp;&nbsp;ISIN&nbsp;&nbsp;500510</span>
-            entries = re.findall(r"liclick\('(\d{6})','([^']*)'\).*?<span>([^<]+)</span>", r.text, re.S)
+            # BSE wraps the query's matched substring in <strong> INSIDE the
+            # span whenever the query text overlaps the ticker itself (very
+            # common for companies whose name IS their ticker — WIPRO, CIPLA,
+            # ZOMATO, TRENT, DLF, UPL, MARICO, ...): e.g.
+            # "<span><strong>CIPLA</strong>&nbsp;&nbsp;&nbsp;INE059A01026...".
+            # The old `[^<]+` span pattern requires ZERO "<" characters inside
+            # the span and silently found NO entries at all for these — every
+            # ratio for the company then failed with "No Annual Report
+            # filings found", even though the company was found by BSE just
+            # fine. Match the span permissively (`.*?`) and strip any HTML
+            # tags from its captured text afterwards instead.
+            entries = re.findall(r"liclick\('(\d{6})','([^']*)'\).*?<span>(.*?)</span>", r.text, re.S)
             if not entries:
                 continue
             parsed = []
             for cd, nm, span in entries:
-                nse_sym = re.split(r"(?:&nbsp;)+|\s{2,}", span.strip())[0].strip().upper()
+                span_clean = re.sub(r"<[^>]+>", "", span)
+                nse_sym = re.split(r"(?:&nbsp;)+|\s{2,}", span_clean.strip())[0].strip().upper()
                 parsed.append((cd, nm, nse_sym))
             # 1) Exact NSE-symbol match — kills namesakes (APOLLO -> Apollo Micro, not Tyres).
             best = next((cd for cd, nm, ns in parsed if ns == sym_up), None)
             # 2) Exact company-name match.
             if not best:
                 best = next((cd for cd, nm, ns in parsed if " ".join(_norm(nm).split()) == target), None)
-            # 3) Name contains (only when we searched by a name variant — avoids namesakes).
+            # 3) Name contains, checked BOTH directions (only when we searched
+            # by a name variant — avoids namesakes). Our stored name can be
+            # longer than BSE's current listed name after a corporate rename
+            # that shortened it (e.g. "GMR Airports Infrastructure Limited"
+            # in our registry vs. BSE's current "GMR AIRPORTS LTD" record) —
+            # a one-directional `target in entry` check misses that case
+            # entirely since target is the longer string. Checking the
+            # reverse (entry contained in target) as well as requiring at
+            # least a 2-word overlap keeps this safe from single-word/short
+            # namesake false positives.
             if not best and q != symbol:
-                best = next((cd for cd, nm, ns in parsed
-                             if target and (target in " ".join(_norm(nm).split()))), None)
+                for cd, nm, ns in parsed:
+                    entry_norm = " ".join(_norm(nm).split())
+                    if not target or not entry_norm:
+                        continue
+                    if target in entry_norm or entry_norm in target:
+                        best = cd
+                        break
             if best:
                 code = best
                 break

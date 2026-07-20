@@ -1,0 +1,123 @@
+/*
+ * NAVRIST DESIGN TOKENS — real light + dark themes.
+ *
+ * The whole UI was authored against a dark slate scale, then (in the old build) a
+ * palette remap forced it to render light. This file replaces that hack with two
+ * genuine token sets. Tailwind color keys resolve to `rgb(var(--x) / <alpha>)`
+ * (see tailwind.config.js), so every existing utility class (bg-slate-900,
+ * text-slate-100, bg-blue-500/10, …) themes automatically with ZERO JSX changes.
+ *
+ * Semantics of the slate scale (unchanged from the original design intent):
+ *   900 card surface · 950 page/inset · 955 table header · 850 hover surface
+ *   800 border/divider · 700 lighter border · 100 strong heading · 300 body text
+ *   400/500/600 progressively fainter text/labels.
+ *
+ * LIGHT keeps the current professional look; DARK restores the native slate values
+ * the app was designed for (backgrounds go dark, text goes light).
+ * Channels are space-separated RGB so Tailwind opacity modifiers keep working.
+ */
+
+:root {
+  /* ---- LIGHT (default) ---- */
+  --slate-50: 248 250 252;
+  --slate-100: 15 23 42;    /* strong heading -> navy */
+  --slate-200: 30 41 59;
+  --slate-300: 51 65 85;    /* body text */
+  --slate-350: 71 85 105;
+  --slate-400: 71 85 105;
+  --slate-450: 100 116 139;
+  --slate-500: 100 116 139; /* muted labels */
+  --slate-505: 100 116 139;
+  --slate-550: 148 163 184;
+  --slate-555: 148 163 184;
+  --slate-600: 148 163 184; /* faint text */
+  --slate-700: 203 213 225; /* lighter border */
+  --slate-800: 226 232 240; /* standard border / divider */
+  --slate-850: 238 242 247; /* hover / active surface */
+  --slate-855: 238 242 247;
+  --slate-900: 255 255 255; /* card surface */
+  --slate-950: 248 250 252; /* page / inset */
+  --slate-955: 241 245 249; /* table header */
+
+  --blue-200: 29 78 216;
+  --blue-300: 29 78 216;
+  --blue-400: 37 99 235;
+  --blue-500: 37 99 235;
+  --blue-550: 37 99 235;
+  --blue-600: 37 99 235;
+  --blue-700: 29 78 216;
+  --blue-950: 239 246 255;  /* highlighted-row tint */
+
+  --emerald-400: 22 163 74;
+  --emerald-500: 22 163 74;
+  --green-400: 22 163 74;
+  --green-500: 22 163 74;
+
+  --red-200: 153 27 27;
+  --red-300: 185 28 28;
+  --red-400: 220 38 38;
+  --red-500: 220 38 38;
+  --red-900: 254 202 202;   /* error border */
+  --red-950: 254 242 242;   /* error background */
+
+  --amber-400: 180 83 9;
+  --amber-500: 217 119 6;
+  --teal-400: 13 148 136;
+  --teal-500: 13 148 136;
+
+  /* Elevation shadow color (used by index.css helpers) */
+  --shadow-rgb: 15 23 42;
+  color-scheme: light;
+}
+
+.dark {
+  /* ---- DARK (native slate, inverted lightness) ---- */
+  --slate-50: 248 250 252;
+  --slate-100: 241 245 249; /* strong heading -> near white */
+  --slate-200: 226 232 240;
+  --slate-300: 203 213 225; /* body text */
+  --slate-350: 148 163 184;
+  --slate-400: 148 163 184; /* muted */
+  --slate-450: 100 116 139;
+  --slate-500: 100 116 139;
+  --slate-505: 100 116 139;
+  --slate-550: 100 116 139;
+  --slate-555: 100 116 139;
+  --slate-600: 71 85 105;   /* faint text */
+  --slate-700: 51 65 85;    /* lighter border */
+  --slate-800: 30 41 59;    /* standard border / divider */
+  --slate-850: 30 41 59;    /* hover surface (lighter than card) */
+  --slate-855: 30 41 59;
+  --slate-900: 15 23 42;    /* card surface */
+  --slate-950: 2 6 23;      /* page / inset (darkest) */
+  --slate-955: 17 24 39;    /* table header */
+
+  --blue-200: 147 197 253;
+  --blue-300: 147 197 253;
+  --blue-400: 96 165 250;
+  --blue-500: 59 130 246;
+  --blue-550: 59 130 246;
+  --blue-600: 59 130 246;
+  --blue-700: 96 165 250;
+  --blue-950: 23 37 84;     /* highlighted-row tint (dark) */
+
+  --emerald-400: 74 222 128;
+  --emerald-500: 34 197 94;
+  --green-400: 74 222 128;
+  --green-500: 34 197 94;
+
+  --red-200: 254 202 202;
+  --red-300: 252 165 165;
+  --red-400: 248 113 113;
+  --red-500: 239 68 68;
+  --red-900: 127 29 29;     /* error border */
+  --red-950: 45 15 15;      /* error background */
+
+  --amber-400: 251 191 36;
+  --amber-500: 245 158 11;
+  --teal-400: 45 212 191;
+  --teal-500: 20 184 166;
+
+  --shadow-rgb: 0 0 0;
+  color-scheme: dark;
+}

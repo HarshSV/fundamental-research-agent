@@ -1,231 +1,20 @@
-<!DOCTYPE html>
-<html lang="en" class="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navrist Research Terminal</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%232563EB'/><text x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-weight='bold' font-size='18' fill='white'>N</text></svg>">
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Arial', 'Helvetica', 'sans-serif'],
-                        heading: ['Arial', 'Helvetica', 'sans-serif'],
-                    },
-                    colors: {
-                        /*
-                         * LIGHT PROFESSIONAL THEME.
-                         * The whole UI was authored against a dark slate scale (dark bg,
-                         * light text). Rather than rewrite ~200 utility classes, the slate
-                         * scale is remapped here so the SAME classes render a clean light
-                         * theme: high keys (900/950 = backgrounds) -> white/near-white,
-                         * mid keys (700/800 = borders) -> light gray, low keys
-                         * (100-400 = text) -> dark navy/slate. Accents are deepened so they
-                         * read on white. Single source of truth — palette only.
-                         */
-                        slate: {
-                            50:  '#f8fafc',
-                            100: '#0f172a',  /* strong heading text -> navy */
-                            200: '#1e293b',  /* heading text */
-                            300: '#334155',  /* body text */
-                            350: '#475569',
-                            400: '#475569',  /* muted text (readable on white) */
-                            450: '#64748b',
-                            500: '#64748b',  /* muted labels */
-                            505: '#64748b',
-                            550: '#94a3b8',  /* faint labels */
-                            555: '#94a3b8',
-                            600: '#94a3b8',  /* faint text */
-                            700: '#cbd5e1',  /* light border */
-                            800: '#e2e8f0',  /* standard border / dividers */
-                            850: '#eef2f7',  /* hover / active surface */
-                            855: '#eef2f7',
-                            900: '#ffffff',  /* card background */
-                            950: '#f8fafc',  /* page / inset background */
-                            955: '#f1f5f9',  /* table header background */
-                        },
-                        blue: {
-                            200: '#1d4ed8',  /* readable on light highlight rows */
-                            300: '#1d4ed8',
-                            400: '#2563eb',
-                            500: '#2563eb',
-                            550: '#2563eb',
-                            600: '#2563eb',
-                            700: '#1d4ed8',
-                            950: '#eff6ff',  /* light tint for highlighted rows */
-                        },
-                        emerald: {
-                            400: '#16a34a',
-                            500: '#16a34a',
-                        },
-                        green: {
-                            400: '#16a34a',
-                            500: '#16a34a',
-                        },
-                        red: {
-                            200: '#991b1b',
-                            300: '#b91c1c',
-                            400: '#dc2626',  /* loss / down / fail */
-                            500: '#dc2626',
-                            900: '#fecaca',  /* light error border */
-                            950: '#fef2f2',  /* light error background */
-                        },
-                        amber: {
-                            400: '#b45309',
-                            500: '#d97706',
-                        },
-                        teal: {
-                            400: '#0d9488',
-                            500: '#0d9488',
-                        },
-                        /* Navrist institutional accent */
-                        brand: {
-                            DEFAULT: '#2563eb',
-                            light: '#3b82f6',
-                            dark: '#1d4ed8',
-                        },
-                    },
-                }
-            }
-        }
-    </script>
-    <!-- Custom CSS style overrides -->
-    <style>
-        body {
-            font-family: 'Arial', 'Helvetica', sans-serif;
-            background-color: #f8fafc;
-            background-image:
-                radial-gradient(900px circle at 50% -160px, rgba(37, 99, 235, 0.06), transparent 60%),
-                linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-            color: #334155; /* slate body text */
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }
-        .font-heading {
-            font-family: 'Arial', 'Helvetica', sans-serif;
-            letter-spacing: -0.01em;
-        }
-        /* Custom scrollbar */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #f1f5f9;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "./index.css";
+import ThemeToggle from "./theme/ThemeToggle.jsx";
+import Sidebar from "./components/layout/Sidebar.jsx";
+import MobileNav from "./components/layout/MobileNav.jsx";
+import Landing from "./views/Landing.jsx";
+import DashHeader from "./components/layout/DashHeader.jsx";
+import Overview from "./views/Overview.jsx";
+import Settings from "./views/Settings.jsx";
+import History from "./views/History.jsx";
+import { addHistory } from "./lib/history.js";
+import { SECTIONS } from "./components/layout/sections.jsx";
+import { SECTORS, getRatiosForSector, getIndustrySpecificRatiosForSector,
+    SECTOR_DEFINITION_OVERRIDES, normalizeSectorLabel } from "./lib/sectorMatrix.js";
+import { getNseSector } from "./lib/nseSectorMap.js";
 
-        /* ---------- Premium polish ---------- */
-        @keyframes nvFade {
-            from { opacity: 0; transform: translateY(8px); }
-            to   { opacity: 1; transform: none; }
-        }
-        /* Tab panels fade/slide in on switch + soft elevation */
-        main > section, main > div {
-            animation: nvFade .30s cubic-bezier(.22,.61,.36,1) both;
-        }
-        main > section {
-            box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 14px 36px -20px rgba(15,23,42,.22);
-        }
-        /* Reusable elevation for the header + tab bar */
-        .nv-elevate {
-            box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 10px 28px -18px rgba(15,23,42,.18);
-        }
-        /* Dropdown / popover that must clearly float above the page */
-        .nv-float {
-            box-shadow: 0 16px 40px -10px rgba(15,23,42,.28), 0 4px 10px rgba(15,23,42,.10);
-        }
-        /* Smooth transitions on the top tab pills */
-        .nv-tabbar button {
-            transition: transform .15s ease, background-color .15s ease, color .15s ease, box-shadow .15s ease;
-        }
-        .nv-tabbar button:hover { transform: translateY(-1px); }
-        /* Opt-in hover-lift for clickable stat tiles */
-        .nv-tile {
-            transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
-        }
-        .nv-tile:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 24px -12px rgba(15,23,42,.22);
-            border-color: #cbd5e1;
-        }
-        @media (prefers-reduced-motion: reduce) {
-            main > section, main > div { animation: none; }
-            .nv-tabbar button:hover, .nv-tile:hover { transform: none; }
-        }
-
-        /* Business Model Canvas — Strategyzer 9-box layout.
-           Rows are content-sized (no fixed heights): cells in the same row always
-           match heights via grid stretch, and nothing clips or scrolls. */
-        .bmc-grid {
-            display: grid;
-            gap: 8px;
-            grid-template-columns: 1fr;
-            grid-template-areas:
-                "kp" "ka" "kr" "vp" "cr" "ch" "cs";
-        }
-        @media (min-width: 768px) {
-            .bmc-grid {
-                /* minmax(0,1fr): keep columns truly equal regardless of content */
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                grid-template-areas:
-                    "kp ka"
-                    "kr vp"
-                    "cr ch"
-                    "cs cs";
-            }
-        }
-        @media (min-width: 1024px) {
-            .bmc-grid {
-                grid-template-columns: repeat(10, minmax(0, 1fr));
-                grid-template-areas:
-                    "kp kp ka ka vp vp cr cr cs cs"
-                    "kp kp kr kr vp vp ch ch cs cs";
-            }
-        }
-        /* Thin scrollbar for canvas / revenue / cost blocks that hold long lists,
-           so every point stays reachable without stretching the layout. */
-        .bmc-scroll { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
-        .bmc-scroll::-webkit-scrollbar { width: 6px; }
-        .bmc-scroll::-webkit-scrollbar-track { background: transparent; }
-        .bmc-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-    </style>
-    <!-- Stable Production React & Babel CDNs from cdnjs -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js" crossorigin></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js" crossorigin></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js" crossorigin></script>
-</head>
-<body class="min-h-screen overflow-x-hidden bg-transparent text-[#334155] relative selection:bg-blue-500/20 selection:text-blue-900">
-    <div id="root"></div>
-
-    <script>
-        window.onerror = function(msg, url, lineNo, columnNo, error) {
-            document.getElementById('root').innerHTML = '<div style="color:red;padding:40px;font-size:14px;font-family:monospace;white-space:pre-wrap"><h2>JavaScript Error</h2>' + msg + '\nLine: ' + lineNo + '\nColumn: ' + columnNo + '\n\n' + (error ? error.stack : '') + '</div>';
-            console.error('CAUGHT ERROR:', msg, 'at line', lineNo, 'col', columnNo, error);
-            return false;
-        };
-        window.addEventListener('unhandledrejection', function(event) {
-            document.getElementById('root').innerHTML = '<div style="color:orange;padding:40px;font-size:14px;font-family:monospace;white-space:pre-wrap"><h2>Unhandled Promise Rejection</h2>' + event.reason + '</div>';
-        });
-    </script>
-
-    <script type="text/babel">
         console.log("[React App] Mounting single-page dashboard...");
         const { useState, useEffect, useRef } = React;
 
@@ -1967,15 +1756,35 @@
             'debt-service-coverage-ratio', 'cash-flow-coverage-ratio', 'free-cash-flow', 'fcf-margin',
             'operating-cash-flow-ratio', 'capex-intensity',
         ];
+        // Bounded wait: most ratios (DB-precomputed) resolve in well under a
+        // second, but ANY one of the 29 can be a genuine cold-cache miss that
+        // falls through to a live multi-page PDF parse (or, rarely, a stuck/
+        // failed fetch) — with no cap, that ONE slow card held the entire
+        // section hidden behind the "Reading audited filings…" message
+        // indefinitely, even though the other 28 had real data ready to show
+        // (confirmed: a 5+ minute stall on a page where only one ratio was
+        // actually still in flight). Reveal everything once every ratio is
+        // done, OR after `GATE_TIMEOUT_MS`, whichever comes first — this
+        // never fakes or skips data, it just stops waiting on the single
+        // slowest fetch: any card still genuinely loading past the timeout
+        // renders its own honest per-card skeleton/spinner (already built
+        // into every card below) instead of blocking its 28 already-ready
+        // siblings.
+        const GATE_TIMEOUT_MS = 4000;
         const RatioSectionGate = ({ children }) => {
             const [loadingMap, setLoadingMap] = React.useState(
                 () => Object.fromEntries(RATIO_CARD_IDS.map(id => [id, true]))
             );
+            const [timedOut, setTimedOut] = React.useState(false);
+            React.useEffect(() => {
+                const t = setTimeout(() => setTimedOut(true), GATE_TIMEOUT_MS);
+                return () => clearTimeout(t);
+            }, []);
             const setLoading = React.useCallback((id, val) => {
                 setLoadingMap(m => (m[id] === val ? m : { ...m, [id]: val }));
             }, []);
             const ctxValue = React.useMemo(() => ({ setLoading }), [setLoading]);
-            const anyLoading = Object.values(loadingMap).some(Boolean);
+            const anyLoading = Object.values(loadingMap).some(Boolean) && !timedOut;
             return (
                 <RatioLoadingContext.Provider value={ctxValue}>
                     {anyLoading && (
@@ -3442,12 +3251,6 @@
             );
         };
 
-        // Return on Equity (ROE) = Profit After Tax (owners-attributable, reused
-        // from Net Profit Margin) ÷ Average Total Equity (owners-attributable,
-        // excludes Non-Controlling Interest). Mirrors WorkingCapitalTurnover's
-        // N/A-with-real-figures pattern: a negative-equity company is a genuine
-        // finding worth showing (never calculated as a ratio per spec, since
-        // negative÷negative would produce a misleading positive number).
         // Days Working Capital (Sr No 31) = (Average Working Capital ÷ Revenue
         // from Operations) × 365 — the days-based expression of Working
         // Capital Turnover, same pairing pattern as Inventory/Receivables/
@@ -3581,6 +3384,12 @@
             );
         };
 
+        // Return on Equity (ROE) = Profit After Tax (owners-attributable, reused
+        // from Net Profit Margin) ÷ Average Total Equity (owners-attributable,
+        // excludes Non-Controlling Interest). Mirrors WorkingCapitalTurnover's
+        // N/A-with-real-figures pattern: a negative-equity company is a genuine
+        // finding worth showing (never calculated as a ratio per spec, since
+        // negative÷negative would produce a misleading positive number).
         const ReturnOnEquity = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('return-on-equity', state.loading && !state.data);
@@ -4833,15 +4642,6 @@
             );
         };
 
-        // Dividend Yield (Sr No 27) = Dividend per Share (declared, ALWAYS
-        // standalone — dividends are declared by the parent entity, not on
-        // a consolidated basis) ÷ Market Price per Share. Fourth
-        // market-data ratio — fetches DPS from its own endpoint (which never
-        // returns a plain N/A for "no dividend", per spec's "0% is a real
-        // answer, not missing data") plus the live quote, divides
-        // client-side. A LOW-CONFIDENCE 0% (extraction genuinely couldn't
-        // confirm either way) gets its own subtle "Unconfirmed" flag rather
-        // than being shown identically to a confidently-verified 0%.
         // FCF Yield (Sr No 37) = Free Cash Flow (reuse Sr No 36) ÷ Market
         // Capitalisation (reuse Sr No 26 numerator) — pure arithmetic on
         // already-validated figures, fetched in parallel with the live
@@ -4955,6 +4755,15 @@
             );
         };
 
+        // Dividend Yield (Sr No 27) = Dividend per Share (declared, ALWAYS
+        // standalone — dividends are declared by the parent entity, not on
+        // a consolidated basis) ÷ Market Price per Share. Fourth
+        // market-data ratio — fetches DPS from its own endpoint (which never
+        // returns a plain N/A for "no dividend", per spec's "0% is a real
+        // answer, not missing data") plus the live quote, divides
+        // client-side. A LOW-CONFIDENCE 0% (extraction genuinely couldn't
+        // confirm either way) gets its own subtle "Unconfirmed" flag rather
+        // than being shown identically to a confidently-verified 0%.
         const DividendYield = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('dividend-yield', state.loading && !state.data);
@@ -5304,10 +5113,12 @@
             );
         };
 
-        // Current Ratio = Total Current Assets ÷ Total Current Liabilities — a
-        // point-in-time (closing balance) liquidity ratio, unlike the turnover
-        // ratios above: no averaging, no period-over-period figures. Mirrors
-        // AssetTurnover's structure/UX minus the by-year breakdown.
+        // Net Debt/EBITDA (Sr No 33) = (Total Debt − Cash and Cash
+        // Equivalents) ÷ EBITDA — the single most widely used credit-risk/
+        // leverage-capacity metric by lenders and rating agencies. Unlike
+        // most ratios here, a NEGATIVE Net Debt (Cash > Total Debt) is a
+        // distinct "Net Cash" state (favourable, not an error) rather than a
+        // generic N/A — the backend flags this via `net_cash: true`.
         const NetDebtToEBITDA = ({ symbol, name, leaseBasis }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('net-debt-to-ebitda', state.loading && !state.data);
@@ -5462,6 +5273,10 @@
             );
         };
 
+        // Current Ratio = Total Current Assets ÷ Total Current Liabilities — a
+        // point-in-time (closing balance) liquidity ratio, unlike the turnover
+        // ratios above: no averaging, no period-over-period figures. Mirrors
+        // AssetTurnover's structure/UX minus the by-year breakdown.
         // Debt Service Coverage Ratio (DSCR, Sr No 34) = EBITDA (Net
         // Operating Income proxy) ÷ Total Debt Service (Finance Costs +
         // Principal Repayment of Borrowings, from the Cash Flow Statement's
@@ -6364,11 +6179,11 @@
             );
         };
 
-        // Quick Ratio = (Total Current Assets − Inventories) ÷ Total Current
-        // Liabilities — same point-in-time (closing balance) nature as Current
-        // Ratio, excludes ONLY inventory (not Trade Receivables — that would be
-        // the Cash Ratio). Mirrors CurrentRatio's structure/UX with a components
-        // breakdown showing TCA and the inventory deduction.
+        // Receivables-to-Payables Ratio (Sr No 32) = Trade Receivables ÷ Trade
+        // Payables, BOTH closing balance — a self-financing indicator (>1x =
+        // net financer of customers; <1x = suppliers effectively fund more of
+        // the cycle than customers owe, common in retail/QSR, NOT an error).
+        // Mirrors CurrentRatio's structure/UX; N/A only when Trade Payables = 0.
         const ReceivablesToPayablesRatio = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('receivables-to-payables-ratio', state.loading && !state.data);
@@ -6487,6 +6302,11 @@
             );
         };
 
+        // Quick Ratio = (Total Current Assets − Inventories) ÷ Total Current
+        // Liabilities — same point-in-time (closing balance) nature as Current
+        // Ratio, excludes ONLY inventory (not Trade Receivables — that would be
+        // the Cash Ratio). Mirrors CurrentRatio's structure/UX with a components
+        // breakdown showing TCA and the inventory deduction.
         const QuickRatio = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('quick-ratio', state.loading && !state.data);
@@ -7211,12 +7031,31 @@
             const [scrolled, setScrolled] = useState(false); // for the floating instrument card
             const [showAllPeers, setShowAllPeers] = useState(false); // Peer table: top-N vs see-more
             const [showSummary, setShowSummary] = useState(false); // AI summary: on-demand collapsible (bottom of AI Insights)
+            const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // dashboard left-nav collapse
+            const [dashView, setDashView] = useState('overview'); // active sidebar section key
             // Single global per-company toggle for every Total-Debt-based ratio
             // (Debt-to-Equity, Debt Ratio, EV/EBITDA, Net Debt/EBITDA, Cash Flow
             // Coverage Ratio) — "basis1" (default) includes Lease Liabilities in
-            // Total Debt (post-Ind AS 116), "basis2" excludes them.
+            // Total Debt (post-Ind AS 116), "basis2" excludes them. Switching this
+            // recalculates every affected ratio consistently in one action, per
+            // spec, rather than a per-ratio setting.
             const [leaseBasis, setLeaseBasis] = useState('basis1');
             const suggestionsRef = useRef(null);
+
+            // Sidebar selection -> set the active section and, for detail sections,
+            // the underlying activeTab/activeSubTab that the existing panels read.
+            const onSelectSection = (section) => {
+                if (!section) return;
+                setDashView(section.key);
+                if (section.view && section.view.kind === 'tab') {
+                    setActiveTab(section.view.tab);
+                    setActiveSubTab(p => {
+                        const next = { ...p, [section.view.tab]: section.view.sub };
+                        if (section.view.ratioCat != null) next.ratioCat = section.view.ratioCat;
+                        return next;
+                    });
+                }
+            };
 
             useEffect(() => {
                 const onScroll = () => setScrolled(window.scrollY > 270);
@@ -7240,8 +7079,27 @@
                 return () => document.removeEventListener('mousedown', handleClickOutside);
             }, []);
 
+            // DEV-ONLY: /?mock renders the dashboard with a bundled sample report so the
+            // logged-in UI can be verified without the backend/login. Stripped in prod
+            // (import.meta.env.DEV is false -> dead-code eliminated).
+            useEffect(() => {
+                if (!import.meta.env.DEV) return;
+                if (!new URLSearchParams(window.location.search).has('mock')) return;
+                setCurrentUser(true);
+                setAuthChecked(true);
+                fetch('/mock-report.json')
+                    .then((r) => r.json())
+                    .then((data) => {
+                        setReportData({ status: 'success', qualitativeLoading: false, data });
+                        setStatus('SUCCESS');
+                        setDashView('overview');
+                    })
+                    .catch(() => {});
+            }, []);
+
             // On load, validate any stored token so the session survives refreshes.
             useEffect(() => {
+                if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('mock')) return;
                 const token = localStorage.getItem(TOKEN_KEY);
                 if (!token) {
                     setAuthChecked(true);
@@ -7324,6 +7182,7 @@
                 setShowSuggestions(false);
                 setActiveTab(6);
                 setActiveSubTab(p => ({ ...p, 6: 0 }));
+                setDashView('overview'); // land on the new Overview for each new company
                 setShowAllPeers(false);
                 setShowSummary(false);
                 setReportData({
@@ -7359,6 +7218,7 @@
                         setReportData(prev => (prev && prev.data.symbol === targetSymbol)
                             ? { ...result, qualitativeLoading: false }
                             : prev); // user already moved on to a different symbol — drop this stale response
+                        addHistory(targetSymbol, result.data?.calculated_metrics?.company_name || targetSymbol);
                     } else {
                         throw new Error(result.message || 'Report generation failed');
                     }
@@ -7547,218 +7407,64 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                 return <LoginScreen onLoggedIn={() => setCurrentUser(true)} />;
             }
 
+            // Logged in, nothing analysed yet -> the new premium landing (its own hero + search).
+            if (status === 'IDLE') {
+                return <Landing onSelect={fetchResearch} onLogout={handleLogout} />;
+            }
+
             return (
-                <div className="relative z-10 max-w-7xl mx-auto px-6 py-6 md:py-8">
+                <div className="min-h-screen flex bg-transparent">
+                    {/* Permanent collapsible left navigation (mobile uses MobileNav) */}
+                    <Sidebar
+                        activeKey={dashView}
+                        onSelect={onSelectSection}
+                        collapsed={sidebarCollapsed}
+                        onToggle={() => setSidebarCollapsed(v => !v)}
+                    />
 
-                    {/* Top Dashboard Navigation Bar */}
-                    <nav className="flex items-center justify-between border-b border-slate-800/80 pb-5 mb-8">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center shadow-sm border border-slate-200 overflow-hidden p-1">
-                                <img src="/frontend/navrist-logo.svg" alt="Navrist" className="w-full h-full object-contain" />
-                            </div>
-                            <div>
-                                <h1 className="font-heading text-sm font-bold text-slate-100 tracking-wide">
-                                    NAVRIST AI
-                                </h1>
+                    {/* Main column */}
+                    <div className="flex-1 min-w-0 flex flex-col min-h-screen">
+                        <div className="w-full max-w-[1440px] mx-auto px-4 md:px-6 py-5 pb-24 lg:pb-8 space-y-5">
 
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="flex items-center gap-1.5 text-[9px] text-emerald-400 font-bold tracking-wider bg-emerald-500/5 border border-emerald-500/20 px-2.5 py-1.5 rounded-md uppercase">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                Live
-                            </span>
-                            <button
-                                onClick={handleLogout}
-                                className="text-[9px] text-slate-300 hover:text-white font-bold tracking-wider bg-slate-900 hover:bg-slate-800 border border-slate-800 px-2.5 py-1.5 rounded-md uppercase transition"
-                            >
-                                Lock
-                            </button>
-                        </div>
-                    </nav>
-
-                    {/* Central Search Command Bar with Autocomplete Dropdown */}
-                    <div className="max-w-2xl mx-auto mb-10 relative" ref={suggestionsRef}>
-                        <form onSubmit={triggerResearchSubmit} className="relative flex items-center p-1.5 rounded-lg bg-slate-900 border border-slate-800 focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600/35 transition duration-200">
-                            <div className="pl-3 text-slate-500">
-                                <SearchIcon />
-                            </div>
-                            <input 
-                                type="text" 
-                                placeholder="Search by ticker or company name (e.g. INFY, State Bank)..." 
-                                value={symbol}
-                                onChange={(e) => handleInputChange(e.target.value)}
-                                onFocus={() => setShowSuggestions(true)}
-                                className="w-full bg-transparent border-0 ring-0 outline-none text-slate-100 pl-3 pr-4 py-2.5 placeholder-slate-600 font-sans text-sm font-semibold uppercase tracking-wider"
-                            />
-                            <button
-                                type="submit"
-                                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-sans text-xs font-bold rounded-md transition duration-200"
-                            >
-                                Analyze
-                            </button>
-                        </form>
-
-                        {/* Autocomplete Dropdown suggestions list */}
-                        {showSuggestions && suggestions.length > 0 && (
-                            <div className="absolute left-0 right-0 mt-1 bg-slate-900 border border-slate-800 rounded-lg shadow-2xl z-50 max-h-60 overflow-y-auto divide-y divide-slate-800/60">
-                                {suggestions.map((item) => (
-                                    <button
-                                        key={item.symbol}
-                                        type="button"
-                                        onClick={() => selectSuggestion(item)}
-                                        className="w-full px-4 py-3 text-left hover:bg-slate-800/80 transition duration-150 flex justify-between items-center"
-                                    >
-                                        <div>
-                                            <span className="font-heading font-bold text-blue-500 mr-2">{item.symbol}</span>
-                                            <span className="text-xs text-slate-300 font-medium">{item.name}</span>
-                                        </div>
-                                        <span className="text-[9px] text-slate-550 bg-slate-950 border border-slate-800 px-2 py-0.5 rounded-md font-bold uppercase tracking-widest font-sans">NSE</span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Main UI Container */}
-                    <div className="w-full">
-
-                        {/* IDLE State */}
-                        {status === 'IDLE' && (
-                            <div className="max-w-md mx-auto text-center p-8 rounded-lg bg-slate-900 border border-slate-800">
-                                <div className="w-12 h-12 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto mb-4 border border-blue-500/20">
-                                    <BriefcaseIcon />
-                                </div>
-                                <h3 className="font-heading text-base font-bold text-slate-200 mb-1">Enter a Stock Symbol</h3>
-                                <p className="text-slate-400 text-xs leading-relaxed">
-                                    Type a stock symbol like <span className="text-blue-500 font-semibold font-mono">SBIN</span>, <span className="text-blue-500 font-semibold font-mono">RELIANCE</span>, or <span className="text-blue-500 font-semibold font-mono">JUBLFOOD</span> in the search bar above to trigger the analytical pipeline.
-                                </p>
-                            </div>
-                        )}
-
-                        {/* ERROR State */}
-                        {status === 'ERROR' && (
-                            <div className="max-w-lg mx-auto p-6 rounded-lg bg-red-950/30 border border-red-900/50 text-center">
-                                <div className="w-12 h-12 rounded-full bg-red-900/20 text-red-400 flex items-center justify-center mx-auto mb-4">
-                                    <AlertTriangleIcon />
-                                </div>
-                                <h3 className="font-heading text-lg font-semibold text-red-200 mb-2">Orchestrator Error</h3>
-                                <p className="text-red-400/80 text-sm mb-6 leading-relaxed">
-                                    {errorMessage}
-                                </p>
-                                <button 
-                                    onClick={() => setStatus('IDLE')}
-                                    className="px-4 py-2 bg-slate-950 hover:bg-slate-900 text-slate-350 border border-slate-800 rounded-md font-heading text-sm font-semibold transition"
-                                >
-                                    Try Again
-                                </button>
-                            </div>
-                        )}
-
-                        {/* SUCCESS State: Sidebar + Main Content Layout */}
-                        {status === 'SUCCESS' && reportData && (
-                            <div className="w-full space-y-5 mt-4">
-
-                                {/* Floating instrument card (slides in on scroll) */}
-                                <StickyQuoteCard
-                                    symbol={reportData.data.symbol}
-                                    name={reportData.data.calculated_metrics?.company_name || reportData.data.symbol}
-                                    score={reportData.data.business_score}
-                                    visible={scrolled}
-                                />
-
-                                {/* Instrument header */}
-                                <div className="nv-elevate bg-slate-900 border border-slate-800 rounded-xl px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                                    <div className="flex flex-col sm:flex-row sm:items-center gap-x-5 gap-y-2">
-                                        <div>
-                                            <div className="text-base font-bold text-slate-100 truncate font-heading">
-                                                {reportData.data.calculated_metrics?.company_name || reportData.data.symbol}
-                                            </div>
-                                            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1 flex items-center gap-1.5 font-sans">
-                                                <span className="px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 border border-blue-500/20 font-semibold font-mono">{reportData.data.symbol}</span>
-                                                <span>NSE · Equity</span>
-                                                {(() => {
-                                                    const tier = reportData.data.peer_synthesis_data?.cap_tier;
-                                                    if (!tier) return null;
-                                                    const cls = tier.startsWith('Large') ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
-                                                        : tier.startsWith('Mid') ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                                                        : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
-                                                    return <span className={`px-1.5 py-0.5 rounded-md border font-semibold ${cls}`}>{tier}</span>;
-                                                })()}
-                                            </div>
-                                        </div>
-                                        <div className="sm:border-l sm:border-slate-800 sm:pl-5">
-                                            <LivePriceTicker symbol={reportData.data.symbol} />
-                                        </div>
+                            {/* ERROR State */}
+                            {status === 'ERROR' && (
+                                <div className="nv-card max-w-lg mx-auto p-7 text-center mt-10">
+                                    <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4">
+                                        <AlertTriangleIcon />
                                     </div>
-                                    <div className="flex items-center gap-3 flex-shrink-0">
-                                        <div className="text-right">
-                                            <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Quality Score</div>
-                                            {reportData.qualitativeLoading ? (
-                                                <div className="font-heading text-xl font-extrabold text-slate-600 leading-tight animate-pulse">···</div>
-                                            ) : (
-                                                <div className="font-heading text-xl font-extrabold text-blue-600 leading-tight"><CountUp value={reportData.data.business_score} /><span className="text-sm text-slate-400 font-bold"> / 100</span></div>
-                                            )}
-                                        </div>
-                                    </div>
+                                    <h3 className="nv-h2 text-[17px] text-slate-100 mb-2">Something went wrong</h3>
+                                    <p className="text-slate-400 text-[13px] mb-6 leading-relaxed">{errorMessage}</p>
+                                    <button onClick={() => setStatus('IDLE')} className="nv-btn nv-btn-ghost mx-auto">Back to search</button>
                                 </div>
+                            )}
 
-                                {/* Horizontal section tab bar (sticky) with inline agent search */}
-                                {(() => {
-                                    const TABS = [
-                                        // AI Insights leads — it is the product's headline view (ids unchanged).
-                                        { id: 6, label: "AI Insights", subtabs: ["AI summary & investment view","Business quality scoring","Annual report / concall summary","Earnings estimate / forecast support","Red-flag / forensic accounting signals","Moat / quality assessment support"] },
-                                        { id: 1, label: "Statements & Growth", subtabs: ["Financial statements analysis","Revenue/profit trend analysis","Margin analysis","Quarterly results analysis"] },
-                                        { id: 2, label: "Ratios & Valuation", subtabs: ["Ratio analysis","Valuation metrics","ROE/ROCE analysis","Intrinsic value / fair value estimate"] },
-                                        { id: 3, label: "Debt & Cash Flow", subtabs: ["Debt analysis","Cash flow analysis"] },
-                                        { id: 4, label: "Ownership", subtabs: ["Shareholding pattern analysis","Promoter holding / pledge tracking","Institutional holding / FII / DII tracking"] },
-                                        { id: 5, label: "Peers & Sector", subtabs: ["Peer comparison","Sector comparison"] },
-                                        { id: 7, label: "Export", subtabs: ["Export / report generation"] }
-                                    ];
-                                    return (
-                                        <div className="nv-elevate sticky top-2 z-40 bg-slate-950/90 backdrop-blur border border-slate-800 rounded-xl px-2 py-1.5">
-                                          <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap">
-                                            <nav className="nv-tabbar flex flex-wrap items-center gap-1 flex-1 min-w-0">
-                                                {TABS.map(tab => (
-                                                    <div key={tab.id} className="relative group/navitem">
-                                                        <button
-                                                            onClick={() => setActiveTab(tab.id)}
-                                                            className={`px-3.5 py-2 rounded-md text-xs font-semibold transition duration-150 whitespace-nowrap ${
-                                                                activeTab === tab.id
-                                                                    ? "bg-blue-600 text-white shadow-sm"
-                                                                    : "text-slate-500 hover:text-slate-100 hover:bg-slate-850"
-                                                            }`}
-                                                        >
-                                                            {tab.label}
-                                                        </button>
-                                                        <div className="hidden group-hover/navitem:block absolute left-0 top-full mt-1 z-50" style={{minWidth:'240px'}}>
-                                                            <div className="nv-float bg-slate-900 border border-slate-700 rounded-lg p-2">
-                                                                <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 px-1.5 pt-1 pb-1.5">Features in this section</div>
-                                                                {tab.subtabs.map((st, i) => (
-                                                                    <button
-                                                                        key={i}
-                                                                        type="button"
-                                                                        onClick={() => { setActiveTab(tab.id); setActiveSubTab(p => ({ ...p, [tab.id]: i })); }}
-                                                                        className="w-full text-left flex items-start gap-1.5 py-1.5 px-1.5 hover:bg-slate-850 rounded-md transition"
-                                                                    >
-                                                                        <span className="text-blue-600 flex-shrink-0 mt-px">›</span>
-                                                                        <span className="text-[11px] text-slate-200 leading-tight">{st}</span>
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </nav>
-                                            <div className="w-full lg:w-72 flex-shrink-0">
-                                                <DashboardSearch setActiveTab={setActiveTab} setActiveSubTab={setActiveSubTab} />
-                                            </div>
-                                          </div>
-                                        </div>
-                                    );
-                                })()}
+                            {/* SUCCESS State: new dashboard shell (header + section views) */}
+                            {status === 'SUCCESS' && reportData && (
+                                <React.Fragment>
+                                    <DashHeader
+                                        symbol={reportData.data.symbol}
+                                        name={reportData.data.calculated_metrics?.company_name || reportData.data.symbol}
+                                        data={reportData.data}
+                                        score={reportData.data.business_score}
+                                        loading={reportData.qualitativeLoading}
+                                        onRefresh={() => fetchResearch(reportData.data.symbol)}
+                                        onExport={() => { setActiveTab(7); setActiveSubTab(p => ({ ...p, 7: 0 })); setDashView('export'); }}
+                                        onCompare={() => onSelectSection(SECTIONS.find(s => s.key === 'ai'))}
+                                    />
 
-                                {/* Main Content (full width) */}
+                                    {dashView === 'overview' && (
+                                        <Overview data={reportData.data} onSearch={fetchResearch} onOpenSection={(k) => onSelectSection(SECTIONS.find(s => s.key === k))} />
+                                    )}
+
+                                    {dashView === 'settings' && (
+                                        <Settings onLogout={handleLogout} />
+                                    )}
+
+                                    {dashView === 'history' && (
+                                        <History onSearch={fetchResearch} />
+                                    )}
+
+                                    {dashView !== 'overview' && dashView !== 'settings' && dashView !== 'history' && (
                                 <main className="w-full space-y-6">
                                                               {activeTab === 1 && (
                                          <section className="p-6 bg-slate-900 border border-slate-800 rounded-lg space-y-6">
@@ -9182,158 +8888,147 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                     {activeTab === 6 && (
                                         <section className="p-6 bg-slate-900 border border-slate-800 rounded-lg space-y-6">
                                             <div className="border-b border-slate-800 pb-4">
-                                                <h2 className="font-heading text-base font-bold text-slate-100">AI Insights</h2>
+                                                <h2 className="font-heading text-base font-bold text-slate-100">AI Research</h2>
+                                                <p className="text-[10px] text-slate-500 mt-0.5">Sector-aware ratio dashboard — every card is traceable to its source.</p>
                                             </div>
 
-                                            {/* ============ 1. BUSINESS MODEL CANVAS ============ */}
-                                            {(() => {
-                                                const bu = reportData.data.ai_summary?.business_understanding;
-                                                if (!bu) return null;
-                                                const costs = bu.cost_structure || [];
-                                                
-                                                // Prepare Revenue Streams Donut data. When built from audited
-                                                // segments the values are ₹ Cr; when parsed out of driver text
-                                                // they are % shares — label them accordingly.
-                                                let revIsPct = false;
-                                                let revDonutData = (bu.segments || []).map(s => ({
-                                                    label: s.name,
-                                                    value: s.revenue_cr
-                                                }));
-                                                if (!revDonutData.length && (bu.revenue_drivers || []).length) {
-                                                    revDonutData = bu.revenue_drivers.map(r => {
-                                                        const mp = String(r).match(/(\d+(?:\.\d+)?)\s*%/);
-                                                        const nm = String(r).replace(/\s*[\(\-–—].*$/, '').replace(/:.*$/, '').trim();
-                                                        return mp ? { label: nm || r, value: parseFloat(mp[1]) } : null;
-                                                    }).filter(Boolean);
-                                                    revIsPct = revDonutData.length > 0;
-                                                }
-
-                                                // Prepare Cost Structure Donut data
-                                                const costDonutData = costs.map(c => ({
-                                                    label: c.label,
-                                                    value: c.value_cr
-                                                }));
-
-                                                const bmFull = bu.business_model || bu.what_they_sell || '';
-                                                // Audited multi-segment company? Then the rich SegmentBreakdown drives
-                                                // the revenue view and the small Revenue donut is redundant.
-                                                const hasSegs = (bu.segments || []).filter(s => s && s.revenue_cr).length >= 2;
-
-                                                // Canvas cell helper. `icon` is a BmcIcon name; `accent` is a hex
-                                                // used for the header icon + per-item marker (one colour per block).
-                                                const CanvasCell = ({ title, accent = '#2563eb', items, children, bg = 'bg-slate-950/60' }) => {
-                                                    const renderItemAsCard = (item, idx) => (
-                                                        <div key={idx} className="bg-slate-900 border border-slate-800/80 rounded-md px-2.5 py-2 flex items-start gap-2 hover:border-slate-700 hover:bg-slate-850 transition-all">
-                                                            <span className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style={{ background: accent }}></span>
-                                                            <p className="text-[11px] text-slate-300 leading-snug font-medium min-w-0">{item}</p>
-                                                        </div>
-                                                    );
-
-                                                    return (
-                                                        <div className={`h-full ${bg} border border-slate-800 rounded-lg p-3 flex flex-col gap-2 min-h-[110px] hover:border-slate-700/40 transition-all`}>
-                                                            <div className="flex items-center gap-2 border-b border-slate-800 pb-1.5 flex-shrink-0">
-                                                                <span className="w-1 h-4 rounded-sm flex-shrink-0" style={{ background: accent }}></span>
-                                                                <span className="text-[11px] text-slate-200 font-bold uppercase tracking-wide">{title}</span>
-                                                            </div>
-                                                            {children ? (
-                                                                <div className="flex-1 flex flex-col justify-center min-w-0">{children}</div>
-                                                            ) : items && items.length > 0 ? (
-                                                                <div className="grid grid-cols-1 gap-1.5 content-start bmc-scroll max-h-[300px] overflow-y-auto pr-1">
-                                                                    {items.map((item, i) => renderItemAsCard(item, i))}
-                                                                </div>
-                                                            ) : (
-                                                                <p className="text-[10px] text-slate-650 italic my-auto text-center">Not yet available — regenerate report to populate.</p>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                };
-
-                                                const _info = reportData.data.raw_financial_data?.info || {};
-                                                const _mcapCr = _info.marketCap ? Math.round(_info.marketCap / 1e7) : null;
-                                                const glance = [
-                                                    { label: 'Sector', value: _info.sectorDisp || _info.sector },
-                                                    { label: 'Industry', value: _info.industryDisp || _info.industry },
-                                                    { label: 'Employees', value: _info.fullTimeEmployees ? Number(_info.fullTimeEmployees).toLocaleString('en-IN') : null },
-                                                    { label: 'Market cap', value: _mcapCr ? (_mcapCr >= 1e5 ? `₹${(_mcapCr / 1e5).toFixed(2)}L Cr` : `₹${_mcapCr.toLocaleString('en-IN')} Cr`) : null },
-                                                    { label: 'Revenue segments', value: revDonutData.length || null },
-                                                ].filter(g => g.value != null);
-
-                                                return (
-                                                    <div>
                                                         <RatioSectionGate key={reportData.data.symbol}>
                                                         {(() => {
                                                             const rp = { symbol: reportData.data.symbol, name: reportData.data.calculated_metrics?.company_name, leaseBasis };
-                                                            // Category groups — a stand-in for the real Sector Applicability
-                                                            // Matrix tiering (see SECTOR_TIER_MATRIX/getRatioTier above): this
-                                                            // groups ratios by TYPE so the page is navigable now, without
-                                                            // claiming any of them are "Core for this sector" until the real
-                                                            // matrix is wired in.
-                                                            const RATIO_CATEGORIES = [
-                                                                { name: 'Liquidity', items: [
-                                                                    { title: 'Working Capital', node: <WorkingCapital {...rp} /> },
-                                                                    { title: 'Current Ratio', node: <CurrentRatio {...rp} /> },
-                                                                    { title: 'Quick Ratio', node: <QuickRatio {...rp} /> },
-                                                                    { title: 'Cash Ratio', node: <CashRatio {...rp} /> },
-                                                                    { title: 'Operating Cash Flow Ratio', node: <OperatingCashFlowRatio {...rp} /> },
-                                                                    { title: 'Cash Conversion Cycle', node: <CashConversionCycle {...rp} /> },
-                                                                ]},
-                                                                { name: 'Efficiency', items: [
-                                                                    { title: 'Inventory Turnover', node: <><InventoryTurnover {...rp} /><DaysInventoryOutstanding {...rp} /></> },
-                                                                    { title: 'Receivables Turnover', node: <><ReceivablesTurnover {...rp} /><DaysSalesOutstanding {...rp} /></> },
-                                                                    { title: 'Payables Turnover', node: <><PayablesTurnover {...rp} /><DaysPayablesOutstanding {...rp} /></> },
-                                                                    { title: 'Asset Turnover', node: <AssetTurnover {...rp} /> },
-                                                                    { title: 'Fixed Asset Turnover', node: <FixedAssetTurnover {...rp} /> },
-                                                                    { title: 'Working Capital Turnover', node: <><WorkingCapitalTurnover {...rp} /><DaysWorkingCapital {...rp} /><ReceivablesToPayablesRatio {...rp} /></> },
-                                                                ]},
-                                                                { name: 'Profitability', items: [
-                                                                    { title: 'Gross Profit Margin', node: <GrossProfitMargin {...rp} /> },
-                                                                    { title: 'Operating Profit Margin (EBIT Basis)', node: <OperatingProfitMargin {...rp} /> },
-                                                                    { title: 'Net Profit Margin', node: <NetProfitMargin {...rp} /> },
-                                                                    { title: 'Return on Assets', node: <ReturnOnAssets {...rp} /> },
-                                                                ]},
-                                                                { name: 'Returns', items: [
-                                                                    { title: 'Return on Equity', node: <ReturnOnEquity {...rp} /> },
-                                                                    { title: 'Return on Capital Employed', node: <ReturnOnCapitalEmployed {...rp} /> },
-                                                                ]},
-                                                                { name: 'Leverage', items: [
-                                                                    { title: 'Debt-to-Equity', node: <DebtToEquity {...rp} /> },
-                                                                    { title: 'Debt Ratio', node: <DebtRatio {...rp} /> },
-                                                                    { title: 'Interest Coverage Ratio', node: <InterestCoverageRatio {...rp} /> },
-                                                                    { title: 'Financial Leverage Ratio', node: <FinancialLeverageRatio {...rp} /> },
-                                                                ]},
-                                                                { name: 'Valuation', items: [
-                                                                    { title: 'Price-to-Earnings Ratio', node: <PriceToEarningsRatio {...rp} /> },
-                                                                    { title: 'Price-to-Book Ratio', node: <PriceToBookRatio {...rp} /> },
-                                                                    { title: 'Price-to-Sales Ratio', node: <PriceToSalesRatio {...rp} /> },
-                                                                    { title: 'FCF Yield', node: <FCFYield {...rp} /> },
-                                                                    { title: 'Dividend Yield', node: <DividendYield {...rp} /> },
-                                                                    { title: 'Earnings Yield', node: <EarningsYield {...rp} /> },
-                                                                    { title: 'Enterprise Value / EBITDA', node: <EnterpriseValueToEBITDA {...rp} /> },
-                                                                    { title: 'Net Debt/EBITDA', node: <NetDebtToEBITDA {...rp} /> },
-                                                                    { title: 'Debt Service Coverage Ratio', node: <DebtServiceCoverageRatio {...rp} /> },
-                                                                    { title: 'Cash Flow Coverage Ratio', node: <CashFlowCoverageRatio {...rp} /> },
-                                                                    { title: 'Free Cash Flow', node: <FreeCashFlow {...rp} /> },
-                                                                    { title: 'FCF Margin', node: <FCFMargin {...rp} /> },
-                                                                    { title: 'Capex Intensity', node: <CapexIntensity {...rp} /> },
-                                                                ]},
+                                                            // Every built ratio card, tagged with its Sr No from the Sector
+                                                            // Applicability Matrix (frontend/src/lib/sectorMatrix.js) — this
+                                                            // is the join key between "what's actually renderable" and
+                                                            // "what tier the matrix says for this sector". Ratios not yet
+                                                            // built as cards (Sr 41-68) simply won't appear in any tier —
+                                                            // never a broken/blank card.
+                                                            const RATIO_ITEMS = [
+                                                                { ratio_no: 13, title: 'Working Capital', node: <WorkingCapital {...rp} /> },
+                                                                { ratio_no: 10, title: 'Current Ratio', node: <CurrentRatio {...rp} /> },
+                                                                { ratio_no: 11, title: 'Quick Ratio', node: <QuickRatio {...rp} /> },
+                                                                { ratio_no: 12, title: 'Cash Ratio', node: <CashRatio {...rp} /> },
+                                                                { ratio_no: 39, title: 'Operating Cash Flow Ratio', node: <OperatingCashFlowRatio {...rp} /> },
+                                                                { ratio_no: 9, title: 'Cash Conversion Cycle', node: <CashConversionCycle {...rp} /> },
+                                                                { ratio_no: 1, title: 'Inventory Turnover', node: <><InventoryTurnover {...rp} /><DaysInventoryOutstanding {...rp} /></> },
+                                                                { ratio_no: 3, title: 'Receivables Turnover', node: <><ReceivablesTurnover {...rp} /><DaysSalesOutstanding {...rp} /></> },
+                                                                { ratio_no: 5, title: 'Payables Turnover', node: <><PayablesTurnover {...rp} /><DaysPayablesOutstanding {...rp} /></> },
+                                                                { ratio_no: 7, title: 'Asset Turnover', node: <AssetTurnover {...rp} /> },
+                                                                { ratio_no: 30, title: 'Fixed Asset Turnover', node: <FixedAssetTurnover {...rp} /> },
+                                                                { ratio_no: 8, title: 'Working Capital Turnover', node: <><WorkingCapitalTurnover {...rp} /><DaysWorkingCapital {...rp} /><ReceivablesToPayablesRatio {...rp} /></> },
+                                                                { ratio_no: 14, title: 'Gross Profit Margin', node: <GrossProfitMargin {...rp} /> },
+                                                                { ratio_no: 15, title: 'Operating Profit Margin (EBIT Basis)', node: <OperatingProfitMargin {...rp} /> },
+                                                                { ratio_no: 16, title: 'Net Profit Margin', node: <NetProfitMargin {...rp} /> },
+                                                                { ratio_no: 17, title: 'Return on Assets', node: <ReturnOnAssets {...rp} /> },
+                                                                { ratio_no: 18, title: 'Return on Equity', node: <ReturnOnEquity {...rp} /> },
+                                                                { ratio_no: 19, title: 'Return on Capital Employed', node: <ReturnOnCapitalEmployed {...rp} /> },
+                                                                { ratio_no: 20, title: 'Debt-to-Equity', node: <DebtToEquity {...rp} /> },
+                                                                { ratio_no: 21, title: 'Debt Ratio', node: <DebtRatio {...rp} /> },
+                                                                { ratio_no: 22, title: 'Interest Coverage Ratio', node: <InterestCoverageRatio {...rp} /> },
+                                                                { ratio_no: 23, title: 'Financial Leverage Ratio', node: <FinancialLeverageRatio {...rp} /> },
+                                                                { ratio_no: 24, title: 'Price-to-Earnings Ratio', node: <PriceToEarningsRatio {...rp} /> },
+                                                                { ratio_no: 25, title: 'Price-to-Book Ratio', node: <PriceToBookRatio {...rp} /> },
+                                                                { ratio_no: 26, title: 'Price-to-Sales Ratio', node: <PriceToSalesRatio {...rp} /> },
+                                                                { ratio_no: 37, title: 'FCF Yield', node: <FCFYield {...rp} /> },
+                                                                { ratio_no: 27, title: 'Dividend Yield', node: <DividendYield {...rp} /> },
+                                                                { ratio_no: 28, title: 'Earnings Yield', node: <EarningsYield {...rp} /> },
+                                                                { ratio_no: 29, title: 'Enterprise Value / EBITDA', node: <EnterpriseValueToEBITDA {...rp} /> },
+                                                                { ratio_no: 33, title: 'Net Debt/EBITDA', node: <NetDebtToEBITDA {...rp} /> },
+                                                                { ratio_no: 34, title: 'Debt Service Coverage Ratio', node: <DebtServiceCoverageRatio {...rp} /> },
+                                                                { ratio_no: 35, title: 'Cash Flow Coverage Ratio', node: <CashFlowCoverageRatio {...rp} /> },
+                                                                { ratio_no: 36, title: 'Free Cash Flow', node: <FreeCashFlow {...rp} /> },
+                                                                { ratio_no: 38, title: 'FCF Margin', node: <FCFMargin {...rp} /> },
+                                                                { ratio_no: 40, title: 'Capex Intensity', node: <CapexIntensity {...rp} /> },
                                                             ];
-                                                            const activeCat = activeSubTab.ratioCat ?? 0;
+                                                            const ITEM_BY_NO = new Map(RATIO_ITEMS.map(it => [it.ratio_no, it]));
+
+                                                            // Sector resolution: best-effort normalisation of whatever loose
+                                                            // sector string this report happened to produce (see
+                                                            // normalizeSectorLabel's own docstring — no canonical NSE
+                                                            // taxonomy is stored anywhere in this app yet). Falls back to
+                                                            // "sector unknown" (every ratio shown, ungrouped) rather than
+                                                            // guessing a tier.
+                                                            // Priority: (1) getNseSector — the verbatim, official NSE
+                                                            // industry classification (nseSectorMap.js, ~750 Nifty Total
+                                                            // Market symbols) keyed by ticker, no guessing involved; (2)
+                                                            // `peer_synthesis_data.sector` (the SECTOR_GROUPS-derived
+                                                            // peer-group label, e.g. "Infra & Realty" — the same value
+                                                            // shown in the company header's Sector badge); (3)
+                                                            // `ai_guidance.sector_guess` (an optional LLM call), for
+                                                            // tickers with neither of the above.
+                                                            const psd0 = reportData.data.peer_synthesis_data || {};
+                                                            const nseSector = getNseSector(reportData.data.symbol);
+                                                            const rawSectorLabel = psd0.sector || psd0.ai_guidance?.sector_guess || null;
+                                                            const resolvedSector = nseSector || normalizeSectorLabel(rawSectorLabel);
+
+                                                            const TIERS = resolvedSector
+                                                                ? (() => {
+                                                                    const buckets = getRatiosForSector(resolvedSector);
+                                                                    const pick = (list) => list.map(r => ITEM_BY_NO.get(r.ratio_no)).filter(Boolean);
+                                                                    const indspec = getIndustrySpecificRatiosForSector(resolvedSector);
+                                                                    const overrides = SECTOR_DEFINITION_OVERRIDES[resolvedSector] || {};
+                                                                    const result = [
+                                                                        { key: 'core', name: 'Core', items: pick(buckets.core) },
+                                                                        { key: 'secondary', name: 'Secondary', items: pick(buckets.secondary) },
+                                                                        { key: 'different_definition', name: 'Different Definition Needed',
+                                                                          items: pick(buckets.differentDefinition).map(it => ({ ...it, defNote: overrides[it.ratio_no] })) },
+                                                                        { key: 'not_applicable', name: 'Not Applicable', items: pick(buckets.notApplicable) },
+                                                                    ];
+                                                                    // Sr 69-92 industry-specific ratios have no matching card
+                                                                    // built yet, so this section only ever shows a placeholder
+                                                                    // note when the sector qualifies for one — never a section
+                                                                    // for a sector with none, per spec.
+                                                                    if (indspec.length > 0) {
+                                                                        result.push({ key: 'industry_specific', name: `${resolvedSector} Specific Metrics`,
+                                                                            items: [], indspecNames: indspec.map(r => r.name) });
+                                                                    }
+                                                                    return result;
+                                                                })()
+                                                                : [{ key: 'all', name: 'All Ratios', items: RATIO_ITEMS }];
+
+                                                            const activeCat = Math.min(activeSubTab.ratioCat ?? 0, TIERS.length - 1);
                                                             return (
                                                                 <div>
+                                                                    {resolvedSector ? (
+                                                                        <div className="text-[10px] text-slate-500 mb-3">
+                                                                            Tiered for <span className="text-slate-300 font-semibold">{resolvedSector}</span>
+                                                                            {nseSector
+                                                                                ? ' — official NSE industry classification. A manual sector reclassification isn\'t wired in yet.'
+                                                                                : ' — a manual sector reclassification isn\'t wired in yet, so this is a best-effort match, not a verbatim NSE classification.'}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="text-[10px] text-amber-400/80 mb-3">
+                                                                            Sector could not be resolved for this company — showing all ratios ungrouped rather than guessing a tier.
+                                                                        </div>
+                                                                    )}
                                                                     <div className="flex flex-wrap gap-1.5 mb-5 sticky top-0 z-10 bg-slate-900/95 backdrop-blur py-1 -mt-1">
-                                                                        {RATIO_CATEGORIES.map((c, i) => (
-                                                                            <button key={i} onClick={() => setActiveSubTab(p => ({ ...p, ratioCat: i }))}
-                                                                                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition border ${activeCat === i ? 'bg-blue-600/20 text-blue-300 border-blue-500/30' : 'bg-slate-950/50 text-slate-500 hover:text-slate-300 border-slate-800'}`}>
+                                                                        {TIERS.map((c, i) => (
+                                                                            <button key={c.key} onClick={() => setActiveSubTab(p => ({ ...p, ratioCat: i }))}
+                                                                                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition border ${activeCat === i ? 'bg-blue-600/20 text-blue-300 border-blue-500/30' : c.key === 'not_applicable' ? 'bg-slate-950/30 text-slate-600 hover:text-slate-400 border-slate-800/60' : 'bg-slate-950/50 text-slate-500 hover:text-slate-300 border-slate-800'}`}>
                                                                                 {c.name} <span className="text-slate-600 font-medium">({c.items.length})</span>
                                                                             </button>
                                                                         ))}
                                                                     </div>
-                                                                    {RATIO_CATEGORIES.map((c, i) => (
-                                                                        <div key={i} style={{ display: activeCat === i ? 'block' : 'none' }}>
+                                                                    {TIERS.map((c, i) => (
+                                                                        <div key={c.key} style={{ display: activeCat === i ? 'block' : 'none' }}
+                                                                            className={c.key === 'not_applicable' ? 'opacity-60' : ''}>
+                                                                            {c.key === 'not_applicable' && c.items.length > 0 && (
+                                                                                <div className="text-[10px] text-slate-500 mb-3 italic">
+                                                                                    Not typically meaningful for {resolvedSector} — shown per your request; calculation still proceeds.
+                                                                                </div>
+                                                                            )}
+                                                                            {c.key === 'industry_specific' && (
+                                                                                <div className="text-[11px] text-slate-400 italic p-4 bg-slate-950 border border-slate-800 rounded-lg">
+                                                                                    {c.indspecNames.join(', ')} — industry-specific metrics for {resolvedSector} are not yet built as ratio cards.
+                                                                                </div>
+                                                                            )}
                                                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                                                 {c.items.map((it, j) => (
                                                                                     <div key={j}>
                                                                                         <h3 className="font-heading text-sm font-bold text-slate-100 tracking-tight border-l-4 border-blue-500 pl-3 mb-2">{it.title}</h3>
+                                                                                        {it.defNote && (
+                                                                                            <div className="text-[10px] text-blue-200 bg-blue-500/10 border border-blue-500/25 rounded-md px-3 py-2 mb-2 leading-snug">
+                                                                                                {it.defNote}
+                                                                                            </div>
+                                                                                        )}
                                                                                         <div className="space-y-2">{it.node}</div>
                                                                                     </div>
                                                                                 ))}
@@ -9345,326 +9040,6 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                         })()}
                                                         </RatioSectionGate>
 
-                                                        {/* ===== 1 · BUSINESS MODEL — description + the Strategyzer canvas ===== */}
-                                                        <div className="mb-6">
-                                                          <CollapsibleSection title="Business Model">
-                                                            {bmFull && <ClampText text={bmFull} className="mb-3" />}
-                                                            {glance.length > 0 && (
-                                                                <div className="flex flex-wrap gap-2 mb-3">
-                                                                    {glance.map((g, i) => (
-                                                                        <div key={i} className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1.5">
-                                                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></span>
-                                                                            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">{g.label}</span>
-                                                                            <span className="text-[11px] text-slate-200 font-bold">{g.value}</span>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                            {/* Strategyzer canvas grid */}
-                                                            <div className="bmc-grid">
-                                                                <div style={{ gridArea: 'kp' }} className="h-full">
-                                                                    <CanvasCell title="Key Partnerships" accent="#2563eb" items={bu.key_partnerships || []} />
-                                                                </div>
-                                                                <div style={{ gridArea: 'ka' }} className="h-full">
-                                                                    <CanvasCell title="Key Activities" accent="#6366f1" items={bu.key_activities || []} />
-                                                                </div>
-                                                                <div style={{ gridArea: 'vp' }} className="h-full">
-                                                                    <CanvasCell title="Value Propositions" accent="#16a34a" items={bu.value_propositions || []} />
-                                                                </div>
-                                                                <div style={{ gridArea: 'cr' }} className="h-full">
-                                                                    <CanvasCell title="Customer Relationships" accent="#db2777" items={bu.customer_relationships || []} />
-                                                                </div>
-                                                                <div style={{ gridArea: 'cs' }} className="h-full">
-                                                                    <CanvasCell title="Customer Segments" accent="#d97706" items={bu.customer_segments?.length ? bu.customer_segments : (bu.key_customers_or_geographies || [])} />
-                                                                </div>
-                                                                <div style={{ gridArea: 'kr' }} className="h-full">
-                                                                    <CanvasCell title="Key Resources" accent="#0d9488" items={bu.key_resources || []} />
-                                                                </div>
-                                                                <div style={{ gridArea: 'ch' }} className="h-full">
-                                                                    <CanvasCell title="Channels" accent="#0891b2" items={bu.channels || []} />
-                                                                </div>
-                                                            </div>
-                                                            <p className="text-[10px] text-slate-500 mt-2">Canvas blocks from BSE filings, concall transcripts &amp; AI analysis.</p>
-                                                          </CollapsibleSection>
-                                                        </div>
-
-                                                        {/* ===== 1c · BUSINESS EVOLUTION — how the business got here (async) ===== */}
-                                                        <div className="mb-6">
-                                                            <CollapsibleSection title="Business Evolution">
-                                                                <BusinessEvolution
-                                                                    symbol={reportData.data.symbol}
-                                                                    name={reportData.data.calculated_metrics?.company_name}
-                                                                    description={bu.business_model || bu.what_they_sell || ''}
-                                                                />
-                                                            </CollapsibleSection>
-                                                        </div>
-
-                                                        {/* ===== 2 · REVENUE (audited segment breakdown, else stream pie) ===== */}
-                                                        <div className="mb-6">
-                                                            <CollapsibleSection title="Revenue">
-                                                                {hasSegs ? (
-                                                                    <SegmentBreakdown segments={bu.segments} period={bu.segment_period} source={bu.segment_source} />
-                                                                ) : (
-                                                                    <RevenueStreams streams={bu.revenue_streams} drivers={bu.revenue_drivers} source={bu.segment_source} />
-                                                                )}
-                                                            </CollapsibleSection>
-                                                        </div>
-
-                                                        {/* ===== 3 · COST STRUCTURE — what the company spends on ===== */}
-                                                        <div className="mb-6">
-                                                            <CollapsibleSection title="Cost Structure">
-                                                                <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg max-w-xl">
-                                                                    <p className="text-[11px] text-slate-400 mb-2.5">What the company spends on</p>
-                                                                    {costDonutData.length > 0 ? (
-                                                                        <Donut data={costDonutData} fmt={(v) => `₹${Number(v).toFixed(0)}`} unit=" Cr" />
-                                                                    ) : costs.length > 0 ? (
-                                                                        <ul className="space-y-1.5 bmc-scroll max-h-[300px] overflow-y-auto pr-1">
-                                                                            {costs.filter(c => c.label).map((c, i) => (
-                                                                                <li key={i} className="flex items-start gap-2">
-                                                                                    <span className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style={{ background: '#dc2626' }}></span>
-                                                                                    <span className="text-[11px] text-slate-300 leading-relaxed">{c.label}</span>
-                                                                                </li>
-                                                                            ))}
-                                                                        </ul>
-                                                                    ) : (
-                                                                        <p className="text-[10px] text-slate-600 italic">Not yet available — regenerate report to populate.</p>
-                                                                    )}
-                                                                </div>
-                                                            </CollapsibleSection>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })()}
-
-                                            {/* ===== 1b · RECENT CONCALL REVIEW — integrated into the Business Model block:
-                                                 how management commentary on THIS business model evolved call over call ===== */}
-                                            <CollapsibleSection title="Recent Concall Review">
-                                                <ConcallIntelligence
-                                                    symbol={reportData.data.symbol}
-                                                    name={reportData.data.calculated_metrics?.company_name}
-                                                    financialsContext={(() => {
-                                                        const g = reportData.data.calculated_metrics?.['F-05_Growth_Summary'] || {};
-                                                        const trends = (g.growth_trends || []).slice(-4).map(t => `${String(t.date).slice(0,4)}: rev ${t.revenue_growth_yoy != null ? (t.revenue_growth_yoy*100).toFixed(1)+'%' : 'n/a'}, PAT ${t.pat_growth_yoy != null ? (t.pat_growth_yoy*100).toFixed(1)+'%' : 'n/a'}`).join('; ');
-                                                        const c3r = g.cagr_3y_revenue != null ? (g.cagr_3y_revenue*100).toFixed(1) : null;
-                                                        const c3p = g.cagr_3y_pat != null ? (g.cagr_3y_pat*100).toFixed(1) : null;
-                                                        return `3y CAGR: revenue ${c3r ?? 'n/a'}%, PAT ${c3p ?? 'n/a'}%. Yearly: ${trends}`;
-                                                    })()}
-                                                />
-                                            </CollapsibleSection>
-
-                                            {/* ============ 2. FUTURE OUTLOOK + PEER STANDING ============ */}
-                                            <CollapsibleSection title="Future Outlook & Peer Standing">
-                                            {(() => {
-                                                const ml = reportData.data.ai_summary?.ml_forecast;
-                                                const pr = reportData.data.ai_summary?.peer_rank;
-                                                const fmtCr = (v) => (v == null || isNaN(v)) ? '—' : (Math.abs(v) >= 1e5 ? `₹${(v/1e5).toFixed(2)}L Cr` : `₹${Math.round(Number(v)).toLocaleString('en-IN')} Cr`);
-                                                const revRows = (ml?.revenue_series || []).map(r => ({ label: r.year, Actual: r.actual, Forecast: r.forecast }));
-                                                const upside = (ml && ml.current_price && ml.target_price) ? Math.round((ml.target_price - ml.current_price) / ml.current_price * 100) : null;
-                                                return (
-                                                    <div className="space-y-4">
-                                                        {/* Forecast */}
-                                                        <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
-                                                            <div className="flex items-start justify-between gap-2 flex-wrap">
-                                                                <div>
-                                                                    <h3 className="font-heading text-sm font-bold text-slate-100 uppercase tracking-wider">Future Outlook · Forecast</h3>
-                                                                    <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">Projections are based on the company's own historical financials — <strong className="text-slate-400">revenue &amp; earnings are extrapolated using a log-linear regression</strong> fit on 5+ years of annual data, <strong className="text-slate-400">next-month price uses a regression on recent monthly closing prices</strong>, and the <strong className="text-slate-400">3-year target price assumes the current P/E multiple is held constant</strong> against projected earnings. These are statistical trend-extensions, not AI predictions — accuracy depends on how stable past trends remain.</p>
-                                                                </div>
-                                                                {ml?.confidence && <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border ${ml.confidence==='High'?'text-blue-300 bg-blue-500/10 border-blue-500/25':ml.confidence==='Moderate'?'text-amber-300 bg-amber-500/10 border-amber-500/25':'text-slate-300 bg-slate-800 border-slate-700'}`}>{ml.confidence} confidence</span>}
-                                                            </div>
-                                                            {ml ? (<>
-                                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                                                    <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-center">
-                                                                        <div className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Next-month price</div>
-                                                                        <div className={`font-heading text-lg font-extrabold ${!ml.next_month_price?'text-slate-300':ml.next_month_price.change_pct>=0?'text-emerald-300':'text-red-300'}`}>{ml.next_month_price ? '₹'+ml.next_month_price.value.toLocaleString('en-IN') : '—'}</div>
-                                                                        {ml.next_month_price && <div className={`text-[9px] font-bold ${ml.next_month_price.change_pct>=0?'text-emerald-300':'text-red-300'}`}>{ml.next_month_price.change_pct>=0?'+':''}{ml.next_month_price.change_pct}%</div>}
-                                                                    </div>
-                                                                    <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-center">
-                                                                        <div className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">3Y price (P/E held)</div>
-                                                                        <div className={`font-heading text-lg font-extrabold ${upside==null?'text-slate-300':upside>=0?'text-blue-300':'text-orange-300'}`}>{ml.target_price ? '₹'+ml.target_price.toLocaleString('en-IN') : '—'}</div>
-                                                                        {upside != null && <div className={`text-[9px] font-bold ${upside>=0?'text-blue-300':'text-orange-300'}`}>{upside>=0?'+':''}{upside}%</div>}
-                                                                    </div>
-                                                                    <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-center">
-                                                                        <div className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Rev CAGR (proj)</div>
-                                                                        <div className="font-heading text-lg font-extrabold text-blue-300">{ml.revenue_cagr != null ? ml.revenue_cagr+'%' : '—'}</div>
-                                                                    </div>
-                                                                    <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-center">
-                                                                        <div className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">PAT CAGR (proj)</div>
-                                                                        <div className="font-heading text-lg font-extrabold text-blue-300">{ml.earnings_cagr != null ? ml.earnings_cagr+'%' : '—'}</div>
-                                                                    </div>
-                                                                </div>
-                                                                {revRows.length >= 2 && <TrendChart rows={revRows} series={[{key:'Actual',label:'Actual',color:'#3b82f6'},{key:'Forecast',label:'Forecast',color:'#f59e0b'}]} fmt={fmtCr} height={150} />}
-                                                                <p className="text-[9px] text-slate-500">Statistical projections only — past trends may not continue. Not investment advice.</p>
-                                                            </>) : <p className="text-[11px] text-slate-500 p-4">Not enough financial history to build a forecast for this stock.</p>}
-                                                        </div>
-                                                        {/* Peer standing — same-league comparison table */}
-                                                        <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
-                                                            <div>
-                                                                <h3 className="font-heading text-sm font-bold text-slate-100 uppercase tracking-wider">Peer Standing</h3>
-                                                                <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">{pr?.tier ? `Compared ONLY against ${String(pr.tier).toLowerCase()} peers of its industry — a topper is judged among toppers, never against a different league.` : 'Composite percentile vs its closest peers.'}</p>
-                                                            </div>
-                                                            {pr && (pr.ranking || []).length ? (
-                                                                <PeerComparisonTable ranking={pr.ranking} columns={pr.table_columns} />
-                                                            ) : pr && pr.percentile != null ? (
-                                                                <div className="space-y-1">
-                                                                    <div className="flex justify-between text-[10px] text-blue-300 font-bold"><span>★ This stock</span><span>{pr.percentile}th</span></div>
-                                                                    <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800"><div className="h-full bg-blue-500 rounded-full" style={{ width: `${pr.percentile}%` }}></div></div>
-                                                                    <p className="text-[9px] text-slate-500 pt-1">{pr.note}</p>
-                                                                </div>
-                                                            ) : <p className="text-[11px] text-slate-500">Not enough similar-sized peers to rank.</p>}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })()}
-                                            </CollapsibleSection>
-
-
-                                            {/* ============ 4. BUSINESS QUALITY (ring + sub-score pie) ============ */}
-                                            <CollapsibleSection title="Business Quality">
-                                            {(() => {
-                                                const tm = reportData.data.peer_synthesis_data?.target_metrics || {};
-                                                const cf = reportData.data.calculated_metrics?.['F-09_Cash_Flow_Conversion'] || {};
-                                                const d = reportData.data.calculated_metrics?.['F-08_Solvency_Metrics'] || {};
-                                                const clamp = (v) => Math.max(1, Math.min(100, Math.round(v)));
-                                                const pillars = [];
-                                                if (tm.roe != null || tm.operatingMargin != null) {
-                                                    const a = []; if (tm.roe != null) a.push(clamp(tm.roe * 100 * 2.5)); if (tm.operatingMargin != null) a.push(clamp(tm.operatingMargin * 100 * 3));
-                                                    pillars.push({ label: 'Profitability', value: clamp(a.reduce((x, y) => x + y, 0) / a.length) });
-                                                }
-                                                if (d.debt_to_equity != null) pillars.push({ label: 'Balance-sheet', value: clamp(100 - d.debt_to_equity * 40) });
-                                                if (cf.CFO_to_PAT != null) pillars.push({ label: 'Cash conversion', value: clamp(cf.CFO_to_PAT * 60) });
-                                                if (tm.revenueGrowth != null) pillars.push({ label: 'Growth', value: clamp(tm.revenueGrowth * 100 * 5) });
-                                                const score = reportData.data.business_score;
-                                                const grad = score >= 70 ? '#10b981' : score >= 45 ? '#3b82f6' : '#f59e0b';
-                                                return (
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-sans">
-                                                        {/* Box 1: Quality Score */}
-                                                        <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg flex flex-col items-center justify-center gap-3">
-                                                            <span className="text-[9px] text-blue-300 font-bold uppercase tracking-wider">Composite Quality Score</span>
-                                                            <div className="relative w-28 h-28 flex items-center justify-center">
-                                                                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 120 120">
-                                                                    <circle cx="60" cy="60" r="50" className="fill-none" strokeWidth="9" stroke="#1e293b"/>
-                                                                    <circle cx="60" cy="60" r="50" className="fill-none" strokeWidth="9" strokeLinecap="round"
-                                                                        strokeDasharray={2 * Math.PI * 50} strokeDashoffset={2 * Math.PI * 50 * (1 - score / 100)} stroke={grad} />
-                                                                </svg>
-                                                                <div className="absolute flex flex-col items-center">
-                                                                    <CountUp value={score} className="text-3xl font-heading font-extrabold text-slate-100" />
-                                                                    <span className="text-[7px] text-slate-400 font-bold uppercase tracking-wider">/ 100 Quality</span>
-                                                                </div>
-                                                            </div>
-                                                            <span className={`text-[10px] font-bold uppercase tracking-wider ${score >= 70 ? 'text-emerald-400' : score >= 45 ? 'text-blue-400' : 'text-amber-400'}`}>
-                                                                {score >= 70 ? 'High Quality' : score >= 45 ? 'Moderate Quality' : 'Below Average'}
-                                                            </span>
-                                                        </div>
-                                                        {/* Box 2: Sub-Scores */}
-                                                        <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg flex flex-col gap-3">
-                                                            <span className="text-[9px] text-blue-300 font-bold uppercase tracking-wider">Sub-Scores</span>
-                                                            {pillars.length ? (
-                                                                <Donut data={pillars.map(p => ({ label: p.label, value: p.value }))} fmt={(v)=>v} unit="/100" />
-                                                            ) : <div className="text-[11px] text-slate-500">Sub-score inputs unavailable.</div>}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })()}
-                                            </CollapsibleSection>
-
-                                            {/* ============ 4. COMPETITIVE MOAT ============ */}
-                                            <CollapsibleSection title="Competitive Moat">
-                                            <MoatAssessment
-                                                parsedJson={reportData.data.qualitative_analysis?.parsed_json}
-                                            />
-                                            </CollapsibleSection>
-
-                                            {/* ============ 4b. FINANCIAL ANALYSIS (Piotroski / DuPont / Health) ============ */}
-                                            <CollapsibleSection title="Financial Analysis">
-                                            <FinancialAnalysis fa={reportData.data.ai_summary?.financial_analysis} />
-                                            </CollapsibleSection>
-
-                                            {/* ============ 5. ANNUAL REPORT / CONCALL SUMMARY ============ */}
-                                            <CollapsibleSection title="Annual Report / Concall Summary">
-                                            <ConcallTabs
-                                                symbol={reportData.data.symbol}
-                                                list={reportData.data.qualitative_analysis?.concall_list || []}
-                                                latestUrl={reportData.data.qualitative_analysis?.concall_url}
-                                                latestText={reportData.data.qualitative_analysis?.parsed_sections?.['F-14']}
-                                                latestStructured={reportData.data.qualitative_analysis?.parsed_json?.['F-14']}
-                                                grounded={reportData.data.qualitative_analysis?.concall_grounded}
-                                            />
-                                            </CollapsibleSection>
-
-                                            {/* ============ 6. EARNINGS ESTIMATE / FORECAST ============ */}
-                                            <CollapsibleSection title="Earnings Estimate / Forecast">
-                                            <div className="space-y-3">
-                                                <InteractiveProjection
-                                                    calculatedMetrics={reportData.data.calculated_metrics}
-                                                    parsedJson={reportData.data.qualitative_analysis?.parsed_json}
-                                                />
-                                                <div className="p-3 bg-blue-500/5 border border-blue-500/20 rounded-lg text-[11px] text-slate-500 leading-relaxed">
-                                                    <span className="font-bold text-blue-600 uppercase tracking-wider text-[9px]">Confidence note</span> — Internal forward view only, generated from historical trends and management commentary via Groq. Bull/base/bear are scenarios, not guidance; outcomes depend on the chosen growth assumption.
-                                                </div>
-                                            </div>
-                                            </CollapsibleSection>
-
-                                            {/* ============ 6b. FORWARD VALUATION ============ */}
-                                            <CollapsibleSection title="Forward Valuation">
-                                            <ForwardValuation fv={reportData.data.ai_summary?.forward_valuation} />
-                                            </CollapsibleSection>
-
-                                            {/* ============ 7. RED-FLAG / FORENSIC SIGNALS ============ */}
-                                            <CollapsibleSection title="Red Flags & Watch-Items">
-                                            <ForensicChecklist
-                                                parsedJson={reportData.data.qualitative_analysis?.parsed_json}
-                                                checklistItems={reportData.data.ai_summary?.investment_checklist?.items || []}
-                                            />
-                                            </CollapsibleSection>
-
-                                            {/* ============ AI SUMMARY — on-demand, collapsible, last ============ */}
-                                            {(() => {
-                                                const s = reportData.data.ai_summary || {};
-                                                if (!(s.narrative || []).length && !s.headline) return null;
-                                                return (
-                                                    <div className="border-t border-slate-800 pt-4">
-                                                        {!showSummary ? (
-                                                            <button onClick={() => setShowSummary(true)} className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600/15 border border-blue-500/30 rounded-lg text-blue-200 text-sm font-bold hover:bg-blue-600/25 transition">
-                                                                ✦ Summarise this stock (AI) ▾
-                                                            </button>
-                                                        ) : (
-                                                            <div className="p-5 bg-gradient-to-br from-blue-500/5 to-slate-950 border border-blue-500/20 rounded-lg space-y-3">
-                                                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                                        <span className="text-[9px] font-bold uppercase tracking-wider text-blue-200 bg-blue-500/15 border border-blue-500/30 px-2 py-1 rounded-md">✦ AI Summary</span>
-                                                                        {s.headline && <h3 className="font-heading text-sm font-bold text-slate-100">{s.headline}</h3>}
-                                                                    </div>
-                                                                    <button onClick={() => setShowSummary(false)} className="text-[10px] font-bold text-blue-300 hover:text-blue-200">Hide ▴</button>
-                                                                </div>
-                                                                <div className="space-y-2">
-                                                                    {(s.narrative || []).map((p, i) => <p key={i} className="text-xs text-slate-300 leading-relaxed">{p}</p>)}
-                                                                </div>
-                                                                {(s.positives?.length > 0 || s.risks?.length > 0) && (
-                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                                                                        {s.positives?.length > 0 && (
-                                                                            <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-lg">
-                                                                                <span className="text-[10px] text-slate-100 font-bold uppercase tracking-wider block mb-2 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500"></span>Key Positives</span>
-                                                                                <ul className="space-y-1.5">
-                                                                                    {s.positives.map((p, i) => <li key={i} className="text-[11px] text-slate-200 leading-snug flex gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0"></span><span>{p}</span></li>)}
-                                                                                </ul>
-                                                                            </div>
-                                                                        )}
-                                                                        {s.risks?.length > 0 && (
-                                                                            <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-lg">
-                                                                                <span className="text-[10px] text-slate-100 font-bold uppercase tracking-wider block mb-2 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500"></span>Key Risks / Watch-items</span>
-                                                                                <ul className="space-y-1.5">
-                                                                                    {s.risks.map((r, i) => <li key={i} className="text-[11px] text-slate-200 leading-snug flex gap-2"><span className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 flex-shrink-0"></span><span>{r}</span></li>)}
-                                                                                </ul>
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                                <p className="text-[9px] text-slate-500 pt-1">{s.method} Not investment advice.</p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })()}
                                         </section>
                                     )}
 
@@ -9697,15 +9072,20 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                     )}
 
                                 </main>
-                            </div>
-                        )}
+                                    )}
+                                </React.Fragment>
+                            )}
 
-                        {/* Footer */}
-                        <footer className="mt-24 border-t border-slate-800/70 pt-6 pb-2 flex flex-col sm:flex-row items-center justify-between gap-2 text-[10px] font-medium">
-                            <p className="font-semibold text-slate-500">© 2026 Navrist · Research Terminal</p>
-                            <p className="text-slate-600">For internal research use only. Not investment advice.</p>
-                        </footer>
-                    </div>
+                            {/* Footer */}
+                            <footer className="mt-16 border-t border-slate-800/70 pt-6 pb-2 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] font-medium">
+                                <p className="font-semibold text-slate-500">© 2026 Navrist · Research Terminal</p>
+                                <p className="text-slate-600">For internal research use only. Not investment advice.</p>
+                            </footer>
+                        </div>{/* /container */}
+                    </div>{/* /main column */}
+
+                    {/* Mobile bottom navigation (replaces the sidebar below lg) */}
+                    <MobileNav activeKey={dashView} onSelect={onSelectSection} />
                 </div>
             );
         }
@@ -9733,8 +9113,8 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
         }
 
         const rootElement = document.getElementById('root');
-        const root = ReactDOM.createRoot(rootElement);
+        // Cache the root across HMR updates so re-executing this entry module in dev
+        // doesn't call createRoot() twice on the same container. In production this
+        // module loads exactly once, so the guard is a no-op.
+        const root = window.__navristRoot || (window.__navristRoot = ReactDOM.createRoot(rootElement));
         root.render(<ErrorBoundary><App /></ErrorBoundary>);
-    </script>
-</body>
-</html>

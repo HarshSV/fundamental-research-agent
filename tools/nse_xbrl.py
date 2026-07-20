@@ -39,6 +39,32 @@ except Exception:  # pragma: no cover
     import requests as _http
     _HAVE_CFFI = False
 
+try:
+    from tools.db_ratio_reader import try_db_ratio, write_db_ratio
+except Exception:  # pragma: no cover — DB unreachable/misconfigured falls through to live path
+    def try_db_ratio(symbol, ratio_no):
+        return None
+
+    def write_db_ratio(symbol, ratio_no, out):
+        pass
+
+# Cache-key prefix -> ratio_no, for every ratio the DB fast-path covers (see
+# tools/precompute_worker.py's RATIO_FETCHERS for the same mapping). Used by
+# `_write_cache` below to mirror a freshly-computed LIVE "latest year" result
+# into Supabase — the write-back half of try_db_ratio's read-back: once ANY
+# request computes a company for real, every later request for it (by
+# anyone) is instant, instead of only the background precompute job ever
+# populating the database. Longest prefixes first so a short one (e.g. "de")
+# can't accidentally prefix-match a longer one (e.g. "debtratio").
+_RATIO_CACHE_PREFIXES = sorted([
+    ("invturn", 1), ("recvturn", 3), ("payturn", 5), ("assetturn", 7),
+    ("wcturn", 8), ("currentratio", 10), ("quickratio", 11), ("cashratio", 12),
+    ("gpm", 14), ("opm", 15), ("npm", 16), ("roe", 18), ("roce", 19),
+    ("debtratio", 21), ("de", 20), ("intcov", 22), ("finlev", 23),
+    ("eps", 24), ("bvps", 25), ("sharesout", 100), ("revenueops", 26),
+    ("dps", 27),
+], key=lambda p: -len(p[0]))
+
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "nse_xbrl")
 TTL = 12 * 3600
 _lock = threading.Lock()
@@ -83,7 +109,31 @@ def _read_cache(key):
     return None
 
 
+def _mirror_to_db_if_ratio_key(key, payload):
+    """If `key` matches one of this file's own ratio cache-key patterns
+    (`<prefix>_<SYMBOL>_latest`) AND has enough shape to be worth storing
+    (a real fiscal year via `selected_period`), write it into Supabase too.
+    Never raises — see `write_db_ratio`'s own docstring for why."""
+    if not isinstance(payload, dict) or not payload.get("selected_period"):
+        return
+    if not key.endswith("_latest"):
+        return  # only "latest year" results are cached this way — an
+                 # explicit historical-year request keys as "..._31-Mar-2023"
+                 # and deliberately isn't mirrored (DB only ever holds "latest")
+    for prefix, ratio_no in _RATIO_CACHE_PREFIXES:
+        marker = f"{prefix}_"
+        if key.startswith(marker):
+            symbol = key[len(marker):-len("_latest")]
+            if symbol:
+                write_db_ratio(symbol, ratio_no, payload)
+            return
+
+
 def _write_cache(key, payload):
+    try:
+        _mirror_to_db_if_ratio_key(key, payload)
+    except Exception:
+        pass
     try:
         os.makedirs(CACHE_DIR, exist_ok=True)
         with open(_cache_path(key), "w", encoding="utf-8") as fh:
@@ -396,6 +446,11 @@ def fetch_inventory_turnover(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Inventory Turnover"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 1)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -497,6 +552,11 @@ def fetch_receivables_turnover(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Receivables Turnover"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 3)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -568,6 +628,11 @@ def fetch_payables_turnover(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Payables Turnover"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 5)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -634,6 +699,11 @@ def fetch_asset_turnover(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Asset Turnover"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 7)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -684,6 +754,77 @@ def fetch_asset_turnover(symbol, name=None, to_date=None):
 
 
 # --------------------------------------------------------------------------- #
+# Fixed Asset Turnover (Sr No 30) — Revenue from Operations ÷ Average Net
+# Fixed Assets. Sourced from the Annual Report only, same rationale as the
+# other turnover ratios.
+# --------------------------------------------------------------------------- #
+def fetch_fixed_asset_turnover(symbol, name=None, to_date=None):
+    """
+    Fixed Asset Turnover = Revenue from Operations ÷ Average Net Fixed
+    Assets. Same year-selection behaviour as `fetch_inventory_turnover`.
+    Returns {'applicable': False} for lenders/financial businesses — never a
+    fabricated number. Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"fixedassetturn_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Fixed Asset Turnover"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 30)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(minimal fixed assets; asset base is loans/investments, not PP&E)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_fixed_asset_turnover_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_fixed_asset_turnover_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_reason = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_fixed_asset_turnover_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_reason is None:
+            first_reason = r.get("reason")
+    out = {**base, "applicable": False, "reason": first_reason or "Not applicable for this company.",
+           "selected_period": f"31-Mar-{ar_years[0]}", "available_periods": available}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # Working Capital Turnover — Revenue from Operations ÷ Average Working
 # Capital (Total Current Assets − Total Current Liabilities). Sourced from
 # the Annual Report only, same rationale as the other turnover ratios.
@@ -703,6 +844,11 @@ def fetch_working_capital_turnover(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Working Capital Turnover"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 8)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -755,6 +901,682 @@ def fetch_working_capital_turnover(symbol, name=None, to_date=None):
 
 
 # --------------------------------------------------------------------------- #
+# Days Working Capital (Sr No 31) = (Average Working Capital ÷ Revenue from
+# Operations) × 365 — the days-based expression of Working Capital Turnover
+# (Sr No 8/26). Pure arithmetic reuse of the SAME two figures — its own
+# small function (not a client-side derivation of Working Capital Turnover's
+# endpoint) since that ratio's own N/A branch fires on Average Working
+# Capital ≤ 0, which per spec is a VALID, often-favourable result here
+# (supplier-funded working capital), never withheld.
+# --------------------------------------------------------------------------- #
+def fetch_days_working_capital(symbol, name=None, to_date=None):
+    """
+    Days Working Capital = (Average Working Capital ÷ Revenue from
+    Operations) × 365. Same year-selection behaviour as
+    `fetch_inventory_turnover`. Returns {'applicable': False} for
+    lenders/financial businesses (same Current Assets/Liabilities concept
+    mismatch as Working Capital Turnover), and when Revenue is zero/missing
+    — but, unlike Working Capital Turnover, NEVER when Average Working
+    Capital is negative (a real, valid signal, not withheld here). Cached;
+    never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"dayswc_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Days Working Capital"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 31)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(current assets/liabilities concept differs fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_days_working_capital_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_days_working_capital_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_reason = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_days_working_capital_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_reason is None:
+            first_reason = r.get("reason")
+    out = {**base, "applicable": False, "reason": first_reason or "Not applicable for this company.",
+           "selected_period": f"31-Mar-{ar_years[0]}", "available_periods": available}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Receivables-to-Payables Ratio (Sr No 32) = Trade Receivables ÷ Trade
+# Payables, BOTH closing balance. Pure reuse of the SAME Trade Receivables/
+# Trade Payables fields already validated for Receivables Turnover (Sr No 3)/
+# Payables Turnover (Sr No 5). Sourced from the Annual Report only, same
+# rationale as the other ratios above.
+# --------------------------------------------------------------------------- #
+def fetch_receivables_to_payables_ratio(symbol, name=None, to_date=None):
+    """
+    Receivables-to-Payables Ratio = Trade Receivables ÷ Trade Payables
+    (closing balance, current year only). Same year-selection behaviour as
+    `fetch_inventory_turnover`. Returns {'applicable': False} for
+    lenders/financial businesses, and when Trade Payables is zero (undefined
+    division) — but a ratio below 1x is a real, valid result, never
+    withheld. Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"rtop_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Receivables-to-Payables Ratio"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 32)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(no conventional Trade Receivables/Trade Payables cycle)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_receivables_to_payables_ratio_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_receivables_to_payables_ratio_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_receivables_to_payables_ratio_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Net Debt/EBITDA (Sr No 33) = (Total Debt − Cash and Cash Equivalents) ÷
+# EBITDA. Total Debt reuses Sr No 20's SHARED a+b+c protocol
+# (`_compute_total_debt`); EBITDA is its OWN independent calculation (Sr No
+# 93 — EBITDA-basis, NEVER Sr No 15's EBIT-basis Operating Profit Margin).
+# Sourced from the Annual Report only, same rationale as the other ratios.
+# --------------------------------------------------------------------------- #
+def fetch_net_debt_to_ebitda(symbol, name=None, to_date=None, lease_basis="basis1"):
+    """
+    Net Debt/EBITDA = (Total Debt − Cash and Cash Equivalents) ÷ EBITDA. Same
+    year-selection behaviour as `fetch_inventory_turnover`. Returns
+    {'applicable': False} for lenders/financial businesses, when EBITDA is
+    zero/negative, and when Net Debt is negative (a genuine "Net Cash"
+    position, flagged via `net_cash: True` rather than reported as a
+    spuriously low leverage multiple). `lease_basis` defaults to "basis1"
+    (Lease Liabilities included in Total Debt, matching Sr No 20/21/29's own
+    default) — pass "basis2" for the traditional ex-lease view. Cached;
+    never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ndebitda_{sym}_{to_date or 'latest'}_{lease_basis}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Net Debt/EBITDA"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 33)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(operating-cost structure and debt concept differ fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_net_debt_to_ebitda_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_net_debt_to_ebitda_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_net_debt_to_ebitda_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Debt Service Coverage Ratio (DSCR, Sr No 34) = EBITDA (Net Operating Income
+# proxy, Sr No 93) ÷ Total Debt Service (Finance Costs + Principal Repayment
+# of Borrowings, from the Cash Flow Statement's Financing Activities
+# section). Sourced from the Annual Report only, same rationale as the
+# other ratios above.
+# --------------------------------------------------------------------------- #
+def fetch_debt_service_coverage_ratio(symbol, name=None, to_date=None, lease_basis="basis1"):
+    """
+    Debt Service Coverage Ratio = EBITDA ÷ (Finance Costs + Principal
+    Repayment of Borrowings [+ Lease Liabilities principal repayment under
+    Basis 2]). Same year-selection behaviour as `fetch_inventory_turnover`.
+    Returns {'applicable': False} for lenders/financial businesses, and when
+    Total Debt Service is zero (a genuinely debt-free company — per spec,
+    not calculated rather than divided by zero). `lease_basis` defaults to
+    "basis1" (lease principal repayment EXCLUDED from Total Debt Service,
+    per Sr No 34's own spec — note this is the opposite direction from Sr
+    No 20/33's Basis 1). Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"dscr_v3_{sym}_{to_date or 'latest'}_{lease_basis}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Debt Service Coverage Ratio"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 34)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(operating-cost structure and debt-service concept differ fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_debt_service_coverage_ratio_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_debt_service_coverage_ratio_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_debt_service_coverage_ratio_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Cash Flow Coverage Ratio (Sr No 35) = Net Cash Flow from Operating
+# Activities ÷ Total Debt (Sr No 20's SHARED a+b+c protocol). A cash-based
+# solvency check, more resistant to manipulation than EBIT/EBITDA-based
+# leverage ratios since it uses real Cash Flow Statement movements. Sourced
+# from the Annual Report only, same rationale as the other ratios above.
+# --------------------------------------------------------------------------- #
+def fetch_cash_flow_coverage_ratio(symbol, name=None, to_date=None, lease_basis="basis1"):
+    """
+    Cash Flow Coverage Ratio = Net Cash Flow from Operating Activities ÷
+    Total Debt. Same year-selection behaviour as `fetch_inventory_turnover`.
+    Returns {'applicable': False} for lenders/financial businesses, and when
+    Total Debt is zero (a genuinely debt-free company — the ratio wouldn't
+    be meaningful). `lease_basis` defaults to "basis1" (Lease Liabilities
+    included in Total Debt, matching Sr No 20/21/29/33's own default) — pass
+    "basis2" for the traditional ex-lease view. Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"cfcr_v3_{sym}_{to_date or 'latest'}_{lease_basis}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Cash Flow Coverage Ratio"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 35)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(cash flow structure and debt concept differ fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_cash_flow_coverage_ratio_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_cash_flow_coverage_ratio_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_cash_flow_coverage_ratio_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Free Cash Flow (FCF, Sr No 36) = Net Cash Flow from Operating Activities −
+# net Capital Expenditure (Purchase of PP&E + Intangibles, net of disposal
+# proceeds), all from the Cash Flow Statement. Sourced from the Annual
+# Report only, same rationale as the other ratios above.
+# --------------------------------------------------------------------------- #
+def fetch_free_cash_flow(symbol, name=None, to_date=None):
+    """
+    Free Cash Flow = Net Cash Flow from Operating Activities − net Capital
+    Expenditure. Same year-selection behaviour as `fetch_inventory_turnover`.
+    Returns {'applicable': False} for lenders/financial businesses. A
+    negative FCF is a real, valid result (e.g. a capex/growth investment
+    phase) — never withheld. Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"fcf_v3_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Free Cash Flow"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 36)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(cash flow/capex structure differs fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_free_cash_flow_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_free_cash_flow_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_reason = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_free_cash_flow_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_reason is None:
+            first_reason = r.get("reason")
+    out = {**base, "applicable": False, "reason": first_reason or "Not applicable for this company.",
+           "selected_period": f"31-Mar-{ar_years[0]}", "available_periods": available}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# FCF Margin (Sr No 38) = Free Cash Flow (Sr No 36) ÷ Revenue from Operations
+# (Sr No 3) — a cash-based counterpart to Net Profit Margin. Sourced from
+# the Annual Report only, same rationale as the other ratios above.
+# --------------------------------------------------------------------------- #
+def fetch_fcf_margin(symbol, name=None, to_date=None):
+    """
+    FCF Margin = Free Cash Flow ÷ Revenue from Operations. Same
+    year-selection behaviour as `fetch_inventory_turnover`. Returns
+    {'applicable': False} for lenders/financial businesses, and when Revenue
+    is zero/missing. A negative margin is a real, valid result (e.g. a
+    growth/capex investment phase) — never withheld. Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"fcfmargin_v3_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "FCF Margin"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 38)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(cash flow/capex structure differs fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_fcf_margin_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_fcf_margin_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_reason = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_fcf_margin_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_reason is None:
+            first_reason = r.get("reason")
+    out = {**base, "applicable": False, "reason": first_reason or "Not applicable for this company.",
+           "selected_period": f"31-Mar-{ar_years[0]}", "available_periods": available}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Operating Cash Flow Ratio (Sr No 39) = Net Cash Flow from Operating
+# Activities ÷ Total Current Liabilities (closing, reuse Sr No 10's
+# denominator) — a stricter, cash-based liquidity test than the Current
+# Ratio. Sourced from the Annual Report only, same rationale as the other
+# ratios above.
+# --------------------------------------------------------------------------- #
+def fetch_operating_cash_flow_ratio(symbol, name=None, to_date=None):
+    """
+    Operating Cash Flow Ratio = Net Cash Flow from Operating Activities ÷
+    Total Current Liabilities (closing balance, current year only). Same
+    year-selection behaviour as `fetch_inventory_turnover`. Returns
+    {'applicable': False} for lenders/financial businesses, and when Total
+    Current Liabilities is zero. Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ocfratio_v3_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Operating Cash Flow Ratio"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 39)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(current liabilities/cash flow concept differs fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_operating_cash_flow_ratio_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_operating_cash_flow_ratio_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_reason = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_operating_cash_flow_ratio_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_reason is None:
+            first_reason = r.get("reason")
+    out = {**base, "applicable": False, "reason": first_reason or "Not applicable for this company.",
+           "selected_period": f"31-Mar-{ar_years[0]}", "available_periods": available}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Capex Intensity (Sr No 40) = Capital Expenditure, net (Sr No 36's
+# denominator component) ÷ Revenue from Operations (Sr No 3). Sourced from
+# the Annual Report only, same rationale as the other ratios above.
+# --------------------------------------------------------------------------- #
+def fetch_capex_intensity(symbol, name=None, to_date=None):
+    """
+    Capex Intensity = Capital Expenditure (net) ÷ Revenue from Operations.
+    Same year-selection behaviour as `fetch_inventory_turnover`. Returns
+    {'applicable': False} for lenders/financial businesses, and when Revenue
+    is zero/missing. Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"capexint_v3_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Capex Intensity"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 40)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(cash flow/capex structure differs fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_capex_intensity_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_capex_intensity_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_reason = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_capex_intensity_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_reason is None:
+            first_reason = r.get("reason")
+    out = {**base, "applicable": False, "reason": first_reason or "Not applicable for this company.",
+           "selected_period": f"31-Mar-{ar_years[0]}", "available_periods": available}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # Current Ratio — Total Current Assets ÷ Total Current Liabilities, closing
 # balance only (point-in-time, not averaged). Sourced from the Annual Report
 # only, same rationale as the other ratios above.
@@ -774,6 +1596,11 @@ def fetch_current_ratio(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Current Ratio"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 10)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -841,6 +1668,11 @@ def fetch_quick_ratio(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Quick Ratio"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 11)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -908,6 +1740,11 @@ def fetch_cash_ratio(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Cash Ratio"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 12)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -974,6 +1811,11 @@ def fetch_gross_profit_margin(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Gross Profit Margin"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 14)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -1022,17 +1864,17 @@ def fetch_gross_profit_margin(symbol, name=None, to_date=None):
 
 
 # --------------------------------------------------------------------------- #
-# Operating Profit Margin (EBITDA-basis) — (Revenue − COGS − Employee Benefit
-# Expense − Other Expenses) ÷ Revenue. Sourced from the Annual Report only,
-# same rationale as Gross Profit Margin.
+# Operating Profit Margin (EBIT Basis) — (Revenue − COGS − Employee Benefit
+# Expense − Other Expenses − Depreciation & Amortisation) ÷ Revenue. Sourced
+# from the Annual Report only, same rationale as Gross Profit Margin.
 # --------------------------------------------------------------------------- #
 def fetch_operating_profit_margin(symbol, name=None, to_date=None):
     """
-    Operating Profit Margin (EBITDA-basis) = (Revenue − COGS − Employee
-    Benefit Expense − Other Expenses) ÷ Revenue. Same year-selection
-    behaviour as `fetch_inventory_turnover`. Returns {'applicable': False}
-    for lenders/financial businesses — never a fabricated number. Cached;
-    never raises.
+    Operating Profit Margin (EBIT Basis) = (Revenue − COGS − Employee
+    Benefit Expense − Other Expenses − Depreciation & Amortisation) ÷
+    Revenue. Same year-selection behaviour as `fetch_inventory_turnover`.
+    Returns {'applicable': False} for lenders/financial businesses — never a
+    fabricated number. Cached; never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
     ckey = f"opm_{sym}_{to_date or 'latest'}"
@@ -1040,7 +1882,12 @@ def fetch_operating_profit_margin(symbol, name=None, to_date=None):
     if cached is not None:
         return cached
 
-    base = {"symbol": sym, "ratio_name": "Operating Profit Margin"}
+    base = {"symbol": sym, "ratio_name": "Operating Profit Margin (EBIT Basis)"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 15)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -1110,6 +1957,11 @@ def fetch_net_profit_margin(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Net Profit Margin"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 16)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -1177,6 +2029,11 @@ def fetch_return_on_equity(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Return on Equity"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 18)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -1247,6 +2104,11 @@ def fetch_return_on_capital_employed(symbol, name=None, to_date=None):
         return cached
 
     base = {"symbol": sym, "ratio_name": "Return on Capital Employed"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 19)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -1302,21 +2164,30 @@ def fetch_return_on_capital_employed(symbol, name=None, to_date=None):
 # balance. Sourced from the Annual Report only, same rationale as Current
 # Ratio (point-in-time, no averaging).
 # --------------------------------------------------------------------------- #
-def fetch_debt_to_equity(symbol, name=None, to_date=None):
+def fetch_debt_to_equity(symbol, name=None, to_date=None, lease_basis="basis1"):
     """
     Debt-to-Equity = Total Debt ÷ Total Equity (owners-attributable), both
     closing balance. Same year-selection behaviour as
     `fetch_inventory_turnover`. Returns {'applicable': False} for
     lenders/financial businesses, and for negative/zero-equity companies
-    (per spec — never a spurious ratio). Cached; never raises.
+    (per spec — never a spurious ratio). `lease_basis` defaults to "basis1"
+    (Lease Liabilities included in Total Debt, per Sr No 20/33's own
+    default) — pass "basis2" for the traditional ex-lease view; this is the
+    single global per-company toggle every Total-Debt-based ratio shares.
+    Cached; never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"de_{sym}_{to_date or 'latest'}"
+    ckey = f"de_{sym}_{to_date or 'latest'}_{lease_basis}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
 
     base = {"symbol": sym, "ratio_name": "Debt-to-Equity"}
+    if to_date is None and lease_basis == "basis1":
+        db_row = try_db_ratio(sym, 20)
+        if db_row is not None:
+            return {**base, **db_row}
+
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
@@ -1345,7 +2216,7 @@ def fetch_debt_to_equity(symbol, name=None, to_date=None):
     # a real, worth-showing finding, not just a reason string.
     if to_date:
         target_year = _yr_from_to_date(to_date) or ar_years[0]
-        r = fetch_debt_to_equity_from_annual_report(sym, name, target_year, consolidated=True)
+        r = fetch_debt_to_equity_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
         out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
         _write_cache(ckey, out)
         return out
@@ -1353,7 +2224,736 @@ def fetch_debt_to_equity(symbol, name=None, to_date=None):
     MAX_PROBE_YEARS = 4
     first_result = None
     for target_year in ar_years[:MAX_PROBE_YEARS]:
-        r = fetch_debt_to_equity_from_annual_report(sym, name, target_year, consolidated=True)
+        r = fetch_debt_to_equity_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Debt Ratio (Sr No 21) — Total Debt ÷ Total Assets, both CLOSING balance.
+# Reuses Debt-to-Equity's Total Debt numerator and Asset Turnover's Total
+# Assets field (closing only, not averaged). Sourced from the Annual Report
+# only, same rationale as Debt-to-Equity.
+# --------------------------------------------------------------------------- #
+def fetch_debt_ratio(symbol, name=None, to_date=None, lease_basis="basis1"):
+    """
+    Debt Ratio = Total Debt ÷ Total Assets, both closing balance. Same
+    year-selection behaviour as `fetch_inventory_turnover`. Returns
+    {'applicable': False} for lenders/financial businesses (capital
+    structure rules differ fundamentally there). `lease_basis` defaults to
+    "basis1" (Lease Liabilities included) — pass "basis2" for the ex-lease
+    view; the same single global per-company toggle as Debt-to-Equity.
+    Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"debtratio_{sym}_{to_date or 'latest'}_{lease_basis}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Debt Ratio"}
+    if to_date is None and lease_basis == "basis1":
+        db_row = try_db_ratio(sym, 21)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(capital structure and leverage rules differ fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_debt_ratio_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_debt_ratio_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_debt_ratio_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Interest Coverage Ratio (Sr No 22) — EBIT ÷ Interest Expense (Finance
+# Costs), current year only. Reuses ROCE's EBIT numerator. Sourced from the
+# Annual Report only, same rationale as Debt Ratio/Debt-to-Equity.
+# --------------------------------------------------------------------------- #
+def fetch_interest_coverage_ratio(symbol, name=None, to_date=None):
+    """
+    Interest Coverage Ratio = EBIT ÷ Interest Expense (Finance Costs), current
+    year only — no averaging. Same year-selection behaviour as
+    `fetch_inventory_turnover`. Returns {'applicable': False} for
+    lenders/financial businesses, and {'applicable': False, 'not_meaningful':
+    True} (not a computation failure) when Finance Costs is nil — a
+    genuinely debt-free/interest-free company, never a divide-by-zero or
+    fabricated infinite ratio. Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"intcov_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Interest Coverage Ratio"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 22)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(interest is core to its business model, not a financing cost to cover)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_interest_coverage_ratio_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_interest_coverage_ratio_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_interest_coverage_ratio_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Financial Leverage Ratio (Sr No 23) — Average Total Assets ÷ Average
+# Shareholders' Equity, the "leverage" leg of the DuPont ROE decomposition.
+# Reuses Asset Turnover's Average Total Assets and ROE's Average Total
+# Equity. Sourced from the Annual Report only, same rationale as ROE.
+# --------------------------------------------------------------------------- #
+def fetch_financial_leverage_ratio(symbol, name=None, to_date=None):
+    """
+    Financial Leverage Ratio = Average Total Assets ÷ Average Shareholders'
+    Equity (owners-attributable). Same year-selection behaviour as
+    `fetch_inventory_turnover`. Returns {'applicable': False} for
+    lenders/financial businesses and negative-equity companies (per spec —
+    same restriction as ROE). Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"finlev_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Financial Leverage Ratio"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 23)
+        if db_row is not None:
+            return {**base, **db_row}
+
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(capital structure and capital adequacy rules differ fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_financial_leverage_ratio_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_financial_leverage_ratio_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_financial_leverage_ratio_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Basic EPS (Sr No 24 denominator) — the Annual-Report half of Price-to-
+# Earnings. UNLIKE every other ratio here, this is NOT excluded for Banks/
+# NBFC (per spec's applicable_industries list — EPS/P-E are meaningful for
+# them too; only unlisted Insurance subsidiaries are excluded, which is
+# already naturally handled by "no live price available").
+# --------------------------------------------------------------------------- #
+def fetch_eps(symbol, name=None, to_date=None):
+    """
+    Basic Earnings per Share, current year only. Same year-selection
+    behaviour as `fetch_inventory_turnover`, but with NO lender/financial-
+    business exclusion (EPS applies to Banks/NBFC too). Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"eps_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Basic EPS"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 24)
+        if db_row is not None:
+            return {**base, **db_row}
+
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_eps_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_eps_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_eps_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Book Value per Share (Sr No 25 denominator) — the Annual-Report half of
+# Price-to-Book. Like EPS, NO Bank/NBFC/Insurance exclusion (per spec's own
+# applicable_industries list — P/B applies to all of them, including banks,
+# where it's especially relevant).
+# --------------------------------------------------------------------------- #
+def fetch_book_value_per_share(symbol, name=None, to_date=None):
+    """
+    Book Value per Share = Total Equity (owners-attributable, closing) ÷
+    Equity Shares Outstanding (closing). Same year-selection behaviour as
+    `fetch_inventory_turnover`, but with NO lender/financial-business
+    exclusion. Returns {'applicable': False} for negative-equity companies
+    (per spec). Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"bvps_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Book Value per Share"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 25)
+        if db_row is not None:
+            return {**base, **db_row}
+
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_book_value_per_share_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_book_value_per_share_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_book_value_per_share_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Equity Shares Outstanding + Revenue from Operations (Sr No 26 building
+# blocks) — Market Cap ÷ Revenue (Price-to-Sales). Both are simple single-
+# field reuses (shares_outstanding from Sr No 25, revenue from Sr No 3) kept
+# as their own endpoints so P/S stays computable independent of Book Value
+# per Share's (negative-equity) or Receivables Turnover's (missing
+# receivables) own applicability. NO Bank/NBFC exclusion (per spec's own
+# applicable_industries list — only Insurance is excluded, for P/S).
+# --------------------------------------------------------------------------- #
+def fetch_shares_outstanding(symbol, name=None, to_date=None):
+    """Equity Shares Outstanding (closing), current year only. Same year-
+    selection behaviour as `fetch_inventory_turnover`, no lender/financial
+    exclusion. Cached; never raises."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"sharesout_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Equity Shares Outstanding"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 100)
+        if db_row is not None:
+            return {**base, **db_row}
+
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_shares_outstanding_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_shares_outstanding_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_shares_outstanding_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+def fetch_revenue_from_operations(symbol, name=None, to_date=None):
+    """Revenue from Operations, current year only. Same year-selection
+    behaviour as `fetch_inventory_turnover`, no lender/financial exclusion.
+    Cached; never raises."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"revenueops_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Revenue from Operations"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 26)
+        if db_row is not None:
+            return {**base, **db_row}
+
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_revenue_from_operations_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_revenue_from_operations_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_revenue_from_operations_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Dividend per Share (Sr No 27 numerator) — always standalone-sourced (see
+# fetch_dividend_per_share_from_annual_report's docstring). NO Bank/NBFC
+# exclusion (per spec's own applicable_industries list — only Insurance is
+# excluded, for Dividend Yield).
+# --------------------------------------------------------------------------- #
+def fetch_dividend_per_share(symbol, name=None, to_date=None):
+    """
+    Total Dividend per Equity Share declared during the year (always
+    standalone). Same year-selection behaviour as `fetch_inventory_turnover`,
+    no lender/financial exclusion. Never returns a plain N/A for "no
+    dividend" — that's a real 0% per spec, at reduced confidence when
+    unconfirmed. Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"dps_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Dividend per Share"}
+    if to_date is None:
+        db_row = try_db_ratio(sym, 27)
+        if db_row is not None:
+            return {**base, **db_row}
+
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_dividend_per_share_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_dividend_per_share_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_dividend_per_share_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# EV/EBITDA (Sr No 29) building blocks — EBITDA (its OWN independent
+# calculation, `fetch_ebitda_from_annual_report`/Sr No 93 in the master
+# field registry — it no longer reuses Sr No 15's Operating Profit Margin
+# numerator, since Sr No 15 was redefined to EBIT-basis (deducts
+# Depreciation & Amortisation) while EBITDA must stay EBITDA-basis; see that
+# function's docstring), Total Debt (reuses Sr No 20's full a+b+c protocol —
+# `_compute_total_debt`, NOT the old simplified Borrowings-only figure),
+# Cash and Cash Equivalents (reuses Sr No 12's numerator). Each its own
+# function so Enterprise Value stays computable independent of OPM's/
+# Debt-to-Equity's/Cash Ratio's own unrelated applicability gates. Standard
+# Bank/NBFC exclusion applies (per spec's own applicable_industries list —
+# same as every non-market-multiple ratio; only Insurance additionally
+# excluded).
+# --------------------------------------------------------------------------- #
+def fetch_ebitda(symbol, name=None, to_date=None):
+    """EBITDA (Revenue − COGS − Employee Costs − Other Expenses), current
+    year only. Same year-selection behaviour as `fetch_inventory_turnover`.
+    Cached; never raises."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ebitda_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "EBITDA"}
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(operating-cost structure differs fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import list_annual_report_years, fetch_ebitda_from_annual_report
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_ebitda_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_ebitda_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+def fetch_total_debt(symbol, name=None, to_date=None, lease_basis="basis1"):
+    """Total Debt (closing), same components as Debt-to-Equity/Debt Ratio's
+    numerator. Same year-selection behaviour as `fetch_inventory_turnover`.
+    `lease_basis` defaults to "basis1" (Lease Liabilities included) — pass
+    "basis2" for the ex-lease view; the same single global per-company
+    toggle as Debt-to-Equity/Debt Ratio. Cached; never raises."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"totaldebt_{sym}_{to_date or 'latest'}_{lease_basis}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Total Debt"}
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(capital structure rules differ fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import list_annual_report_years, fetch_total_debt_from_annual_report
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_total_debt_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_total_debt_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_result is None:
+            first_result = (target_year, r)
+    first_year, first_r = first_result or (ar_years[0], {"reason": "Not applicable for this company."})
+    out = {**base, "selected_period": f"31-Mar-{first_year}", "available_periods": available, **first_r}
+    _write_cache(ckey, out)
+    return out
+
+
+def fetch_cash_and_equivalents(symbol, name=None, to_date=None):
+    """Cash and Cash Equivalents (closing), identical field to Cash Ratio's
+    numerator. Same year-selection behaviour as `fetch_inventory_turnover`.
+    Cached; never raises."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"cashonly_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym, "ratio_name": "Cash and Cash Equivalents"}
+    nm = (name or sym).lower()
+    if any(w in nm for w in _NON_INVENTORY):
+        out = {**base, "applicable": False,
+               "reason": "Not applicable — this is a lender/financial business "
+                         "(balance sheet structure differs fundamentally)."}
+        _write_cache(ckey, out)
+        return out
+
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_cash_and_equivalents_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_cash_and_equivalents_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_result = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_cash_and_equivalents_from_annual_report(sym, name, target_year, consolidated=True)
         if r.get("applicable"):
             out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
             _write_cache(ckey, out)

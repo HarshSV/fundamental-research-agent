@@ -11,3 +11,7 @@ exports/*.pdf
 logs/*.csv
 logs/*.log
 logs/*/
+precompute_run*.log
+seed_registry_run.log
+coverage_gaps*.csv
+progress_check.txt
