@@ -170,6 +170,21 @@ _EQUITY_OWNERS_LABELS = [
 _EQUITY_GENERIC_LABELS = [
     "total equity", "shareholders' funds", "shareholders funds", "total shareholders' funds",
 ]
+# Retained Earnings (Altman Z-Score Sr No 55's RE/TA component) — the
+# accumulated-profits Balance Sheet line ONLY, deliberately NOT the same
+# as Total Equity (which also includes paid-up Share Capital). Ind AS
+# Schedule III post-2019 filings combine all reserve sub-items (Retained
+# Earnings, Securities Premium, General Reserve, etc.) under a single
+# "Other Equity" line -- an approximation of pure Retained Earnings, since
+# it can't be split further from face-value BS text alone (flagged via
+# reduced confidence when this fallback is used). Older/pre-2019-style
+# filings sometimes still print the literal "Reserves and Surplus" caption.
+_RETAINED_EARNINGS_LABELS = [
+    "reserves and surplus", "reserve and surplus",
+]
+_OTHER_EQUITY_LABELS = [
+    "other equity",
+]
 _PBT_LABELS = [
     "profit before exceptional items and tax", "profit before tax and exceptional items",
     "profit before tax", "profit before exceptional item and tax",
@@ -730,6 +745,16 @@ _FINANCE_COST_LABELS = [
     # relying on that substitution — a match must never be skipped just
     # because of this suffix.
     "finance costs/(income)", "finance cost/(income)",
+]
+_TAX_EXPENSE_LABELS = [
+    # Total Tax Expense (Sr No 42's Effective Tax Rate component: current +
+    # deferred tax, the P&L subtotal line — NOT the current-tax-only
+    # sub-line). Feeds NOPAT = EBIT × (1 − Effective Tax Rate), where
+    # Effective Tax Rate = Tax Expense ÷ Profit Before Tax.
+    "total tax expense", "tax expense", "total tax expenses",
+    # Same "/(Loss)"/"/(Credit)" suffix issue as PBT/Finance Costs — a
+    # loss-making year can post a net tax CREDIT, captioned accordingly.
+    "tax expense/(credit)", "total tax expense/(credit)",
 ]
 # Total Debt (Sr No 20 numerator) — rebuilt as the a + b + c protocol:
 #   a = Borrowings (Long-term + Short-term + Current Maturities of
@@ -1718,6 +1743,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # concern like PAT (PBT is struck before the profit is even attributed).
     pbt = _find_pl_row(_PBT_LABELS)
     finance_costs = _find_pl_row(_FINANCE_COST_LABELS)
+    tax_expense = _find_pl_row(_TAX_EXPENSE_LABELS)
     # Basic EPS (Sr No 24 denominator) — same page-fallback as PAT/PBT/OCI,
     # since the "Earnings per equity share" line sits in the same bottom
     # section of the P&L statement. EPS is a per-share ₹ figure, NEVER a
@@ -1858,6 +1884,18 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         equity = _find_bs_row(_EQUITY_GENERIC_LABELS)
         equity_basis = "generic" if equity is not None else None
 
+    # Retained Earnings (Altman Z-Score Sr No 55's RE/TA component) --
+    # literal "Reserves and Surplus" tried first (confidence 1.0, an exact
+    # match); "Other Equity" (post-2019 Ind AS combined reserves line) used
+    # as a fallback approximation (confidence 0.8 -- may include Securities
+    # Premium/General Reserve alongside genuine retained profits, can't be
+    # split further from face-value text).
+    retained_earnings = _find_bs_row(_RETAINED_EARNINGS_LABELS)
+    retained_earnings_basis = "exact" if retained_earnings is not None else None
+    if retained_earnings is None:
+        retained_earnings = _find_bs_row(_OTHER_EQUITY_LABELS)
+        retained_earnings_basis = "other_equity_proxy" if retained_earnings is not None else None
+
     # Total Debt (Sr No 20 numerator): Long-term + Short-term Borrowings +
     # Current maturities of long-term debt. Each may be absent for a
     # genuinely debt-free company (a real ₹0, not missing data) — summed
@@ -1940,6 +1978,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         "pat_basis": pat_basis,  # "owners" (explicit attribution line found) or "generic" (no NCI split found)
         "pbt": pbt,  # (cur, prior) or None, normalised to ₹ Cr — Profit Before Tax
         "finance_costs": finance_costs,  # (cur, prior) or None, normalised to ₹ Cr
+        "tax_expense": tax_expense,  # (cur, prior) or None, normalised to ₹ Cr — Sr No 42/43
         "eps": eps,  # (cur, prior) or None, ₹ per share (Basic) — NEVER Crore-scaled, unlike every other field here
         "shares_outstanding": shares_outstanding,  # (cur, prior) or None, raw share COUNT — NEVER Crore-scaled
         "borrowings_repayment": cf_items.get("borrowings_repayment"),  # (cur, prior) or None, normalised to ₹ Cr — Sr No 34
@@ -1966,6 +2005,8 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         "net_fixed_assets": net_fixed_assets,  # (cur, prior) or None, normalised to ₹ Cr — Sr No 30
         "equity": equity,  # (cur, prior) or None, normalised to ₹ Cr — owners-attributable Total Equity
         "equity_basis": equity_basis,  # "owners" (explicit exclusion of NCI found) or "generic" (no NCI split found)
+        "retained_earnings": retained_earnings,  # (cur, prior) or None, normalised to ₹ Cr — Sr No 55 (Altman Z-Score)
+        "retained_earnings_basis": retained_earnings_basis,  # "exact" (Reserves and Surplus) or "other_equity_proxy"
         "pl_page": pl_idx + 1, "bs_page": bs_idx + 1,
     }
 
@@ -5710,3 +5751,2334 @@ def fetch_working_capital_turnover_from_annual_report(symbol, name, fiscal_year,
         print(f"[annual_report_financials] {ckey} failed: {e}")
         return {"applicable": False, "reason": "Something went wrong reading the Annual Report — please try again."}
         # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+def fetch_ocf_to_net_profit_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    OCF/Net Profit (Sr No 41) = Net Cash Flow from Operating Activities ÷
+    Net Profit — a core earnings-quality diagnostic. Persistent divergence
+    between accounting profit and actual cash generation is one of the most
+    reliable early-warning signals of aggressive accounting or deteriorating
+    business fundamentals.
+
+    Numerator: `operating_cash_flow` (Sr No 35's own field), from the Cash
+    Flow Statement. Denominator: Profit attributable to owners of the
+    company (`pat`, reuses Sr No 16's exact numerator/basis logic — for
+    consolidated statements this must be the owners-attributable figure,
+    NEVER Total Profit including Minority Interest, per spec's explicit
+    "inconsistent with Sr No 16 convention" warning). No averaging — both
+    figures are current-year-only, same as Sr No 39 (Operating Cash Flow
+    Ratio).
+
+    Per spec, return N/A if Net Profit <= 0 (ratio not meaningful when the
+    denominator is a loss) — never divide by a non-positive Net Profit.
+
+    Confidence follows the SAME owners-vs-generic pattern as Net Profit
+    Margin (Sr No 16): 1.0 when an explicit owners/NCI-excluding line was
+    found, 0.8 (capped, "Estimated") when a consolidated statement fell back
+    to the generic "Profit for the year" label.
+
+    Reuses the SAME cached PDF extraction — no extra download. Cached 90
+    days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_ocfnp_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        ocf = parsed.get("operating_cash_flow")
+        if ocf is None:
+            out = {"applicable": False,
+                   "reason": "Could not find 'Net Cash Flow from Operating Activities' in the Cash Flow "
+                             "Statement.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        pat = parsed.get("pat")
+        if pat is None:
+            out = {"applicable": False,
+                   "reason": "Could not find a 'Profit for the year'/'Profit after tax' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        ocf_cur, _ocf_prior = ocf
+        pat_cur, _pat_prior = pat
+        pat_basis = parsed.get("pat_basis")
+        ambiguous_nci = consolidated and pat_basis != "owners"
+        confidence = 0.8 if ambiguous_nci else 1.0
+
+        pat_label = ("Profit for the Year Attributable to Owners of the Company"
+                     if pat_basis == "owners" else "Profit for the Year")
+
+        numerator = {"label": "Net Cash Flow from Operating Activities", "value_cr": round(ocf_cur, 2)}
+        denominator = {"label": pat_label, "value_cr": round(pat_cur, 2)}
+
+        if pat_cur <= 0:
+            out = {"applicable": False,
+                   "reason": "Net Profit is zero or negative — the ratio is not meaningful when the "
+                             "denominator is a loss.",
+                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+                   "numerator": numerator, "denominator": denominator,
+                   "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page")),
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        ratio = round(ocf_cur / pat_cur, 2)
+
+        out = {
+            "applicable": True,
+            "value": ratio, "unit": "x",
+            "confidence": confidence,
+            "estimated": ambiguous_nci,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": numerator,
+            "denominator": denominator,
+            "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page")),
+            "note": ("From the company's own Annual Report — Net Cash Flow from Operating Activities (Cash "
+                     "Flow Statement) ÷ Profit for the Year attributable to Owners of the Company, explicitly "
+                     "separate from Non-Controlling Interest."
+                     if pat_basis == "owners" else
+                     "From the company's own Annual Report — Net Cash Flow from Operating Activities ÷ Profit "
+                     "for the Year. This filing did not print a separate owners-vs-Non-Controlling-Interest "
+                     "attribution line, so 'Profit for the Year' is used as-is — for a standalone statement "
+                     "this is exact; for a consolidated statement with genuine minority interests it may "
+                     "include a small NCI portion, hence the reduced confidence."
+                     if ambiguous_nci else
+                     "From the company's own Annual Report — Net Cash Flow from Operating Activities ÷ Profit "
+                     "for the Year (standalone, no Non-Controlling Interest applies)."),
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report — please try again."}
+        # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+def fetch_roic_from_annual_report(symbol, name, fiscal_year, consolidated=True, lease_basis="basis1"):
+    """
+    Return on Invested Capital (ROIC, Sr No 42) = NOPAT / Invested Capital.
+
+    NOPAT = EBIT x (1 - Effective Tax Rate). EBIT reuses Sr No 19's basis
+    (Profit Before Tax + Finance Costs -- interest add-back only, never
+    Depreciation, so this is EBIT not EBITDA). Effective Tax Rate = Tax
+    Expense / Profit Before Tax -- computed inline here rather than calling
+    a Sr No 43 endpoint, since Effective Tax Rate (Sr No 43) has not been
+    built yet as its own ratio; when it is, both should read the identical
+    underlying `tax_expense`/`pbt` fields, so the two will always agree.
+    N/A if Profit Before Tax <= 0 (an effective tax rate is not meaningful
+    on a pre-tax loss).
+
+    Invested Capital = Total Debt (Sr No 20's full a+b+c protocol, via the
+    SAME shared `_compute_total_debt` used by Debt-to-Equity/Debt
+    Ratio/Enterprise Value -- never a simplified Borrowings-only figure) +
+    Total Equity (owners-attributable, Sr No 18's field) - Cash and Cash
+    Equivalents (Sr No 12's field).
+
+    DEVIATION FROM SPEC, DISCLOSED: the spec calls for averaging Invested
+    Capital over opening and closing balance sheet dates. `_compute_total_debt`
+    only ever resolves a CLOSING-balance Total Debt (same limitation already
+    accepted by Debt-to-Equity/Debt Ratio in this suite, which are
+    closing-only by design) -- there is no reliable prior-year Total Debt
+    signal to average against. Rather than fabricate a prior-year debt
+    estimate, Invested Capital here is CLOSING-balance only, and this is
+    surfaced explicitly in the response (`averaging`: "closing-only") and
+    capped at confidence 0.8 to flag the deviation from the spec's own
+    averaging convention.
+
+    Per spec, N/A if Invested Capital <= 0.
+
+    Reuses the SAME cached PDF extraction -- no extra download. Cached 90
+    days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_roic_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        pbt = parsed.get("pbt")
+        finance_costs = parsed.get("finance_costs")
+        tax_expense = parsed.get("tax_expense")
+        if pbt is None:
+            out = {"applicable": False, "reason": "Could not find a 'Profit before tax' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+        if tax_expense is None:
+            out = {"applicable": False, "reason": "Could not find a 'Tax expense' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        pbt_cur, _pbt_prior = pbt
+        fc_cur = finance_costs[0] if finance_costs is not None else 0.0
+        tax_cur, _tax_prior = tax_expense
+
+        if pbt_cur <= 0:
+            out = {"applicable": False,
+                   "reason": "Profit Before Tax is zero or negative — Effective Tax Rate (and therefore NOPAT) "
+                             "is not meaningful.",
+                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+                   "numerator": {"label": "Profit Before Tax", "value_cr": round(pbt_cur, 2)},
+                   "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        ebit_cur = pbt_cur + fc_cur
+        effective_tax_rate = tax_cur / pbt_cur
+        nopat_cur = round(ebit_cur * (1 - effective_tax_rate), 2)
+
+        debt = _compute_total_debt(parsed, lease_basis=lease_basis)
+        if not debt["applicable"]:
+            out = {"applicable": False, "reason": debt["reason"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        equity = parsed.get("equity")
+        if equity is None:
+            out = {"applicable": False, "reason": "Could not find a 'Total Equity' row on the Balance Sheet page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        cash = parsed.get("cash")
+        equity_cur, _equity_prior = equity
+        cash_cur = cash[0] if cash is not None else 0.0
+        equity_basis = parsed.get("equity_basis")
+
+        invested_capital_cur = round(debt["total_debt_cur"] + equity_cur - cash_cur, 2)
+
+        numerator = {
+            "label": "NOPAT (EBIT x (1 - Effective Tax Rate))",
+            "value_cr": nopat_cur,
+            "components": {
+                "EBIT (Profit Before Tax + Finance Costs)": round(ebit_cur, 2),
+                "Effective Tax Rate": round(effective_tax_rate * 100, 2),
+            },
+        }
+        denominator = {
+            "label": "Invested Capital (closing) = Total Debt + Total Equity - Cash",
+            "value_cr": invested_capital_cur,
+            "components": {
+                "Total Debt": debt["total_debt_cur"],
+                "Total Equity": round(equity_cur, 2),
+                "less: Cash and Cash Equivalents": round(cash_cur, 2),
+            },
+        }
+
+        if invested_capital_cur <= 0:
+            out = {"applicable": False,
+                   "reason": f"Invested Capital is {'negative' if invested_capital_cur < 0 else 'zero'} "
+                             f"(₹{invested_capital_cur:,.2f} Cr) — the ratio would be meaningless/sign-inverted, "
+                             "so it's flagged as N/A rather than reported.",
+                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+                   "numerator": numerator, "denominator": denominator,
+                   "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        roic = round((nopat_cur / invested_capital_cur) * 100, 2)
+
+        ambiguous_nci = consolidated and equity_basis != "owners"
+        confidence = min(debt["confidence"], 0.8 if ambiguous_nci else 1.0, 0.8)  # capped: closing-only, not averaged
+
+        out = {
+            "applicable": True,
+            "value": roic, "unit": "%",
+            "confidence": confidence,
+            "estimated": True,
+            "averaging": "closing-only",
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": numerator,
+            "denominator": denominator,
+            "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
+            "note": "From the company's own Annual Report — NOPAT (Profit Before Tax + Finance Costs, taxed at "
+                    "the effective rate = Tax Expense ÷ Profit Before Tax) ÷ Invested Capital (Total Debt, full "
+                    "a+b+c protocol reused from Debt-to-Equity, + Total Equity − Cash and Cash Equivalents). "
+                    "Invested Capital is CLOSING-BALANCE only, not the opening+closing average the spec calls "
+                    "for — Total Debt has no reliable prior-year signal in this pipeline, same limitation "
+                    "already accepted by Debt-to-Equity/Debt Ratio. Benchmark against the company/sector's WACC "
+                    "(typically 10-13% for Indian equities), not a fixed universal number — the ROIC-minus-WACC "
+                    "spread is the real value-creation signal.",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report — please try again."}
+        # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+def fetch_effective_tax_rate_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Effective Tax Rate (Sr No 43) = Total Tax Expense (Current + Deferred
+    Tax, `tax_expense`) ÷ Profit Before Tax (`pbt`, Sr No 19's basis) — same
+    two fields ROIC (Sr No 42) already reads inline, exposed here as their
+    own dedicated ratio so both agree by construction.
+
+    Per spec, N/A if Profit Before Tax <= 0 (ratio not meaningful for a
+    loss-making period) — never divide by a non-positive PBT.
+
+    Confidence is always 1.0 when both fields are found (Tax Expense and
+    Profit Before Tax are both single, mandatory, unambiguous P&L
+    subtotals — no owners/NCI-split ambiguity the way PAT/Equity have).
+
+    Reuses the SAME cached PDF extraction — no extra download. Cached 90
+    days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_etr_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        pbt = parsed.get("pbt")
+        if pbt is None:
+            out = {"applicable": False, "reason": "Could not find a 'Profit before tax' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        tax_expense = parsed.get("tax_expense")
+        if tax_expense is None:
+            out = {"applicable": False, "reason": "Could not find a 'Tax expense' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        pbt_cur, _pbt_prior = pbt
+        tax_cur, _tax_prior = tax_expense
+
+        numerator = {"label": "Total Tax Expense (Current + Deferred Tax)", "value_cr": round(tax_cur, 2)}
+        denominator = {"label": "Profit Before Tax", "value_cr": round(pbt_cur, 2)}
+
+        if pbt_cur <= 0:
+            out = {"applicable": False,
+                   "reason": "Profit Before Tax is zero or negative — Effective Tax Rate is not meaningful for a "
+                             "loss-making period.",
+                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+                   "numerator": numerator, "denominator": denominator,
+                   "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        rate = round((tax_cur / pbt_cur) * 100, 2)
+
+        out = {
+            "applicable": True,
+            "value": rate, "unit": "%",
+            "confidence": 1.0,
+            "estimated": False,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": numerator,
+            "denominator": denominator,
+            "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+            "note": "From the company's own Annual Report — Total Tax Expense (Current Tax + Deferred Tax, the "
+                    "P&L subtotal line, never Current Tax alone) ÷ Profit Before Tax. A large deviation from the "
+                    "statutory rate (~25-26% concessional regime, ~30-35% older regime) should be cross-checked "
+                    "against the Annual Report's Tax Reconciliation Note (a mandatory Ind AS disclosure) before "
+                    "extrapolating — it often reflects a one-off item (MAT credit recognition, tax holiday "
+                    "expiry, one-time settlement) rather than a sustainable change.",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report — please try again."}
+        # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+def fetch_contribution_margin_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Contribution Margin (Sr No 44) = (Revenue - Variable Costs) / Revenue.
+
+    KNOWN, DELIBERATE APPROXIMATION (user-confirmed scope decision -- do not
+    "fix" without a new user ask): the true spec definition needs an
+    analyst-reconstructed fixed/variable cost-behaviour split, typically
+    sourced from Management Discussion & Analysis or segment cost
+    disclosures -- Ind AS Schedule III itself has no such classification,
+    and this pipeline only parses the audited P&L/Balance Sheet/Cash Flow
+    statement pages, never MD&A or segment notes. Building a genuine
+    fixed/variable split is out of scope here.
+
+    PROXY USED INSTEAD: "Variable Costs" = only the raw-material-type COGS
+    components already extracted for Inventory Turnover/Gross Profit
+    Margin (Sr No 1/14) -- "Cost of materials consumed" + "Purchases of
+    stock-in-trade" ("sum what's there", same as those ratios), explicitly
+    EXCLUDING "Changes in inventories" (an accounting timing adjustment, not
+    a per-unit variable cost) and excluding ALL of "Other Expenses" (which
+    mixes genuinely variable items like freight/power with fixed items like
+    rent/admin that can't be split from a face-value P&L read). This
+    UNDERSTATES true Contribution Margin (some genuinely variable costs
+    inside Other Expenses are left out) -- the opposite direction of error
+    from double-counting fixed costs as variable.
+
+    Confidence is capped at 0.4 (below even the spec's own 0.8 "estimated
+    proxy" tier) -- this is a materially rougher proxy than the spec's own
+    analyst-reconstructed split, not a directly-disclosed figure, and must
+    never be shown with the same confidence as a statement-line ratio.
+    Always carries an "approximation" flag distinct from the ordinary
+    "estimated" flag used elsewhere in this suite.
+
+    N/A if Revenue = 0, or if NEITHER COGS component is found (a genuine
+    services business -- same "not a goods business" gate as Inventory
+    Turnover/Gross Profit Margin).
+
+    Reuses the SAME cached PDF extraction -- no extra download. Cached 90
+    days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_cm_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        revenue = parsed.get("revenue")
+        if revenue is None:
+            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        rev_cur, _rev_prior = revenue
+        if rev_cur == 0:
+            out = {"applicable": False, "reason": "Revenue from operations is zero.", "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        components = parsed.get("components", {})
+        materials = components.get("Cost of materials consumed")
+        stock_in_trade = components.get("Purchases of stock-in-trade")
+
+        if materials is None and stock_in_trade is None:
+            out = {"applicable": False,
+                   "reason": "Could not find 'Cost of materials consumed' or 'Purchases of stock-in-trade' on "
+                             "the P&L page -- likely a services business with no goods cost to approximate "
+                             "Variable Costs from.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        materials_cur = materials[0] if materials is not None else 0.0
+        stock_in_trade_cur = stock_in_trade[0] if stock_in_trade is not None else 0.0
+        variable_costs_cur = round(materials_cur + stock_in_trade_cur, 2)
+        contribution_cur = round(rev_cur - variable_costs_cur, 2)
+        margin = round((contribution_cur / rev_cur) * 100, 2)
+
+        var_components = {}
+        if materials is not None:
+            var_components["Cost of materials consumed"] = round(materials_cur, 2)
+        if stock_in_trade is not None:
+            var_components["Purchases of stock-in-trade"] = round(stock_in_trade_cur, 2)
+
+        out = {
+            "applicable": True,
+            "value": margin, "unit": "%",
+            "confidence": 0.4,
+            "estimated": True,
+            "approximation": True,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": {
+                "label": "Contribution (Revenue - Variable Costs, proxy)",
+                "value_cr": contribution_cur,
+                "components": {
+                    "Revenue from Operations": round(rev_cur, 2),
+                    "less: Variable Costs (proxy)": variable_costs_cur,
+                    **{f"  {k}": v for k, v in var_components.items()},
+                },
+            },
+            "denominator": {
+                "label": "Revenue from Operations",
+                "value_cr": round(rev_cur, 2),
+            },
+            "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+            "note": "APPROXIMATION, not the true spec definition -- Ind AS filings don't disclose a fixed/"
+                    "variable cost-behaviour split (that needs MD&A/segment data this pipeline doesn't parse). "
+                    "'Variable Costs' here is only Cost of materials consumed + Purchases of stock-in-trade "
+                    "(never 'Changes in inventories', never any part of 'Other Expenses' -- freight, power, and "
+                    "other genuinely-variable items inside Other Expenses are NOT included), which UNDERSTATES "
+                    "true Contribution Margin. Treat this figure as directional only, not precise -- confidence "
+                    "is deliberately capped well below every directly-disclosed ratio in this suite.",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+        # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+def fetch_eps_growth_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    EPS Growth Rate (Sr No 45) = (Current Year Basic EPS / Prior Year Basic
+    EPS) - 1. Reuses the SAME `eps` field already extracted for P/E (Sr No
+    24) -- both years come from the identical (cur, prior) tuple, so there
+    is no possibility of mixing Basic EPS in one year with Diluted in
+    another, or of a "periods don't match" mismatch (both are always the
+    same statement's adjacent columns).
+
+    Per spec, N/A / Not Meaningful if Prior Year EPS is zero or negative --
+    a growth percentage off a loss-making or zero base is misleading, never
+    computed.
+
+    Confidence is always 1.0 when both years are found (Basic EPS is a
+    mandatory Ind AS disclosure, single unambiguous figure -- no owners/NCI
+    or fixed/variable judgment call the way some other ratios in this suite
+    have).
+
+    Applicable to Banks/NBFC/Insurance too (per spec's own
+    applicable_industries list has no exclusions for this ratio) -- unlike
+    most ratios in this file, the caller should NOT apply the standard
+    lender/financial-business exclusion.
+
+    Reuses the SAME cached PDF extraction -- no extra download. Cached 90
+    days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_epsgrowth_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        eps = parsed.get("eps")
+        if eps is None:
+            out = {"applicable": False,
+                   "reason": "Could not find a Basic EPS row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        eps_cur, eps_prior = eps
+        if eps_prior is None:
+            out = {"applicable": False,
+                   "reason": "Prior year Basic EPS was not disclosed alongside the current year figure.",
+                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+                   "numerator": {"label": "Basic EPS (current year)", "value_cr": round(eps_cur, 2)},
+                   "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        numerator = {"label": "Basic EPS (current year)", "value_cr": round(eps_cur, 2)}
+        denominator = {"label": "Basic EPS (prior year)", "value_cr": round(eps_prior, 2)}
+
+        if eps_prior <= 0:
+            out = {"applicable": False,
+                   "reason": "Prior Year Basic EPS is zero or negative -- EPS Growth Rate is Not Meaningful off "
+                             "a loss-making/zero base.",
+                   "not_meaningful": True,
+                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+                   "numerator": numerator, "denominator": denominator,
+                   "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        growth = round(((eps_cur / eps_prior) - 1) * 100, 2)
+
+        out = {
+            "applicable": True,
+            "value": growth, "unit": "%",
+            "confidence": 1.0,
+            "estimated": False,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": numerator,
+            "denominator": denominator,
+            "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+            "note": "From the company's own Annual Report -- (Current Year Basic EPS / Prior Year Basic EPS) "
+                    "- 1, both years read from the same Basic EPS disclosure (never mixing Basic and Diluted "
+                    "across years). Highly susceptible to distortion by one-off items in either year's EPS -- "
+                    "always check the Annual Report for exceptional items before trusting a single-year growth "
+                    "figure, and cross-check against Net Profit Margin/Revenue growth trends adjusted for any "
+                    "share count changes (buybacks/issuances).",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+        # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+def fetch_dividend_payout_ratio_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Dividend Payout Ratio (Sr No 47) = Total Dividends Declared (Sr No 27's
+    `dividend_per_share`, ALWAYS standalone-sourced per that ratio's own
+    spec rule -- dividends are declared by the parent entity, never
+    consolidated -- times `shares_outstanding`, converted to Rs Cr) / Net
+    Profit (`pat`, Sr No 16's owners-attributable field).
+
+    Reuses Sr No 27's "declared, not merely proposed" extraction as-is --
+    `dividend_per_share_found=False` means the 0.0 default (no dividend
+    found) rather than a genuine confirmed zero, same distinction Dividend
+    Yield already carries; this ratio inherits that same reduced confidence
+    when unconfirmed.
+
+    Per spec, N/A if Net Profit <= 0 -- a payout ratio computed off a loss
+    is not meaningful, even if a dividend was still paid from reserves.
+
+    Reuses the SAME cached PDF extraction -- no extra download. Cached 90
+    days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_payout_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        pat = parsed.get("pat")
+        if pat is None:
+            out = {"applicable": False,
+                   "reason": "Could not find a 'Profit for the year'/'Profit after tax' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        shares = parsed.get("shares_outstanding")
+        if shares is None:
+            out = {"applicable": False,
+                   "reason": "Could not find the 'Issued, Subscribed and Fully Paid' equity share count in the "
+                             "Equity Share Capital note.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        pat_cur, _pat_prior = pat
+        shares_cur, _shares_prior = shares
+        dps = parsed.get("dividend_per_share") or 0.0
+        dps_found = parsed.get("dividend_per_share_found", False)
+        pat_basis = parsed.get("pat_basis")
+
+        total_dividends_cur = round((dps * shares_cur) / 1e7, 2)  # per-share Rs x share count -> Rs Cr
+
+        pat_label = ("Profit for the Year Attributable to Owners of the Company"
+                     if pat_basis == "owners" else "Profit for the Year")
+
+        numerator = {
+            "label": "Total Dividends Declared (Dividend per Share x Shares Outstanding)",
+            "value_cr": total_dividends_cur,
+            "components": {
+                "Dividend per Share (declared, standalone)": round(dps, 2),
+                "Equity Shares Outstanding": shares_cur,
+            },
+        }
+        denominator = {"label": pat_label, "value_cr": round(pat_cur, 2)}
+
+        if pat_cur <= 0:
+            out = {"applicable": False,
+                   "reason": "Net Profit is zero or negative -- Dividend Payout Ratio is not meaningful when "
+                             "the denominator is a loss.",
+                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+                   "numerator": numerator, "denominator": denominator,
+                   "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        payout = round((total_dividends_cur / pat_cur) * 100, 2)
+
+        # Confidence mirrors Dividend Yield's own tiering: 1.0 when the
+        # "during the year... was paid" sentence was actually found, 0.4
+        # (Unconfirmed) when defaulted to 0.0 -- a genuinely-verified 0%
+        # payout must read differently from an unconfirmed one.
+        ambiguous_nci = consolidated and pat_basis != "owners"
+        confidence = 1.0 if dps_found else 0.4
+        if dps_found and ambiguous_nci:
+            confidence = 0.8
+
+        out = {
+            "applicable": True,
+            "value": payout, "unit": "%",
+            "confidence": confidence,
+            "estimated": not dps_found,
+            "dividend_found": dps_found,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": numerator,
+            "denominator": denominator,
+            "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+            "note": ("From the company's own Annual Report -- Total Dividends Declared during the year "
+                     "(Dividend per Share, standalone-sourced per Dividend Yield's own convention, x Equity "
+                     "Shares Outstanding) / Net Profit attributable to Owners of the Company."
+                     if dps_found else
+                     "No 'dividend paid during the year' sentence was found in the Annual Report -- this is "
+                     "reported as an UNCONFIRMED 0% (not a verified nil-dividend year), same distinction "
+                     "Dividend Yield (Sr No 27) already carries, hence the reduced confidence."),
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+        # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+def fetch_operating_cash_flow_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Net Cash Flow from Operating Activities (Sr No 53's denominator, GROSS
+    -- before capex, never Free Cash Flow) -- the SAME `operating_cash_flow`
+    field already extracted for Operating Cash Flow Ratio (Sr No 39)/OCF-
+    Net-Profit (Sr No 41)/Free Cash Flow (Sr No 36). Built as its own
+    dedicated function since none of those ratios' own N/A branches expose
+    a standalone Operating Cash Flow endpoint -- Price/Cash Flow needs the
+    raw figure paired with Market Capitalisation (a live-price/market-data
+    combination those statement-only ratios never need).
+
+    Per spec, N/A if Operating Cash Flow <= 0.
+
+    Reuses the SAME cached PDF extraction -- no extra download. Cached 90
+    days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_ocf_only_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        ocf = parsed.get("operating_cash_flow")
+        if ocf is None:
+            out = {"applicable": False,
+                   "reason": "Could not find 'Net Cash Flow from Operating Activities' in the Cash Flow "
+                             "Statement.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        ocf_cur, _ocf_prior = ocf
+
+        if ocf_cur <= 0:
+            out = {"applicable": False,
+                   "reason": "Net Cash Flow from Operating Activities is zero or negative.",
+                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+                   "numerator": {"label": "Net Cash Flow from Operating Activities", "value_cr": round(ocf_cur, 2)},
+                   "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        out = {
+            "applicable": True,
+            "value": round(ocf_cur, 2), "unit": "₹ Cr",
+            "confidence": 1.0,
+            "estimated": False,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": {"label": "Net Cash Flow from Operating Activities", "value_cr": round(ocf_cur, 2)},
+            "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+            "note": "From the company's own Annual Report -- Net Cash Flow from Operating Activities, GROSS "
+                    "(before capex, never Free Cash Flow -- that is Sr No 36, a different metric).",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+        # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+def fetch_altman_z_score_components_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Altman Z-Score (Sr No 55) STATEMENT-SIDE components -- everything except
+    Market Capitalisation, which needs a LIVE price (market data, not the
+    Annual Report) and is combined client-side, same architecture as every
+    other market-multiple ratio in this suite (P/E, P/B, P/S, EV/*).
+
+    Z = 1.2*(WC/TA) + 1.4*(RE/TA) + 3.3*(EBIT/TA) + 0.6*(MktCap/TL) +
+        1.0*(Sales/TA), where:
+      - WC (Working Capital) reuses Sr No 13's TCA - TCL.
+      - TA (Total Assets) reuses Sr No 7's `total_assets` field.
+      - RE (Retained Earnings) is the NEW `retained_earnings` field --
+        deliberately NOT the same as Total Equity (which also includes
+        paid-up Share Capital).
+      - EBIT reuses Sr No 19's basis (Profit Before Tax + Finance Costs).
+      - TL (Total Liabilities) = Total Assets - Total Equity (owners-
+        attributable) -- a pure Balance-Sheet-identity derivation, no new
+        extraction needed (Assets = Equity + Liabilities always holds).
+      - Sales reuses Sr No 3's `revenue` field.
+
+    Per spec, N/A for Banks/NBFC/Insurance (checked by the caller via the
+    standard lender exclusion) -- balance sheet structure differs
+    fundamentally, this model doesn't apply. N/A if Total Assets <= 0 or
+    if Total Liabilities <= 0 (MktCap/TL term undefined).
+
+    Reuses the SAME cached PDF extraction -- no extra download. Cached 90
+    days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_zscore_comp_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        total_assets = parsed.get("total_assets")
+        if total_assets is None:
+            out = {"applicable": False, "reason": "Could not find 'Total Assets' row on the Balance Sheet page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        equity = parsed.get("equity")
+        if equity is None:
+            out = {"applicable": False,
+                   "reason": "Could not find a 'Total Equity'/'Shareholders' Funds' row on the Balance Sheet page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        tca = parsed.get("total_current_assets")
+        tcl = parsed.get("total_current_liabilities")
+        if tca is None or tcl is None:
+            missing = "Total Current Assets" if tca is None else "Total Current Liabilities"
+            out = {"applicable": False, "reason": f"Could not find '{missing}' row on the Balance Sheet page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        retained_earnings = parsed.get("retained_earnings")
+        if retained_earnings is None:
+            out = {"applicable": False,
+                   "reason": "Could not find a 'Reserves and Surplus'/'Other Equity' row on the Balance Sheet "
+                              "page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        pbt = parsed.get("pbt")
+        if pbt is None:
+            out = {"applicable": False, "reason": "Could not find a 'Profit before tax' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        revenue = parsed.get("revenue")
+        if revenue is None:
+            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        ta_cur, _ta_prior = total_assets
+        equity_cur, _equity_prior = equity
+        tca_cur, _tca_prior = tca
+        tcl_cur, _tcl_prior = tcl
+        re_cur, _re_prior = retained_earnings
+        pbt_cur, _pbt_prior = pbt
+        finance_costs = parsed.get("finance_costs")
+        fc_cur = finance_costs[0] if finance_costs is not None else 0.0
+        rev_cur, _rev_prior = revenue
+
+        if ta_cur <= 0:
+            out = {"applicable": False, "reason": "Total Assets is zero or negative.", "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        wc_cur = round(tca_cur - tcl_cur, 2)
+        ebit_cur = round(pbt_cur + fc_cur, 2)
+        tl_cur = round(ta_cur - equity_cur, 2)
+
+        if tl_cur <= 0:
+            out = {"applicable": False,
+                   "reason": "Total Liabilities (Total Assets - Total Equity) is zero or negative -- the "
+                             "Market Cap/Total Liabilities term is undefined.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        equity_basis = parsed.get("equity_basis")
+        retained_earnings_basis = parsed.get("retained_earnings_basis")
+        ambiguous_nci = consolidated and equity_basis != "owners"
+        confidence = 0.8 if (ambiguous_nci or retained_earnings_basis == "other_equity_proxy") else 1.0
+
+        out = {
+            "applicable": True,
+            "confidence": confidence,
+            "estimated": confidence < 1.0,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "components": {
+                "total_assets_cr": ta_cur,
+                "working_capital_cr": wc_cur,
+                "retained_earnings_cr": re_cur,
+                "retained_earnings_basis": retained_earnings_basis,
+                "ebit_cr": ebit_cur,
+                "total_liabilities_cr": tl_cur,
+                "sales_cr": round(rev_cur, 2),
+            },
+            "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
+            "note": ("From the company's own Annual Report -- Working Capital, Total Assets, Retained "
+                     "Earnings (Reserves and Surplus, exact match), EBIT, Total Liabilities (= Total Assets - "
+                     "Total Equity), and Sales, per Altman Z-Score's standard public-manufacturer formula. "
+                     "Market Capitalisation (the fifth component) uses a live/current price, combined "
+                     "client-side."
+                     if retained_earnings_basis == "exact" else
+                     "From the company's own Annual Report. Retained Earnings uses 'Other Equity' (the "
+                     "post-2019 Ind AS combined reserves line) as a proxy -- it may include Securities "
+                     "Premium/General Reserve alongside genuine accumulated profits, which can't be split "
+                     "further from face-value Balance Sheet text, hence the reduced confidence. Market "
+                     "Capitalisation (the fifth component) uses a live/current price, combined client-side."),
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+        # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+def fetch_piotroski_f_score_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Piotroski F-Score (Sr No 56) = sum of nine binary (1/0) year-over-year
+    fundamental-strength tests across Profitability, Leverage/Liquidity,
+    and Operating Efficiency. Every underlying figure reuses fields
+    already extracted for other ratios in this suite -- no new extraction
+    -- since the shared dict already stores (current, prior) tuples for
+    everything this composite needs (`pat`, `total_assets`,
+    `operating_cash_flow`, `lt_borrowings`, `total_current_assets`,
+    `total_current_liabilities`, `shares_outstanding`, `revenue`,
+    `components` for COGS).
+
+    SIMPLIFICATION, DISCLOSED: tests 1 and 3 (ROA) and test 9 (Asset
+    Turnover) use POINT-IN-TIME (closing Total Assets), not the
+    opening+closing AVERAGE Sr No 17/Sr No 7 use elsewhere -- computing a
+    true average for BOTH the current and prior year would need a third,
+    even-older year of Total Assets (opening balance of the prior year),
+    which isn't available from a single two-column Balance Sheet read.
+    This is a reasonable, standard simplification for a binary
+    "improved or not" comparison test (the classic academic Piotroski
+    formulation itself also uses point-in-time Total Assets), not an
+    error -- flagged here and in the response note.
+
+    Per spec's own instruction ("flag the affected test(s) rather than
+    the whole score" when a component is incomplete): the four
+    PROFITABILITY tests (ROA>0, OCF>0, ROA improved, OCF>NetProfit)
+    require `pat`/`total_assets`/`operating_cash_flow` with BOTH years
+    present -- if any of those three fields is entirely missing, the
+    whole score is N/A (these are the backbone, per spec's blunt "DO NOT
+    CALCULATE if fewer than two consecutive years" instruction). The
+    remaining FIVE tests (leverage, current ratio, dilution, gross
+    margin, asset turnover) are each individually SKIPPED (not zeroed,
+    not counted, `max_score` reduced accordingly) when their own
+    underlying field lacks a two-year pair -- never silently assumed to
+    fail.
+
+    Reuses the SAME cached PDF extraction -- no extra download. Cached 90
+    days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_fscore_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        def _both_years(field):
+            v = parsed.get(field)
+            if v is None or v[0] is None or v[1] is None:
+                return None
+            return v
+
+        pat = _both_years("pat")
+        total_assets = _both_years("total_assets")
+        ocf = _both_years("operating_cash_flow")
+
+        if pat is None or total_assets is None or ocf is None:
+            missing = "Profit After Tax" if pat is None else ("Total Assets" if total_assets is None else
+                       "Net Cash Flow from Operating Activities")
+            out = {"applicable": False,
+                   "reason": f"Could not find two consecutive years of '{missing}' -- the four Profitability "
+                             "tests (the backbone of this score) require both years.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        pat_cur, pat_prior = pat
+        ta_cur, ta_prior = total_assets
+        ocf_cur, ocf_prior = ocf
+
+        if ta_cur <= 0 or ta_prior <= 0:
+            out = {"applicable": False, "reason": "Total Assets is zero or negative in one of the two years.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        roa_cur = pat_cur / ta_cur
+        roa_prior = pat_prior / ta_prior
+
+        tests = []
+        score = 0
+        max_score = 9
+
+        # 1. ROA > 0 this year.
+        t1 = roa_cur > 0
+        tests.append({"name": "ROA > 0", "category": "Profitability", "applicable": True, "passed": t1,
+                       "detail": f"ROA {roa_cur * 100:.2f}% (point-in-time, PAT / closing Total Assets)"})
+        score += 1 if t1 else 0
+
+        # 2. Operating Cash Flow > 0 this year.
+        t2 = ocf_cur > 0
+        tests.append({"name": "Operating Cash Flow > 0", "category": "Profitability", "applicable": True,
+                       "passed": t2, "detail": f"OCF Rs.{ocf_cur:,.2f} Cr"})
+        score += 1 if t2 else 0
+
+        # 3. ROA this year > ROA prior year.
+        t3 = roa_cur > roa_prior
+        tests.append({"name": "ROA improved YoY", "category": "Profitability", "applicable": True, "passed": t3,
+                       "detail": f"{roa_cur * 100:.2f}% vs {roa_prior * 100:.2f}% prior year"})
+        score += 1 if t3 else 0
+
+        # 4. Operating Cash Flow > Net Profit this year (accrual quality).
+        t4 = ocf_cur > pat_cur
+        tests.append({"name": "OCF > Net Profit (accrual quality)", "category": "Profitability", "applicable": True,
+                       "passed": t4, "detail": f"OCF Rs.{ocf_cur:,.2f} Cr vs PAT Rs.{pat_cur:,.2f} Cr"})
+        score += 1 if t4 else 0
+
+        # 5. Long-term Debt/Total Assets this year < prior year (leverage decreased).
+        lt_borrowings = _both_years("lt_borrowings")
+        if lt_borrowings is not None:
+            lt_cur, lt_prior = lt_borrowings
+            lev_cur = lt_cur / ta_cur
+            lev_prior = lt_prior / ta_prior
+            t5 = lev_cur < lev_prior
+            tests.append({"name": "Leverage decreased (LT Debt/TA)", "category": "Leverage/Liquidity",
+                           "applicable": True, "passed": t5,
+                           "detail": f"{lev_cur * 100:.2f}% vs {lev_prior * 100:.2f}% prior year"})
+            score += 1 if t5 else 0
+        else:
+            max_score -= 1
+            tests.append({"name": "Leverage decreased (LT Debt/TA)", "category": "Leverage/Liquidity",
+                           "applicable": False, "passed": None,
+                           "detail": "Skipped -- could not find Long-term Borrowings for both years."})
+
+        # 6. Current Ratio this year > Current Ratio prior year.
+        tca = _both_years("total_current_assets")
+        tcl = _both_years("total_current_liabilities")
+        if tca is not None and tcl is not None and tca[1] != 0 and tcl[1] != 0 and tcl[0] != 0:
+            tca_cur, tca_prior = tca
+            tcl_cur, tcl_prior = tcl
+            cr_cur = tca_cur / tcl_cur
+            cr_prior = tca_prior / tcl_prior
+            t6 = cr_cur > cr_prior
+            tests.append({"name": "Current Ratio improved YoY", "category": "Leverage/Liquidity",
+                           "applicable": True, "passed": t6,
+                           "detail": f"{cr_cur:.2f}x vs {cr_prior:.2f}x prior year"})
+            score += 1 if t6 else 0
+        else:
+            max_score -= 1
+            tests.append({"name": "Current Ratio improved YoY", "category": "Leverage/Liquidity",
+                           "applicable": False, "passed": None,
+                           "detail": "Skipped -- could not find Total Current Assets/Liabilities for both years."})
+
+        # 7. No new shares issued this year (no dilution). Small 0.1% tolerance
+        # for rounding in the share-count extraction, not a real issuance.
+        shares = _both_years("shares_outstanding")
+        if shares is not None:
+            shares_cur, shares_prior = shares
+            t7 = shares_cur <= shares_prior * 1.001
+            tests.append({"name": "No dilution (shares not increased)", "category": "Leverage/Liquidity",
+                           "applicable": True, "passed": t7,
+                           "detail": f"{shares_cur:,.0f} vs {shares_prior:,.0f} prior year"})
+            score += 1 if t7 else 0
+        else:
+            max_score -= 1
+            tests.append({"name": "No dilution (shares not increased)", "category": "Leverage/Liquidity",
+                           "applicable": False, "passed": None,
+                           "detail": "Skipped -- could not find Equity Shares Outstanding for both years."})
+
+        # 8. Gross Margin this year > Gross Margin prior year. Same
+        # "sum what's there" COGS-component gate as Gross Profit Margin
+        # (Sr No 14) -- never gated on ALL THREE being present.
+        revenue = _both_years("revenue")
+        components = parsed.get("components", {})
+        materials = components.get("Cost of materials consumed")
+        stock_in_trade = components.get("Purchases of stock-in-trade")
+        inv_change = components.get("Changes in inventories")
+        cogs_any = materials is not None or stock_in_trade is not None or inv_change is not None
+        if revenue is not None and cogs_any and revenue[0] != 0 and revenue[1] != 0:
+            rev_cur, rev_prior = revenue
+
+            def _cogs_component(comp, idx):
+                return comp[idx] if comp is not None else 0.0
+
+            cogs_cur = (_cogs_component(materials, 0) + _cogs_component(stock_in_trade, 0)
+                        + _cogs_component(inv_change, 0))
+            cogs_prior = (_cogs_component(materials, 1) + _cogs_component(stock_in_trade, 1)
+                          + _cogs_component(inv_change, 1))
+            gm_cur = (rev_cur - cogs_cur) / rev_cur
+            gm_prior = (rev_prior - cogs_prior) / rev_prior
+            t8 = gm_cur > gm_prior
+            tests.append({"name": "Gross Margin improved YoY", "category": "Operating Efficiency",
+                           "applicable": True, "passed": t8,
+                           "detail": f"{gm_cur * 100:.2f}% vs {gm_prior * 100:.2f}% prior year"})
+            score += 1 if t8 else 0
+        else:
+            max_score -= 1
+            tests.append({"name": "Gross Margin improved YoY", "category": "Operating Efficiency",
+                           "applicable": False, "passed": None,
+                           "detail": "Skipped -- not a goods business, or Revenue/COGS unavailable for both "
+                                     "years."})
+
+        # 9. Asset Turnover this year > prior year (point-in-time, same
+        # simplification as tests 1/3 -- see docstring).
+        if revenue is not None and revenue[0] != 0 and revenue[1] != 0:
+            rev_cur, rev_prior = revenue
+            at_cur = rev_cur / ta_cur
+            at_prior = rev_prior / ta_prior
+            t9 = at_cur > at_prior
+            tests.append({"name": "Asset Turnover improved YoY", "category": "Operating Efficiency",
+                           "applicable": True, "passed": t9,
+                           "detail": f"{at_cur:.2f}x vs {at_prior:.2f}x prior year"})
+            score += 1 if t9 else 0
+        else:
+            max_score -= 1
+            tests.append({"name": "Asset Turnover improved YoY", "category": "Operating Efficiency",
+                           "applicable": False, "passed": None,
+                           "detail": "Skipped -- could not find Revenue from Operations for both years."})
+
+        evaluated = sum(1 for t in tests if t["applicable"])
+        confidence = 1.0 if evaluated == 9 else (0.8 if evaluated >= 7 else 0.4)
+
+        out = {
+            "applicable": True,
+            "value": score, "max_score": max_score, "tests_evaluated": evaluated, "unit": "",
+            "confidence": confidence,
+            "estimated": evaluated < 9,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "tests": tests,
+            "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
+            "note": ("From the company's own Annual Report -- sum of nine binary year-over-year tests across "
+                     "Profitability, Leverage/Liquidity, and Operating Efficiency, all nine evaluated."
+                     if evaluated == 9 else
+                     f"From the company's own Annual Report -- {evaluated} of 9 tests evaluated (the remaining "
+                     f"{9 - evaluated} skipped for missing two-year data, not counted as failures), scored "
+                     f"against a max of {max_score}. ROA/Asset Turnover tests use point-in-time (not averaged) "
+                     "Total Assets, a standard simplification for a two-year comparison test."),
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+        # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+def fetch_beneish_m_score_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Beneish M-Score (Sr No 57) = -4.84 + 0.92*DSRI + 0.528*GMI + 0.404*AQI
+    + 0.892*SGI + 0.115*DEPI - 0.172*SGAI + 4.679*TATA - 0.327*LVGI.
+
+    An earnings-manipulation detection model -- every one of the eight
+    index variables is a current-year-vs-prior-year ratio, built entirely
+    from fields already extracted for other ratios in this file (all
+    stored as (current, prior) tuples): `receivables`, `revenue`,
+    `components` (COGS), `total_assets`, `total_current_assets`,
+    `net_fixed_assets`, `depreciation`, `pat`, `operating_cash_flow`,
+    `other_expenses`, and the Total Debt sub-components (`lt_borrowings`,
+    `st_borrowings`, `current_maturities`, `lease_liabilities_nc`,
+    `lease_liabilities_cur`).
+
+    TWO DELIBERATE, DISCLOSED SIMPLIFICATIONS:
+    (1) Ind AS Schedule III has no distinct "SG&A" line -- `other_expenses`
+        (Sr No 15's own field) is used as the SGAI proxy, the standard
+        substitution for Ind AS filers.
+    (2) LVGI's "Total Debt" is summed directly from the raw Balance Sheet
+        components (Basis 1: Borrowings + Lease Liabilities, "sum what's
+        there") for BOTH years, rather than reusing `_compute_total_debt`
+        (Sr No 20's own function) -- that function only ever resolves a
+        CLOSING-year figure with a Notes-to-Accounts cross-check; there is
+        no equivalent prior-year Notes verification available. Using the
+        SAME simplified face-value approach consistently for both years
+        being compared is more methodologically sound for a YoY ratio than
+        applying extra rigor to only one side of it.
+
+    Per spec, this REQUIRES two consecutive years of complete, non-restated
+    data for every one of the eight variables -- unlike Piotroski F-Score
+    (Sr No 56), which explicitly allows skipping individual tests, spec's
+    own language here is a stricter "DO NOT CALCULATE" if any is
+    incomplete. Missing ANY required field (in either year) returns N/A
+    with the specific missing item named, never a partial score.
+
+    Reuses the SAME cached PDF extraction -- no extra download. Cached 90
+    days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_mscore_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        def _both_years(field, label):
+            v = parsed.get(field)
+            if v is None or v[0] is None or v[1] is None:
+                return None, label
+            return v, None
+
+        revenue, m = _both_years("revenue", "Revenue from Operations")
+        if revenue is None:
+            out = {"applicable": False, "reason": f"Could not find two consecutive years of '{m}'.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        receivables, m = _both_years("receivables", "Trade Receivables")
+        if receivables is None:
+            out = {"applicable": False, "reason": f"Could not find two consecutive years of '{m}'.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        total_assets, m = _both_years("total_assets", "Total Assets")
+        if total_assets is None:
+            out = {"applicable": False, "reason": f"Could not find two consecutive years of '{m}'.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        tca, m = _both_years("total_current_assets", "Total Current Assets")
+        if tca is None:
+            out = {"applicable": False, "reason": f"Could not find two consecutive years of '{m}'.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        net_fixed_assets, m = _both_years("net_fixed_assets", "Net Fixed Assets")
+        if net_fixed_assets is None:
+            out = {"applicable": False, "reason": f"Could not find two consecutive years of '{m}'.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        depreciation, m = _both_years("depreciation", "Depreciation")
+        if depreciation is None:
+            out = {"applicable": False, "reason": f"Could not find two consecutive years of '{m}'.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        pat, m = _both_years("pat", "Profit After Tax")
+        if pat is None:
+            out = {"applicable": False, "reason": f"Could not find two consecutive years of '{m}'.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        ocf, m = _both_years("operating_cash_flow", "Net Cash Flow from Operating Activities")
+        if ocf is None:
+            out = {"applicable": False, "reason": f"Could not find two consecutive years of '{m}'.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        other_expenses, m = _both_years("other_expenses", "Other Expenses (SG&A proxy)")
+        if other_expenses is None:
+            out = {"applicable": False, "reason": f"Could not find two consecutive years of '{m}'.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        components = parsed.get("components", {})
+        materials = components.get("Cost of materials consumed")
+        stock_in_trade = components.get("Purchases of stock-in-trade")
+        inv_change = components.get("Changes in inventories")
+        cogs_any = materials is not None or stock_in_trade is not None or inv_change is not None
+        if not cogs_any:
+            out = {"applicable": False,
+                   "reason": "Could not find any COGS component (Cost of materials consumed / Purchases of "
+                             "stock-in-trade / Changes in inventories) -- likely a services business with no "
+                             "Gross Margin to measure.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        rev_cur, rev_prior = revenue
+        recv_cur, recv_prior = receivables
+        ta_cur, ta_prior = total_assets
+        tca_cur, tca_prior = tca
+        ppe_cur, ppe_prior = net_fixed_assets
+        dep_cur, dep_prior = depreciation
+        pat_cur, pat_prior = pat
+        ocf_cur, ocf_prior = ocf
+        sga_cur, sga_prior = other_expenses
+
+        if rev_cur == 0 or rev_prior == 0 or ta_cur == 0 or ta_prior == 0:
+            out = {"applicable": False, "reason": "Revenue or Total Assets is zero in one of the two years.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        def _cogs(comp, idx):
+            return comp[idx] if comp is not None else 0.0
+
+        cogs_cur = _cogs(materials, 0) + _cogs(stock_in_trade, 0) + _cogs(inv_change, 0)
+        cogs_prior = _cogs(materials, 1) + _cogs(stock_in_trade, 1) + _cogs(inv_change, 1)
+        gm_cur = (rev_cur - cogs_cur) / rev_cur
+        gm_prior = (rev_prior - cogs_prior) / rev_prior
+
+        # 1. DSRI -- Days Sales in Receivables Index.
+        dsri = (recv_cur / rev_cur) / (recv_prior / rev_prior)
+        # 2. GMI -- Gross Margin Index (>1 means margin DETERIORATED).
+        gmi = gm_prior / gm_cur if gm_cur != 0 else None
+        # 3. AQI -- Asset Quality Index (non-current, non-PP&E asset share).
+        aqi_cur_base = 1 - ((tca_cur + ppe_cur) / ta_cur)
+        aqi_prior_base = 1 - ((tca_prior + ppe_prior) / ta_prior)
+        aqi = aqi_cur_base / aqi_prior_base if aqi_prior_base != 0 else None
+        # 4. SGI -- Sales Growth Index.
+        sgi = rev_cur / rev_prior
+        # 5. DEPI -- Depreciation Index (>1 means depreciation rate SLOWED).
+        dep_rate_cur = dep_cur / (dep_cur + ppe_cur) if (dep_cur + ppe_cur) != 0 else None
+        dep_rate_prior = dep_prior / (dep_prior + ppe_prior) if (dep_prior + ppe_prior) != 0 else None
+        depi = (dep_rate_prior / dep_rate_cur) if (dep_rate_cur not in (None, 0) and dep_rate_prior is not None) else None
+        # 6. SGAI -- SG&A Index (Other Expenses used as the SG&A proxy).
+        sgai = (sga_cur / rev_cur) / (sga_prior / rev_prior)
+        # 7. TATA -- Total Accruals to Total Assets.
+        tata = (pat_cur - ocf_cur) / ta_cur
+        # 8. LVGI -- Leverage Index (simplified face-value Total Debt, Basis 1).
+        def _debt_component(field):
+            v = parsed.get(field)
+            return (v[0] if v is not None and v[0] is not None else 0.0,
+                    v[1] if v is not None and v[1] is not None else 0.0)
+        lt_cur, lt_prior = _debt_component("lt_borrowings")
+        st_cur, st_prior = _debt_component("st_borrowings")
+        cm_cur, cm_prior = _debt_component("current_maturities")
+        lease_nc_cur, lease_nc_prior = _debt_component("lease_liabilities_nc")
+        lease_c_cur, lease_c_prior = _debt_component("lease_liabilities_cur")
+        debt_cur = lt_cur + st_cur + cm_cur + lease_nc_cur + lease_c_cur
+        debt_prior = lt_prior + st_prior + cm_prior + lease_nc_prior + lease_c_prior
+        lvgi_cur_base = debt_cur / ta_cur
+        lvgi_prior_base = debt_prior / ta_prior
+        lvgi = lvgi_cur_base / lvgi_prior_base if lvgi_prior_base != 0 else None
+
+        if gmi is None or aqi is None or depi is None or lvgi is None:
+            out = {"applicable": False,
+                   "reason": "One of the eight index variables (Gross Margin, Asset Quality, Depreciation, or "
+                             "Leverage) is undefined for this company (a zero-value denominator in the prior "
+                             "year) -- the M-Score cannot be computed.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        m_score = round(
+            -4.84 + 0.92 * dsri + 0.528 * gmi + 0.404 * aqi + 0.892 * sgi + 0.115 * depi
+            - 0.172 * sgai + 4.679 * tata - 0.327 * lvgi, 3)
+
+        equity_basis = parsed.get("equity_basis")
+        pat_basis = parsed.get("pat_basis")
+        ambiguous_nci = consolidated and (equity_basis != "owners" or pat_basis != "owners")
+        confidence = 0.8 if ambiguous_nci else 1.0
+
+        out = {
+            "applicable": True,
+            "value": m_score, "unit": "", "confidence": confidence,
+            "estimated": ambiguous_nci,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "variables": {
+                "DSRI": round(dsri, 3), "GMI": round(gmi, 3), "AQI": round(aqi, 3), "SGI": round(sgi, 3),
+                "DEPI": round(depi, 3), "SGAI": round(sgai, 3), "TATA": round(tata, 3), "LVGI": round(lvgi, 3),
+            },
+            "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
+            "note": "From the company's own Annual Report -- eight index variables (DSRI, GMI, AQI, SGI, DEPI, "
+                    "SGAI, TATA, LVGI), each a current-year-vs-prior-year ratio, combined via Beneish's fixed "
+                    "published coefficients. SG&A uses 'Other Expenses' as a proxy (Ind AS has no distinct "
+                    "SG&A line); LVGI uses a simplified face-value Total Debt (Borrowings + Lease Liabilities, "
+                    "Basis 1) computed consistently for both years, rather than the Notes-verified Sr No 20 "
+                    "figure (no prior-year Notes cross-check is available). A flagged score is a prompt for "
+                    "deeper forensic review, never proof of manipulation -- cross-check against OCF/Net Profit "
+                    "(Sr No 41) for a corroborating earnings-quality signal.",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+        # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+# --------------------------------------------------------------------------- #
+# BANK/NBFC EXTRACTION -- Sr No 58 (Net Interest Margin) is the FIRST ratio
+# in this suite that needs data from a Bank/NBFC's own financial
+# statements. Every ratio 1-57 excludes Banks/NBFC/Insurance because they
+# file in the RBI-prescribed format (Form A Balance Sheet / Form B Profit
+# and Loss Account) -- "Interest Earned"/"Interest Expended"/"Advances"/
+# "Investments", NOT the Ind AS Schedule III format `_extract_from_pdf`
+# above is built for (no "Revenue from Operations", no COGS lines). This
+# is a genuinely SEPARATE, lighter-weight parser -- reuses the same PDF
+# download/annual-report-lookup infrastructure (`_find_annual_report_pdf`,
+# `_sess`, the NSE downloader) and the same generic `_find_row_values`
+# row-matching helper, but its OWN page-detection logic, since the
+# Schedule-III COGS/shape-based detection in `_extract_from_pdf` would
+# never match a bank filing at all.
+#
+# KNOWN FIRST-PASS LIMITATION (flagged, not yet hardened): this scanner
+# does not yet have the same anti-decoy protections the Schedule-III
+# extractor accumulated over many sessions (MD&A/segment-note false-
+# positive guards, Notes-page exclusions). It should be expected to need
+# the same kind of iterative real-filing hardening once tested against a
+# range of actual bank/NBFC Annual Reports.
+# --------------------------------------------------------------------------- #
+_BANK_INTEREST_INCOME_LABELS = ["interest earned", "interest income"]
+_BANK_INTEREST_EXPENSE_LABELS = ["interest expended", "interest expense"]
+_BANK_ADVANCES_LABELS = ["advances", "gross advances"]
+_BANK_INVESTMENTS_LABELS = ["investments"]
+_BANK_DEPOSITS_LABELS = ["deposits"]
+# CASA Ratio (Sr No 59) numerator components -- the RBI Schedule 3 Deposits
+# breakup captions these "Demand Deposits" (= Current Account deposits) and
+# "Savings Bank Deposits" (= Savings Account deposits), NEVER "Term
+# Deposits" (the higher-cost complement, deliberately excluded).
+_BANK_DEMAND_DEPOSITS_LABELS = ["demand deposits"]
+_BANK_SAVINGS_DEPOSITS_LABELS = ["savings bank deposits", "savings deposits"]
+# Gross NPA % (Sr No 60) numerator -- the RBI IRAC-norms Asset Quality
+# disclosure in Notes to Accounts, NEVER Net NPA (Sr No 61, a distinct,
+# always-lower, post-provision figure).
+_BANK_GROSS_NPA_LABELS = ["gross non-performing assets", "gross npas", "gross npa"]
+# Net NPA % (Sr No 61) -- both searched DIRECTLY in the Asset Quality note
+# (most bank filings disclose Net NPA and Net Advances as their own
+# explicit lines alongside Gross NPA/Gross Advances, rather than requiring
+# a Total-Provisions subtraction this parser can't reliably source).
+_BANK_NET_NPA_LABELS = ["net non-performing assets", "net npas", "net npa"]
+_BANK_NET_ADVANCES_LABELS = ["net advances"]
+# Capital Adequacy Ratio / CRAR (Sr No 63) -- Basel III disclosure in Notes
+# to Accounts. Tier I + Tier II Capital and Risk-Weighted Assets are the
+# spec's own formula components; a directly-disclosed "CRAR (%)"/"Capital
+# Adequacy Ratio (%)" summary line (present in virtually every bank's
+# Basel III Pillar 3 table) is used as a fallback when the two capital
+# tiers or RWA aren't individually found -- the reported figure itself,
+# not a recomputation, so it's still a faithful (if less granular) read.
+_BANK_TIER1_CAPITAL_LABELS = ["tier i capital", "tier 1 capital", "common equity tier 1", "cet1 capital"]
+_BANK_TIER2_CAPITAL_LABELS = ["tier ii capital", "tier 2 capital"]
+_BANK_RWA_LABELS = ["risk weighted assets", "risk-weighted assets", "total risk weighted assets"]
+_BANK_CRAR_DIRECT_LABELS = ["capital adequacy ratio", "crar"]
+# Cost-to-Income Ratio (Sr No 65) -- both on the SAME P&L page as Interest
+# Earned/Interest Expended (RBI Form B). "Other Income" is a mandatory
+# standalone P&L line for banks (Schedule 14), distinct from the "Other
+# Income" fallback PAT/generic-label pattern used elsewhere in this file.
+_BANK_EMPLOYEE_COST_LABELS = ["employees cost", "employee cost", "payments to and provisions for employees"]
+_BANK_OTHER_OPEX_LABELS = ["other operating expenses"]
+_BANK_OTHER_INCOME_LABELS = ["other income"]
+
+
+def _extract_bank_from_pdf(pdf_bytes, consolidated=True):
+    """Extract Interest Earned/Interest Expended (P&L) and Advances/
+    Investments (Balance Sheet) -- current + prior year each -- from a
+    Bank/NBFC's own RBI-format Annual Report. Returns a dict or
+    {'error': reason}. Never raises internally (caller wraps in try/except
+    per the shared convention)."""
+    try:
+        import fitz
+    except Exception as e:
+        return {"error": f"pymupdf unavailable: {e}"}
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as e:
+        return {"error": f"PDF read failed: {e}"}
+
+    section = None
+    want = "consolidated" if consolidated else "standalone"
+
+    pl_idx, pl_text = None, None
+    bs_idx, bs_text = None, None
+
+    for i, page in enumerate(doc):
+        if pl_idx is not None and bs_idx is not None:
+            break
+        try:
+            t = _page_text(page)
+        except Exception:
+            continue
+        tl = t.lower()
+
+        # Narrow statement-caption anchors only -- mirrors the Schedule-III
+        # extractor's own fix for TOC/Notes-page section-flip false
+        # positives (never a bare "consolidated financial statements"
+        # phrase, which also appears in the Table of Contents).
+        if re.search(r"consolidated balance sheet\b", tl) or \
+           re.search(r"consolidated profit and loss (account|statement)\b", tl):
+            section = "consolidated"
+        elif re.search(r"\bbalance sheet\b", tl) and "consolidated" not in tl[:200]:
+            section = "standalone"
+        elif re.search(r"profit and loss account\b", tl) and "consolidated" not in tl[:200]:
+            section = "standalone"
+
+        if section != want:
+            continue
+
+        if pl_idx is None and ("interest earned" in tl or "interest income" in tl) \
+                and ("interest expended" in tl or "interest expense" in tl):
+            pl_idx, pl_text = i, t
+
+        if bs_idx is None and "advances" in tl and "investments" in tl \
+                and ("capital and liabilities" in tl or "total assets" in tl or "total liabilities" in tl):
+            bs_idx, bs_text = i, t
+
+    if pl_text is None:
+        return {"error": f"Could not find the {want} Profit and Loss Account (Interest Earned/Interest "
+                          "Expended) in the Annual Report -- Bank/NBFC filings use the RBI-prescribed format, "
+                          "which this parser is still being hardened against real-world layout variation."}
+    if bs_text is None:
+        return {"error": f"Could not find the {want} Balance Sheet (Advances/Investments) in the Annual "
+                          "Report."}
+
+    interest_income = _find_row_values(pl_text, _BANK_INTEREST_INCOME_LABELS)
+    interest_expense = _find_row_values(pl_text, _BANK_INTEREST_EXPENSE_LABELS)
+    advances = _find_row_values(bs_text, _BANK_ADVANCES_LABELS)
+    investments = _find_row_values(bs_text, _BANK_INVESTMENTS_LABELS)
+    total_deposits = _find_row_values(bs_text, _BANK_DEPOSITS_LABELS)
+    # Cost-to-Income Ratio (Sr No 65) -- same P&L page as Interest Earned/
+    # Expended, no separate forward scan needed.
+    employee_cost = _find_row_values(pl_text, _BANK_EMPLOYEE_COST_LABELS)
+    other_opex = _find_row_values(pl_text, _BANK_OTHER_OPEX_LABELS)
+    other_income = _find_row_values(pl_text, _BANK_OTHER_INCOME_LABELS)
+
+    # CASA Ratio (Sr No 59): Demand Deposits + Savings Bank Deposits live in
+    # the Deposits Note/Schedule (RBI Schedule 3), not on the Balance Sheet
+    # face itself -- a SEPARATE forward scan from the Balance Sheet page,
+    # same "note lives pages later, not near bs_idx" pattern already used
+    # for the Equity Share Capital note (Sr No 25). Bounded to the SAME
+    # standalone/consolidated section as the Balance Sheet, re-tracked with
+    # the same narrow caption anchors, so a Consolidated request never picks
+    # up a Standalone-only Deposits Note (or a subsidiary's own).
+    demand_deposits, savings_deposits = None, None
+    dep_section = section  # section state as of the Balance Sheet page, continued forward
+    for j in range(bs_idx, min(bs_idx + 200, len(doc))):
+        try:
+            pt = _page_text(doc[j])
+        except Exception:
+            continue
+        ptl = pt.lower()
+        if re.search(r"consolidated balance sheet\b", ptl) or \
+           re.search(r"consolidated profit and loss (account|statement)\b", ptl):
+            dep_section = "consolidated"
+        elif re.search(r"\bbalance sheet\b", ptl) and "consolidated" not in ptl[:200]:
+            dep_section = "standalone"
+        if dep_section != want:
+            continue
+        if "demand deposits" in ptl and ("savings bank deposits" in ptl or "savings deposits" in ptl):
+            demand_deposits = _find_row_values(pt, _BANK_DEMAND_DEPOSITS_LABELS)
+            savings_deposits = _find_row_values(pt, _BANK_SAVINGS_DEPOSITS_LABELS)
+            break
+
+    # Gross NPA % (Sr No 60): the Asset Quality disclosure lives in Notes
+    # to Accounts, mandated under RBI's IRAC norms -- another SEPARATE
+    # forward scan from the Balance Sheet page, same pattern as the
+    # Deposits Note above. Independent page from the Deposits Note, so
+    # scanned separately rather than piggy-backing on that loop.
+    gross_npa, net_npa, net_advances = None, None, None
+    npa_section = section
+    for k in range(bs_idx, min(bs_idx + 250, len(doc))):
+        try:
+            pt = _page_text(doc[k])
+        except Exception:
+            continue
+        ptl = pt.lower()
+        if re.search(r"consolidated balance sheet\b", ptl) or \
+           re.search(r"consolidated profit and loss (account|statement)\b", ptl):
+            npa_section = "consolidated"
+        elif re.search(r"\bbalance sheet\b", ptl) and "consolidated" not in ptl[:200]:
+            npa_section = "standalone"
+        if npa_section != want:
+            continue
+        if any(lbl in ptl for lbl in _BANK_GROSS_NPA_LABELS):
+            gross_npa = _find_row_values(pt, _BANK_GROSS_NPA_LABELS)
+            if gross_npa is not None:
+                # Net NPA (Sr No 61) is disclosed on the SAME Asset Quality
+                # note page as Gross NPA in virtually every bank filing --
+                # captured here, directly, rather than derived via a
+                # Total-Provisions figure this parser doesn't separately
+                # source (see the field's own docstring for the reasoning).
+                net_npa = _find_row_values(pt, _BANK_NET_NPA_LABELS)
+                net_advances = _find_row_values(pt, _BANK_NET_ADVANCES_LABELS)
+                break
+
+    # Capital Adequacy Ratio / CRAR (Sr No 63): the Basel III capital
+    # disclosure lives in its own Notes-to-Accounts section -- another
+    # SEPARATE forward scan from the Balance Sheet page.
+    tier1_capital, tier2_capital, rwa, crar_direct = None, None, None, None
+    crar_section = section
+    for m in range(bs_idx, min(bs_idx + 250, len(doc))):
+        try:
+            pt = _page_text(doc[m])
+        except Exception:
+            continue
+        ptl = pt.lower()
+        if re.search(r"consolidated balance sheet\b", ptl) or \
+           re.search(r"consolidated profit and loss (account|statement)\b", ptl):
+            crar_section = "consolidated"
+        elif re.search(r"\bbalance sheet\b", ptl) and "consolidated" not in ptl[:200]:
+            crar_section = "standalone"
+        if crar_section != want:
+            continue
+        has_tier = any(lbl in ptl for lbl in _BANK_TIER1_CAPITAL_LABELS) and \
+            any(lbl in ptl for lbl in _BANK_RWA_LABELS)
+        has_direct = any(lbl in ptl for lbl in _BANK_CRAR_DIRECT_LABELS)
+        if has_tier or has_direct:
+            tier1_capital = _find_row_values(pt, _BANK_TIER1_CAPITAL_LABELS)
+            tier2_capital = _find_row_values(pt, _BANK_TIER2_CAPITAL_LABELS)
+            rwa = _find_row_values(pt, _BANK_RWA_LABELS)
+            crar_direct = _find_row_values(pt, _BANK_CRAR_DIRECT_LABELS)
+            if tier1_capital is not None or crar_direct is not None:
+                break
+
+    return {
+        "interest_income": interest_income,   # (cur, prior) or None, normalised to Rs Cr
+        "interest_expense": interest_expense,  # (cur, prior) or None, normalised to Rs Cr
+        # NOTE (flagged, unresolved): the RBI Schedule 9 Balance Sheet face
+        # line "Advances" is CONVENTIONALLY presented net of provisions in
+        # many bank filings, not gross -- this field's true basis (gross vs
+        # net) has NOT been verified against a real filing yet. Sr No 61
+        # deliberately does NOT reuse this field for its Net Advances
+        # component (see `net_advances` below, searched directly instead)
+        # to avoid compounding that ambiguity. Revisit once tested live.
+        "advances": advances,                 # (cur, prior) or None, normalised to Rs Cr -- basis unverified
+        "investments": investments,           # (cur, prior) or None, normalised to Rs Cr
+        "total_deposits": total_deposits,     # (cur, prior) or None, normalised to Rs Cr -- Sr No 59 denominator
+        "demand_deposits": demand_deposits,   # (cur, prior) or None, normalised to Rs Cr -- Sr No 59 numerator (a)
+        "savings_deposits": savings_deposits,  # (cur, prior) or None, normalised to Rs Cr -- Sr No 59 numerator (b)
+        "gross_npa": gross_npa,               # (cur, prior) or None, normalised to Rs Cr -- Sr No 60 numerator
+        "net_npa": net_npa,                   # (cur, prior) or None, normalised to Rs Cr -- Sr No 61 numerator
+        "net_advances": net_advances,         # (cur, prior) or None, normalised to Rs Cr -- Sr No 61 denominator
+        "tier1_capital": tier1_capital,       # (cur, prior) or None, Rs Cr -- Sr No 63 numerator (a)
+        "tier2_capital": tier2_capital,       # (cur, prior) or None, Rs Cr -- Sr No 63 numerator (b)
+        "rwa": rwa,                           # (cur, prior) or None, Rs Cr -- Sr No 63 denominator
+        "crar_direct": crar_direct,           # (cur, prior) or None, % -- Sr No 63 fallback (directly disclosed)
+        "employee_cost": employee_cost,       # (cur, prior) or None, Rs Cr -- Sr No 65 numerator (a)
+        "other_opex": other_opex,             # (cur, prior) or None, Rs Cr -- Sr No 65 numerator (b)
+        "other_income": other_income,         # (cur, prior) or None, Rs Cr -- Sr No 65 denominator component
+        "pl_page": pl_idx + 1, "bs_page": bs_idx + 1,
+    }
+
+
+def _get_extracted_bank_financials(symbol, name, fiscal_year, consolidated=True):
+    """Shared, cached PDF fetch + parse for Bank/NBFC ratios (Sr No 58+),
+    mirroring `_get_extracted_financials`'s own download/retry/consolidated-
+    to-standalone-fallback logic, but calling `_extract_bank_from_pdf`
+    instead of the Schedule-III `_extract_from_pdf`. Cached 90 days --
+    EXCEPT network/IO failures. Never raises."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    # "_v6" cache-busts extractions cached before Employee Cost/Other
+    # Opex/Other Income (Sr No 65) were added -- see the analogous
+    # "_v2".."_v5" cache-key comment on `_get_extracted_financials`.
+    ckey = f"ar_bank_extract_v6_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+    try:
+        pdf_url = _find_annual_report_pdf(sym, name, fiscal_year)
+        if not pdf_url:
+            out = {"error": "Annual Report not found for this year."}
+            _write_cache(ckey, out)
+            return out
+
+        is_nse_url = "nseindia.com" in pdf_url
+        content = None
+        last_exc = None
+        for attempt in range(2):
+            try:
+                if is_nse_url:
+                    from tools.nse_annual_reports import download_nse_pdf_bytes
+                    content = download_nse_pdf_bytes(pdf_url)
+                    if content is None:
+                        raise RuntimeError("NSE download/zip-extract returned nothing")
+                else:
+                    content = _sess().get(pdf_url, timeout=90).content
+                break
+            except Exception as e:
+                last_exc = e
+        if content is None:
+            print(f"[annual_report_financials] Bank PDF download failed for {sym} FY{fiscal_year} "
+                  f"after retries: {last_exc}")
+            return {"error": "Could not download the Annual Report right now -- please try again "
+                              "in a moment.", "source_url": pdf_url}
+
+        if len(content) < 50000:
+            out = {"error": "Annual Report download failed or too small.", "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        parsed = _extract_bank_from_pdf(content, consolidated=consolidated)
+        if consolidated and isinstance(parsed, dict) and "error" in parsed \
+                and "not find the consolidated" in parsed["error"]:
+            standalone = _extract_bank_from_pdf(content, consolidated=False)
+            if "error" not in standalone:
+                standalone["source_url"] = pdf_url
+                standalone["basis_used"] = "standalone"
+                _write_cache(ckey, standalone)
+                return standalone
+
+        if "error" not in parsed:
+            parsed["source_url"] = pdf_url
+        else:
+            parsed["source_url"] = pdf_url
+        _write_cache(ckey, parsed)
+        return parsed
+    except Exception as e:
+        print(f"[annual_report_financials] Bank extraction failed for {symbol} FY{fiscal_year}: {e}")
+        return {"error": "Something went wrong reading the Annual Report -- please try again."}
+
+
+def fetch_net_interest_margin_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Net Interest Margin (Sr No 58) = (Interest Income - Interest Expense) /
+    Average Interest-Earning Assets (Advances + Investments, opening+
+    closing average). The FIRST ratio in this suite sourced from a Bank/
+    NBFC's own RBI-format Annual Report, via the new `_extract_bank_from_pdf`
+    parser (see its own docstring for the "known first-pass limitation"
+    note -- expect this to need hardening against a wider range of real
+    bank filings, same as every Schedule-III ratio needed early on).
+
+    Advances is used as GROSS Advances (before provisions), per spec.
+
+    Per spec, N/A if Average Interest-Earning Assets = 0.
+
+    Cached 90 days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_nim_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_bank_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        interest_income = parsed.get("interest_income")
+        if interest_income is None:
+            out = {"applicable": False, "reason": "Could not find an 'Interest Earned'/'Interest Income' row "
+                                                    "on the Profit and Loss Account page.", "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        interest_expense = parsed.get("interest_expense")
+        if interest_expense is None:
+            out = {"applicable": False, "reason": "Could not find an 'Interest Expended'/'Interest Expense' "
+                                                    "row on the Profit and Loss Account page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        advances = parsed.get("advances")
+        investments = parsed.get("investments")
+        if advances is None and investments is None:
+            out = {"applicable": False, "reason": "Could not find 'Advances' or 'Investments' rows on the "
+                                                    "Balance Sheet page.", "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        ii_cur, _ii_prior = interest_income
+        ie_cur, _ie_prior = interest_expense
+        adv_cur = advances[0] if advances is not None else 0.0
+        adv_prior = advances[1] if advances is not None else 0.0
+        inv_cur = investments[0] if investments is not None else 0.0
+        inv_prior = investments[1] if investments is not None else 0.0
+
+        iea_cur = adv_cur + inv_cur
+        iea_prior = adv_prior + inv_prior
+        avg_iea = round((iea_cur + iea_prior) / 2, 2)
+
+        if avg_iea == 0:
+            out = {"applicable": False, "reason": "Average Interest-Earning Assets is zero.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        net_interest_income = round(ii_cur - ie_cur, 2)
+        nim = round((net_interest_income / avg_iea) * 100, 2)
+
+        confidence = 1.0 if (advances is not None and investments is not None) else 0.95
+
+        out = {
+            "applicable": True,
+            "value": nim, "unit": "%",
+            "confidence": confidence,
+            "estimated": confidence < 1.0,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": {
+                "label": "Net Interest Income (Interest Earned - Interest Expended)",
+                "value_cr": net_interest_income,
+                "components": {
+                    "Interest Earned": round(ii_cur, 2),
+                    "less: Interest Expended": round(ie_cur, 2),
+                },
+            },
+            "denominator": {
+                "label": "Average Interest-Earning Assets (Advances + Investments)",
+                "value_cr": avg_iea,
+                "components": {
+                    "Advances (Gross)": round(adv_cur, 2) if advances is not None else None,
+                    "Investments": round(inv_cur, 2) if investments is not None else None,
+                },
+            },
+            "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
+            "note": "From the company's own Annual Report (RBI-prescribed Bank/NBFC format) -- (Interest "
+                    "Earned - Interest Expended) / Average Interest-Earning Assets (Gross Advances + "
+                    "Investments, opening+closing average). Excludes Other/Fee Income from the numerator and "
+                    "non-earning assets (fixed assets, cash reserves) from the denominator, per spec.",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+
+
+
+def fetch_casa_ratio_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    CASA Ratio (Sr No 59) = (Demand Deposits + Savings Bank Deposits) /
+    Total Deposits -- a Bank-only ratio (per spec, NBFCs typically don't
+    take retail deposits, so this is narrower than Net Interest Margin's
+    Bank+NBFC applicability). Demand Deposits and Savings Bank Deposits
+    come from the RBI Schedule 3 Deposits Note/breakup (found via a
+    forward scan from the Balance Sheet page in `_extract_bank_from_pdf`);
+    Total Deposits is the Balance Sheet face line itself.
+
+    Per spec, Term Deposits are NEVER included in the numerator -- only
+    the two genuinely low/no-cost components.
+
+    Per spec, N/A if Total Deposits = 0.
+
+    Reuses the SAME cached bank-statement extraction as Net Interest
+    Margin (Sr No 58) -- no extra download. Cached 90 days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_casa_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_bank_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        total_deposits = parsed.get("total_deposits")
+        if total_deposits is None:
+            out = {"applicable": False, "reason": "Could not find a 'Deposits' row on the Balance Sheet page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        demand_deposits = parsed.get("demand_deposits")
+        savings_deposits = parsed.get("savings_deposits")
+        if demand_deposits is None and savings_deposits is None:
+            out = {"applicable": False,
+                   "reason": "Could not find 'Demand Deposits'/'Savings Bank Deposits' in the Deposits Note "
+                             "(RBI Schedule 3).",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        td_cur, _td_prior = total_deposits
+        if td_cur == 0:
+            out = {"applicable": False, "reason": "Total Deposits is zero.", "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        dd_cur = demand_deposits[0] if demand_deposits is not None else 0.0
+        sd_cur = savings_deposits[0] if savings_deposits is not None else 0.0
+        casa_cur = round(dd_cur + sd_cur, 2)
+        casa_ratio = round((casa_cur / td_cur) * 100, 2)
+
+        confidence = 1.0 if (demand_deposits is not None and savings_deposits is not None) else 0.95
+
+        casa_components = {}
+        if demand_deposits is not None:
+            casa_components["Demand Deposits (Current Account)"] = round(dd_cur, 2)
+        if savings_deposits is not None:
+            casa_components["Savings Bank Deposits"] = round(sd_cur, 2)
+
+        out = {
+            "applicable": True,
+            "value": casa_ratio, "unit": "%",
+            "confidence": confidence,
+            "estimated": confidence < 1.0,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": {
+                "label": "CASA (Demand Deposits + Savings Bank Deposits)",
+                "value_cr": casa_cur,
+                "components": casa_components,
+            },
+            "denominator": {"label": "Total Deposits", "value_cr": round(td_cur, 2)},
+            "sources": _page_sources(pdf_url, fiscal_year, bs_page=parsed.get("bs_page")),
+            "note": "From the company's own Annual Report (RBI-prescribed Bank format, Schedule 3 Deposits "
+                    "Note) -- (Demand Deposits + Savings Bank Deposits) / Total Deposits. Term Deposits are "
+                    "NEVER included in the numerator -- they are the higher-cost complement, not part of "
+                    "CASA. Cross-check the trend against Net Interest Margin (Sr No 58): a declining CASA "
+                    "alongside compressing NIM is a consistent rising-funding-cost story.",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+
+
+
+def fetch_gross_npa_pct_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Gross NPA % (Sr No 60) = Gross Non-Performing Assets / Gross Advances.
+    Gross NPA comes from the RBI IRAC-norms Asset Quality disclosure in
+    Notes to Accounts (found via a forward scan from the Balance Sheet
+    page in `_extract_bank_from_pdf`); Gross Advances reuses the SAME
+    `advances` field already extracted for Net Interest Margin (Sr No 58)
+    -- both are the pre-provision, gross figure, never Net Advances.
+
+    Per spec, NEVER use Net NPA (Sr No 61, a distinct, always-lower,
+    post-provision figure) in place of Gross NPA.
+
+    Per spec, N/A if Gross Advances = 0.
+
+    Reuses the SAME cached bank-statement extraction as Net Interest
+    Margin/CASA Ratio -- no extra download. Cached 90 days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_gnpa_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_bank_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        advances = parsed.get("advances")
+        if advances is None:
+            out = {"applicable": False, "reason": "Could not find a 'Advances'/'Gross Advances' row on the "
+                                                    "Balance Sheet page.", "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        gross_npa = parsed.get("gross_npa")
+        if gross_npa is None:
+            out = {"applicable": False,
+                   "reason": "Could not find a 'Gross Non-Performing Assets' row in the Asset Quality Notes "
+                             "to Accounts.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        adv_cur, _adv_prior = advances
+        if adv_cur == 0:
+            out = {"applicable": False, "reason": "Gross Advances is zero.", "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        gnpa_cur, _gnpa_prior = gross_npa
+        gnpa_pct = round((gnpa_cur / adv_cur) * 100, 2)
+
+        out = {
+            "applicable": True,
+            "value": gnpa_pct, "unit": "%",
+            "confidence": 1.0,
+            "estimated": False,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": {"label": "Gross Non-Performing Assets", "value_cr": round(gnpa_cur, 2)},
+            "denominator": {"label": "Gross Advances", "value_cr": round(adv_cur, 2)},
+            "sources": _page_sources(pdf_url, fiscal_year, bs_page=parsed.get("bs_page")),
+            "note": "From the company's own Annual Report (RBI-prescribed Bank/NBFC format, Asset Quality "
+                    "Notes to Accounts, IRAC norms) -- Gross Non-Performing Assets / Gross Advances (both "
+                    "pre-provision). Never Net NPA (Sr No 61, a distinct, always-lower figure) or Net "
+                    "Advances. Cross-check against Provision Coverage Ratio (Sr No 62) and Net NPA % (Sr No "
+                    "61) -- a rising Gross NPA alongside a flat/falling PCR is a compounding risk signal.",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+
+
+
+def fetch_net_npa_pct_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Net NPA % (Sr No 61) = Net Non-Performing Assets / Net Advances.
+    Both figures are read DIRECTLY from the Asset Quality Notes to
+    Accounts (`net_npa`/`net_advances` fields, found on the SAME page as
+    Gross NPA/Sr No 60 in `_extract_bank_from_pdf`), rather than derived
+    via a "Total Provisions" subtraction -- bank filings virtually always
+    disclose Net NPA and Net Advances as their own explicit lines in the
+    Asset Quality table, so reading them directly avoids sourcing a
+    Total-Provisions figure this parser doesn't separately extract.
+
+    Per spec, NEVER use Gross NPA (Sr No 60) or the ambiguous Balance-
+    Sheet-face `advances` field here.
+
+    Per spec, N/A if Net Advances = 0.
+
+    Reuses the SAME cached bank-statement extraction as Net Interest
+    Margin/CASA Ratio/Gross NPA % -- no extra download. Cached 90 days.
+    Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_nnpa_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_bank_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        net_advances = parsed.get("net_advances")
+        if net_advances is None:
+            out = {"applicable": False, "reason": "Could not find a 'Net Advances' row in the Asset Quality "
+                                                    "Notes to Accounts.", "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        net_npa = parsed.get("net_npa")
+        if net_npa is None:
+            out = {"applicable": False,
+                   "reason": "Could not find a 'Net Non-Performing Assets' row in the Asset Quality Notes to "
+                             "Accounts.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        na_cur, _na_prior = net_advances
+        if na_cur == 0:
+            out = {"applicable": False, "reason": "Net Advances is zero.", "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        nnpa_cur, _nnpa_prior = net_npa
+        nnpa_pct = round((nnpa_cur / na_cur) * 100, 2)
+
+        out = {
+            "applicable": True,
+            "value": nnpa_pct, "unit": "%",
+            "confidence": 1.0,
+            "estimated": False,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": {"label": "Net Non-Performing Assets", "value_cr": round(nnpa_cur, 2)},
+            "denominator": {"label": "Net Advances", "value_cr": round(na_cur, 2)},
+            "sources": _page_sources(pdf_url, fiscal_year, bs_page=parsed.get("bs_page")),
+            "note": "From the company's own Annual Report (RBI-prescribed Bank/NBFC format, Asset Quality "
+                    "Notes to Accounts) -- Net Non-Performing Assets / Net Advances, both read directly as "
+                    "their own disclosed lines (never derived by subtracting a separately-sourced Total "
+                    "Provisions figure). A Net NPA % meaningfully lower than Gross NPA % (Sr No 60) indicates "
+                    "conservative provisioning (high Provision Coverage Ratio, Sr No 62); a Net NPA % close "
+                    "to Gross NPA % signals under-provisioning.",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+
+
+
+def fetch_capital_adequacy_ratio_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Capital Adequacy Ratio / CRAR (Sr No 63) = (Tier I Capital + Tier II
+    Capital) / Total Risk-Weighted Assets (RWA) -- the Basel III capital
+    adequacy disclosure in Notes to Accounts.
+
+    PRIMARY basis: Tier I + Tier II Capital, computed directly against RWA
+    (confidence 1.0). FALLBACK: many banks' Basel III Pillar 3 tables
+    disclose the combined "CRAR (%)" figure directly without a clean
+    Tier I/Tier II split visible to a face-value text scan -- when the two
+    capital tiers aren't individually found, the directly-reported CRAR %
+    is used as-is (confidence 0.95 -- the reported figure itself, not a
+    recomputation, so still faithful, just without a numerator/denominator
+    breakdown to show).
+
+    Per spec, N/A if RWA = 0 (and no direct CRAR % fallback is available).
+
+    Reuses the SAME cached bank-statement extraction as the other Bank/
+    NBFC ratios -- no extra download. Cached 90 days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_crar_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_bank_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        tier1 = parsed.get("tier1_capital")
+        tier2 = parsed.get("tier2_capital")
+        rwa = parsed.get("rwa")
+
+        if tier1 is not None and rwa is not None and rwa[0] != 0:
+            t1_cur, _t1_prior = tier1
+            t2_cur = tier2[0] if tier2 is not None else 0.0
+            rwa_cur, _rwa_prior = rwa
+            total_capital_cur = round(t1_cur + t2_cur, 2)
+            crar = round((total_capital_cur / rwa_cur) * 100, 2)
+
+            out = {
+                "applicable": True,
+                "value": crar, "unit": "%",
+                "confidence": 1.0,
+                "estimated": False,
+                "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+                "numerator": {
+                    "label": "Tier I + Tier II Capital",
+                    "value_cr": total_capital_cur,
+                    "components": {
+                        "Tier I Capital": round(t1_cur, 2),
+                        "Tier II Capital": round(t2_cur, 2) if tier2 is not None else None,
+                    },
+                },
+                "denominator": {"label": "Total Risk-Weighted Assets (RWA)", "value_cr": round(rwa_cur, 2)},
+                "sources": _page_sources(pdf_url, fiscal_year, bs_page=parsed.get("bs_page")),
+                "note": "From the company's own Annual Report (RBI-prescribed Bank/NBFC format, Basel III "
+                        "Capital Adequacy Notes to Accounts) -- (Tier I Capital + Tier II Capital) / Total "
+                        "Risk-Weighted Assets, never gross Total Assets. Read alongside Credit-to-Deposit "
+                        "Ratio -- rapid loan growth without corresponding capital raises will mechanically "
+                        "compress CRAR. RBI's minimum requirement is periodically revised -- verify the "
+                        "current applicable threshold rather than assuming a fixed historical one.",
+            }
+            _write_cache(ckey, out)
+            return out
+
+        crar_direct = parsed.get("crar_direct")
+        if crar_direct is not None:
+            crar_cur, _crar_prior = crar_direct
+            out = {
+                "applicable": True,
+                "value": round(crar_cur, 2), "unit": "%",
+                "confidence": 0.95,
+                "estimated": True,
+                "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+                "numerator": {"label": "CRAR (directly disclosed, Tier I/II split not separately located)",
+                              "value_cr": round(crar_cur, 2)},
+                "denominator": None,
+                "sources": _page_sources(pdf_url, fiscal_year, bs_page=parsed.get("bs_page")),
+                "note": "From the company's own Annual Report -- the directly-disclosed 'CRAR (%)'/'Capital "
+                        "Adequacy Ratio (%)' figure from the Basel III Pillar 3 table, used as-is because the "
+                        "individual Tier I/Tier II Capital and Risk-Weighted Assets figures could not be "
+                        "separately located as clean line items -- this is the company's own reported "
+                        "number, not a recomputation, but without a numerator/denominator breakdown.",
+            }
+            _write_cache(ckey, out)
+            return out
+
+        out = {"applicable": False,
+               "reason": "Could not find Tier I/Tier II Capital and Risk-Weighted Assets, or a directly "
+                         "disclosed CRAR %, in the Basel III Capital Adequacy Notes to Accounts.",
+               "source_url": pdf_url}
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
+
+
+
+def fetch_cost_to_income_ratio_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Cost-to-Income Ratio (Sr No 65) = Operating Expenses (Employee Cost +
+    Other Operating Expenses) / (Net Interest Income + Other Income).
+    Net Interest Income reuses the SAME Interest Income/Interest Expense
+    fields already extracted for Net Interest Margin (Sr No 58) --
+    Interest Income minus Interest Expense, per that ratio's own basis.
+
+    Per spec, Operating Expenses NEVER includes Provisions for NPAs or
+    Tax -- only Employee Cost + Other Operating Expenses, the two lines
+    the RBI Form B P&L discloses under "Operating Expenses".
+
+    Per spec, N/A if (Net Interest Income + Other Income) <= 0.
+
+    Reuses the SAME cached bank-statement extraction as the other Bank/
+    NBFC ratios -- no extra download. Cached 90 days. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_cir_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_bank_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        interest_income = parsed.get("interest_income")
+        interest_expense = parsed.get("interest_expense")
+        if interest_income is None or interest_expense is None:
+            missing = "Interest Earned/Interest Income" if interest_income is None else \
+                "Interest Expended/Interest Expense"
+            out = {"applicable": False, "reason": f"Could not find '{missing}' on the Profit and Loss Account "
+                                                    "page.", "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        employee_cost = parsed.get("employee_cost")
+        other_opex = parsed.get("other_opex")
+        if employee_cost is None and other_opex is None:
+            out = {"applicable": False,
+                   "reason": "Could not find 'Employees Cost'/'Other Operating Expenses' rows on the Profit "
+                             "and Loss Account page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        other_income = parsed.get("other_income")
+
+        ii_cur, _ii_prior = interest_income
+        ie_cur, _ie_prior = interest_expense
+        emp_cur = employee_cost[0] if employee_cost is not None else 0.0
+        opex_cur = other_opex[0] if other_opex is not None else 0.0
+        oi_cur = other_income[0] if other_income is not None else 0.0
+
+        nii_cur = ii_cur - ie_cur
+        income_base_cur = round(nii_cur + oi_cur, 2)
+        operating_expenses_cur = round(emp_cur + opex_cur, 2)
+
+        if income_base_cur <= 0:
+            out = {"applicable": False,
+                   "reason": "Net Interest Income plus Other Income is zero or negative -- Cost-to-Income "
+                             "Ratio is not meaningful.",
+                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+                   "numerator": {"label": "Operating Expenses", "value_cr": operating_expenses_cur},
+                   "denominator": {"label": "Net Interest Income + Other Income", "value_cr": income_base_cur},
+                   "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        cir = round((operating_expenses_cur / income_base_cur) * 100, 2)
+        confidence = 1.0 if (employee_cost is not None and other_opex is not None) else 0.95
+
+        out = {
+            "applicable": True,
+            "value": cir, "unit": "%",
+            "confidence": confidence,
+            "estimated": confidence < 1.0,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "numerator": {
+                "label": "Operating Expenses (Employee Cost + Other Operating Expenses)",
+                "value_cr": operating_expenses_cur,
+                "components": {
+                    "Employee Cost": round(emp_cur, 2) if employee_cost is not None else None,
+                    "Other Operating Expenses": round(opex_cur, 2) if other_opex is not None else None,
+                },
+            },
+            "denominator": {
+                "label": "Net Interest Income + Other Income",
+                "value_cr": income_base_cur,
+                "components": {
+                    "Net Interest Income (Interest Earned - Interest Expended)": round(nii_cur, 2),
+                    "Other Income": round(oi_cur, 2) if other_income is not None else None,
+                },
+            },
+            "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+            "note": "From the company's own Annual Report (RBI-prescribed Bank/NBFC format) -- Operating "
+                    "Expenses (Employee Cost + Other Operating Expenses, NEVER Provisions or Tax) / (Net "
+                    "Interest Income + Other Income). Cross-check the trend against Net Interest Margin (Sr "
+                    "No 58) -- a bank improving Cost-to-Income while NIM compresses may be cutting costs to "
+                    "offset margin pressure rather than genuinely improving efficiency.",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}

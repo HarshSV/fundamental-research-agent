@@ -1,6 +1,5 @@
 import React from 'react';
 import { inr, inrCrore, pct, num, isNum, signedPct, toneClass } from '../lib/format.js';
-import StockSearch from '../components/StockSearch.jsx';
 import { fetchRatio, fetchQuote } from '../lib/api.js';
 
 /* --- tiny sparkline --- */
@@ -174,15 +173,6 @@ export default function Overview({ data, onOpenSection, onSearch }) {
 
   return (
     <div className="space-y-5">
-      {/* Search a new stock */}
-      <div className="nv-card nv-elev p-4 md:p-5">
-        <div className="flex items-center justify-between mb-2.5">
-          <span className="nv-eyebrow text-blue-600">Analyze another company</span>
-          <button onClick={() => onOpenSection && onOpenSection('ai')} className="text-[12px] font-semibold text-slate-500 hover:text-blue-600 transition-colors">Full AI research →</button>
-        </div>
-        <StockSearch onSelect={(s) => onSearch && onSearch(s)} placeholder="Search a company or ticker — Reliance, TCS, HDFC Bank…" />
-      </div>
-
       {/* metric grid */}
       <div>
         <div className="flex items-baseline justify-between mb-3">

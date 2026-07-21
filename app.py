@@ -908,6 +908,351 @@ async def capex_intensity_endpoint(request: dict, _: dict = Depends(auth.require
         return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
 
 
+@app.post("/api/v1/ocf-to-net-profit")
+async def ocf_to_net_profit_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """OCF/Net Profit (Sr No 41) = Net Cash Flow from Operating Activities /
+    Net Profit (owners-attributable), computed from the company's OWN
+    audited Annual Report. Runs off the event loop. Returns
+    {applicable: False} for lenders/financial businesses and when Net
+    Profit is zero/negative."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_ocf_to_net_profit
+        return await asyncio.to_thread(fetch_ocf_to_net_profit, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] OCF/Net Profit failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/roic")
+async def roic_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Return on Invested Capital (ROIC, Sr No 42) = NOPAT / Invested
+    Capital (Total Debt + Total Equity - Cash, closing balance), computed
+    from the company's OWN audited Annual Report. Runs off the event loop.
+    Returns {applicable: False} for lenders/financial businesses, when
+    Profit Before Tax is zero/negative, or when Invested Capital is
+    zero/negative."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_roic
+        return await asyncio.to_thread(fetch_roic, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] ROIC failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/effective-tax-rate")
+async def effective_tax_rate_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Effective Tax Rate (Sr No 43) = Total Tax Expense / Profit Before
+    Tax, computed from the company's OWN audited Annual Report. Runs off
+    the event loop. Returns {applicable: False} for lenders/financial
+    businesses and when Profit Before Tax is zero/negative."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_effective_tax_rate
+        return await asyncio.to_thread(fetch_effective_tax_rate, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Effective Tax Rate failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/contribution-margin")
+async def contribution_margin_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Contribution Margin (Sr No 44) = (Revenue - Variable Costs) / Revenue,
+    computed from the company's OWN audited Annual Report. KNOWN
+    APPROXIMATION: 'Variable Costs' is only the raw-material COGS
+    components (Cost of materials consumed + Purchases of stock-in-trade)
+    -- Ind AS filings don't disclose a true fixed/variable cost-behaviour
+    split, so this always understates true Contribution Margin; confidence
+    is capped at 0.4. Runs off the event loop. Returns {applicable: False}
+    for lenders/financial businesses, when Revenue is zero, or for a
+    genuine services business with no goods-cost lines."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_contribution_margin
+        return await asyncio.to_thread(fetch_contribution_margin, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Contribution Margin failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/eps-growth")
+async def eps_growth_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """EPS Growth Rate (Sr No 45) = (Current Year Basic EPS / Prior Year
+    Basic EPS) - 1, computed from the company's OWN audited Annual Report.
+    Applicable to every sector including Banks/NBFC/Insurance. Runs off the
+    event loop. Returns {applicable: False} when Prior Year EPS is
+    zero/negative (Not Meaningful)."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_eps_growth
+        return await asyncio.to_thread(fetch_eps_growth, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] EPS Growth Rate failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/dividend-payout-ratio")
+async def dividend_payout_ratio_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Dividend Payout Ratio (Sr No 47) = Total Dividends Declared (Dividend
+    per Share x Shares Outstanding) / Net Profit, computed from the
+    company's OWN audited Annual Report. Applicable to every sector
+    including Banks/NBFC/Insurance. Runs off the event loop. Returns
+    {applicable: False} when Net Profit is zero/negative."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_dividend_payout_ratio
+        return await asyncio.to_thread(fetch_dividend_payout_ratio, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Dividend Payout Ratio failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/operating-cash-flow")
+async def operating_cash_flow_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Net Cash Flow from Operating Activities, GROSS (before capex, never
+    Free Cash Flow) — Price/Cash Flow's (Sr No 53) denominator, computed
+    from the company's OWN audited Annual Report. Runs off the event loop.
+    Returns {applicable: False} when Operating Cash Flow is zero/negative."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_operating_cash_flow
+        return await asyncio.to_thread(fetch_operating_cash_flow, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Operating Cash Flow failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/altman-z-score-components")
+async def altman_z_score_components_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Altman Z-Score (Sr No 55) statement-side components (Working
+    Capital, Total Assets, Retained Earnings, EBIT, Total Liabilities,
+    Sales), computed from the company's OWN audited Annual Report — Market
+    Capitalisation (the fifth weighted term) needs a live price and is
+    combined client-side. Runs off the event loop. Returns
+    {applicable: False} for lenders/financial businesses."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_altman_z_score_components
+        return await asyncio.to_thread(fetch_altman_z_score_components, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Altman Z-Score components failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/piotroski-f-score")
+async def piotroski_f_score_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Piotroski F-Score (Sr No 56) = sum of nine binary (1/0) year-over-
+    year fundamental-strength tests (0-9 scale), computed from the
+    company's OWN audited Annual Report. Runs off the event loop. Returns
+    {applicable: False} for lenders/financial businesses, or when two
+    consecutive years of PAT/Total Assets/Operating Cash Flow aren't
+    available."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_piotroski_f_score
+        return await asyncio.to_thread(fetch_piotroski_f_score, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Piotroski F-Score failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/beneish-m-score")
+async def beneish_m_score_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Beneish M-Score (Sr No 57) = an 8-variable earnings-manipulation
+    detection composite, computed from the company's OWN audited Annual
+    Report. Runs off the event loop. Returns {applicable: False} for
+    lenders/financial businesses, or when two consecutive years of
+    complete data aren't available for any of the eight required
+    variables."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_beneish_m_score
+        return await asyncio.to_thread(fetch_beneish_m_score, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Beneish M-Score failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/net-interest-margin")
+async def net_interest_margin_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Net Interest Margin (Sr No 58) = (Interest Income - Interest
+    Expense) / Average Interest-Earning Assets, computed from the
+    company's OWN audited Annual Report (RBI-prescribed Bank/NBFC
+    format). Runs off the event loop. Returns {applicable: False} for
+    non-financial companies — this ratio applies ONLY to Banks/NBFCs."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_net_interest_margin
+        return await asyncio.to_thread(fetch_net_interest_margin, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Net Interest Margin failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/casa-ratio")
+async def casa_ratio_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """CASA Ratio (Sr No 59) = (Demand Deposits + Savings Bank Deposits) /
+    Total Deposits, computed from the company's OWN audited Annual Report
+    (RBI-prescribed Bank format). Runs off the event loop. Returns
+    {applicable: False} for non-bank companies (including NBFCs) — a
+    narrower scope than Net Interest Margin's Bank+NBFC applicability."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_casa_ratio
+        return await asyncio.to_thread(fetch_casa_ratio, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] CASA Ratio failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/gross-npa-pct")
+async def gross_npa_pct_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Gross NPA % (Sr No 60) = Gross Non-Performing Assets / Gross
+    Advances, computed from the company's OWN audited Annual Report
+    (RBI-prescribed Bank/NBFC format, Asset Quality Notes). Runs off the
+    event loop. Returns {applicable: False} for non-financial companies."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_gross_npa_pct
+        return await asyncio.to_thread(fetch_gross_npa_pct, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Gross NPA % failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/net-npa-pct")
+async def net_npa_pct_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Net NPA % (Sr No 61) = Net Non-Performing Assets / Net Advances,
+    computed from the company's OWN audited Annual Report (RBI-prescribed
+    Bank/NBFC format, Asset Quality Notes). Runs off the event loop.
+    Returns {applicable: False} for non-financial companies."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_net_npa_pct
+        return await asyncio.to_thread(fetch_net_npa_pct, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Net NPA % failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/capital-adequacy-ratio")
+async def capital_adequacy_ratio_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Capital Adequacy Ratio / CRAR (Sr No 63) = (Tier I + Tier II
+    Capital) / Risk-Weighted Assets, computed from the company's OWN
+    audited Annual Report (Basel III Capital Adequacy Notes). Runs off
+    the event loop. Returns {applicable: False} for non-financial
+    companies."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_capital_adequacy_ratio
+        return await asyncio.to_thread(fetch_capital_adequacy_ratio, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Capital Adequacy Ratio failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/cost-to-income-ratio")
+async def cost_to_income_ratio_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Cost-to-Income Ratio (Sr No 65) = Operating Expenses / (Net
+    Interest Income + Other Income), computed from the company's OWN
+    audited Annual Report (RBI-prescribed Bank/NBFC format). Runs off the
+    event loop. Returns {applicable: False} for non-financial companies."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_cost_to_income_ratio
+        return await asyncio.to_thread(fetch_cost_to_income_ratio, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Cost-to-Income Ratio failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/beta")
+async def beta_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Beta (Sr No 66) = Covariance(Stock Returns, Nifty 50 Returns) /
+    Variance(Nifty 50 Returns), computed from historical weekly price
+    data (yfinance) over a trailing 2-year window — NOT derived from
+    financial statements, no fiscal-year concept applies. Runs off the
+    event loop. Returns {applicable: False} for newly-listed/illiquid
+    stocks with insufficient trading history."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_beta
+        return await asyncio.to_thread(fetch_beta, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Beta failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/promoter-pledge-pct")
+async def promoter_pledge_pct_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Promoter Pledge % (Sr No 67) = Pledged Promoter Shares / Total
+    Promoter Shareholding, from the most recent SEBI Shareholding Pattern
+    filing (BSE/NSE) — not derived from the Annual Report. Runs off the
+    event loop. Returns {applicable: False} for professionally-managed
+    companies with no promoter group."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_promoter_pledge_pct
+        return await asyncio.to_thread(fetch_promoter_pledge_pct, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Promoter Pledge % failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/free-float-pct")
+async def free_float_pct_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Free Float % (Sr No 68) = (Total Shares - Promoter Holding -
+    Locked-in Shares) / Total Shares, from the most recent SEBI
+    Shareholding Pattern filing (BSE/NSE) — not derived from the Annual
+    Report. Runs off the event loop."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_free_float_pct
+        return await asyncio.to_thread(fetch_free_float_pct, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Free Float % failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
 @app.post("/api/v1/current-ratio")
 async def current_ratio_endpoint(request: dict, _: dict = Depends(auth.require_session)):
     """Current Ratio = Total Current Assets / Total Current Liabilities (closing

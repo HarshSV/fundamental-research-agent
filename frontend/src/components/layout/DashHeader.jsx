@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { authFetch } from '../../lib/api.js';
 import { inr, inrCrore, isNum } from '../../lib/format.js';
 import { getNseSector } from '../../lib/nseSectorMap.js';
+import StockSearch from '../StockSearch.jsx';
 
 const I = ({ children, s = 16 }) => (
   <svg viewBox="0 0 24 24" width={s} height={s} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
@@ -36,7 +37,7 @@ const Stat = ({ label, value }) => (
   </div>
 );
 
-export default function DashHeader({ symbol, name, data, score, loading, onRefresh, onExport, onCompare }) {
+export default function DashHeader({ symbol, name, data, score, loading, onRefresh, onExport, onCompare, onSearch }) {
   const quote = useQuote(symbol);
   const val = data?.calculated_metrics?.['F-03_Valuation_Metrics'] || {};
   const peer = data?.peer_synthesis_data || {};
@@ -102,6 +103,7 @@ export default function DashHeader({ symbol, name, data, score, loading, onRefre
 
         {/* actions */}
         <div className="flex items-center gap-2 flex-shrink-0">
+          {onSearch && <StockSearch compact onSelect={onSearch} placeholder="Search a company…" />}
           <button onClick={onCompare} className="nv-btn nv-btn-ghost h-9 px-3 text-[13px]" title="Compare"><IconCompare /><span className="hidden sm:inline">Compare</span></button>
           <button onClick={onRefresh} className="nv-icon-btn w-9 h-9" title="Refresh"><IconRefresh /></button>
           <button onClick={share} className="nv-icon-btn w-9 h-9" title="Copy share link"><IconShare /></button>

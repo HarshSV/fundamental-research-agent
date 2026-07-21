@@ -6,21 +6,23 @@ const IconSearch = () => (
 );
 
 // Reusable company/ticker search with autocomplete. onSelect(symbol) runs research.
-export default function StockSearch({ onSelect, placeholder = 'Search a company or ticker to analyze…', autoFocus = false }) {
+export default function StockSearch({ onSelect, placeholder = 'Search a company or ticker to analyze…', autoFocus = false, compact = false }) {
   const [q, setQ] = useState('');
   const [matches, setMatches] = useState([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const boxRef = useRef(null);
+  const reqId = useRef(0);
 
   useEffect(() => {
     let live = true;
     if (!q.trim()) { setMatches([]); setOpen(false); return; }
+    const id = ++reqId.current;
     const t = setTimeout(async () => {
       const r = await searchSymbols(q);
-      if (!live) return;
+      if (!live || id !== reqId.current) return;
       setMatches(r.slice(0, 7)); setOpen(true); setActive(0);
-    }, 130);
+    }, 40);
     return () => { live = false; clearTimeout(t); };
   }, [q]);
 
@@ -40,8 +42,8 @@ export default function StockSearch({ onSelect, placeholder = 'Search a company 
   };
 
   return (
-    <div ref={boxRef} className="relative">
-      <div className={`flex items-center gap-3 bg-slate-950 border rounded-xl px-4 h-[52px] transition-colors ${open ? 'border-blue-500' : 'border-slate-800'}`}>
+    <div ref={boxRef} className={`relative ${compact ? 'w-full max-w-[260px]' : ''}`}>
+      <div className={`flex items-center gap-2 bg-slate-950 border rounded-xl transition-colors ${compact ? 'px-3 h-9' : 'px-4 h-[52px] gap-3'} ${open ? 'border-blue-500' : 'border-slate-800'}`}>
         <span className="text-slate-500 flex-shrink-0"><IconSearch /></span>
         <input
           value={q}
@@ -50,15 +52,15 @@ export default function StockSearch({ onSelect, placeholder = 'Search a company 
           onFocus={() => matches.length && setOpen(true)}
           autoFocus={autoFocus}
           placeholder={placeholder}
-          className="flex-1 bg-transparent outline-none text-slate-100 placeholder:text-slate-500 text-[15px] min-w-0"
+          className={`flex-1 bg-transparent outline-none text-slate-100 placeholder:text-slate-500 min-w-0 ${compact ? 'text-[13px]' : 'text-[15px]'}`}
           aria-label="Search companies"
         />
-        <button onClick={() => go(matches[active]?.symbol || q.trim())} className="nv-btn nv-btn-primary h-9 px-4 flex-shrink-0 text-[13px]">Analyze</button>
+        {!compact && <button onClick={() => go(matches[active]?.symbol || q.trim())} className="nv-btn nv-btn-primary h-9 px-4 flex-shrink-0 text-[13px]">Analyze</button>}
       </div>
 
       {/* Always mounted so open/close animates (fade + slide) instead of popping. */}
       <div
-        className={`absolute left-0 right-0 mt-2 z-40 nv-card nv-float2 p-1.5 overflow-hidden transition-all duration-200 ease-out origin-top ${
+        className={`absolute left-0 ${compact ? 'w-[320px]' : 'right-0'} mt-2 z-40 nv-card nv-float2 p-1.5 overflow-hidden transition-all duration-200 ease-out origin-top ${
           open && matches.length > 0 ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-[0.98] -translate-y-1 pointer-events-none'
         }`}
       >
