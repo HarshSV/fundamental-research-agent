@@ -185,6 +185,21 @@ _RETAINED_EARNINGS_LABELS = [
 _OTHER_EQUITY_LABELS = [
     "other equity",
 ]
+# Owners-attributable Total Equity, most-reliable-first: Equity Share Capital
+# + Other Equity are ALWAYS the parent/owners' portion under Ind AS (Non-
+# Controlling Interest is always its own separate line, never blended into
+# either) — summing these two face-of-Balance-Sheet rows directly is more
+# robust than searching for a "Total Equity" label at all, since some filers
+# print it as "Total - Equity (A)" (confirmed on HUL) rather than "Total
+# Equity"/"Shareholders' Funds". A bare substring search for "total equity"
+# is unsafe regardless of phrasing: it also matches inside "TOTAL EQUITY AND
+# LIABILITIES" (the whole Balance Sheet grand total, not equity at all) —
+# confirmed silently happening on HUL, since "Total - Equity (A)" (with the
+# dash) doesn't match "total equity" as a contiguous substring, so the search
+# fell through to that later, wrong, much bigger total.
+_EQUITY_SHARE_CAPITAL_LABELS = [
+    "equity share capital",
+]
 _PBT_LABELS = [
     "profit before exceptional items and tax", "profit before tax and exceptional items",
     "profit before tax", "profit before exceptional item and tax",
@@ -991,7 +1006,10 @@ def _parse_num(tok):
         return None
 
 
-def _find_row_values(text, canonical_names, after=None):
+_PERMISSIVE_NUM_RE = r"\(?-?[\d,]+(?:\.\d{1,2})?\)?|(?<=\s)-(?=\s)"
+
+
+def _find_row_values(text, canonical_names, after=None, reject_after=None, permissive=False):
     """Find a row by any of its canonical label variants and return
     (current_year_value, prior_year_value) — the two trailing numbers on that
     logical line — or None. Case-insensitive, tries each synonym in order.
@@ -1000,22 +1018,47 @@ def _find_row_values(text, canonical_names, after=None):
     match of it. Used for Trade Receivables, which the Balance Sheet often
     lists twice (a small long-term portion under Non-Current Assets, then the
     real circulating balance under Current Assets) — without this, the first
-    (wrong, non-current) occurrence would win."""
+    (wrong, non-current) occurrence would win.
+
+    `reject_after`: an optional regex; if the text immediately following a
+    label match starts with it, that match is skipped and the NEXT
+    occurrence of the same label (or the next label) is tried instead. Used
+    for "total equity", which is a literal substring of "TOTAL EQUITY AND
+    LIABILITIES" (the whole Balance Sheet grand total, a completely
+    different and much bigger figure) — without this, a filer whose actual
+    equity subtotal is phrased some other way (e.g. "Total - Equity (A)",
+    confirmed on HUL) silently falls through to that wrong total instead of
+    correctly returning None.
+
+    `permissive`: use a comma-optional number pattern instead of the strict
+    `_NUM_RE`. `_NUM_RE` deliberately requires a comma or 2-decimal suffix
+    (to avoid grabbing stray note-reference numbers on big-number rows like
+    Revenue/Trade Payables), but that means a genuinely small face-value row
+    like Equity Share Capital (e.g. "235", no comma) is invisible to it —
+    the window scan then skips straight past it to the NEXT comma'd number,
+    silently grabbing a completely different, unrelated row instead
+    (confirmed on HUL: "Equity share capital ... 235 235" was skipped in
+    favour of the following "Other equity ... 48,504 49,167" line). Only use
+    this for labels where the value is known to often be a small number."""
+    num_pattern = _PERMISSIVE_NUM_RE if permissive else _NUM_RE
     search_text = text
     if after:
         m = re.search(after, text, re.I)
         if m:
             search_text = text[m.end():]
     for name in canonical_names:
-        m = re.search(re.escape(name), search_text, re.I)
-        if not m:
-            continue
-        window = search_text[m.end():m.end() + 250]
-        nums = re.findall(_NUM_RE, window)
-        if len(nums) >= 2:
-            a, b = _parse_num(nums[0]), _parse_num(nums[1])
-            if a is not None and b is not None:
-                return a, b
+        matches = re.finditer(re.escape(name), search_text, re.I) if reject_after else [re.search(re.escape(name), search_text, re.I)]
+        for m in matches:
+            if not m:
+                continue
+            if reject_after and re.match(reject_after, search_text[m.end():m.end() + 30], re.I):
+                continue
+            window = search_text[m.end():m.end() + 250]
+            nums = re.findall(num_pattern, window)
+            if len(nums) >= 2:
+                a, b = _parse_num(nums[0]), _parse_num(nums[1])
+                if a is not None and b is not None:
+                    return a, b
     return None
 
 
@@ -1849,7 +1892,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # was requested for.
     dividend_per_share, dividend_found = _find_dividend_per_share(doc, 0)
 
-    def _find_bs_row(labels, after=None, subtotal_before=None):
+    def _find_bs_row(labels, after=None, subtotal_before=None, reject_after=None, permissive=False):
         """Find a Balance Sheet row on the primary bs_text page, falling back
         to the immediately following page (Assets/Equity-and-Liabilities are
         sometimes split across two pages of the same statement — seen on
@@ -1869,7 +1912,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         next-page read grabbed a negative cash-flow adjustment instead of the
         real (positive, or genuinely absent) Balance Sheet borrowings figure."""
         def _try(text):
-            v = _find_row_values(text, labels, after=after)
+            v = _find_row_values(text, labels, after=after, reject_after=reject_after, permissive=permissive)
             if v is None and subtotal_before:
                 v = _find_subtotal_before(text, subtotal_before, after=after)
             return v
@@ -1944,17 +1987,38 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # Net Fixed Assets (Sr No 30 denominator).
     net_fixed_assets = _find_bs_row(_NET_FIXED_ASSETS_LABELS)
 
-    # Total Equity (Sr No 18 denominator): owners-attributable portion tried
-    # first (consolidated statements ALSO print a combined "Total equity"
-    # including Non-Controlling Interest, which per spec must be excluded);
-    # falls back to the generic "Total equity"/"Shareholders' funds" labels
-    # for standalone reports with no NCI split, where that IS the owners'
-    # figure.
-    equity = _find_bs_row(_EQUITY_OWNERS_LABELS)
-    equity_basis = "owners" if equity is not None else None
-    if equity is None:
-        equity = _find_bs_row(_EQUITY_GENERIC_LABELS)
-        equity_basis = "generic" if equity is not None else None
+    # Total Equity (Sr No 18 denominator): owners-attributable portion.
+    # Preferred path: sum Equity Share Capital + Other Equity directly — both
+    # are ALWAYS the parent/owners' portion under Ind AS (Non-Controlling
+    # Interest is always its own separate line, never blended into either),
+    # so this is correct regardless of how (or whether) the filer prints an
+    # explicit "Total Equity" subtotal at all.
+    # "Equity share capital" is looked up with the same bounded, note-
+    # reference-tolerant helper written for the Payables MSME fix (a plain
+    # `permissive` number match alone would grab the note-reference digit
+    # printed between the label and the real figures, e.g. "...capital \n 17
+    # \n 235 \n 235" — taking the LAST two numbers before the next row's
+    # label avoids that regardless of whether a reference digit is present).
+    equity_share_capital, _ = _find_payables_row(bs_text, r"equity\s+share\s+capital", r"other\s+equity")
+    other_equity_amt = _find_bs_row(_OTHER_EQUITY_LABELS)
+    if equity_share_capital is not None and other_equity_amt is not None:
+        equity = (round(equity_share_capital[0] + other_equity_amt[0], 2),
+                  round(equity_share_capital[1] + other_equity_amt[1], 2))
+        equity_basis = "owners"
+    else:
+        # Fall back to an explicit "...attributable to owners..." label,
+        # then a generic "Total Equity"/"Shareholders' Funds" label — the
+        # latter REJECTS a match immediately followed by "and liabilities",
+        # since "total equity" is a literal substring of "TOTAL EQUITY AND
+        # LIABILITIES" (the whole Balance Sheet grand total, not equity at
+        # all — confirmed silently happening on HUL, whose actual equity
+        # subtotal is phrased "Total - Equity (A)" and so never matched the
+        # bare "total equity" search to begin with).
+        equity = _find_bs_row(_EQUITY_OWNERS_LABELS)
+        equity_basis = "owners" if equity is not None else None
+        if equity is None:
+            equity = _find_bs_row(_EQUITY_GENERIC_LABELS, reject_after=r"\s*and\s+liabilities")
+            equity_basis = "generic" if equity is not None else None
 
     # Retained Earnings (Altman Z-Score Sr No 55's RE/TA component) --
     # literal "Reserves and Surplus" tried first (confidence 1.0, an exact
