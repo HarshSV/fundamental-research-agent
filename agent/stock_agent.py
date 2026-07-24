@@ -409,7 +409,7 @@ def analyze_quality_node(state: SystemState) -> dict:
                         "content": f"{system_prompt}\n\nHere is the data context:\n{data_context}"
                     }
                 ],
-                max_tokens=2500,
+                max_tokens=3500,
                 api_key=api_key,
             )
             
@@ -450,7 +450,106 @@ def analyze_quality_node(state: SystemState) -> dict:
                 'parsed_json': parsed_data,
                 'narrative': json_to_markdown_narrative(parsed_data, symbol)
             }
-            
+
+    # ------------------------------------------------------------------
+    # Qualitative Analysis topics (F-22 through F-25) — a SEPARATE, smaller
+    # Groq call rather than folding these into the giant F-07..F-21 prompt
+    # above. That combined schema had grown too large: even with a big token
+    # budget the model would truncate mid-response or garble a section's shape
+    # (e.g. echoing F-20's fields into F-22). A focused, short prompt is far
+    # more reliable. Never fatal — sub-points just stay empty on failure.
+    # ------------------------------------------------------------------
+    if api_key and api_key.strip() not in ("", "your_api_key_here"):
+        try:
+            from tools.groq_client import groq_chat, parse_json_loose
+            import time as _time
+            # Small stagger so this call's tokens don't land in the exact same
+            # per-minute rate-limit window as the F-07..F-21 call just above —
+            # two calls back-to-back is the main reason this was hitting Groq's
+            # shared per-minute cap.
+            _time.sleep(3)
+            topics_prompt = (
+                "You are an expert equity research analyst. Given the company data below, return "
+                "ONLY this JSON object (no markdown, no extra text):\n"
+                "{\n"
+                "  \"F-22\": {\n"
+                "    \"business_model_type\": \"Portfolio (multiple products/segments)\",\n"
+                "    \"revenue_pattern\": \"Mixed\",\n"
+                "    \"recurring_revenue_pct\": 65.0,\n"
+                "    \"rationale\": \"2-3 sentences: single-product or multi-segment portfolio business, and which revenue lines are recurring (subscriptions, AMC/service contracts, premiums, interest income) vs one-off/cyclical (project or one-time sales)\"\n"
+                "  },\n"
+                "  \"F-23\": {\n"
+                "    \"moat_types\": {\"brand\": 3.5, \"distribution\": 3.0, \"cost_leadership\": 2.5, \"network_effects\": 1.5, \"switching_costs\": 3.0},\n"
+                "    \"overall_rating\": 3.0,\n"
+                "    \"rationale\": \"2-3 sentences on which of brand/distribution/cost leadership/network effects/switching costs are genuinely strong vs weak\"\n"
+                "  },\n"
+                "  \"F-24\": {\n"
+                "    \"revenue_model_type\": \"Transactional\",\n"
+                "    \"contract_length\": \"short description, e.g. '3-5 year supply contracts' or 'Not disclosed'\",\n"
+                "    \"contract_renewal_rate_pct\": 85.0,\n"
+                "    \"rationale\": \"2-3 sentences on revenue model quality and known renewal/contract-length dynamics\"\n"
+                "  },\n"
+                "  \"F-25\": {\n"
+                "    \"lifecycle_stage\": \"Growth\",\n"
+                "    \"relative_growth_pct\": 4.5,\n"
+                "    \"rationale\": \"2-3 sentences on the product/business lifecycle stage, grounded in the 3-5yr revenue growth trend vs industry\"\n"
+                "  },\n"
+                "  \"F-26\": {\n"
+                "    \"pricing_power_rating\": \"Strong\",\n"
+                "    \"price_pass_through_ratio\": 0.85,\n"
+                "    \"rationale\": \"2-3 sentences on pricing power: can the company raise realisations/prices without losing volume, and how fully does it pass through input-cost inflation (commodity/raw-material costs) into its own prices, per concall/MD&A commentary\"\n"
+                "  },\n"
+                "  \"F-27\": {\n"
+                "    \"structural_defensibility\": \"Structurally defensible\",\n"
+                "    \"one_off_flags\": [\"short flag naming the year/event, e.g. 'FY23: one-time forex/subsidy gain lifted margin' - 0 to 3 items, empty list if none evident\"],\n"
+                "    \"rationale\": \"2-3 sentences on whether margins reflect a durable structural advantage (pricing power, cost structure, scale, brand) vs temporary tailwinds (one-off gains, commodity cycle, subsidy, forex, tax credits), referencing the margin trend/status given below\"\n"
+                "  }\n"
+                "}\n\n"
+                "CRITICAL: every field above is shown with ONE example value already picked for you - that is "
+                "the format you must follow. NEVER output multiple options joined by '|' or write out the full "
+                "list of choices - always pick and output exactly ONE single value per field, based on the "
+                "actual company data below. The allowed values are: business_model_type is exactly 'Single "
+                "product' or 'Portfolio (multiple products/segments)'. revenue_pattern is exactly 'Recurring', "
+                "'Cyclical', or 'Mixed'. revenue_model_type is exactly 'Transactional', 'Recurring subscription', "
+                "'Annuity', or 'Long-term contract'. lifecycle_stage is exactly 'Growth', 'Maturity', "
+                "'Commoditisation', or 'Decline / obsolescence risk'. pricing_power_rating is exactly 'Strong', "
+                "'Moderate', or 'Weak'. structural_defensibility is exactly 'Structurally defensible', "
+                "'Partially temporary tailwinds', or 'Largely temporary tailwinds'.\n\n"
+                "Rules: F-22 recurring_revenue_pct and F-25 relative_growth_pct are ESTIMATES - never null, "
+                "approximate from the business description and known industry economics even if not explicitly "
+                "disclosed. F-23 moat_types: rate ALL 5 on a 1-5 scale, never null (a low score is a valid answer). "
+                "F-24 contract_renewal_rate_pct: this is a hard disclosed fact, not an estimate - return null if not "
+                "explicitly stated (expected for most companies). F-26 price_pass_through_ratio (= % change in "
+                "realisation / % change in input cost, e.g. 1.0 = fully passed through, below 1.0 = margin absorbs "
+                "some inflation): give your best ESTIMATE - never null - based on the company's known pricing "
+                "power and industry structure, even if an exact ratio isn't disclosed. F-27 one_off_flags: only "
+                "include years/events genuinely evidenced in the provided context - an empty list is valid and "
+                "expected for most companies. Follow each field's exact name and shape above - do not reuse "
+                "another section's fields."
+            )
+            topics_text = groq_chat(
+                messages=[
+                    {"role": "system", "content": "You are an equity research assistant. Respond with raw JSON only."},
+                    {"role": "user", "content": f"{topics_prompt}\n\nCompany data:\n{data_context}"},
+                ],
+                max_tokens=1500,
+                api_key=api_key,
+            )
+            topics_data = parse_json_loose(topics_text)
+            for k in ('F-22', 'F-23', 'F-24', 'F-25', 'F-26', 'F-27'):
+                if isinstance(topics_data.get(k), dict):
+                    parsed_data[k] = topics_data[k]
+            qualitative_payload['parsed_json'] = parsed_data
+            qualitative_payload['topics_status'] = 'SUCCESS'
+            print("[analyze_quality_node] Qualitative-topics (F-22..F-27) call succeeded.")
+        except Exception as te:
+            # Surface this in the returned payload (not just a server-log print) so
+            # it's inspectable from the cached report JSON when a sub-point stays
+            # empty — otherwise there is no way to tell why without console access.
+            qualitative_payload['topics_status'] = 'FAILED'
+            qualitative_payload['topics_error'] = str(te)
+            print(f"[analyze_quality_node] Qualitative-topics call failed (sub-points will stay empty): {te}")
+
     # Build parsed_sections for backwards compatibility and fallback text
     pdata = qualitative_payload.get('parsed_json') or {}
 
@@ -530,9 +629,9 @@ def _next_month_price(symbol: str, price0):
     project one month ahead with a ±1σ range. Best-effort; returns None on failure."""
     try:
         import numpy as np
-        import yfinance as yf
+        from tools.yf_cache import cached_history
         sym = (symbol or "").strip().upper().replace(".NS", "")
-        hist = yf.Ticker(f"{sym}.NS").history(period="2y", interval="1mo")
+        hist = cached_history(f"{sym}.NS", period="2y", interval="1mo")
         closes = [float(c) for c in (hist["Close"].tolist() if hist is not None and not hist.empty else []) if c and not (c != c)]
         closes = closes[-13:]
         if len(closes) < 6:
@@ -1792,6 +1891,238 @@ def build_executive_summary(state: SystemState) -> dict:
         'channels': _f21_list('channels'),
     }
 
+    # ------------------------------------------------------------------
+    # QUALITATIVE ANALYSIS TOPICS — Topic A: Company strategy & business model.
+    # Each sub-point carries: the LLM finding, chart data (when numeric), and a
+    # Primary/Secondary/Tertiary source citation trail (per the qualitative
+    # research spec — Annual Report -> Investor Presentation -> Screener.in).
+    # ------------------------------------------------------------------
+    def _enum(value, allowed):
+        """Only accept an exact (case-insensitive) match against the allowed set —
+        guards against the LLM occasionally echoing the whole 'A | B | C' options
+        string back as a literal value instead of picking one. Drop it rather
+        than show garbage in the UI."""
+        if not isinstance(value, str):
+            return None
+        for opt in allowed:
+            if value.strip().lower() == opt.lower():
+                return opt
+        return None
+
+    f22 = q.get('F-22', {}) or {}
+    f23 = q.get('F-23', {}) or {}
+    f24 = q.get('F-24', {}) or {}
+    f25 = q.get('F-25', {}) or {}
+    f26 = q.get('F-26', {}) or {}
+    f27 = q.get('F-27', {}) or {}
+
+    _biz_model_type = _enum(f22.get('business_model_type'), ['Single product', 'Portfolio (multiple products/segments)'])
+    _revenue_pattern = _enum(f22.get('revenue_pattern'), ['Recurring', 'Cyclical', 'Mixed'])
+    _revenue_model_type = _enum(f24.get('revenue_model_type'), ['Transactional', 'Recurring subscription', 'Annuity', 'Long-term contract'])
+    _lifecycle_stage = _enum(f25.get('lifecycle_stage'), ['Growth', 'Maturity', 'Commoditisation', 'Decline / obsolescence risk'])
+    _pricing_power_rating = _enum(f26.get('pricing_power_rating'), ['Strong', 'Moderate', 'Weak'])
+    _structural_defensibility = _enum(f27.get('structural_defensibility'), ['Structurally defensible', 'Partially temporary tailwinds', 'Largely temporary tailwinds'])
+
+    _recurring_pct = f22.get('recurring_revenue_pct')
+    try:
+        _recurring_pct = float(_recurring_pct)
+        _recurring_pct = max(0.0, min(100.0, _recurring_pct))
+    except (TypeError, ValueError):
+        _recurring_pct = None
+
+    _renewal_pct = f24.get('contract_renewal_rate_pct')
+    try:
+        _renewal_pct = float(_renewal_pct)
+        _renewal_pct = max(0.0, min(100.0, _renewal_pct))
+    except (TypeError, ValueError):
+        _renewal_pct = None
+
+    _rel_growth = f25.get('relative_growth_pct')
+    try:
+        _rel_growth = round(max(-50.0, min(50.0, float(_rel_growth))), 1)
+    except (TypeError, ValueError):
+        _rel_growth = None
+
+    _pass_through = f26.get('price_pass_through_ratio')
+    try:
+        _pass_through = round(max(0.0, min(2.0, float(_pass_through))), 2)
+    except (TypeError, ValueError):
+        _pass_through = None
+
+    # Margin volatility (Std dev of EBITDA margin / Mean EBITDA margin, 5-8Y) is
+    # computed here from REAL reported financials rather than an LLM estimate —
+    # this figure is directly derivable from the income statement, so there's no
+    # reason to let the model guess it. Only the "is this structural or a
+    # temporary tailwind" judgment comes from the LLM (F-27).
+    _margin_rows = (margins.get('margins_annual') or [])[-8:]
+    _ebitda_margin_series = [
+        {'label': str(r.get('date', ''))[:7], 'value': round(r['ebitda_margin'] * 100, 2)}
+        for r in _margin_rows if r.get('ebitda_margin') is not None
+    ]
+    _margin_volatility = None
+    if len(_ebitda_margin_series) >= 3:
+        _vals = [r['value'] for r in _ebitda_margin_series]
+        _mean = sum(_vals) / len(_vals)
+        if _mean:
+            _variance = sum((v - _mean) ** 2 for v in _vals) / len(_vals)
+            _margin_volatility = round((_variance ** 0.5) / abs(_mean), 2)
+
+    _ar_ip_screener_sources = {
+        'primary': {'label': 'Company Annual Report', 'note': 'sourced via BSE announcement / company IR page'},
+        'secondary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page'},
+        'tertiary': {'label': 'Screener.in – Documents/Financials tab', 'url': 'https://www.screener.in'},
+    }
+
+    # F-23 moat sub-scores (1-5 scale) — a labelled bar chart, same idea as the
+    # recurring-revenue donut but for a rating rather than a percentage.
+    _moat_label = {'brand': 'Brand', 'distribution': 'Distribution', 'cost_leadership': 'Cost leadership',
+                   'network_effects': 'Network effects', 'switching_costs': 'Switching costs'}
+    _moat_types = f23.get('moat_types') or {}
+    _moat_bars = []
+    for _mk, _mlabel in _moat_label.items():
+        _mv = _moat_types.get(_mk)
+        try:
+            _mv = max(0.0, min(5.0, float(_mv)))
+        except (TypeError, ValueError):
+            continue
+        _moat_bars.append({'label': _mlabel, 'value': round(_mv, 1)})
+    _moat_overall = f23.get('overall_rating')
+    try:
+        _moat_overall = round(max(0.0, min(5.0, float(_moat_overall))), 1)
+    except (TypeError, ValueError):
+        _moat_overall = None
+
+    qualitative_topics = {
+        'strategy_business_model': {
+            'topic': 'A. Company strategy & business model',
+            'subpoints': [
+                {
+                    'key': 'clarity_of_business_model',
+                    'title': 'Clarity of business model: single product vs portfolio; cyclical vs recurring revenue',
+                    'finding': f22.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Business model', _biz_model_type] if _biz_model_type else None),
+                        (['Revenue pattern', _revenue_pattern] if _revenue_pattern else None),
+                        (['Recurring revenue', f"~{round(_recurring_pct)}%"] if _recurring_pct is not None else None),
+                    ] if f],
+                    'chart': ({
+                        'type': 'donut',
+                        'data': [
+                            {'label': 'Recurring revenue', 'pct': round(_recurring_pct, 1)},
+                            {'label': 'Non-recurring / cyclical revenue', 'pct': round(100 - _recurring_pct, 1)},
+                        ],
+                    } if _recurring_pct is not None else None),
+                    'formula': 'Recurring revenue % = Recurring revenue / Total revenue',
+                    'sources': _ar_ip_screener_sources,
+                },
+                {
+                    'key': 'competitive_advantage_moats',
+                    'title': 'Competitive advantage / moats: brand, distribution, cost leadership, network effects, switching costs',
+                    'finding': f23.get('rationale') or None,
+                    'facts': ([['Overall moat rating', f"{_moat_overall} / 5"]] if _moat_overall is not None else []),
+                    'chart': ({'type': 'bar', 'data': _moat_bars, 'scaleMax': 5} if _moat_bars else None),
+                    'formula': 'N/A — qualitative rating (1-5 scale) based on evidence checklist',
+                    'sources': {
+                        'primary': {'label': 'CRISIL Ratings/Research', 'url': 'https://www.crisilratings.com'},
+                        'secondary': {'label': 'ICRA Research', 'url': 'https://www.icra.in'},
+                        'tertiary': {'label': 'Screener.in – peer/moat comparison, incl. Tijori Finance', 'url': 'https://www.screener.in'},
+                    },
+                },
+                {
+                    'key': 'revenue_model_quality',
+                    'title': 'Revenue model quality: transactional, recurring, annuity, contract length & renewal dynamics',
+                    'finding': f24.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Revenue model', _revenue_model_type] if _revenue_model_type else None),
+                        (['Contract length', f24.get('contract_length')] if f24.get('contract_length') else None),
+                        (['Contract renewal rate', f"~{round(_renewal_pct)}%"] if _renewal_pct is not None else None),
+                    ] if f],
+                    'chart': ({
+                        'type': 'donut',
+                        'data': [
+                            {'label': 'Renewed', 'pct': round(_renewal_pct, 1)},
+                            {'label': 'Not renewed / lapsed', 'pct': round(100 - _renewal_pct, 1)},
+                        ],
+                    } if _renewal_pct is not None else (
+                        # No disclosed renewal rate (the common case) — still show
+                        # *something* visual: where this business sits on the
+                        # revenue-model spectrum, rather than a bare text label.
+                        {'type': 'spectrum',
+                         'options': ['Transactional', 'Recurring subscription', 'Annuity', 'Long-term contract'],
+                         'active': _revenue_model_type}
+                        if _revenue_model_type else None
+                    )),
+                    'formula': 'Contract renewal rate = Contracts renewed / Contracts up for renewal',
+                    'sources': {
+                        'primary': {'label': 'Company Annual Report', 'note': 'Notes to Accounts – Revenue Recognition, sourced via BSE announcement / company IR page'},
+                        'secondary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page'},
+                        'tertiary': {'label': 'Screener.in – Documents/Financials tab', 'url': 'https://www.screener.in'},
+                    },
+                },
+                {
+                    'key': 'product_lifecycle_stage',
+                    'title': 'Product lifecycle stage: growth, maturity, commoditisation, obsolescence risk',
+                    'finding': f25.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Lifecycle stage', _lifecycle_stage] if _lifecycle_stage else None),
+                        (['Relative growth', f"{'+' if _rel_growth >= 0 else ''}{_rel_growth} percentage points vs industry"]
+                         if _rel_growth is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'diverging', 'value': _rel_growth, 'range': 20,
+                               'label': 'Revenue CAGR vs industry (5yr)'} if _rel_growth is not None else (
+                        {'type': 'spectrum',
+                         'options': ['Growth', 'Maturity', 'Commoditisation', 'Decline / obsolescence risk'],
+                         'active': _lifecycle_stage}
+                        if _lifecycle_stage else None
+                    )),
+                    'formula': 'Relative growth = Company revenue CAGR − Industry revenue CAGR',
+                    'sources': {
+                        'primary': {'label': 'CRISIL Ratings/Research', 'url': 'https://www.crisilratings.com'},
+                        'secondary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page'},
+                        'tertiary': {'label': 'Moneycontrol News/Research', 'note': 'Research/analyst reports', 'url': 'https://www.moneycontrol.com'},
+                    },
+                },
+                {
+                    'key': 'pricing_power',
+                    'title': 'Pricing power: ability to raise prices without losing customers; pass-through of cost inflation',
+                    'finding': f26.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Pricing power', _pricing_power_rating] if _pricing_power_rating else None),
+                        (['Price pass-through ratio', f"{_pass_through:.2f}x"] if _pass_through is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'bar', 'panelTitle': 'Pass-through ratio', 'data': [{'label': 'Price pass-through ratio', 'value': _pass_through}], 'scaleMax': 2} if _pass_through is not None else (
+                        {'type': 'spectrum', 'options': ['Weak', 'Moderate', 'Strong'], 'active': _pricing_power_rating}
+                        if _pricing_power_rating else None
+                    )),
+                    'formula': 'Price pass-through ratio = Change in realisation % / Change in input cost %',
+                    'sources': {
+                        'primary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab'},
+                        'secondary': {'label': 'Company Annual Report', 'note': 'MD&A, sourced via BSE announcement / company IR page'},
+                        'tertiary': {'label': 'MCX – Commodity Prices', 'note': '+ LME for commodity input costs', 'url': 'https://www.mcx.co.in'},
+                    },
+                },
+                {
+                    'key': 'margin_sustainability',
+                    'title': 'Margin sustainability: structurally defensible margins vs temporary tailwinds',
+                    'finding': f27.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Structural defensibility', _structural_defensibility] if _structural_defensibility else None),
+                        (['Margin volatility', f"{_margin_volatility:.2f}"] if _margin_volatility is not None else None),
+                        (['One-off years flagged', '; '.join(f27.get('one_off_flags') or [])] if f27.get('one_off_flags') else None),
+                    ] if f],
+                    'chart': ({'type': 'trend', 'rows': _ebitda_margin_series, 'seriesLabel': 'EBITDA margin',
+                               'panelTitle': 'EBITDA margin trend'} if len(_ebitda_margin_series) >= 3 else None),
+                    'formula': 'Margin volatility = Std dev of EBITDA margin (5Y) / Mean EBITDA margin (5Y)',
+                    'sources': {
+                        'primary': {'label': 'BSE India – Corporate Announcements', 'note': 'Quarterly Results', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
+                        'secondary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab'},
+                        'tertiary': {'label': 'Screener.in – Documents/Financials tab', 'note': '5-8Y margin trend', 'url': 'https://www.screener.in'},
+                    },
+                },
+            ],
+        },
+    }
+
     ml_forecast = build_ml_forecast(m, info, symbol)
 
     # SOIC-style deterministic financial analysis (Piotroski F-Score, DuPont ROE,
@@ -1825,6 +2156,7 @@ def build_executive_summary(state: SystemState) -> dict:
         'forward_valuation': forward_valuation,
         'peer_rank': peer_rank,
         'business_understanding': business_understanding,
+        'qualitative_topics': qualitative_topics,
         'investment_checklist': {
             'items': checklist,
             'summary': checklist_summary,

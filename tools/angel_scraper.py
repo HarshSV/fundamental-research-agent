@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 import pyotp
 from SmartApi import SmartConnect
@@ -7,6 +8,14 @@ from dotenv import load_dotenv
 
 # Load env variables from root .env if it exists
 load_dotenv()
+
+# Process-level Angel One session cache. Logging in (TOTP + generateSession) is a
+# real network round-trip; re-running it on every single AngelDataScraper()
+# instantiation — which used to happen once per /generate-report request — was
+# pure wasted latency, since an Angel session stays valid for hours. Reuse the
+# same authenticated SmartConnect object across requests until it expires.
+_SESSION_TTL = 6 * 3600
+_session_cache = {"smart_connect": None, "authenticated": False, "ts": 0.0}
 
 
 def _usd_inr_rate():
@@ -153,7 +162,16 @@ class AngelDataScraper:
         self.smart_connect = None
         self.authenticated = False
         self.scrip_master = None
-        
+
+        # Reuse a still-fresh session instead of re-authenticating (TOTP +
+        # generateSession network call) on every instantiation.
+        cached = _session_cache
+        if cached["authenticated"] and cached["smart_connect"] is not None \
+                and (time.time() - cached["ts"]) < _SESSION_TTL:
+            self.smart_connect = cached["smart_connect"]
+            self.authenticated = True
+            return
+
         # Initialize and log in
         self._login()
 
@@ -172,7 +190,7 @@ class AngelDataScraper:
            any(p in (api_key or "") for p in ["your_copied", "dummy", "here"]):
             print("[AngelDataScraper] Warning: One or more Angel One credentials (ANGEL_API_KEY, ANGEL_CLIENT_CODE, ANGEL_PASSWORD, ANGEL_TOTP_SECRET) are missing or set to placeholder values. Sliding over to yfinance fallback.")
             return False
-            
+
         try:
             print("[AngelDataScraper] Connecting to SmartConnect...")
             # Initialize the SmartConnect session using ANGEL_API_KEY
@@ -189,6 +207,9 @@ class AngelDataScraper:
             if session.get('status') is True:
                 print("[AngelDataScraper] Authentication successful! Session established.")
                 self.authenticated = True
+                _session_cache["smart_connect"] = self.smart_connect
+                _session_cache["authenticated"] = True
+                _session_cache["ts"] = time.time()
                 return True
             else:
                 msg = session.get('message', 'Unknown error')
@@ -203,23 +224,53 @@ class AngelDataScraper:
 
     def _load_scrip_master(self):
         """
-        Downloads and caches the official Angel One Instrument List (Scrip Master).
+        Loads the official Angel One Instrument List (Scrip Master), preferring a
+        fresh on-disk cache so we don't re-download the multi-MB file on every
+        process start. If the download fails (common behind a TLS-inspecting
+        firewall, where it read-times-out), the failure is memoized for the
+        session so subsequent quote calls skip straight to the yfinance fallback
+        instead of eating another full timeout every single time — that repeated
+        timeout was the root cause of multi-minute quote latency.
         """
         if self.scrip_master is not None:
             return
-            
+        if getattr(self, '_scrip_master_failed', False):
+            return  # already failed this session — don't retry the slow download
+
+        import json as _json
+        import tempfile
+        import time as _t
+        cache_path = os.path.join(tempfile.gettempdir(), 'navrist_angel_scrip_master.json')
+
+        # Serve from disk cache when it's less than a day old.
+        try:
+            if os.path.exists(cache_path) and (_t.time() - os.path.getmtime(cache_path) < 86400):
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    self.scrip_master = _json.load(f)
+                print(f"[AngelDataScraper] Loaded {len(self.scrip_master)} instruments from disk cache.")
+                return
+        except Exception as e:
+            print(f"[AngelDataScraper] Scrip master disk cache unreadable ({e}); will download.")
+
         try:
             print("[AngelDataScraper] Downloading Angel One Scrip Master json...")
             url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
-            response = requests.get(url, timeout=15)
-            
+            response = requests.get(url, timeout=30)
+
             if response.status_code == 200:
                 self.scrip_master = response.json()
                 print(f"[AngelDataScraper] Loaded {len(self.scrip_master)} instrument tokens from Scrip Master.")
+                try:
+                    with open(cache_path, 'w', encoding='utf-8') as f:
+                        _json.dump(self.scrip_master, f)
+                except Exception:
+                    pass  # cache write is best-effort
             else:
                 print(f"[AngelDataScraper] Failed to download Scrip Master. Status Code: {response.status_code}")
+                self._scrip_master_failed = True
         except Exception as e:
             print(f"[AngelDataScraper] Failed to fetch Instrument List: {e}")
+            self._scrip_master_failed = True
 
     def _resolve_symbol(self, symbol: str) -> dict:
         """
@@ -276,9 +327,10 @@ class AngelDataScraper:
             if not symbol_ns.endswith('.NS'):
                 symbol_ns = f"{symbol_ns}.NS"
                 
+            from tools.yf_cache import cached_info
             ticker = yf.Ticker(symbol_ns)
-            info = ticker.info
-            
+            info = cached_info(symbol_ns)
+
             last_price = info.get('currentPrice', info.get('lastPrice', info.get('regularMarketPrice')))
             volume = info.get('volume', info.get('regularMarketVolume'))
             
@@ -459,34 +511,35 @@ class AngelDataScraper:
                         'close': data.get('close')
                     }
                     
-                    # Financials: yfinance PRIMARY (fast, complete). Direct Screener.in
-                    # scrape is the fallback only when yfinance returns nothing (e.g. a
-                    # renamed/demerged ticker like TATAMOTORS that 404s on yfinance).
+                    # Financials: Screener.in scrape is PRIMARY (matches the rest of
+                    # the codebase's NSE/BSE-first sourcing) — yfinance is only the
+                    # fallback when Screener has no parseable income statement for
+                    # this ticker (e.g. an odd slug or a very new listing).
                     financial_arrays = {}
                     shareholding = {}
                     screener_data = None
                     try:
-                        ticker = yf.Ticker(f"{symbol_clean}.NS")
-                        financial_arrays = {
-                            'quarterly_income_stmt': self._serialize_df(ticker.quarterly_income_stmt),
-                            'quarterly_balance_sheet': self._serialize_df(ticker.quarterly_balance_sheet),
-                            'quarterly_cash_flow': self._serialize_df(ticker.quarterly_cashflow),
-                            'income_stmt': self._serialize_df(ticker.income_stmt),
-                            'balance_sheet': self._serialize_df(ticker.balance_sheet),
-                            'cash_flow': self._serialize_df(ticker.cashflow)
-                        }
-                    except Exception as yf_fin_err:
-                        print(f"[AngelDataScraper] Warning: yfinance financials failed: {yf_fin_err}")
+                        from tools.screener_scraper import fetch_screener_financials
+                        screener_data = fetch_screener_financials(symbol_clean)
+                        if screener_data and screener_data.get('financial_arrays'):
+                            financial_arrays = screener_data['financial_arrays']
+                            shareholding = screener_data.get('shareholding', {})
+                    except Exception as scr_err:
+                        print(f"[AngelDataScraper] Screener.in scrape failed ({scr_err}).")
                     if not financial_arrays.get('income_stmt'):
                         try:
-                            from tools.screener_scraper import fetch_screener_financials
-                            screener_data = fetch_screener_financials(symbol_clean)
-                            if screener_data and screener_data.get('financial_arrays'):
-                                financial_arrays = screener_data['financial_arrays']
-                                shareholding = screener_data.get('shareholding', {})
-                                print(f"[AngelDataScraper] yfinance empty -> Screener.in scrape financials for {symbol_clean}.")
-                        except Exception as scr_err:
-                            print(f"[AngelDataScraper] Screener.in scrape fallback failed ({scr_err}).")
+                            ticker = yf.Ticker(f"{symbol_clean}.NS")
+                            financial_arrays = {
+                                'quarterly_income_stmt': self._serialize_df(ticker.quarterly_income_stmt),
+                                'quarterly_balance_sheet': self._serialize_df(ticker.quarterly_balance_sheet),
+                                'quarterly_cash_flow': self._serialize_df(ticker.quarterly_cashflow),
+                                'income_stmt': self._serialize_df(ticker.income_stmt),
+                                'balance_sheet': self._serialize_df(ticker.balance_sheet),
+                                'cash_flow': self._serialize_df(ticker.cashflow)
+                            }
+                            print(f"[AngelDataScraper] Screener.in empty -> yfinance fallback financials for {symbol_clean}.")
+                        except Exception as yf_fin_err:
+                            print(f"[AngelDataScraper] Warning: yfinance fallback financials failed: {yf_fin_err}")
 
                     # Use ownership from Screener if available, else try yfinance
                     ownership = {
@@ -500,8 +553,8 @@ class AngelDataScraper:
                             info = screener_data['info']
                             ownership = screener_data.get('ownership_metrics', ownership)
                         else:
-                            ticker = yf.Ticker(f"{symbol_clean}.NS")
-                            info = ticker.info
+                            from tools.yf_cache import cached_info
+                            info = cached_info(f"{symbol_clean}.NS")
                             ownership['F-10_heldPercentInsiders'] = info.get('heldPercentInsiders')
                             ownership['F-11_promoterPledges'] = info.get('promoterPledges', None)
                             ownership['F-12_heldPercentInstitutions'] = info.get('heldPercentInstitutions')
@@ -533,29 +586,29 @@ class AngelDataScraper:
                     'close': data.get('close')
                 }
                 
-                # Financials: yfinance PRIMARY, direct Screener.in scrape fallback if empty.
+                # Financials: Screener.in scrape PRIMARY, yfinance fallback if empty.
                 financial_arrays = {}
                 try:
-                    ticker = yf.Ticker(f"{symbol_clean}.NS")
-                    financial_arrays = {
-                        'quarterly_income_stmt': self._serialize_df(ticker.quarterly_income_stmt),
-                        'quarterly_balance_sheet': self._serialize_df(ticker.quarterly_balance_sheet),
-                        'quarterly_cash_flow': self._serialize_df(ticker.quarterly_cashflow),
-                        'income_stmt': self._serialize_df(ticker.income_stmt),
-                        'balance_sheet': self._serialize_df(ticker.balance_sheet),
-                        'cash_flow': self._serialize_df(ticker.cashflow)
-                    }
-                except Exception as yf_fin_err:
-                    print(f"[AngelDataScraper] Warning: yfinance financials failed: {yf_fin_err}")
+                    from tools.screener_scraper import fetch_screener_financials
+                    screener_data = fetch_screener_financials(symbol_clean)
+                    if screener_data and screener_data.get('financial_arrays'):
+                        financial_arrays = screener_data['financial_arrays']
+                except Exception:
+                    pass
                 if not financial_arrays.get('income_stmt'):
                     try:
-                        from tools.screener_scraper import fetch_screener_financials
-                        screener_data = fetch_screener_financials(symbol_clean)
-                        if screener_data and screener_data.get('financial_arrays'):
-                            financial_arrays = screener_data['financial_arrays']
-                            print(f"[AngelDataScraper] ltpData path: yfinance empty -> Screener.in scrape.")
-                    except Exception:
-                        pass
+                        ticker = yf.Ticker(f"{symbol_clean}.NS")
+                        financial_arrays = {
+                            'quarterly_income_stmt': self._serialize_df(ticker.quarterly_income_stmt),
+                            'quarterly_balance_sheet': self._serialize_df(ticker.quarterly_balance_sheet),
+                            'quarterly_cash_flow': self._serialize_df(ticker.quarterly_cashflow),
+                            'income_stmt': self._serialize_df(ticker.income_stmt),
+                            'balance_sheet': self._serialize_df(ticker.balance_sheet),
+                            'cash_flow': self._serialize_df(ticker.cashflow)
+                        }
+                        print(f"[AngelDataScraper] ltpData path: Screener.in empty -> yfinance fallback.")
+                    except Exception as yf_fin_err:
+                        print(f"[AngelDataScraper] Warning: yfinance fallback financials failed: {yf_fin_err}")
 
                 # Retrieve volume and ownership metrics from yfinance
                 volume = None
@@ -566,8 +619,8 @@ class AngelDataScraper:
                 }
                 info = {}
                 try:
-                    ticker = yf.Ticker(f"{symbol_clean}.NS")
-                    info = ticker.info
+                    from tools.yf_cache import cached_info
+                    info = cached_info(f"{symbol_clean}.NS")
                     volume = info.get('volume')
                     ownership['F-10_heldPercentInsiders'] = info.get('heldPercentInsiders')
                     ownership['F-11_promoterPledges'] = info.get('promoterPledges', None)

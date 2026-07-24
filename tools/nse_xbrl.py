@@ -2766,9 +2766,9 @@ def fetch_beta(symbol, name=None, to_date=None):
         return {**base, **db_row}
 
     try:
-        import yfinance as yf
-        stock_hist = yf.Ticker(f"{sym}.NS").history(period="2y", interval="1wk")
-        index_hist = yf.Ticker("^NSEI").history(period="2y", interval="1wk")
+        from tools.yf_cache import cached_history
+        stock_hist = cached_history(f"{sym}.NS", period="2y", interval="1wk")
+        index_hist = cached_history("^NSEI", period="2y", interval="1wk")
     except Exception as e:
         print(f"[nse_xbrl] Beta history fetch failed for {sym}: {e}")
         return {**base, "applicable": False,

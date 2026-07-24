@@ -9,6 +9,7 @@ import DashHeader from "./components/layout/DashHeader.jsx";
 import Overview from "./views/Overview.jsx";
 import Settings from "./views/Settings.jsx";
 import History from "./views/History.jsx";
+import AskNavrist from "./components/AskNavrist.jsx";
 import { addHistory } from "./lib/history.js";
 import { SECTIONS } from "./components/layout/sections.jsx";
 import { SECTORS, getRatiosForSector, getIndustrySpecificRatiosForSector,
@@ -424,8 +425,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // --- SUBCOMPONENT: Reusable multi-series trend chart (line + area) with hover tooltip ---
         // rows: [{label, [key]:number, ...}]; series: [{key,label,color}]; fmt(v)->string for axis/tooltip.
-        const TrendChart = ({ rows, series, fmt = (v) => v, height = 150, refLine = null }) => {
+        const TrendChart = ({ rows, series, fmt = (v) => v, height = 150, refLine = null, smooth = false }) => {
             const [hi, setHi] = useState(null);
+            const [hoverX, setHoverX] = useState(null);
             const svgRef = useRef(null);
             const clean = (rows || []).filter(r => series.some(s => r[s.key] != null && !isNaN(r[s.key])));
             if (clean.length < 2) return <div className="text-center p-6 text-xs text-slate-500">Not enough data points to plot a trend.</div>;
@@ -439,19 +441,45 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const x = (i) => P.l + (clean.length === 1 ? cw / 2 : (i / (clean.length - 1)) * cw);
             const y = (v) => P.t + ch * (1 - (v - min) / (max - min));
             const ticks = [max, (max + min) / 2, min];
-            const showDots = clean.length <= 16;
+            const showDots = !smooth && clean.length <= 16;
             const onMove = (e) => {
                 const rect = svgRef.current.getBoundingClientRect();
                 const sx = ((e.clientX - rect.left) / rect.width) * W;
+                if (smooth) {
+                    // Track the exact cursor pixel (clamped to the plot area) instead of
+                    // snapping to the nearest labelled point — the crosshair and the
+                    // (linearly interpolated) reading follow the cursor continuously,
+                    // so every pixel across the whole chart is "live", not just the
+                    // handful of actual data points.
+                    setHoverX(Math.max(P.l, Math.min(W - P.r, sx)));
+                    return;
+                }
                 let idx = Math.round(((sx - P.l) / cw) * (clean.length - 1));
                 idx = Math.max(0, Math.min(clean.length - 1, idx));
                 setHi(idx);
             };
-            const hv = hi != null ? clean[hi] : null;
-            const tipW = 168, tipRight = hi != null && x(hi) > W - tipW - 8;
+            const onLeave = () => { setHi(null); setHoverX(null); };
+            // Smooth mode: derive a continuous "virtual row" via linear interpolation
+            // between the two real points the cursor sits between.
+            let hv = hi != null ? clean[hi] : null;
+            let crosshairX = hi != null ? x(hi) : null;
+            if (smooth && hoverX != null) {
+                const contIdx = Math.max(0, Math.min(clean.length - 1, ((hoverX - P.l) / cw) * (clean.length - 1)));
+                const i0 = Math.floor(contIdx), i1 = Math.min(i0 + 1, clean.length - 1), t = contIdx - i0;
+                const r0 = clean[i0], r1 = clean[i1];
+                const nearest = t < 0.5 ? r0 : r1;
+                const interp = { label: nearest.label };
+                series.forEach(s => {
+                    const v0 = r0[s.key], v1 = r1[s.key];
+                    interp[s.key] = (v0 != null && v1 != null && !isNaN(v0) && !isNaN(v1)) ? v0 + (v1 - v0) * t : (v0 ?? v1);
+                });
+                hv = interp;
+                crosshairX = hoverX;
+            }
+            const tipW = 168, tipRight = crosshairX != null && crosshairX > W - tipW - 8;
             return (
                 <div className="w-full p-4 bg-slate-950 border border-slate-800 rounded-lg">
-                    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full" onMouseMove={onMove} onMouseLeave={() => setHi(null)} style={{ cursor: 'crosshair' }}>
+                    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full" onMouseMove={onMove} onMouseLeave={onLeave} style={{ cursor: 'crosshair' }}>
                         {ticks.map((tv, i) => (
                             <g key={i}>
                                 <line x1={P.l} y1={y(tv)} x2={W - P.r} y2={y(tv)} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 3" />
@@ -487,11 +515,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         {/* hover crosshair + markers + tooltip */}
                         {hv && (
                             <g>
-                                <line x1={x(hi)} y1={P.t} x2={x(hi)} y2={P.t + ch} stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 3" />
+                                <line x1={crosshairX} y1={P.t} x2={crosshairX} y2={P.t + ch} stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 3" />
                                 {series.map(s => (hv[s.key] == null || isNaN(hv[s.key])) ? null : (
-                                    <circle key={s.key} cx={x(hi)} cy={y(hv[s.key])} r="3.5" fill="#fff" stroke={s.color} strokeWidth="2" />
+                                    <circle key={s.key} cx={crosshairX} cy={y(hv[s.key])} r="3.5" fill="#fff" stroke={s.color} strokeWidth="2" />
                                 ))}
-                                <g transform={`translate(${tipRight ? x(hi) - tipW - 8 : x(hi) + 8}, ${P.t + 4})`}>
+                                <g transform={`translate(${tipRight ? crosshairX - tipW - 8 : crosshairX + 8}, ${P.t + 4})`}>
                                     <rect width={tipW} height={18 + series.length * 14} rx="5" fill="#0f172a" opacity="0.92" />
                                     <text x="8" y="14" fill="#cbd5e1" fontSize="9" className="font-bold">{hv.label}</text>
                                     {series.map((s, si) => (hv[s.key] == null || isNaN(hv[s.key])) ? null : (
@@ -535,33 +563,70 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: PIE chart (full circle) with hover value ---
-        const Donut = ({ data, fmt = (v) => v, unit = '' }) => {
+        // --- SUBCOMPONENT: DONUT chart (ring, with hole) with hover value.
+        // `center` (optional {value,label}) renders a permanent headline number
+        // in the middle of the ring — e.g. "65% Recurring revenue" — swapped for
+        // the hovered slice's value while hovering, like the Overview page's
+        // "Total Revenue" donut.
+        const Donut = ({ data, fmt = (v) => v, unit = '', center = null, dark = false }) => {
             const [hi, setHi] = useState(null);
             const items = (data || []).filter(d => d.value != null && d.value > 0);
             if (!items.length) return <div className="text-center p-4 text-[11px] text-slate-500">No data to chart.</div>;
             const total = items.reduce((s, d) => s + d.value, 0);
             const palette = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#ef4444', '#64748b'];
-            const cx = 60, cy = 60, R = 56;
+            const cx = 60, cy = 60, R = 56, HOLE = 32;
             let ang = -Math.PI / 2;
             const slices = items.map((d, i) => {
                 const frac = d.value / total, a0 = ang, a1 = ang + frac * 2 * Math.PI; ang = a1;
                 const rr = hi === i ? R + 3 : R;
                 const large = (a1 - a0) > Math.PI ? 1 : 0;
-                const path = items.length === 1
+                const outerPath = items.length === 1
                     ? `M ${cx} ${cy} m -${rr} 0 a ${rr} ${rr} 0 1 0 ${rr * 2} 0 a ${rr} ${rr} 0 1 0 -${rr * 2} 0`
-                    : `M ${cx} ${cy} L ${(cx + rr * Math.cos(a0)).toFixed(2)} ${(cy + rr * Math.sin(a0)).toFixed(2)} A ${rr} ${rr} 0 ${large} 1 ${(cx + rr * Math.cos(a1)).toFixed(2)} ${(cy + rr * Math.sin(a1)).toFixed(2)} Z`;
+                    : `M ${(cx + rr * Math.cos(a0)).toFixed(2)} ${(cy + rr * Math.sin(a0)).toFixed(2)} A ${rr} ${rr} 0 ${large} 1 ${(cx + rr * Math.cos(a1)).toFixed(2)} ${(cy + rr * Math.sin(a1)).toFixed(2)}`;
+                const path = items.length === 1
+                    ? `${outerPath} M ${cx} ${cy} m -${HOLE} 0 a ${HOLE} ${HOLE} 0 1 1 ${HOLE * 2} 0 a ${HOLE} ${HOLE} 0 1 1 -${HOLE * 2} 0 Z`
+                    : `M ${(cx + rr * Math.cos(a0)).toFixed(2)} ${(cy + rr * Math.sin(a0)).toFixed(2)} A ${rr} ${rr} 0 ${large} 1 ${(cx + rr * Math.cos(a1)).toFixed(2)} ${(cy + rr * Math.sin(a1)).toFixed(2)} L ${(cx + HOLE * Math.cos(a1)).toFixed(2)} ${(cy + HOLE * Math.sin(a1)).toFixed(2)} A ${HOLE} ${HOLE} 0 ${large} 0 ${(cx + HOLE * Math.cos(a0)).toFixed(2)} ${(cy + HOLE * Math.sin(a0)).toFixed(2)} Z`;
                 return { ...d, frac, path, color: d.color || palette[i % palette.length] };
             });
+            // Hover works anywhere over the chart's bounding box, not just on a slice
+            // path: the angle from center picks the nearest slice regardless of where
+            // in the box the cursor is (including the empty area outside the ring).
+            const onMove = (e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const px = ((e.clientX - rect.left) / rect.width) * 124 - cx;
+                const py = ((e.clientY - rect.top) / rect.height) * 124 - cy;
+                let a = Math.atan2(py, px) + Math.PI / 2;
+                if (a < 0) a += 2 * Math.PI;
+                const frac = a / (2 * Math.PI);
+                let acc = 0;
+                for (let i = 0; i < slices.length; i++) {
+                    acc += slices[i].frac;
+                    if (frac <= acc || i === slices.length - 1) { setHi(i); break; }
+                }
+            };
+            const hv = hi != null ? slices[hi] : null;
+            // The center label's secondary line (e.g. "Recurring revenue") lives
+            // OUTSIDE the ring as a caption below it — the hole is too small to
+            // fit a label without truncating/overlapping the number.
+            const captionText = hv ? hv.label : (center ? center.label : null);
             return (
                 <div className="flex items-center gap-4">
-                    <svg viewBox="0 0 124 124" className="w-28 h-28 flex-shrink-0">
-                        {slices.map((s, i) => (
-                            <path key={i} d={s.path} fill={s.color} stroke="#0b1220" strokeWidth="1"
-                                opacity={hi == null || hi === i ? 1 : 0.5}
-                                onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)} style={{ cursor: 'pointer' }} />
-                        ))}
-                    </svg>
+                    <div className="flex-shrink-0 w-28">
+                        <svg viewBox="0 0 124 124" className="w-28 h-28" onMouseMove={onMove} onMouseLeave={() => setHi(null)} style={{ cursor: 'crosshair' }}>
+                            {slices.map((s, i) => (
+                                <path key={i} d={s.path} fill={s.color} stroke="#0b1220" strokeWidth="1"
+                                    opacity={hi == null || hi === i ? 1 : 0.5} />
+                            ))}
+                            {(hv || center) && (
+                                <text x={cx} y={cy + 5} fill="rgb(var(--slate-100))" fontSize="17" fontWeight="800" textAnchor="middle" pointerEvents="none">
+                                    {hv ? `${parseFloat((hv.frac * 100).toFixed(1))}%` : center.value}
+                                </text>
+                            )}
+                        </svg>
+                        {captionText && (
+                            <div className="text-center mt-1 text-[10px] text-slate-500 leading-snug px-1">{String(captionText).substring(0, 32)}</div>
+                        )}
+                    </div>
                     <div className="flex-1 space-y-1 min-w-0">
                         {slices.map((s, i) => (
                             <div key={i} onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
@@ -571,6 +636,116 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             </div>
                         ))}
                     </div>
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: horizontal bar/rating chart (e.g. 1-5 moat scores).
+        // Hover works anywhere over a row's full width, not just on the filled bar,
+        // same "hover anywhere" rule as Donut/TrendChart.
+        const BarScore = ({ data, scaleMax = 5, dark = false }) => {
+            const [hi, setHi] = useState(null);
+            const items = (data || []).filter(d => d.value != null && !isNaN(d.value));
+            if (!items.length) return <div className="text-center p-4 text-[11px] text-slate-500">No data to chart.</div>;
+            const color = 'rgb(var(--blue-500))';
+            const labelColor = 'rgb(var(--slate-200))';
+            const trackColor = 'rgb(var(--slate-800))';
+            const valueColor = 'rgb(var(--slate-500))';
+            return (
+                <div className="space-y-2.5">
+                    {items.map((d, i) => (
+                        <div key={d.label} onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)} className="cursor-crosshair">
+                            <div className="flex items-center justify-between text-[12px] mb-1">
+                                <span style={{ color: labelColor }} className="font-semibold">{d.label}</span>
+                                <span style={{ color: hi === i ? color : valueColor }} className="font-mono font-bold">{d.value.toFixed(1)} / {scaleMax}</span>
+                            </div>
+                            <div className="h-2 rounded-full overflow-hidden" style={{ background: trackColor }}>
+                                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (d.value / scaleMax) * 100)}%`, background: color, opacity: hi == null || hi === i ? 1 : 0.5 }}></div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: diverging bar for a signed metric (e.g. company CAGR
+        // minus industry CAGR — can be negative). Fills right of center in green
+        // for positive, left in red for negative, clamped to ±range. Hover works
+        // anywhere over the track.
+        const DivergingBar = ({ value, range = 20, label, dark = false }) => {
+            const [hover, setHover] = useState(false);
+            if (value == null || isNaN(value)) return null;
+            const v = Math.max(-range, Math.min(range, value));
+            const pct = (Math.abs(v) / range) * 50; // % of half-track width
+            const positive = v >= 0;
+            const color = positive ? 'rgb(var(--emerald-500))' : 'rgb(var(--red-500))';
+            const trackColor = 'rgb(var(--slate-800))';
+            const labelColor = 'rgb(var(--slate-500))';
+            const valueText = `${positive ? '+' : ''}${value.toFixed(1)} percentage points`;
+            return (
+                <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} className="cursor-crosshair">
+                    <div className="flex items-center justify-between text-[12px] mb-1.5">
+                        <span style={{ color: labelColor }} className="font-semibold">{label}</span>
+                        <span style={{ color: hover ? color : labelColor }} className="font-mono font-bold">{valueText}</span>
+                    </div>
+                    <div className="relative">
+                        {hover && (
+                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap px-2.5 py-1.5 rounded-md text-[11px] font-semibold z-10"
+                                style={{ background: '#0f172a', color: '#f1f5f9', border: `1px solid ${color}` }}>
+                                {valueText} {positive ? 'faster' : 'slower'} than the industry
+                            </div>
+                        )}
+                        <div className="relative h-2.5 rounded-full overflow-hidden" style={{ background: trackColor }}>
+                            <div className="absolute top-0 bottom-0 w-px" style={{ left: '50%', background: 'rgb(var(--slate-500))' }}></div>
+                            <div className="absolute top-0 bottom-0 rounded-full transition-all" style={{
+                                background: color, opacity: hover ? 1 : 0.85,
+                                left: positive ? '50%' : `${50 - pct}%`,
+                                width: `${pct}%`,
+                            }}></div>
+                        </div>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] mt-1" style={{ color: labelColor }}>
+                        <span>Growing slower than industry</span>
+                        <span>Growing faster than industry</span>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: "spectrum" infographic — a segmented bar of categorical
+        // options with one highlighted as active. Used as the visual fallback when a
+        // qualitative sub-point has a category (e.g. revenue model type) but no
+        // numeric %/rating to chart — so every sub-point always has *something*
+        // visual, not just a bare label. Hover works anywhere over a segment's box.
+        const SpectrumChart = ({ options, active, dark = false }) => {
+            const [hi, setHi] = useState(null);
+            const opts = (options || []).filter(Boolean);
+            if (!opts.length) return null;
+            const activeIdx = opts.findIndex(o => o.toLowerCase() === (active || '').toLowerCase());
+            const activeColor = 'rgb(var(--blue-500))';
+            const labelColor = 'rgb(var(--slate-200))';
+            const mutedColor = 'rgb(var(--slate-500))';
+            const trackColor = 'rgb(var(--slate-800))';
+            return (
+                <div className="flex items-stretch gap-1">
+                    {opts.map((o, i) => {
+                        const isActive = i === activeIdx;
+                        const isHi = hi === i;
+                        return (
+                            <div key={o} onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                                className="flex-1 min-w-0 cursor-crosshair">
+                                <div className="h-2 rounded-full mb-1.5 transition-all" style={{
+                                    background: isActive ? activeColor : trackColor,
+                                    opacity: isHi && !isActive ? 0.7 : 1,
+                                    transform: isHi ? 'scaleY(1.3)' : 'scaleY(1)',
+                                }}></div>
+                                <div className="text-[11px] font-semibold text-center leading-tight truncate"
+                                    style={{ color: isActive ? activeColor : (isHi ? labelColor : mutedColor) }} title={o}>
+                                    {o}
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             );
         };
@@ -627,6 +802,116 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     {isEstimate && s.length > 0 && (
                         <p className="text-[9px] text-slate-600 italic mt-2">Approximate revenue mix inferred from the business model — indicative shares, not audited segment figures.</p>
                     )}
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: collapsed-by-default "Sources & formula" footer for a
+        // qualitative sub-point. Each source renders as a clickable link when the
+        // data has a url, otherwise as plain text with its note.
+        const SourcesFooter = ({ formula, sources }) => {
+            const [open, setOpen] = useState(false);
+            if (!formula && !sources) return null;
+            const rows = sources ? [
+                ['Primary', sources.primary],
+                ['Secondary', sources.secondary],
+                ['Tertiary', sources.tertiary],
+            ].filter(([, v]) => v) : [];
+            return (
+                <div className="mt-3 border-t border-slate-800 pt-2">
+                    <button onClick={() => setOpen(o => !o)}
+                        className="text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 transition">
+                        Sources & formula {open ? '▴' : '▾'}
+                    </button>
+                    {open && (
+                        <div className="mt-2 space-y-1.5">
+                            {formula && <p className="text-[11px] text-slate-500 italic">{formula}</p>}
+                            {rows.map(([tier, s]) => (
+                                <div key={tier} className="text-[11px] text-slate-400">
+                                    <span className="text-slate-500">{tier}:</span>{' '}
+                                    {s.url ? (
+                                        <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 hover:underline">{s.label}</a>
+                                    ) : (
+                                        <span className="text-slate-300">{s.label}</span>
+                                    )}
+                                    {s.note && <span className="text-slate-500"> — {s.note}</span>}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: Qualitative Analysis — main topics as collapsible sections,
+        // each holding sub-points (LLM finding + chart when numeric + source citation
+        // trail). Renders nothing but a "coming soon" note until a topic has data.
+        const QualitativeTopics = ({ topics }) => {
+            const list = Object.values(topics || {}).filter(t => t && t.subpoints && t.subpoints.length);
+            if (!list.length) {
+                return <div className="text-xs text-slate-500 italic py-8 text-center">Qualitative analysis is coming soon.</div>;
+            }
+            return (
+                <div className="space-y-4">
+                    {list.map((t, ti) => (
+                        <CollapsibleSection key={t.topic || ti} title={t.topic} defaultOpen={ti === 0}>
+                            <div className="space-y-4">
+                                {t.subpoints.map((sp, i) => {
+                                    const chart = sp.chart;
+                                    const chartTop = chart?.type === 'donut' && chart.data?.length
+                                        ? [...chart.data].sort((a, b) => b.pct - a.pct)[0] : null;
+                                    const chartTitle = chart?.panelTitle || (chart?.type === 'donut' ? 'Mix' : chart?.type === 'bar' ? 'Rating breakdown' : chart?.type === 'spectrum' ? 'Category' : chart?.type === 'diverging' ? 'Growth vs industry' : null);
+                                    const facts = sp.facts || [];
+                                    return (
+                                    <div key={sp.key || i} className="border border-slate-800 rounded-lg overflow-hidden">
+                                        <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/60">
+                                            <h4 className="text-sm font-bold text-slate-100 uppercase tracking-wide">{sp.title}</h4>
+                                        </div>
+                                        <div className="p-4 grid grid-cols-1 md:grid-cols-[1.3fr_1fr] gap-4">
+                                            <div>
+                                                {facts.length > 0 ? (
+                                                    <ul className="space-y-2 mb-3">
+                                                        {facts.map(([label, value]) => (
+                                                            <li key={label} className="flex items-start gap-2 text-[13px]">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 flex-shrink-0"></span>
+                                                                <span className="text-slate-300"><span className="text-slate-400">{label}:</span> <span className="font-semibold text-slate-100">{value}</span></span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                ) : (
+                                                    <p className="text-xs text-slate-500 italic mb-3">Not yet available — regenerate report to populate.</p>
+                                                )}
+                                                {sp.finding && <p className="text-[13px] text-slate-400 leading-relaxed">{sp.finding}</p>}
+                                                <SourcesFooter formula={sp.formula} sources={sp.sources} />
+                                            </div>
+                                            {chart && (chart.data?.length > 0 || chart.options?.length > 0 || chart.value != null || chart.rows?.length > 0) && (
+                                                <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg self-start">
+                                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{chartTitle}</div>
+                                                    {chart.type === 'donut' && (
+                                                        <Donut data={chart.data.map(d => ({ label: d.label, value: d.pct }))} fmt={(v) => Number(v).toFixed(0)} dark
+                                                            center={chartTop ? { value: `${Math.round(chartTop.pct)}%`, label: chartTop.label } : null} />
+                                                    )}
+                                                    {chart.type === 'bar' && (
+                                                        <BarScore data={chart.data.map(d => ({ label: d.label, value: d.value }))} scaleMax={chart.scaleMax || 5} dark />
+                                                    )}
+                                                    {chart.type === 'spectrum' && (
+                                                        <SpectrumChart options={chart.options} active={chart.active} dark />
+                                                    )}
+                                                    {chart.type === 'diverging' && (
+                                                        <DivergingBar value={chart.value} range={chart.range || 20} label={chart.label} dark />
+                                                    )}
+                                                    {chart.type === 'trend' && (
+                                                        <TrendChart rows={chart.rows} series={[{ key: 'value', label: chart.seriesLabel || 'Value', color: '#3b82f6' }]} fmt={(v) => `${Number(v).toFixed(1)}%`} height={140} smooth />
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    );
+                                })}
+                            </div>
+                        </CollapsibleSection>
+                    ))}
                 </div>
             );
         };
@@ -10370,6 +10655,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [statementType, setStatementType] = useState('income'); // income, balance, cashflow
             const [activeTab, setActiveTab] = useState(6); // AI Insights is the default landing tab
             const [activeSubTab, setActiveSubTab] = useState({1:0,2:0,3:0,4:0,5:0,6:0,7:0});
+            const [aiResearchSection, setAiResearchSection] = useState('fundamental'); // 'fundamental' | 'qualitative' — inner tabs of the AI research page
             const [scrolled, setScrolled] = useState(false); // for the floating instrument card
             const [showAllPeers, setShowAllPeers] = useState(false); // Peer table: top-N vs see-more
             const [showSummary, setShowSummary] = useState(false); // AI summary: on-demand collapsible (bottom of AI Insights)
@@ -10750,9 +11036,89 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
             }
 
             // Logged in, nothing analysed yet -> the new premium landing (its own hero + search).
+            // Ask Navrist is intentionally NOT mounted here: it only makes sense once a
+            // company has been searched, since every answer it gives is grounded in that
+            // company's own computed data (same source as the ratio cards) — there is
+            // nothing for it to be "about" before a search happens.
             if (status === 'IDLE') {
                 return <Landing onSelect={fetchResearch} onLogout={handleLogout} />;
             }
+
+            // Compact company context handed to Ask Navrist so it can answer
+            // "is its ROE good?" against the company actually on screen. Best-effort:
+            // stays an empty string until a report has loaded.
+            // Full context handed to Ask Navrist — everything already computed for
+            // this company (identity, valuation, the ENTIRE ratio set, multi-year
+            // statement trends, peer/sector percentiles, qualitative commentary).
+            // Deliberately NOT truncated to a handful of headline metrics: a chat
+            // that only sees 14 ratios out of ~68 computed answers "what's its
+            // interest coverage ratio" with a guess. Sending everything already
+            // sitting in reportData costs zero extra fetches/latency.
+            const askContext = (() => {
+                const d = reportData?.data;
+                if (!d) return '';
+                const cm = d.calculated_metrics || {};
+                const psd = d.peer_synthesis_data || {};
+                const val = cm['F-03_Valuation_Metrics'] || {};
+                const growth = cm['F-05_Growth_Summary'] || {};
+                const margin = cm['F-06_Margin_Analysis'] || {};
+                const ratios = (effectiveRatios && effectiveRatios.length) ? effectiveRatios : (cm['F-02_Ratio_Analysis'] || []);
+
+                const lines = [
+                    `Company: ${cm.company_name || d.symbol} (${d.symbol}, NSE)`,
+                    `Sector: ${getNseSector(d.symbol) || psd.sector || 'n/a'}${psd.cap_tier ? ` · ${psd.cap_tier}` : ''}`,
+                    d.business_score != null ? `Navrist quality score: ${d.business_score}/100` : '',
+                    val.MarketCap != null ? `Market cap: Rs ${val.MarketCap} Cr` : '',
+                    val.last_price != null ? `Price: Rs ${val.last_price}` : '',
+                    val.PE != null ? `P/E: ${val.PE}` : '',
+                    val.PB != null ? `P/B: ${val.PB}` : '',
+                    val.PS != null ? `P/S: ${val.PS}` : '',
+                    val.EV_EBITDA != null ? `EV/EBITDA: ${val.EV_EBITDA}` : '',
+                    val.FCF_Yield != null ? `FCF Yield: ${val.FCF_Yield}` : '',
+                    growth.revenue_cagr_3y != null ? `Revenue CAGR (3y): ${growth.revenue_cagr_3y}%` : '',
+                    margin.ebitda_margin != null ? `EBITDA margin: ${margin.ebitda_margin}%` : '',
+                    margin.net_margin != null ? `Net margin: ${margin.net_margin}%` : '',
+                ].filter(Boolean);
+
+                // Every computed ratio, not a truncated top-14 — this is the fix for
+                // "what's its X ratio" questions getting a generic non-answer.
+                if (Array.isArray(ratios) && ratios.length) {
+                    const r = ratios.map((x) => {
+                        const name = x.name || x.ratio || x.title;
+                        const value = x.value ?? x.result ?? x.ROE ?? x.ROCE;
+                        return name && value != null ? `${name}: ${value}` : null;
+                    }).filter(Boolean);
+                    if (r.length) lines.push('\nAll computed ratios —\n' + r.join('; '));
+                }
+
+                // Multi-year trend so growth/trend questions have real numbers.
+                try {
+                    const rev = seriesFromStatement('income_stmt', ['totalrevenue', 'revenuefromoperations', 'revenue']);
+                    const np = seriesFromStatement('income_stmt', ['netprofit', 'profitfortheperiod', 'profitafter']);
+                    if (rev.length) lines.push('\nRevenue by year (Rs Cr) — ' + rev.map((p) => `${p.label}: ${p.value != null ? (p.value / 1e7).toFixed(0) : '—'}`).join(', '));
+                    if (np.length) lines.push('Net profit by year (Rs Cr) — ' + np.map((p) => `${p.label}: ${p.value != null ? (p.value / 1e7).toFixed(0) : '—'}`).join(', '));
+                } catch (e) { /* best-effort */ }
+
+                // Peer / sector standing.
+                const tm = psd.target_metrics || {};
+                const medians = psd.sector_benchmark?.medians || {};
+                const pcts = psd.screener_peer_view?.percentiles || psd.sector_benchmark?.percentiles || {};
+                const peerLines = [];
+                if (tm.roe != null || medians.roe != null) peerLines.push(`ROE ${tm.roe ?? '—'} vs sector median ${medians.roe ?? '—'}`);
+                if (tm.pe != null || medians.pe != null) peerLines.push(`P/E ${tm.pe ?? '—'} vs sector median ${medians.pe ?? '—'}`);
+                if (tm.debtToEquity != null) peerLines.push(`D/E ${tm.debtToEquity}`);
+                if (Object.keys(pcts).length) peerLines.push('Sector percentiles — ' + Object.entries(pcts).map(([k, v]) => `${k}: ${v}th`).join(', '));
+                const peers = (psd.peer_matrix || []).slice(0, 6).map((p) => `${p.symbol || p.name}: P/E ${p.pe ?? '—'}, Price ${p.price ?? '—'}`);
+                if (peers.length) peerLines.push('Peers — ' + peers.join('; '));
+                if (peerLines.length) lines.push('\nPeer/sector comparison —\n' + peerLines.join('\n'));
+
+                // Qualitative commentary (business model, moat, risks) if already loaded.
+                const qa = d.qualitative_analysis?.parsed_sections || {};
+                const qaText = Object.values(qa).filter(Boolean).join(' ').slice(0, 2500);
+                if (qaText) lines.push('\nQualitative analysis (business/moat/risk commentary) —\n' + qaText);
+
+                return lines.join('\n');
+            })();
 
             return (
                 <div className="min-h-screen flex bg-transparent">
@@ -12231,10 +12597,23 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                     {activeTab === 6 && (
                                         <section className="p-6 bg-slate-900 border border-slate-800 rounded-lg space-y-6">
                                             <div className="border-b border-slate-800 pb-4">
-                                                <h2 className="font-heading text-base font-bold text-slate-100">AI Research</h2>
-                                                <p className="text-[10px] text-slate-500 mt-0.5">Sector-aware ratio dashboard — every card is traceable to its source.</p>
+                                                <div className="flex gap-1.5 mb-3">
+                                                    {[{ key: 'fundamental', name: 'Fundamental Ratios' }, { key: 'qualitative', name: 'Qualitative Analysis' }].map(t => (
+                                                        <button key={t.key} onClick={() => setAiResearchSection(t.key)}
+                                                            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition border ${aiResearchSection === t.key ? 'bg-blue-600/20 text-blue-300 border-blue-500/30' : 'bg-slate-950/50 text-slate-500 hover:text-slate-300 border-slate-800'}`}>
+                                                            {t.name}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <h2 className="font-heading text-base font-bold text-slate-100">{aiResearchSection === 'fundamental' ? 'Fundamental Ratios' : 'Qualitative Analysis'}</h2>
+                                                <p className="text-[10px] text-slate-500 mt-0.5">{aiResearchSection === 'fundamental' ? 'Sector-aware ratio dashboard — every card is traceable to its source.' : 'Business, management, moat and forensic checks — grounded in filings and management commentary.'}</p>
                                             </div>
 
+                                            {aiResearchSection === 'qualitative' && (
+                                                <QualitativeTopics topics={reportData.data.ai_summary?.qualitative_topics} />
+                                            )}
+
+                                            {aiResearchSection === 'fundamental' && (
                                                         <RatioSectionGate key={reportData.data.symbol}>
                                                         {(() => {
                                                             const rp = { symbol: reportData.data.symbol, name: reportData.data.calculated_metrics?.company_name, leaseBasis };
@@ -12337,6 +12716,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                     const indspec = getIndustrySpecificRatiosForSector(resolvedSector);
                                                                     const overrides = SECTOR_DEFINITION_OVERRIDES[resolvedSector] || {};
                                                                     const result = [
+                                                                        { key: 'all', name: 'All', items: RATIO_ITEMS },
                                                                         { key: 'core', name: 'Core', items: pick(buckets.core) },
                                                                         { key: 'secondary', name: 'Secondary', items: pick(buckets.secondary) },
                                                                         { key: 'different_definition', name: 'Different Definition Needed',
@@ -12370,13 +12750,13 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                             Sector could not be resolved for this company — showing all ratios ungrouped rather than guessing a tier.
                                                                         </div>
                                                                     )}
-                                                                    <div className="flex flex-wrap gap-1.5 mb-5 sticky top-0 z-10 bg-slate-900/95 backdrop-blur py-1 -mt-1">
-                                                                        {TIERS.map((c, i) => (
-                                                                            <button key={c.key} onClick={() => setActiveSubTab(p => ({ ...p, ratioCat: i }))}
-                                                                                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition border ${activeCat === i ? 'bg-blue-600/20 text-blue-300 border-blue-500/30' : c.key === 'not_applicable' ? 'bg-slate-950/30 text-slate-600 hover:text-slate-400 border-slate-800/60' : 'bg-slate-950/50 text-slate-500 hover:text-slate-300 border-slate-800'}`}>
-                                                                                {c.name} <span className="text-slate-600 font-medium">({c.items.length})</span>
-                                                                            </button>
-                                                                        ))}
+                                                                    <div className="mb-5 sticky top-0 z-10 bg-slate-900/95 backdrop-blur py-1 -mt-1">
+                                                                        <select value={activeCat} onChange={(e) => setActiveSubTab(p => ({ ...p, ratioCat: Number(e.target.value) }))}
+                                                                            className="px-3 py-1.5 text-xs font-semibold rounded-md transition border bg-slate-950/50 text-slate-300 border-slate-800 focus:outline-none focus:border-blue-500/40">
+                                                                            {TIERS.map((c, i) => (
+                                                                                <option key={c.key} value={i}>{c.name} ({c.items.length})</option>
+                                                                            ))}
+                                                                        </select>
                                                                     </div>
                                                                     {TIERS.map((c, i) => (
                                                                         <div key={c.key} style={{ display: activeCat === i ? 'block' : 'none' }}
@@ -12391,16 +12771,16 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                                     {c.indspecNames.join(', ')} — industry-specific metrics for {resolvedSector} are not yet built as ratio cards.
                                                                                 </div>
                                                                             )}
-                                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                                                                                 {c.items.map((it, j) => (
                                                                                     <div key={j}>
-                                                                                        <h3 className="font-heading text-sm font-bold text-slate-100 tracking-tight border-l-4 border-blue-500 pl-3 mb-2">{it.title}</h3>
+                                                                                        <h3 className="font-heading text-xs font-bold text-slate-100 tracking-tight border-l-4 border-blue-500 pl-2.5 mb-1.5">{it.title}</h3>
                                                                                         {it.defNote && (
                                                                                             <div className="text-[10px] text-blue-200 bg-blue-500/10 border border-blue-500/25 rounded-md px-3 py-2 mb-2 leading-snug">
                                                                                                 {it.defNote}
                                                                                             </div>
                                                                                         )}
-                                                                                        <div className="space-y-2">{it.node}</div>
+                                                                                        <div className="space-y-1.5">{it.node}</div>
                                                                                     </div>
                                                                                 ))}
                                                                             </div>
@@ -12410,6 +12790,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                             );
                                                         })()}
                                                         </RatioSectionGate>
+                                            )}
 
                                         </section>
                                     )}
@@ -12457,6 +12838,9 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
 
                     {/* Mobile bottom navigation (replaces the sidebar below lg) */}
                     <MobileNav activeKey={dashView} onSelect={onSelectSection} />
+
+                    {/* Floating conversational assistant — company-aware via askContext */}
+                    <AskNavrist context={askContext} />
                 </div>
             );
         }

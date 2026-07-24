@@ -879,15 +879,13 @@ def fetch_concall_text(symbol, max_chars=14000, name=None):
             print(f"[screener] pypdf unavailable: {e}")
             return out
         import io as _io
-        if _HAVE_CFFI:
-            s = _http.Session(impersonate="chrome")
-        else:
-            s = _http.Session()
-        for url in links[:3]:
+
+        def _download_one(url):
             try:
+                s = _http.Session(impersonate="chrome") if _HAVE_CFFI else _http.Session()
                 r = s.get(url, timeout=30)
                 if r.status_code != 200 or len(r.content) < 5000:
-                    continue
+                    return None
                 reader = PdfReader(_io.BytesIO(r.content))
                 parts = []
                 for page in reader.pages[:16]:
@@ -898,14 +896,24 @@ def fetch_concall_text(symbol, max_chars=14000, name=None):
                     if sum(len(p) for p in parts) > max_chars:
                         break
                 text = re.sub(r"[ \t]+", " ", "\n".join(parts)).strip()
-                if len(text) > 800:
-                    out = {"text": text[:max_chars], "url": url}
-                    _write_cache(ckey, out)
-                    print(f"[screener] concall transcript fetched for {sym} ({len(out['text'])} chars).")
-                    break
+                return text if len(text) > 800 else None
             except Exception as e:
                 print(f"[screener] transcript download failed ({url}): {e}")
-                continue
+                return None
+
+        # Download the (up to 3) candidate PDFs concurrently instead of one at a
+        # time — sequentially this was up to 3x a 30s timeout (90s worst case) on
+        # a cold cache; in parallel it's bounded by the slowest single download.
+        from concurrent.futures import ThreadPoolExecutor
+        candidates = links[:3]
+        with ThreadPoolExecutor(max_workers=len(candidates)) as ex:
+            results = list(ex.map(_download_one, candidates))
+        for url, text in zip(candidates, results):
+            if text:
+                out = {"text": text[:max_chars], "url": url}
+                _write_cache(ckey, out)
+                print(f"[screener] concall transcript fetched for {sym} ({len(out['text'])} chars).")
+                break
     except Exception as e:
         print(f"[screener] concall fetch error for {sym}: {e}")
     return out
