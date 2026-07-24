@@ -2814,15 +2814,52 @@ def fetch_return_on_capital_employed_from_annual_report(symbol, name, fiscal_yea
             _write_cache(ckey, out)
             return out
 
-        pbt = parsed.get("pbt")
-        finance_costs = parsed.get("finance_costs")
-        if pbt is None:
-            out = {"applicable": False, "reason": "Could not find a 'Profit before tax' row on the P&L page.",
+        # EBIT = Revenue − COGS − Employee Benefit Expense − Other Expenses
+        # (i.e. Revenue − (Total Expenses − Finance Costs)) — the SAME
+        # computation already validated for Sr No 15's Operating Profit
+        # Margin, NOT "Profit Before Tax + Finance Costs". The PBT-based
+        # approximation silently pulled in Other Income (non-operating,
+        # never part of EBIT) — confirmed on HUL: PBT-before-exceptional
+        # (Rs 14,047 Cr) implicitly includes Rs 751 Cr of Other Income and
+        # nets off a Rs 15 Cr JV-share loss, inflating "EBIT" to Rs 14,457 Cr
+        # versus the correct Rs 13,721 Cr. This formula also correctly stays
+        # scoped to Continuing Operations only where a filer splits the P&L
+        # into Continuing/Discontinued sections (Revenue/COGS/Expenses above
+        # the Continuing-Operations PBT subtotal are that section's own
+        # figures, never blended with a separate Discontinued-Operations
+        # block further down) — Discontinued Operations and any exceptional
+        # items are excluded entirely, never blended into the core metric.
+        components = parsed.get("components") or {}
+        if len(components) == 0:
+            out = {"applicable": False,
+                   "reason": "Could not find any Cost of Goods Sold line (Cost of materials consumed / "
+                             "Purchases of stock-in-trade / Changes in inventories) on the P&L page — "
+                             "not a goods business.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
-        if finance_costs is None:
-            out = {"applicable": False, "reason": "Could not find a 'Finance Costs' row on the P&L page.",
+        ebe = parsed.get("employee_benefit_expense")
+        oe = parsed.get("other_expenses")
+        dep = parsed.get("depreciation")
+        if ebe is None:
+            out = {"applicable": False, "reason": "Could not find 'Employee Benefit Expense' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+        if oe is None:
+            out = {"applicable": False, "reason": "Could not find 'Other Expenses' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+        if dep is None:
+            out = {"applicable": False,
+                   "reason": "Could not find 'Depreciation and Amortisation Expense' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+        revenue = parsed.get("revenue")
+        if revenue is None:
+            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
@@ -2836,9 +2873,12 @@ def fetch_return_on_capital_employed_from_annual_report(symbol, name, fiscal_yea
             _write_cache(ckey, out)
             return out
 
-        pbt_cur, _pbt_prior = pbt
-        fc_cur, _fc_prior = finance_costs
-        ebit_cur = pbt_cur + fc_cur
+        rev_cur, _rev_prior = revenue
+        cogs_cur = sum(v[0] for v in components.values())
+        ebe_cur, _ebe_prior = ebe
+        oe_cur, _oe_prior = oe
+        dep_cur, _dep_prior = dep
+        ebit_cur = rev_cur - cogs_cur - ebe_cur - oe_cur - dep_cur
 
         ta_cur, ta_prior = total_assets
         tcl_cur, tcl_prior = total_current_liabilities
@@ -2862,7 +2902,7 @@ def fetch_return_on_capital_employed_from_annual_report(symbol, name, fiscal_yea
                              f"(₹{avg_ce:,.2f} Cr) — the ratio would be meaningless, so it's flagged as N/A "
                              "rather than reported.",
                    "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-                   "numerator": {"label": "EBIT (Profit Before Tax + Finance Costs)", "value_cr": round(ebit_cur, 2)},
+                   "numerator": {"label": "EBIT (Revenue − COGS − Employee Costs − Other Expenses − D&A)", "value_cr": round(ebit_cur, 2)},
                    "denominator": {"label": den_label, "value_cr": avg_ce, "capital_employed_by_year": ce_by_year},
                    "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page"), bs_page=parsed.get("bs_page")),
                    "source_url": pdf_url}
@@ -2878,11 +2918,14 @@ def fetch_return_on_capital_employed_from_annual_report(symbol, name, fiscal_yea
             "estimated": estimated,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": {
-                "label": "EBIT (Profit Before Tax + Finance Costs)",
+                "label": "EBIT (Revenue − COGS − Employee Costs − Other Expenses − D&A)",
                 "value_cr": round(ebit_cur, 2),
                 "components": {
-                    "Profit Before Tax": round(pbt_cur, 2),
-                    "+ Finance Costs": round(fc_cur, 2),
+                    "Revenue from Operations": round(rev_cur, 2),
+                    **{f"less: {k}": round(v[0], 2) for k, v in components.items()},
+                    "less: Employee Benefit Expense": round(ebe_cur, 2),
+                    "less: Other Expenses": round(oe_cur, 2),
+                    "less: Depreciation and Amortisation Expense": round(dep_cur, 2),
                 },
             },
             "denominator": {
