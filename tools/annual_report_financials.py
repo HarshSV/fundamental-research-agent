@@ -1281,15 +1281,68 @@ def _find_revenue(pl_text):
     return _sum_after_label(pl_text, _REVENUE_LABELS, r"other\s+income")
 
 
+def _find_payables_row(search_text, label_pattern, boundary_pattern, window_cap=250):
+    """Extracts one (current, prior) row from the Balance Sheet's Trade
+    Payables block, given the row's own label pattern and a regex marking
+    where the NEXT row/section starts (so the window never reaches into it).
+
+    Real filings routinely insert a bare note-reference number (e.g. "24")
+    between the label and the actual figures, AND print sub-Rs-1,000 figures
+    with no thousands separator (e.g. HUL's "458") that the stricter
+    `_NUM_RE` used elsewhere can't match at all. Taking the LAST two numbers
+    in a tightly bounded window — rather than the first two, and using a
+    permissive comma-optional pattern — handles both: a note-reference is
+    always the number closest to the label, and the window boundary keeps
+    a followed row's numbers from ever entering the window at all."""
+    m = re.search(label_pattern, search_text, re.I)
+    if not m:
+        return None, None
+    boundary = re.search(boundary_pattern, search_text[m.end():m.end() + window_cap], re.I)
+    window = search_text[m.end():m.end() + (boundary.start() if boundary else window_cap)]
+    nums = list(re.finditer(r"\(?-?[\d,]+(?:\.\d{1,2})?\)?|(?<=\s)-(?=\s)", window))
+    if len(nums) < 2:
+        return None, None
+    cur, prior = _parse_num(nums[-2].group()), _parse_num(nums[-1].group())
+    if cur is None or prior is None:
+        return None, None
+    return (cur, prior), m.end() + nums[-1].end()
+
+
 def _find_payables(text, after=None):
     """Trade Payables under Current Liabilities. Ind AS Schedule III requires
-    the MSME/non-MSME split disclosed as separate sub-items (a)/(b), often
-    plus (c) Acceptances, with NO single total row before the next item
-    (typically '(iv) Derivative liabilities' or '(iv)/(v) Other financial
-    liabilities') — sum every row in between instead."""
-    return _sum_after_label(text, _PAYABLES_LABELS,
-                             r"derivative\s+liabilities|other\s+financial\s+liabilities|\(iv\)",
-                             after=after)
+    the Balance Sheet to disclose it as two sub-items: (a) dues to Micro &
+    Small Enterprises and (b) dues to all other creditors — sum both.
+
+    This is called on Balance Sheet text only (never the deeper Notes-to-
+    Accounts page, which sometimes breaks item (b) down further into its own
+    Acceptances/Trade-payables/Total sub-rows) — confirmed by every call site
+    in this file. So exactly two rows are ever expected here.
+    """
+    search_text = text
+    if after:
+        m = re.search(after, text, re.I)
+        if m:
+            search_text = text[m.end():]
+
+    msme_pat = r"total\s+outstanding\s+dues\s+of\s+micro\s+enterprises\s+and\s+small\s+enterprises"
+    others_pat = r"total\s+outstanding\s+dues\s+of\s+creditors\s+other\s+than\s+micro\s+enterprises\s+and\s+small\s+enterprises"
+    msme_anchor = re.search(msme_pat, search_text, re.I)
+    if not msme_anchor:
+        # No MSME/non-MSME split disclosed at all (rare, e.g. very old/small
+        # filers) — fall back to the previous label-based approach unchanged.
+        return _sum_after_label(search_text, _PAYABLES_LABELS,
+                                 r"derivative\s+liabilities|other\s+financial\s+liabilities|\(iv\)")
+
+    msme_row, msme_end = _find_payables_row(search_text[msme_anchor.start():], msme_pat, others_pat)
+    if msme_row is None:
+        return None
+    rest = search_text[msme_anchor.start() + msme_end:]
+    others_row, _ = _find_payables_row(
+        rest, others_pat,
+        r"derivative\s+liabilities|other\s+financial\s+liabilities|\(iv\)|other\s+current\s+liabilities|provisions")
+    if others_row is None:
+        return None
+    return round(msme_row[0] + others_row[0], 2), round(msme_row[1] + others_row[1], 2)
 
 
 def _find_subtotal_before(text, stop_label, after=None, window=150):
