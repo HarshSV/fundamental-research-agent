@@ -535,6 +535,20 @@ _CAPEX_DISPOSAL_PROCEEDS_LABELS = [
 ]
 
 
+# Cash Flow Statement section headings — some filers (confirmed on HUL, TCS,
+# Bharti Airtel) use the plural "Cash Flows from Operating/Investing/Financing
+# Activities" instead of the singular "Cash Flow from ... Activities" every
+# other checked filing uses. The literal-substring checks below used to only
+# match the singular form, so the entire Cash Flow Statement extraction block
+# silently never fired for plural-heading filers — every ratio depending on
+# operating_cash_flow/capex/repayments came back "Could not find..." even
+# though the figures were sitting right there on the page. `s?` makes both
+# forms match.
+_CFS_OPERATING_PAT = r"cash\s+flows?\s+from\s+operating\s+activities"
+_CFS_INVESTING_PAT = r"cash\s+flows?\s+from\s+investing\s+activities"
+_CFS_FINANCING_PAT = r"cash\s+flows?\s+from\s+financing\s+activities"
+
+
 def _bounded_segment_module(text, start_after, stop_before):
     """Module-level twin of `_extract_from_pdf`'s nested `_bounded_segment`
     (same behaviour: slice `text` to the region between two section
@@ -622,16 +636,22 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
         # START at that same false position instead of the real "B. Cash
         # flow from investing activities" heading a few lines later. The
         # fuller phrase never collides with that embedded mention.
-        if operating_cash_flow is None and "cash flow from operating activities" in tl:
-            op_segment = _bounded_segment_module(t, r"cash flow from operating activities",
-                                                  r"cash flow from investing activities")
+        if operating_cash_flow is None and re.search(_CFS_OPERATING_PAT, tl, re.I):
+            op_segment = _bounded_segment_module(t, _CFS_OPERATING_PAT, _CFS_INVESTING_PAT)
             if op_segment is None:
-                op_segment = t[tl.index("cash flow from operating activities"):]
+                op_segment = t[re.search(_CFS_OPERATING_PAT, tl, re.I).start():]
             for label in _OPERATING_CASH_FLOW_LABELS:
                 m = re.search(re.escape(label), op_segment, re.I)
                 if not m:
                     continue
                 window = op_segment[m.end():m.end() + 200]
+                # Some filers suffix the subtotal label with a cross-reference
+                # marker like "- [A]" (confirmed on HUL's FY26 filing) before
+                # the actual figures. _NUM_RE treats a bare "-" as a valid
+                # placeholder token (parses to 0.0, not None), so left alone
+                # it gets consumed as a bogus first "number" and silently
+                # shifts the real current/prior-year values off by one.
+                window = re.sub(r"^\s*-?\s*\[[A-Za-z]\]", "", window)
                 nums = re.findall(_NUM_RE, window)
                 if len(nums) >= 2:
                     a, b = _parse_num(nums[0]), _parse_num(nums[1])
@@ -639,12 +659,11 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
                         operating_cash_flow = (round(a * factor, 2), round(b * factor, 2))
                         break
 
-        if "cash flow from investing activities" in tl and (
+        if re.search(_CFS_INVESTING_PAT, tl, re.I) and (
                 capex_ppe_purchase is None or capex_intangible_purchase is None or capex_disposal_proceeds is None):
-            inv_segment = _bounded_segment_module(t, r"cash flow from investing activities",
-                                                   r"cash flow from financing activities")
+            inv_segment = _bounded_segment_module(t, _CFS_INVESTING_PAT, _CFS_FINANCING_PAT)
             if inv_segment is None:
-                inv_segment = t[tl.index("cash flow from investing activities"):]
+                inv_segment = t[re.search(_CFS_INVESTING_PAT, tl, re.I).start():]
 
             if capex_ppe_purchase is None:
                 for label in _CAPEX_PPE_PURCHASE_LABELS:
@@ -685,11 +704,11 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
                             capex_disposal_proceeds = (round(abs(a) * factor, 2), round(abs(b) * factor, 2))
                             break
 
-        if "cash flow from financing activities" in tl and (borrowings_repayment is None or lease_repayment is None):
-            segment = _bounded_segment_module(t, r"cash flow from financing activities",
+        if re.search(_CFS_FINANCING_PAT, tl, re.I) and (borrowings_repayment is None or lease_repayment is None):
+            segment = _bounded_segment_module(t, _CFS_FINANCING_PAT,
                                                r"net (?:increase|decrease|increase/decrease)")
             if segment is None:
-                segment = t[tl.index("cash flow from financing activities"):]
+                segment = t[re.search(_CFS_FINANCING_PAT, tl, re.I).start():]
 
             if borrowings_repayment is None:
                 for label in _REPAYMENT_BORROWINGS_LABELS:
