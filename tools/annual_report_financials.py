@@ -1841,6 +1841,110 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
                 pass
         return _scale(raw, factor)
 
+    def _find_tax_expense():
+        """Total Tax Expense (Sr No 42/43's Effective Tax Rate component).
+
+        Two DIFFERENT sign conventions exist across filers for the
+        Current/Deferred tax sub-lines under a bare "Tax expense(s)" header
+        (confirmed on both):
+          - TCS: Current tax printed POSITIVE (16,910), Deferred tax as a
+            signed adjustment (376) [a credit], PLUS an explicit "TOTAL TAX
+            EXPENSE" line (16,534) that is already correctly signed.
+          - HUL: no explicit Total line at all — Current tax AND Deferred
+            tax both printed in the PROFIT-WALK convention (parenthesized =
+            subtracted from Profit Before Tax), e.g. "Current tax (3,163)"
+            + "Deferred tax credit/(charge) 3" -> PBT 13,812 - 3,163 + 3 =
+            Profit for the year 10,652 — their SUM is negative, needing a
+            sign flip to get the positive expense magnitude NOPAT expects.
+
+        Naively matching "tax expense" (a substring of both filers' bare
+        header) and reading only the FIRST trailing number grabs just
+        Current tax with whatever sign it happens to carry, silently
+        breaking the Effective Tax Rate (HUL) or missing the cleaner
+        explicit Total line already available (TCS).
+
+        Fixed by: (1) preferring an explicit "total tax expense" line when
+        one is printed — trusted as-is, since a filer's own Total line is
+        always correctly signed; (2) only when no such line exists, summing
+        the Current + Deferred sub-lines (skipping the note-reference token,
+        e.g. "9A", between each label and its figures — mirrors
+        `_find_single_label_loose`'s skip logic, but restarts from the next
+        full line since "Deferred tax credit / (charge)" has trailing
+        caption text on the SAME line as the label) and normalising the
+        result to positive (a negative sum only ever means the profit-walk
+        convention was in play, never a genuine net tax credit at this
+        pipeline's guarded PBT > 0)."""
+        def _sub_line(window, label):
+            m = re.search(re.escape(label), window, re.I)
+            if not m:
+                return None
+            nl = window.find("\n", m.end())
+            start = nl + 1 if nl != -1 else m.end()
+            lines = [ln.strip() for ln in window[start:start + 150].split("\n") if ln.strip()]
+            # max_skip=1, not 2: unlike Borrowings (Note# + Page# both
+            # possible), only ONE note-reference token ever sits between a
+            # Current/Deferred tax label and its two figures here — skipping
+            # 2 would misread a genuinely tiny bare-digit VALUE (e.g.
+            # Deferred tax of "3") as a second metadata token instead of the
+            # real current-year figure (confirmed on HUL FY26). The pattern
+            # covers BOTH note-numbering styles seen in practice: a bare
+            # int+letter ("9A", HUL) and a dotted decimal ("2.17", Infosys)
+            # — without the dotted-decimal branch, "2.17" reads as the real
+            # current-year value instead of a note ref, shifting every
+            # subsequent figure one slot and corrupting the sum (confirmed
+            # on Infosys: silently produced a ~0% effective tax rate).
+            i = 0
+            while i < len(lines) and i < 1 and re.fullmatch(r"\d{1,3}(\.\d{1,3})?[A-Za-z]?", lines[i]):
+                i += 1
+            if i + 1 < len(lines):
+                a, b = _parse_num(lines[i]), _parse_num(lines[i + 1])
+                if a is not None and b is not None:
+                    return (a, b)
+            return None
+
+        def _try(text):
+            for lbl in ("total tax expense", "total tax expenses",
+                        "tax expense/(credit)", "total tax expense/(credit)"):
+                total = _find_single_label_loose(text, lbl, max_skip=0)
+                if total is not None:
+                    return total
+
+            m = re.search(r"tax\s*expenses?\b", text, re.I)
+            if not m:
+                return None
+            window = text[m.end():m.end() + 400]
+            cur = _sub_line(window, "current tax")
+            dfd = _sub_line(window, "deferred tax")
+            if cur is not None or dfd is not None:
+                cur = cur or (0.0, 0.0)
+                dfd = dfd or (0.0, 0.0)
+                total_cur, total_prior = cur[0] + dfd[0], cur[1] + dfd[1]
+                if total_cur < 0:
+                    total_cur, total_prior = -total_cur, -total_prior
+                return (total_cur, total_prior)
+            # No Current/Deferred sub-lines and no Total line either --
+            # last resort: read the first two numbers directly after the
+            # bare header.
+            nums = re.findall(_NUM_RE, window)
+            if len(nums) >= 2:
+                a, b = _parse_num(nums[0]), _parse_num(nums[1])
+                if a is not None and b is not None:
+                    return (a, b)
+            return None
+
+        raw = _try(_strip_formula_refs(pl_text))
+        factor = pl_factor
+        if raw is None and pl_idx + 1 < doc.page_count:
+            try:
+                next_text = _strip_formula_refs(_page_text(doc[pl_idx + 1]))
+                raw = _try(next_text)
+                factor = _unit_factor(next_text)
+            except Exception:
+                pass
+        if raw is not None:
+            return _scale(raw, factor)
+        return _find_pl_row(_TAX_EXPENSE_LABELS)
+
     # Net Profit (Sr No 16 numerator): owners-attributable portion tried
     # first (consolidated statements often ALSO print a "Total profit for
     # the year" including Non-Controlling Interest just above/below it — per
@@ -1858,7 +1962,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # concern like PAT (PBT is struck before the profit is even attributed).
     pbt = _find_pl_row(_PBT_LABELS)
     finance_costs = _find_pl_row(_FINANCE_COST_LABELS)
-    tax_expense = _find_pl_row(_TAX_EXPENSE_LABELS)
+    tax_expense = _find_tax_expense()
     # Basic EPS (Sr No 24 denominator) — same page-fallback as PAT/PBT/OCI,
     # since the "Earnings per equity share" line sits in the same bottom
     # section of the P&L statement. EPS is a per-share ₹ figure, NEVER a
@@ -3015,10 +3119,24 @@ def _compute_total_debt(parsed, lease_basis="basis1"):
                 face_borrowings_cur, note_total):
             note_mismatch = True  # face value kept, but flagged
 
+    # b) Lease Liabilities — computed BEFORE the Finance-Costs cross-check
+    # below, since Ind-AS-116 lease interest is itself a legitimate,
+    # non-Borrowings source of Finance Costs (confirmed on HUL FY26: zero
+    # Borrowings anywhere, but ₹1,478 Cr of Lease Liabilities plausibly
+    # explains the ₹33 Cr Finance Costs on its own) — the cross-check must
+    # not mistake lease interest for evidence of unparsed Borrowings.
+    lease_nc = parsed.get("lease_liabilities_nc")
+    lease_cur_bs = parsed.get("lease_liabilities_cur")
+    lease_nc_cur = lease_nc[0] if lease_nc is not None else 0.0
+    lease_cur_cur = lease_cur_bs[0] if lease_cur_bs is not None else 0.0
+    b_cur = lease_nc_cur + lease_cur_cur
+    include_leases = (lease_basis == "basis1")
+
     # Hard Finance-Costs cross-check — fires only when EVERY debt signal
-    # (face Borrowings, Notes Borrowings) came back empty/zero, so a_cur is
-    # still 0 at this point, yet the company is visibly paying real interest.
-    if a_cur == 0 and note_total is None and fc_cur is not None and fc_cur > 1.0:
+    # (face Borrowings, Notes Borrowings, Lease Liabilities) came back
+    # empty/zero, so a_cur is still 0 at this point, yet the company is
+    # visibly paying real interest with no legitimate source for it.
+    if a_cur == 0 and note_total is None and b_cur <= 0 and fc_cur is not None and fc_cur > 1.0:
         if borrowings_label_found:
             return {"applicable": False,
                     "reason": "A 'Borrowings' line is present on the Balance Sheet but its value could not be "
@@ -3030,14 +3148,6 @@ def _compute_total_debt(parsed, lease_basis="basis1"):
                           f"of ₹{fc_cur:,.2f} Cr indicate this company does carry interest-bearing debt — "
                           "reporting Total Debt as ₹0 would be misleading, so this is flagged rather than "
                           "silently reported as debt-free."}
-
-    # b) Lease Liabilities
-    lease_nc = parsed.get("lease_liabilities_nc")
-    lease_cur_bs = parsed.get("lease_liabilities_cur")
-    lease_nc_cur = lease_nc[0] if lease_nc is not None else 0.0
-    lease_cur_cur = lease_cur_bs[0] if lease_cur_bs is not None else 0.0
-    b_cur = lease_nc_cur + lease_cur_cur
-    include_leases = (lease_basis == "basis1")
 
     # c) Other Financial Liabilities — Three-Part Test qualifying sub-items only
     ofl_nc = parsed.get("other_fin_liab_nc")
