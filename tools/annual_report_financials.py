@@ -26,6 +26,7 @@ import re
 import io
 import json
 import time
+import threading
 
 try:
     from tools import ssl_bootstrap  # noqa: F401
@@ -35,6 +36,29 @@ except Exception:
 from tools.bse_scraper import _sess, _resolve_scrip_code, _read_cache, _write_cache
 
 CACHE_TTL = 90 * 24 * 3600
+
+# Per-(symbol, year, consolidated) locks guarding `_get_extracted_financials`.
+# Every ratio derived from the same Annual Report calls it independently, and
+# a first-ever visit to a company's Fundamental Ratios page fires 20-30 of
+# those calls at once (confirmed: a 10-30MB PDF download + parse takes ~7s).
+# Without a lock here, EVERY one of those concurrent calls sees a cache miss
+# and independently re-downloads + re-parses the SAME PDF — a classic cache
+# stampede that widening the thread pool (app.py) made WORSE, not better, by
+# letting more of the duplicate downloads run in parallel instead of one
+# request doing the work and the rest reusing it. `_LOCKS_GUARD` protects
+# the lock dict itself; each individual key's lock serialises just that one
+# (symbol, year) so unrelated companies/years are never blocked by each other.
+_extract_locks = {}
+_extract_locks_guard = threading.Lock()
+
+
+def _extract_lock_for(ckey):
+    with _extract_locks_guard:
+        lock = _extract_locks.get(ckey)
+        if lock is None:
+            lock = threading.Lock()
+            _extract_locks[ckey] = lock
+        return lock
 
 # PyMuPDF preserves Unicode ligature glyphs (ﬁ, ﬂ, ﬀ, ...) as their own single
 # codepoints rather than decomposing them into their ASCII letter pairs, when
@@ -2252,6 +2276,29 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
 
 
 def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
+    """Lock-guarded entry point for `_get_extracted_financials_impl` — see
+    that function's docstring for what the actual fetch+parse does. This
+    wrapper exists solely to fix a cache stampede: a first-ever visit to a
+    company's Fundamental Ratios page fires 20-30 ratio requests at once,
+    ALL keyed to the same (symbol, year, consolidated) PDF. Without a lock,
+    every one of them would see a cache miss simultaneously and each
+    independently pay the ~7s PDF download + parse cost, instead of one
+    request doing the work and the rest reusing its result. Re-checks the
+    cache after acquiring the lock (not just before), since another thread
+    may have already finished the fetch while this one was waiting."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_extract_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+    with _extract_lock_for(ckey):
+        cached = _read_cache(ckey)
+        if cached is not None:
+            return cached
+        return _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated)
+
+
+def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True):
     """Shared, cached PDF fetch + parse. Every ratio derived from the same
     Annual Report (Inventory Turnover, Receivables Turnover, ...) reuses this
     single result instead of re-downloading a 10-30MB PDF per ratio. Returns
