@@ -2925,7 +2925,7 @@ def fetch_promoter_pledge_pct(symbol, name=None, to_date=None):
         "numerator": {"label": "Pledged Promoter Shares", "value_cr": num_shares_pledged},
         "denominator": {"label": "Total Promoter Shareholding (% of equity)",
                          "value_cr": round(promoter_holding_pct, 2)},
-        "sources": [{"url": f"https://www.nseindia.com/get-quotes/equity?symbol={sym}",
+        "sources": [{"url": "https://www.nseindia.com/companies-listing/corporate-filings-pledged-data",
                      "label": "NSE Shareholding Pattern ↗"}],
         "note": ("From the most recent SEBI Shareholding Pattern filing (BSE/NSE), a governance/risk "
                  "disclosure, not an accounting figure from the Annual Report. Pledged shares can be "
