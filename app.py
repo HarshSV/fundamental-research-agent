@@ -8,6 +8,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import tools.ssl_bootstrap  # noqa: E402  (must run before requests/yfinance/Angel)
 
 import asyncio
+import concurrent.futures
 import threading
 import requests
 from fastapi import FastAPI, HTTPException, Depends
@@ -261,6 +262,19 @@ def load_scrip_master_async():
 
 @app.on_event("startup")
 def startup_event():
+    # Every `/api/v1/*` ratio endpoint runs via `asyncio.to_thread`, which
+    # shares ONE process-wide default ThreadPoolExecutor (Python's default
+    # size is only min(32, cpu_count+4)). The Overview page fires 20-30 of
+    # these in parallel on load; a single slow "AI research" call (Groq
+    # qualitative analysis, several minutes, especially on a rate-limit
+    # fallback) occupies one of those same threads for its whole duration.
+    # Once concurrent load saturates the pool, every ratio tile queues
+    # behind it and the page looks fully hung — not just slow — even though
+    # nothing has crashed. Raising the pool size is a stopgap (the real fix
+    # is the perf rework already planned) so ratio fetches always have a
+    # free thread regardless of what else is running.
+    asyncio.get_event_loop().set_default_executor(
+        concurrent.futures.ThreadPoolExecutor(max_workers=64))
     threading.Thread(target=load_scrip_master_async, daemon=True).start()
 
 @app.get("/api/search-symbols")
