@@ -564,10 +564,23 @@ def _find_dividend_per_share(doc, start_idx, max_pages=250):
 # section — per spec, only the repayment outflow itself).
 _REPAYMENT_BORROWINGS_LABELS = [
     "repayment of long-term borrowings", "repayment of long term borrowings",
-    "repayment of non-current borrowings", "repayment of borrowings",
+    "repayment of non-current borrowings", "repayment of current borrowings",
     "repayment of term loans", "repayment of debentures", "repayment of non-convertible debentures",
     "redemption of debentures", "redemption of non-convertible debentures",
     "repayment of unsecured loans", "repayment of secured loans",
+    "repayment of bank loans", "repayment of commercial paper", "repayment of cash credit",
+    "repayment of vehicle loans", "repayment of buyer's credit", "repayment of buyers' credit",
+    "repayment of external commercial borrowings",
+    # Deliberately LAST — the generic catch-all, tried only after every more
+    # specific instrument label above has had a chance to match. A filer
+    # printing "Proceeds/(Repayment) of borrowings (net)" or "Movement in
+    # borrowings (net)" (a single NETTED line, not a gross repayment figure)
+    # is NOT in this list at all — per spec, a net figure must never be
+    # silently treated as the gross repayment (it understates Total Debt
+    # Service whenever fresh borrowings exceeded repayments that year, and
+    # can even be a net INFLOW), so a filing with only that netted line
+    # correctly falls through to "Could not find" instead of a wrong number.
+    "repayment of borrowings",
 ]
 # Ind AS 116 splits a lease payment into interest and principal components in
 # the Cash Flow Statement — only the PRINCIPAL portion belongs in Total Debt
