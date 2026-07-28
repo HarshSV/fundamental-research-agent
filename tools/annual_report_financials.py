@@ -512,6 +512,41 @@ def _find_dividend_per_share(doc, start_idx, max_pages=250):
             v = _parse_num(m2.group(1))
             if v is not None:
                 return v, True
+
+        # Fallback: some filers (e.g. HUL) don't print a single narrative
+        # sentence at all — the "declared and paid during the year" figure
+        # only exists as a TABULATED note ("NOTE X DIVIDEND ON EQUITY
+        # SHARE"), broken into separate Final/Interim/Special dividend
+        # rows, each with its own per-share amount, e.g. "Final dividend of
+        # ₹24 per share for FY 2024-25 ... / Interim dividend of ₹19 per
+        # share for FY 2025-26 ...". Sums whichever of these three rows are
+        # present under that heading. Each row also repeats the SAME
+        # per-share figure a second time as a prior-year comparator in a
+        # trailing parenthetical on the same line (e.g. "(2023-24: ₹24 per
+        # share)") — stripped per-line before matching, or it would be
+        # double-counted. "Nil" (a genuinely skipped dividend type that
+        # year) parses to 0 via `_parse_num`, same as a bare "-".
+        anchor = re.search(r"declared and paid during the year", t, re.I)
+        if anchor:
+            window = t[anchor.end():anchor.end() + 700]
+            stop = re.search(r"proposed dividend", window, re.I)
+            if stop:
+                window = window[:stop.start()]
+            row_total = 0.0
+            row_found = False
+            for line in window.split("\n"):
+                line_no_paren = re.sub(r"\([^)]*\)", "", line)
+                rm = re.search(
+                    r"(?:final|interim|special)\s+dividend\s+of\s*[^\d\s]{0,2}\s*"
+                    r"(nil|[\d,]+(?:\.\d+)?)\s*(?:per\s+)?(?:equity\s+)?share",
+                    line_no_paren, re.I)
+                if rm:
+                    v = 0.0 if rm.group(1).lower() == "nil" else _parse_num(rm.group(1))
+                    if v is not None:
+                        row_total += v
+                        row_found = True
+            if row_found:
+                return round(row_total, 2), True
     return 0.0, False
 
 # NOTE on the `start_idx` argument used at the call site below: Standalone
