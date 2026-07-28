@@ -1837,7 +1837,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
                 return (a, b)
         return _find_row_values(segment, [label])
 
-    def _find_pl_row(labels, after=None):
+    def _find_pl_row(labels, after=None, max_skip=0):
         """Find a P&L row on the primary pl_text page, falling back to the
         immediately following page — the bottom-line Profit figure often sits
         on a SECOND page of the same statement (Revenue/expenses down to
@@ -1854,7 +1854,17 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         697/291/527/351 are all bare integers — the regex scan skipped past
         them straight to the next visible token, a lone "-" placeholder from
         the following "Exceptional items: -, -" line, giving a bogus (0.0,
-        0.0) instead of failing cleanly or finding the real values)."""
+        0.0) instead of failing cleanly or finding the real values).
+
+        `max_skip` defaults to 0 (right for PBT/PAT/Tax Expense — computed
+        SUBTOTAL rows that carry no Note-number column of their own). A real
+        P&L LINE ITEM like Finance Costs DOES have its own Note reference
+        printed right after the label (e.g. HUL's "Finance costs \n 33 \n
+        410 \n 381") — at max_skip=0 that note number ("33") was silently
+        read as the CURRENT-YEAR value and the real 410/381 pair discarded
+        entirely (confirmed on HUL: finance_costs came back as (33.0, 410.0)
+        instead of (410.0, 381.0), corrupting Interest Coverage Ratio's
+        denominator). Callers for genuine line items must pass max_skip>=1."""
         def _try(text):
             search_text = text
             if after:
@@ -1862,7 +1872,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
                 if m:
                     search_text = text[m.end():]
             for label in labels:
-                r = _find_single_label_loose(search_text, label, max_skip=0)
+                r = _find_single_label_loose(search_text, label, max_skip=max_skip)
                 if r is not None:
                     return r
             return None
@@ -1998,7 +2008,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # Costs. Both are single, unambiguous P&L lines — no owners/NCI split
     # concern like PAT (PBT is struck before the profit is even attributed).
     pbt = _find_pl_row(_PBT_LABELS)
-    finance_costs = _find_pl_row(_FINANCE_COST_LABELS)
+    finance_costs = _find_pl_row(_FINANCE_COST_LABELS, max_skip=1)
     tax_expense = _find_tax_expense()
     # Basic EPS (Sr No 24 denominator) — same page-fallback as PAT/PBT/OCI,
     # since the "Earnings per equity share" line sits in the same bottom
@@ -3528,14 +3538,35 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
     Costs), current year only — no averaging (EBIT itself is never averaged,
     same as Sr No 19).
 
-    Per spec, reuses Sr No 19's EBIT = Profit Before Tax + Finance Costs.
-    Built as its OWN function (not a client-side derivation of the ROCE
-    endpoint) for the same reason as Debt Ratio (Sr No 21): ROCE's own N/A
-    branches don't always carry a computed EBIT (e.g. when Total Assets/Total
-    Current Liabilities are missing, ROCE returns before EBIT is even used,
-    even though PBT+Finance Costs may both be perfectly fine) — reusing the
-    shared `pbt`/`finance_costs` extraction fields directly keeps this ratio
-    correct independent of ROCE's own Capital-Employed-specific applicability.
+    EBIT here is the SAME Revenue − COGS − Employee Benefit Expense − Other
+    Expenses − D&A computation already validated for Operating Profit
+    Margin (Sr No 15) and ROCE (Sr No 19) — NOT "Profit Before Tax + Finance
+    Costs". That PBT-based approximation was left unfixed when ROCE's own
+    version of this same bug was fixed (commit "Fix Sr No 22 ROCE" — a
+    historical numbering collision, that commit's "Sr No 22" was ROCE, not
+    this ratio) because it wasn't yet QA-reviewed; it has the identical
+    flaw: PBT implicitly bakes in Other Income (PBT = Total Income −
+    Total Expenses = (Revenue + Other Income) − Total Expenses), so
+    PBT + Finance Costs silently inflates "EBIT" by however much Other
+    Income the company reports. QA's own cross-check formula for this ratio
+    (PBT_beforeExceptional + Finance Costs − Other Income) reduces
+    algebraically to exactly this Revenue-based formula. Using the
+    Revenue-based computation directly (rather than PBT minus Other Income)
+    also naturally satisfies QA's other two requirements without any new
+    extraction: it reads Revenue/COGS/Expenses from the Continuing-
+    Operations block only (never blended with a Discontinued-Operations
+    section further down the statement), and it never includes Exceptional
+    Items in the first place (those sit below this operating-profit line in
+    the P&L, not inside COGS/Employee Costs/Other Expenses/D&A) — i.e. this
+    is already QA's "EBIT excluding one-offs" by construction, with no
+    separate "including one-offs" variant needed.
+
+    Built as its OWN function (not a client-side derivation of the ROCE/OPM
+    endpoints) for the same reason as Debt Ratio (Sr No 21): those ratios'
+    own N/A branches don't always carry a computed EBIT (e.g. ROCE returns
+    before EBIT is even used if Capital Employed can't be computed) —
+    reusing the shared extraction fields directly keeps this ratio correct
+    independent of ROCE/OPM's own applicability gates.
 
     Per spec, gross Finance Costs is used as the denominator as reported —
     never net off Interest Income. If Finance Costs is exactly nil (a
@@ -3549,7 +3580,7 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_intcov_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_intcov_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3562,22 +3593,46 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
             _write_cache(ckey, out)
             return out
 
-        pbt = parsed.get("pbt")
-        finance_costs = parsed.get("finance_costs")
-        if pbt is None:
-            out = {"applicable": False, "reason": "Could not find a 'Profit before tax' row on the P&L page.",
+        components = parsed.get("components") or {}
+        if len(components) == 0:
+            out = {"applicable": False,
+                   "reason": "Could not find any Cost of Goods Sold line (Cost of materials consumed / "
+                             "Purchases of stock-in-trade / Changes in inventories) on the P&L page — "
+                             "not a goods business.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
-        if finance_costs is None:
-            out = {"applicable": False, "reason": "Could not find a 'Finance Costs' row on the P&L page.",
+        ebe = parsed.get("employee_benefit_expense")
+        oe = parsed.get("other_expenses")
+        dep = parsed.get("depreciation")
+        revenue = parsed.get("revenue")
+        finance_costs = parsed.get("finance_costs")
+        missing = ("Revenue from operations" if revenue is None else
+                   "Employee Benefit Expense" if ebe is None else
+                   "Other Expenses" if oe is None else
+                   "Depreciation and Amortisation Expense" if dep is None else
+                   "Finance Costs" if finance_costs is None else None)
+        if missing:
+            out = {"applicable": False, "reason": f"Could not find '{missing}' row on the P&L page.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
 
-        pbt_cur, _pbt_prior = pbt
+        rev_cur, _rev_prior = revenue
+        cogs_cur = sum(v[0] for v in components.values())
+        ebe_cur, _ebe_prior = ebe
+        oe_cur, _oe_prior = oe
+        dep_cur, _dep_prior = dep
         fc_cur, _fc_prior = finance_costs
-        ebit_cur = pbt_cur + fc_cur
+        ebit_cur = rev_cur - cogs_cur - ebe_cur - oe_cur - dep_cur
+
+        ebit_components = {
+            "Revenue from Operations": round(rev_cur, 2),
+            **{f"less: {k}": round(v[0], 2) for k, v in components.items()},
+            "less: Employee Benefit Expense": round(ebe_cur, 2),
+            "less: Other Expenses": round(oe_cur, 2),
+            "less: Depreciation and Amortisation Expense": round(dep_cur, 2),
+        }
 
         if abs(fc_cur) < 0.005:  # nil Finance Costs (rounds to ₹0.00 Cr) — genuinely debt-free/interest-free
             out = {"applicable": False, "not_meaningful": True,
@@ -3585,8 +3640,8 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
                              "no finance costs), so the ratio isn't defined rather than being computed as "
                              "an arbitrarily large or infinite number.",
                    "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-                   "numerator": {"label": "EBIT (Profit Before Tax + Finance Costs)", "value_cr": round(ebit_cur, 2),
-                                 "components": {"Profit Before Tax": round(pbt_cur, 2), "+ Finance Costs": round(fc_cur, 2)}},
+                   "numerator": {"label": "EBIT (Revenue − COGS − Employee Costs − Other Expenses − D&A)",
+                                 "value_cr": round(ebit_cur, 2), "components": ebit_components},
                    "denominator": {"label": "Interest Expense (Finance Costs)", "value_cr": round(fc_cur, 2)},
                    "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
                    "source_url": pdf_url}
@@ -3594,29 +3649,29 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
             return out
 
         ratio = round(ebit_cur / fc_cur, 2)
+        confidence = 1.0 if len(components) == len(_COGS_LABELS) else 0.95
 
         out = {
             "applicable": True,
             "value": ratio, "unit": "x",
-            "confidence": 1.0,
-            "estimated": False,
+            "confidence": confidence,
+            "estimated": confidence < 1.0,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": {
-                "label": "EBIT (Profit Before Tax + Finance Costs)",
+                "label": "EBIT (Revenue − COGS − Employee Costs − Other Expenses − D&A)",
                 "value_cr": round(ebit_cur, 2),
-                "components": {
-                    "Profit Before Tax": round(pbt_cur, 2),
-                    "+ Finance Costs": round(fc_cur, 2),
-                },
+                "components": ebit_components,
             },
             "denominator": {
                 "label": "Interest Expense (Finance Costs, gross — not netted against Interest Income)",
                 "value_cr": round(fc_cur, 2),
             },
             "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
-            "note": "From the company's own Annual Report — EBIT is identical to Return on Capital Employed's "
-                    "numerator (Sr No 19). Finance Costs used gross, as reported; Interest Income is never "
-                    "netted off.",
+            "note": "From the company's own Annual Report — EBIT is identical to Operating Profit Margin's "
+                    "(Sr No 15) and Return on Capital Employed's (Sr No 19) numerator: Revenue from Operations "
+                    "minus COGS, Employee Benefit Expense, Other Expenses and Depreciation & Amortisation — "
+                    "scoped to Continuing Operations only, excludes Other Income and Exceptional Items. Finance "
+                    "Costs used gross, as reported; Interest Income is never netted off.",
         }
         _write_cache(ckey, out)
         return out
