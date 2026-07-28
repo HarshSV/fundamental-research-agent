@@ -627,7 +627,7 @@ _OPERATING_CASH_FLOW_LABELS = [
 # from disposal is netted OFF per spec ("net Capex"), not ignored.
 _CAPEX_PPE_PURCHASE_LABELS = [
     "purchase of property, plant and equipment", "purchase of property, plant & equipment",
-    "purchase of fixed assets", "purchase of tangible assets",
+    "purchase of fixed assets", "purchase of tangible assets", "purchase of capital assets",
     "additions to property, plant and equipment", "payments for property, plant and equipment",
     "payment for property, plant and equipment", "acquisition of property, plant and equipment",
     "purchase of property, plant and equipment (including capital work-in-progress)",
@@ -640,6 +640,7 @@ _CAPEX_INTANGIBLE_PURCHASE_LABELS = [
 _CAPEX_DISPOSAL_PROCEEDS_LABELS = [
     "proceeds from sale of property, plant and equipment", "proceeds from disposal of property, plant and equipment",
     "proceeds from sale of fixed assets", "sale of property, plant and equipment", "sale of fixed assets",
+    "sale of capital assets",
     "proceeds from sale/disposal of property, plant and equipment", "sale of tangible fixed assets",
 ]
 
@@ -774,9 +775,23 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
             if inv_segment is None:
                 inv_segment = t[re.search(_CFS_INVESTING_PAT, tl, re.I).start():]
 
+            # All three loops below anchor the label match to the START of
+            # its own line (`(?:^|\n)[ \t]*`, `re.M`), not a bare substring
+            # search anywhere in the segment. Cash Flow Statement captions
+            # are laid out one per line — without this anchor, a label like
+            # "acquisition of property, plant and equipment" (a genuine
+            # Purchase-of-PP&E variant) also matches as a literal substring
+            # INSIDE a completely different, unrelated line like "Grant
+            # received on acquisition of property, plant and equipment" (an
+            # INFLOW, not a purchase) — confirmed on Tata Steel, where this
+            # silently grabbed the grant's ₹533.30 Cr instead of the real
+            # "Purchase of capital assets" line's ₹14,559.05 Cr. Same trap
+            # hit disposal proceeds: "sale of property, plant and equipment"
+            # matched inside "Advance received against sale of property,
+            # plant and equipment" (a receivable, not actual disposal cash).
             if capex_ppe_purchase is None:
                 for label in _CAPEX_PPE_PURCHASE_LABELS:
-                    m = re.search(re.escape(label), inv_segment, re.I)
+                    m = re.search(r"(?:^|\n)[ \t]*" + re.escape(label), inv_segment, re.I | re.M)
                     if not m:
                         continue
                     window = inv_segment[m.end():m.end() + 200]
@@ -789,7 +804,7 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
 
             if capex_intangible_purchase is None:
                 for label in _CAPEX_INTANGIBLE_PURCHASE_LABELS:
-                    m = re.search(re.escape(label), inv_segment, re.I)
+                    m = re.search(r"(?:^|\n)[ \t]*" + re.escape(label), inv_segment, re.I | re.M)
                     if not m:
                         continue
                     window = inv_segment[m.end():m.end() + 200]
@@ -802,7 +817,7 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
 
             if capex_disposal_proceeds is None:
                 for label in _CAPEX_DISPOSAL_PROCEEDS_LABELS:
-                    m = re.search(re.escape(label), inv_segment, re.I)
+                    m = re.search(r"(?:^|\n)[ \t]*" + re.escape(label), inv_segment, re.I | re.M)
                     if not m:
                         continue
                     window = inv_segment[m.end():m.end() + 200]
