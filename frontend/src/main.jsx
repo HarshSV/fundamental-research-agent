@@ -55,6 +55,33 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             return promise;
         }
 
+        // Live-polling quote hook for every Market-Price-per-Share-based ratio
+        // card (P/E, P/B, P/S, Dividend/Earnings/FCF Yield, EV/EBITDA, EV/Sales,
+        // EV/FCF, PEG, Price-to-Cash-Flow, Graham Number, Altman Z-Score). Those
+        // cards used to fetch the quote ONCE inside the same Promise.all as
+        // their (slow-changing) statement-based fields, so the price shown
+        // stayed frozen at whatever it was on page load — never updating again
+        // even as the live market price moved, unless the user switched symbols
+        // and back. This polls independently on the same 20s cadence as
+        // DashHeader's own live price, so every MPS-based ratio recomputes
+        // itself as the market moves, without re-triggering those cards'
+        // (unrelated, unchanged) statement-data loading state.
+        function useLiveQuote(symbol) {
+            const [quote, setQuote] = useState(null);
+            useEffect(() => {
+                if (!symbol) { setQuote(null); return; }
+                let active = true;
+                const token = localStorage.getItem(TOKEN_KEY);
+                const poll = () => {
+                    fetchQuoteShared(symbol, token).then(d => { if (active && d) setQuote(d); }).catch(() => {});
+                };
+                poll();
+                const id = setInterval(poll, 20000);
+                return () => { active = false; clearInterval(id); };
+            }, [symbol]);
+            return quote;
+        }
+
         // Animated count-up for headline numbers (quality score, etc.).
         const CountUp = ({ value, decimals = 0, suffix = '', className }) => {
             const [display, setDisplay] = useState(0);
@@ -4611,15 +4638,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('price-to-earnings-ratio', state.loading && !state.data);
             const [showCalc, setShowCalc] = React.useState(false);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
                 const token = localStorage.getItem(TOKEN_KEY);
                 const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
-                Promise.all([
-                    fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([eps, quote]) => { if (!cancelled) setState({ loading: false, eps, quote }); })
+                fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json())
+                  .then((eps) => { if (!cancelled) setState({ loading: false, eps }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol]);
@@ -4629,8 +4655,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const sources = state.eps?.sources || [];
 
             const epsVal = state.eps?.applicable ? state.eps.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const lossMaking = epsVal != null && epsVal <= 0;
             const applicable = epsVal != null && epsVal > 0 && price != null;
             const pe = applicable ? Math.round((price / epsVal) * 100) / 100 : null;
@@ -4723,15 +4749,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('price-to-book-ratio', state.loading && !state.data);
             const [showCalc, setShowCalc] = React.useState(false);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
                 const token = localStorage.getItem(TOKEN_KEY);
                 const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
-                Promise.all([
-                    fetch(`${API_BASE}/api/v1/book-value-per-share`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([bvps, quote]) => { if (!cancelled) setState({ loading: false, bvps, quote }); })
+                fetch(`${API_BASE}/api/v1/book-value-per-share`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json())
+                  .then((bvps) => { if (!cancelled) setState({ loading: false, bvps }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol]);
@@ -4743,8 +4768,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const sources = state.bvps?.sources || [];
 
             const bvpsVal = state.bvps?.applicable ? state.bvps.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const negativeBook = !state.bvps?.applicable && state.bvps?.numerator?.value_cr != null && state.bvps.numerator.value_cr <= 0;
             const applicable = bvpsVal != null && bvpsVal > 0 && price != null;
             const pb = applicable ? Math.round((price / bvpsVal) * 100) / 100 : null;
@@ -4853,6 +4878,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('price-to-sales-ratio', state.loading && !state.data);
             const [showCalc, setShowCalc] = React.useState(false);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
@@ -4861,8 +4887,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/revenue-from-operations`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([revenue, shares, quote]) => { if (!cancelled) setState({ loading: false, revenue, shares, quote }); })
+                ]).then(([revenue, shares]) => { if (!cancelled) setState({ loading: false, revenue, shares }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol]);
@@ -4873,8 +4898,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             const revenueVal = state.revenue?.applicable ? state.revenue.value : null;
             const sharesVal = state.shares?.applicable ? state.shares.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const marketCapCr = (price != null && sharesVal != null) ? (price * sharesVal) / 1e7 : null;
             const applicable = revenueVal != null && revenueVal > 0 && marketCapCr != null;
             const ps = applicable ? Math.round((marketCapCr / revenueVal) * 100) / 100 : null;
@@ -4964,6 +4989,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('fcf-yield', state.loading && !state.data);
             const [showCalc, setShowCalc] = React.useState(false);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
@@ -4972,8 +4998,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/free-cash-flow`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([fcf, shares, quote]) => { if (!cancelled) setState({ loading: false, fcf, shares, quote }); })
+                ]).then(([fcf, shares]) => { if (!cancelled) setState({ loading: false, fcf, shares }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol]);
@@ -4984,8 +5009,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             const fcfVal = state.fcf?.applicable ? state.fcf.value : null;
             const sharesVal = state.shares?.applicable ? state.shares.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const marketCapCr = (price != null && sharesVal != null) ? (price * sharesVal) / 1e7 : null;
             const applicable = fcfVal != null && marketCapCr != null && marketCapCr > 0;
             const fcfYield = applicable ? Math.round((fcfVal / marketCapCr) * 10000) / 100 : null;
@@ -5078,15 +5103,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('dividend-yield', state.loading && !state.data);
             const [showCalc, setShowCalc] = React.useState(false);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
                 const token = localStorage.getItem(TOKEN_KEY);
                 const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
-                Promise.all([
-                    fetch(`${API_BASE}/api/v1/dividend-per-share`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([dps, quote]) => { if (!cancelled) setState({ loading: false, dps, quote }); })
+                fetch(`${API_BASE}/api/v1/dividend-per-share`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json())
+                  .then((dps) => { if (!cancelled) setState({ loading: false, dps }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol]);
@@ -5096,8 +5120,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const sources = state.dps?.sources || [];
 
             const dpsVal = state.dps?.applicable ? state.dps.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const unconfirmedZero = dpsVal === 0 && (state.dps?.confidence ?? 1) < 1;
             const applicable = dpsVal != null && price != null;
             const yieldPct = applicable ? Math.round((dpsVal / price) * 10000) / 100 : null;
@@ -5182,15 +5206,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('earnings-yield', state.loading && !state.data);
             const [showCalc, setShowCalc] = React.useState(false);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
                 const token = localStorage.getItem(TOKEN_KEY);
                 const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
-                Promise.all([
-                    fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([eps, quote]) => { if (!cancelled) setState({ loading: false, eps, quote }); })
+                fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json())
+                  .then((eps) => { if (!cancelled) setState({ loading: false, eps }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol]);
@@ -5200,8 +5223,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const sources = state.eps?.sources || [];
 
             const epsVal = state.eps?.applicable ? state.eps.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const lossMaking = epsVal != null && epsVal <= 0;
             const applicable = epsVal != null && price != null;
             const yieldPct = applicable ? Math.round((epsVal / price) * 10000) / 100 : null;
@@ -5293,6 +5316,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('ev-to-ebitda', state.loading && !state.data);
             const [showCalc, setShowCalc] = React.useState(false);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
@@ -5305,8 +5329,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     fetch(`${API_BASE}/api/v1/total-debt`, { method: 'POST', headers, body: debtBody }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/cash-and-equivalents`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([ebitda, debt, cash, shares, quote]) => { if (!cancelled) setState({ loading: false, ebitda, debt, cash, shares, quote }); })
+                ]).then(([ebitda, debt, cash, shares]) => { if (!cancelled) setState({ loading: false, ebitda, debt, cash, shares }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol, leaseBasis]);
@@ -5319,8 +5342,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const debtVal = state.debt?.applicable ? state.debt.value : null;
             const cashVal = state.cash?.applicable ? state.cash.value : null;
             const sharesVal = state.shares?.applicable ? state.shares.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const marketCapCr = (price != null && sharesVal != null) ? (price * sharesVal) / 1e7 : null;
             const evCr = (marketCapCr != null && debtVal != null && cashVal != null) ? (marketCapCr + debtVal - cashVal) : null;
 
@@ -7496,6 +7519,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         const PEGRatio = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('peg-ratio', state.loading);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
@@ -7504,16 +7528,15 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const body = JSON.stringify({ symbol, name, to_date: null });
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
                     fetch(`${API_BASE}/api/v1/eps-growth`, { method: 'POST', headers, body }).then(r => r.json()),
-                ]).then(([eps, quote, growth]) => { if (!cancelled) setState({ loading: false, eps, quote, growth }); })
+                ]).then(([eps, growth]) => { if (!cancelled) setState({ loading: false, eps, growth }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol]);
 
             const epsVal = state.eps?.applicable ? state.eps.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const peApplicable = epsVal != null && epsVal > 0 && price != null;
             const pe = peApplicable ? Math.round((price / epsVal) * 100) / 100 : null;
             // Per spec, growth is already the "whole number" form (e.g. 15.5 for
@@ -7608,6 +7631,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('ev-to-sales', state.loading && !state.data);
             const [showCalc, setShowCalc] = React.useState(false);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
@@ -7620,8 +7644,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     fetch(`${API_BASE}/api/v1/total-debt`, { method: 'POST', headers, body: debtBody }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/cash-and-equivalents`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([revenue, debt, cash, shares, quote]) => { if (!cancelled) setState({ loading: false, revenue, debt, cash, shares, quote }); })
+                ]).then(([revenue, debt, cash, shares]) => { if (!cancelled) setState({ loading: false, revenue, debt, cash, shares }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol, leaseBasis]);
@@ -7634,8 +7657,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const debtVal = state.debt?.applicable ? state.debt.value : null;
             const cashVal = state.cash?.applicable ? state.cash.value : null;
             const sharesVal = state.shares?.applicable ? state.shares.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const marketCapCr = (price != null && sharesVal != null) ? (price * sharesVal) / 1e7 : null;
             const evCr = (marketCapCr != null && debtVal != null && cashVal != null) ? (marketCapCr + debtVal - cashVal) : null;
 
@@ -7737,6 +7760,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('ev-to-fcf', state.loading && !state.data);
             const [showCalc, setShowCalc] = React.useState(false);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
@@ -7749,8 +7773,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     fetch(`${API_BASE}/api/v1/total-debt`, { method: 'POST', headers, body: debtBody }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/cash-and-equivalents`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([fcf, debt, cash, shares, quote]) => { if (!cancelled) setState({ loading: false, fcf, debt, cash, shares, quote }); })
+                ]).then(([fcf, debt, cash, shares]) => { if (!cancelled) setState({ loading: false, fcf, debt, cash, shares }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol, leaseBasis]);
@@ -7763,8 +7786,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const debtVal = state.debt?.applicable ? state.debt.value : null;
             const cashVal = state.cash?.applicable ? state.cash.value : null;
             const sharesVal = state.shares?.applicable ? state.shares.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const marketCapCr = (price != null && sharesVal != null) ? (price * sharesVal) / 1e7 : null;
             const evCr = (marketCapCr != null && debtVal != null && cashVal != null) ? (marketCapCr + debtVal - cashVal) : null;
 
@@ -7877,6 +7900,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('price-to-cash-flow', state.loading && !state.data);
             const [showCalc, setShowCalc] = React.useState(false);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
@@ -7886,8 +7910,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/operating-cash-flow`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([ocf, shares, quote]) => { if (!cancelled) setState({ loading: false, ocf, shares, quote }); })
+                ]).then(([ocf, shares]) => { if (!cancelled) setState({ loading: false, ocf, shares }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol]);
@@ -7898,8 +7921,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             const ocfVal = state.ocf?.applicable ? state.ocf.value : null;
             const sharesVal = state.shares?.applicable ? state.shares.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const marketCapCr = (price != null && sharesVal != null) ? (price * sharesVal) / 1e7 : null;
 
             const notMeaningful = ocfVal != null && ocfVal <= 0;
@@ -7999,6 +8022,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         const GrahamNumber = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('graham-number', state.loading);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
@@ -8008,8 +8032,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/book-value-per-share`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([eps, bvps, quote]) => { if (!cancelled) setState({ loading: false, eps, bvps, quote }); })
+                ]).then(([eps, bvps]) => { if (!cancelled) setState({ loading: false, eps, bvps }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol]);
@@ -8018,8 +8041,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             const epsVal = state.eps?.applicable ? state.eps.value : null;
             const bvpsVal = state.bvps?.applicable ? state.bvps.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             // Per spec, N/A / DO NOT CALCULATE if EPS <= 0 or Book Value per
             // Share <= 0 — square root of a negative number is undefined,
             // and the formula is not meaningful for a loss-making or
@@ -8119,6 +8142,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('altman-z-score', state.loading && !state.data);
             const [showCalc, setShowCalc] = React.useState(false);
+            const liveQuote = useLiveQuote(symbol);
             React.useEffect(() => {
                 let cancelled = false;
                 setState({ loading: true });
@@ -8128,8 +8152,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/altman-z-score-components`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetchQuoteShared(symbol, token),
-                ]).then(([d, shares, quote]) => { if (!cancelled) setState({ loading: false, data: d, shares, quote }); })
+                ]).then(([d, shares]) => { if (!cancelled) setState({ loading: false, data: d, shares }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol]);
@@ -8140,8 +8163,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const d = state.data || {};
             const c = d.components || {};
             const sharesVal = state.shares?.applicable ? state.shares.value : null;
-            const price = state.quote?.ltp;
-            const isLive = state.quote?.source === 'angel';
+            const price = liveQuote?.ltp;
+            const isLive = liveQuote?.source === 'angel';
             const marketCapCr = (price != null && sharesVal != null) ? (price * sharesVal) / 1e7 : null;
             const sources = d.sources || [];
 
