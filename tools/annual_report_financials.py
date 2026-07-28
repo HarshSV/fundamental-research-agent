@@ -5875,8 +5875,21 @@ def fetch_free_cash_flow_from_annual_report(symbol, name, fiscal_year, consolida
         intangible_cur = intangible[0] if intangible is not None else 0.0
         disposal_cur = disposal[0] if disposal is not None else 0.0
 
+        # "Net Capex" only actually means "net of disposal proceeds" when a
+        # disposal-proceeds line was genuinely FOUND and subtracted — when
+        # `disposal is None` (no such line on the Cash Flow Statement, e.g.
+        # HUL), `disposal_cur` silently defaults to 0.0 and `net_capex_cur`
+        # is arithmetically identical to GROSS capex, even though the label/
+        # note below used to unconditionally claim "net of disposal
+        # proceeds" regardless (QA-flagged: the VALUE was right, but the
+        # explanation overclaimed netting that never actually happened for
+        # that company). Both the numerator label and the note now say
+        # "Gross Capex" whenever disposal wasn't found, "Net Capex" only
+        # when it genuinely was.
+        capex_is_net = disposal is not None
         net_capex_cur = round(ppe_cur + intangible_cur - disposal_cur, 2)
         fcf_cur = round(ocf_cur - net_capex_cur, 2)
+        capex_label = "Net Capital Expenditure" if capex_is_net else "Capital Expenditure (gross — no disposal proceeds line found)"
 
         capex_components = {"Purchase of Property, Plant and Equipment": round(ppe_cur, 2)}
         if intangible is not None:
@@ -5891,20 +5904,27 @@ def fetch_free_cash_flow_from_annual_report(symbol, name, fiscal_year, consolida
             "estimated": False,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": {
-                "label": "Free Cash Flow (Operating Cash Flow − Net Capex)",
+                "label": f"Free Cash Flow (Operating Cash Flow − {'Net' if capex_is_net else 'Gross'} Capex)",
                 "value_cr": fcf_cur,
                 "components": {
                     "Net Cash Flow from Operating Activities": round(ocf_cur, 2),
-                    "less: Net Capital Expenditure": net_capex_cur,
+                    f"less: {capex_label}": net_capex_cur,
                     **{f"  {k}": v for k, v in capex_components.items()},
                 },
             },
             "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-            "note": "From the company's own Annual Report — Net Cash Flow from Operating Activities minus net "
-                    "Capital Expenditure (Purchase of PP&E and Intangible Assets, net of disposal proceeds), all "
-                    "from the Cash Flow Statement (never Net Profit/EBITDA or Balance Sheet gross block movement "
-                    "substituted). A negative value is a real finding — often a genuine capex/growth investment "
-                    "phase, not an error — and is reported as-is.",
+            "note": ("From the company's own Annual Report — Net Cash Flow from Operating Activities minus net "
+                      "Capital Expenditure (Purchase of PP&E and Intangible Assets, net of disposal proceeds), all "
+                      "from the Cash Flow Statement (never Net Profit/EBITDA or Balance Sheet gross block movement "
+                      "substituted)."
+                      if capex_is_net else
+                      "From the company's own Annual Report — Net Cash Flow from Operating Activities minus GROSS "
+                      "Capital Expenditure (Purchase of PP&E and Intangible Assets), all from the Cash Flow "
+                      "Statement (never Net Profit/EBITDA or Balance Sheet gross block movement substituted). No "
+                      "'Proceeds from Disposal of Fixed Assets' line was found on this filing's Cash Flow "
+                      "Statement, so nothing could be netted off — capex is reported gross, not net.")
+                    + " A negative value is a real finding — often a genuine capex/growth investment "
+                      "phase, not an error — and is reported as-is.",
         }
         _write_cache(ckey, out)
         return out
@@ -5986,9 +6006,14 @@ def fetch_fcf_margin_from_annual_report(symbol, name, fiscal_year, consolidated=
         intangible_cur = intangible[0] if intangible is not None else 0.0
         disposal_cur = disposal[0] if disposal is not None else 0.0
 
+        # Same net-vs-gross wording fix as Free Cash Flow (Sr No 36) itself:
+        # only call this "Net Capex" when a disposal-proceeds line was
+        # actually found and subtracted.
+        capex_is_net = disposal is not None
         net_capex_cur = round(ppe_cur + intangible_cur - disposal_cur, 2)
         fcf_cur = round(ocf_cur - net_capex_cur, 2)
         margin = round((fcf_cur / rev_cur) * 100, 2)
+        capex_label = "Net Capital Expenditure" if capex_is_net else "Capital Expenditure (gross — no disposal proceeds line found)"
 
         out = {
             "applicable": True,
@@ -5997,11 +6022,11 @@ def fetch_fcf_margin_from_annual_report(symbol, name, fiscal_year, consolidated=
             "estimated": False,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": {
-                "label": "Free Cash Flow (Operating Cash Flow − Net Capex)",
+                "label": f"Free Cash Flow (Operating Cash Flow − {'Net' if capex_is_net else 'Gross'} Capex)",
                 "value_cr": fcf_cur,
                 "components": {
                     "Net Cash Flow from Operating Activities": round(ocf_cur, 2),
-                    "less: Net Capital Expenditure": net_capex_cur,
+                    f"less: {capex_label}": net_capex_cur,
                 },
             },
             "denominator": {
@@ -6009,10 +6034,15 @@ def fetch_fcf_margin_from_annual_report(symbol, name, fiscal_year, consolidated=
                 "value_cr": round(rev_cur, 2),
             },
             "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-            "note": "From the company's own Annual Report — Free Cash Flow (Sr No 36: Net Cash Flow from "
-                    "Operating Activities minus net Capital Expenditure) ÷ Revenue from Operations. A negative "
-                    "margin can reflect a genuine growth/capex investment phase, not necessarily deteriorating "
-                    "core operations, and is reported as-is.",
+            "note": ("From the company's own Annual Report — Free Cash Flow (Sr No 36: Net Cash Flow from "
+                      "Operating Activities minus net Capital Expenditure) ÷ Revenue from Operations."
+                      if capex_is_net else
+                      "From the company's own Annual Report — Free Cash Flow (Sr No 36: Net Cash Flow from "
+                      "Operating Activities minus GROSS Capital Expenditure — no 'Proceeds from Disposal of "
+                      "Fixed Assets' line was found on this filing's Cash Flow Statement, so nothing could be "
+                      "netted off) ÷ Revenue from Operations.")
+                    + " A negative margin can reflect a genuine growth/capex investment phase, not necessarily "
+                      "deteriorating core operations, and is reported as-is.",
         }
         _write_cache(ckey, out)
         return out
