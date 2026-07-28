@@ -33,6 +33,28 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         })();
         const TOKEN_KEY = 'navrist_token';
 
+        // Shared, deduped live-quote fetch. Every ratio card + both live-price
+        // components used to call /api/quote independently — opening one report
+        // page fired 15+ near-simultaneous requests for the SAME symbol, which is
+        // what was tripping Angel One's "Access denied because of exceeding
+        // access rate". Callers within QUOTE_DEDUPE_MS of each other for the same
+        // symbol now share a single in-flight request/result instead of each
+        // firing their own.
+        const QUOTE_DEDUPE_MS = 5000;
+        const _quoteCache = new Map(); // symbol -> { promise, timestamp }
+        function fetchQuoteShared(symbol, token) {
+            const now = Date.now();
+            const cached = _quoteCache.get(symbol);
+            if (cached && (now - cached.timestamp) < QUOTE_DEDUPE_MS) {
+                return cached.promise;
+            }
+            const promise = fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            }).then(r => (r.ok ? r.json() : null));
+            _quoteCache.set(symbol, { promise, timestamp: now });
+            return promise;
+        }
+
         // Animated count-up for headline numbers (quality score, etc.).
         const CountUp = ({ value, decimals = 0, suffix = '', className }) => {
             const [display, setDisplay] = useState(0);
@@ -187,10 +209,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 let active = true;
                 const token = localStorage.getItem(TOKEN_KEY);
                 const poll = () => {
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    })
-                        .then(r => (r.ok ? r.json() : null))
+                    fetchQuoteShared(symbol, token)
                         .then(d => { if (active && d) setQuote(d); })
                         .catch(() => {});
                 };
@@ -228,8 +247,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 let active = true;
                 const token = localStorage.getItem(TOKEN_KEY);
                 const poll = () => {
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } })
-                        .then(r => (r.ok ? r.json() : null)).then(d => { if (active && d) setQuote(d); }).catch(() => {});
+                    fetchQuoteShared(symbol, token)
+                        .then(d => { if (active && d) setQuote(d); }).catch(() => {});
                 };
                 poll();
                 const id = setInterval(poll, 30000);
@@ -854,7 +873,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             return (
                 <div className="space-y-4">
                     {list.map((t, ti) => (
-                        <CollapsibleSection key={t.topic || ti} title={t.topic} defaultOpen={ti === 0}>
+                        <CollapsibleSection key={t.topic || ti} title={t.topic} defaultOpen={true}>
                             <div className="space-y-4">
                                 {t.subpoints.map((sp, i) => {
                                     const chart = sp.chart;
@@ -4599,7 +4618,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([eps, quote]) => { if (!cancelled) setState({ loading: false, eps, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
@@ -4711,7 +4730,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/book-value-per-share`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([bvps, quote]) => { if (!cancelled) setState({ loading: false, bvps, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
@@ -4842,7 +4861,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/revenue-from-operations`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([revenue, shares, quote]) => { if (!cancelled) setState({ loading: false, revenue, shares, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
@@ -4953,7 +4972,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/free-cash-flow`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([fcf, shares, quote]) => { if (!cancelled) setState({ loading: false, fcf, shares, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
@@ -5066,7 +5085,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/dividend-per-share`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([dps, quote]) => { if (!cancelled) setState({ loading: false, dps, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
@@ -5170,7 +5189,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body: JSON.stringify({ symbol, name, to_date: null }) }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([eps, quote]) => { if (!cancelled) setState({ loading: false, eps, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
@@ -5286,7 +5305,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     fetch(`${API_BASE}/api/v1/total-debt`, { method: 'POST', headers, body: debtBody }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/cash-and-equivalents`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([ebitda, debt, cash, shares, quote]) => { if (!cancelled) setState({ loading: false, ebitda, debt, cash, shares, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
@@ -7485,7 +7504,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const body = JSON.stringify({ symbol, name, to_date: null });
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                     fetch(`${API_BASE}/api/v1/eps-growth`, { method: 'POST', headers, body }).then(r => r.json()),
                 ]).then(([eps, quote, growth]) => { if (!cancelled) setState({ loading: false, eps, quote, growth }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
@@ -7601,7 +7620,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     fetch(`${API_BASE}/api/v1/total-debt`, { method: 'POST', headers, body: debtBody }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/cash-and-equivalents`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([revenue, debt, cash, shares, quote]) => { if (!cancelled) setState({ loading: false, revenue, debt, cash, shares, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
@@ -7730,7 +7749,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     fetch(`${API_BASE}/api/v1/total-debt`, { method: 'POST', headers, body: debtBody }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/cash-and-equivalents`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([fcf, debt, cash, shares, quote]) => { if (!cancelled) setState({ loading: false, fcf, debt, cash, shares, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
@@ -7867,7 +7886,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/operating-cash-flow`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([ocf, shares, quote]) => { if (!cancelled) setState({ loading: false, ocf, shares, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
@@ -7989,7 +8008,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/book-value-per-share`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([eps, bvps, quote]) => { if (!cancelled) setState({ loading: false, eps, bvps, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
@@ -8109,7 +8128,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 Promise.all([
                     fetch(`${API_BASE}/api/v1/altman-z-score-components`, { method: 'POST', headers, body }).then(r => r.json()),
                     fetch(`${API_BASE}/api/v1/shares-outstanding`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/quote?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)),
+                    fetchQuoteShared(symbol, token),
                 ]).then(([d, shares, quote]) => { if (!cancelled) setState({ loading: false, data: d, shares, quote }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };

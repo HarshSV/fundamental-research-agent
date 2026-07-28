@@ -15,13 +15,23 @@ const IconChart = () => (<I><path d="M3 12h4l3 7 4-14 3 7h4" /></I>);
 const IconPeers = () => (<I><rect x="3" y="4" width="7" height="7" rx="1.5" /><rect x="14" y="4" width="7" height="7" rx="1.5" /><rect x="3" y="15" width="7" height="5" rx="1.5" /><rect x="14" y="13" width="7" height="7" rx="1.5" /></I>);
 const IconCheck = () => (<I s={16}><path d="M20 6 9 17l-5-5" /></I>);
 const IconArrow = () => (<I s={16}><path d="M5 12h14M13 6l6 6-6 6" /></I>);
+const IconEdit = () => (<I s={14}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></I>);
+const IconX = () => (<I s={12}><path d="M18 6 6 18M6 6l12 12" /></I>);
+const IconPlus = () => (<I s={14}><path d="M12 5v14M5 12h14" /></I>);
 
-const TRENDING = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'LT', 'ITC', 'SBIN', 'BHARTIARTL', 'MARUTI'];
-const EXAMPLES = [
-  { s: 'RELIANCE', n: 'Reliance Industries' }, { s: 'TCS', n: 'Tata Consultancy Services' },
-  { s: 'INFY', n: 'Infosys' }, { s: 'HDFCBANK', n: 'HDFC Bank' },
-  { s: 'ICICIBANK', n: 'ICICI Bank' }, { s: 'LT', n: 'Larsen & Toubro' },
-];
+const DEFAULT_WATCHLIST = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'LT', 'ITC', 'SBIN', 'BHARTIARTL', 'MARUTI'];
+const WATCHLIST_KEY = 'nv_watchlist';
+const WATCHLIST_MAX = 10;
+
+function loadWatchlist() {
+  try {
+    const raw = localStorage.getItem(WATCHLIST_KEY);
+    if (!raw) return DEFAULT_WATCHLIST;
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr) && arr.length) return arr.slice(0, WATCHLIST_MAX);
+  } catch (e) { /* ignore */ }
+  return DEFAULT_WATCHLIST;
+}
 
 const FEATURES = [
   { Icon: IconAI, title: 'AI research', body: 'Executive summaries, growth drivers, moat and risks — reasoned from filings, not guessed.' },
@@ -49,6 +59,41 @@ export default function Landing({ onSelect, onLogout }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const boxRef = useRef(null);
+
+  const [watchlist, setWatchlist] = useState(loadWatchlist);
+  const [editing, setEditing] = useState(false);
+  const [wq, setWq] = useState('');
+  const [wMatches, setWMatches] = useState([]);
+  const editRef = useRef(null);
+
+  useEffect(() => {
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist));
+  }, [watchlist]);
+
+  useEffect(() => {
+    if (!editing) return;
+    const h = (e) => { if (editRef.current && !editRef.current.contains(e.target)) setEditing(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [editing]);
+
+  useEffect(() => {
+    let live = true;
+    if (!wq.trim()) { setWMatches([]); return; }
+    const t = setTimeout(async () => {
+      const r = await searchSymbols(wq);
+      if (!live) return;
+      setWMatches(r.slice(0, 6));
+    }, 130);
+    return () => { live = false; clearTimeout(t); };
+  }, [wq]);
+
+  const addToWatchlist = (sym) => {
+    const s = String(sym).toUpperCase();
+    setWatchlist((w) => (w.includes(s) || w.length >= WATCHLIST_MAX ? w : [...w, s]));
+    setWq(''); setWMatches([]);
+  };
+  const removeFromWatchlist = (sym) => setWatchlist((w) => w.filter((s) => s !== sym));
 
   useEffect(() => {
     let live = true;
@@ -151,28 +196,76 @@ export default function Landing({ onSelect, onLogout }) {
             </div>
           </div>
 
-          {/* example searches + trending — fade out while the dropdown is open so
-              nothing visually collides with the floating results list above. */}
-          <div className={`transition-opacity duration-200 ${open && matches.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-            <div className="nv-rise nv-rise-4 mt-5 flex flex-wrap items-center justify-center gap-2">
-              <span className="text-[12px] text-slate-500 mr-1">Try</span>
-              {EXAMPLES.map((e) => (
-                <button key={e.s} onClick={() => go(e.s)} className="nv-chip text-[12.5px] py-1.5 px-3">{e.n}</button>
-              ))}
-            </div>
-          </div>
         </div>
 
-        {/* trending */}
+        {/* watchlist */}
         <div className={`max-w-3xl mx-auto px-6 pb-16 transition-opacity duration-200 ${open && matches.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-          <div className="text-center nv-eyebrow text-slate-500 mb-3">Trending today</div>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {TRENDING.map((t) => (
-              <button key={t} onClick={() => go(t)} className="nv-chip font-mono text-[12px] py-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />{t}
-              </button>
-            ))}
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <span className="nv-eyebrow text-slate-500">Your watchlist</span>
+            <button
+              onClick={() => setEditing((v) => !v)}
+              className="nv-icon-btn w-6 h-6 !border-0 text-slate-500 hover:text-blue-600"
+              title="Edit watchlist"
+            >
+              <IconEdit />
+            </button>
           </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {watchlist.map((t) => (
+              <span key={t} className="nv-chip font-mono text-[12px] py-1.5 pr-1.5 group">
+                <button onClick={() => go(t)} className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />{t}
+                </button>
+                {editing && (
+                  <button
+                    onClick={() => removeFromWatchlist(t)}
+                    className="ml-1 w-4 h-4 rounded-full grid place-items-center text-slate-500 hover:text-red-400 hover:bg-red-500/10"
+                    title={`Remove ${t}`}
+                  >
+                    <IconX />
+                  </button>
+                )}
+              </span>
+            ))}
+            {watchlist.length === 0 && (
+              <span className="text-[12.5px] text-slate-600">No stocks yet — add up to {WATCHLIST_MAX}.</span>
+            )}
+          </div>
+
+          {editing && (
+            <div ref={editRef} className="nv-card p-3 max-w-sm mx-auto mt-4 text-left">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-semibold text-slate-400">Add a stock ({watchlist.length}/{WATCHLIST_MAX})</span>
+                <button onClick={() => setEditing(false)} className="text-slate-500 hover:text-slate-300"><IconX /></button>
+              </div>
+              <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 h-10">
+                <IconSearch />
+                <input
+                  value={wq}
+                  onChange={(e) => setWq(e.target.value)}
+                  disabled={watchlist.length >= WATCHLIST_MAX}
+                  placeholder={watchlist.length >= WATCHLIST_MAX ? 'Limit reached — remove one first' : 'Search company or ticker…'}
+                  className="flex-1 bg-transparent outline-none text-slate-100 placeholder:text-slate-500 text-[13px] min-w-0"
+                />
+              </div>
+              {wMatches.length > 0 && (
+                <div className="mt-2 space-y-0.5">
+                  {wMatches.map((m) => (
+                    <button
+                      key={m.symbol}
+                      onClick={() => addToWatchlist(m.symbol)}
+                      disabled={watchlist.includes(String(m.symbol).toUpperCase())}
+                      className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-left hover:bg-slate-850 disabled:opacity-40"
+                    >
+                      <span className="text-[13px] text-slate-100 truncate">{m.name || m.symbol} <span className="text-slate-500 font-mono text-[11px]">{m.symbol}</span></span>
+                      <IconPlus />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </section>
 

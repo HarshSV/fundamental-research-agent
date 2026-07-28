@@ -1,18 +1,42 @@
 """
-Shared Groq chat helper with a model fallback chain.
+Shared LLM chat helper with a cross-provider fallback chain.
 
 Groq free-tier rate limits are PER MODEL (tokens per day / per minute). When the
 primary 70b model exhausts its daily quota (HTTP 429), every AI feature used to
 fail at once — empty Business Model Canvas, "Summary generation failed" concall
-months. Falling back to the smaller instant model (separate quota) keeps those
-features alive with slightly lower quality instead of failing outright.
+months. The chain now tries three free OpenRouter models (each on its own
+account/key, so none share a quota) before ever touching Groq, and only falls
+back to the Groq 70b->8b pair as the last resort. A single exhausted provider
+can no longer take the whole pipeline down.
 
-The fallback model has a small tokens-per-MINUTE cap (6k), so oversized inputs
-(full concall transcripts) are trimmed head+tail to fit before the retry.
+The Groq fallback model has a small tokens-per-MINUTE cap (6k), so oversized
+inputs (full concall transcripts) are trimmed head+tail to fit before the retry.
 """
 
 import os
 import re
+
+try:
+    # Some Windows setups (e.g. Norton/antivirus TLS scanning) install their
+    # own root CA into the OS trust store but not into Python's certifi
+    # bundle, causing SSL_CERTIFICATE_VERIFY_FAILED on every HTTPS call. This
+    # makes Python trust whatever the OS already trusts. No-op if the OS trust
+    # store already matches certifi (e.g. on Linux/prod).
+    import pip_system_certs.wrapt_requests  # noqa: F401
+except ImportError:
+    pass
+
+# Free OpenRouter models tried in order, each with its own API key (separate
+# free-tier quota per key/account). model_id is the OpenRouter slug.
+# can_disable_reasoning: False for models that reject `reasoning: {enabled:
+# false}` outright (e.g. gpt-oss-20b requires reasoning mode) — for those we
+# simply omit the reasoning param instead of forcing it off.
+OPENROUTER_CHAIN = [
+    ("nvidia/nemotron-3-super-120b-a12b:free", "OPENROUTER_API_KEY_1", True),
+    ("openai/gpt-oss-20b:free", "OPENROUTER_API_KEY_2", False),
+    ("nvidia/nemotron-3-nano-30b-a3b:free", "OPENROUTER_API_KEY_3", True),
+]
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # (model, approx input char budget, completion-token cap). ~4 chars/token; the
 # 8b model's 6k TPM cap counts input + requested completion tokens. The
@@ -98,7 +122,44 @@ def parse_json_loose(text):
         return json.loads(t2)
     except Exception:
         pass
-    return json.loads(_escape_unescaped_inner_quotes(t2))
+    t3 = _escape_raw_control_chars_in_strings(t2)
+    try:
+        return json.loads(t3)
+    except Exception:
+        pass
+    return json.loads(_escape_unescaped_inner_quotes(t3))
+
+
+def _escape_raw_control_chars_in_strings(t):
+    """
+    Repairs 'Unterminated string' / 'Invalid control character' failures: the
+    model sometimes quotes a chunk of source text (e.g. a concall excerpt)
+    verbatim, embedding a literal newline/tab/carriage-return inside a JSON
+    string. The JSON spec requires those be escaped as \\n/\\t/\\r; a raw one
+    makes json.loads think the string ended at the line break. Escape any
+    literal control character found while inside a string, leave everything
+    outside strings untouched.
+    """
+    out, i, n = [], 0, len(t)
+    in_str, esc = False, False
+    while i < n:
+        ch = t[i]
+        if in_str and not esc and ch in ("\n", "\r", "\t"):
+            out.append({"\n": "\\n", "\r": "\\r", "\t": "\\t"}[ch])
+            i += 1
+            continue
+        out.append(ch)
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        i += 1
+    return "".join(out)
 
 
 def _escape_unescaped_inner_quotes(t):
@@ -146,11 +207,66 @@ def _escape_unescaped_inner_quotes(t):
     return "".join(out)
 
 
+def _try_openrouter(messages, temperature, max_tokens):
+    """
+    Try each free OpenRouter model in OPENROUTER_CHAIN, each under its own API
+    key (separate free-tier quota, so one account running dry doesn't block the
+    others). Returns the response text, or None if every entry failed/was
+    unconfigured — callers fall through to the Groq chain in that case.
+    """
+    from openai import OpenAI
+
+    for model, key_env, can_disable_reasoning in OPENROUTER_CHAIN:
+        key = os.getenv(key_env, "").strip()
+        if not key:
+            continue
+        try:
+            # timeout=15: a free-tier provider queued behind other users can
+            # hang far longer than it's worth waiting — better to fail fast
+            # and let the next model in the chain pick it up.
+            client = OpenAI(api_key=key, base_url=OPENROUTER_BASE_URL, max_retries=0, timeout=15.0)
+            kwargs = {"model": model, "messages": messages}
+            if temperature is not None:
+                kwargs["temperature"] = temperature
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
+            # Reasoning models (e.g. Nemotron) otherwise spend the entire
+            # token budget on invisible "thinking" and return an empty or
+            # truncated answer. Some models (e.g. gpt-oss-20b) instead REJECT
+            # an explicit reasoning:false with a 400 ("reasoning is mandatory
+            # for this endpoint") — for those we omit the param entirely
+            # rather than force it, accepting their normal (slower) behavior.
+            if can_disable_reasoning:
+                kwargs["extra_body"] = {"reasoning": {"enabled": False}}
+            completion = client.chat.completions.create(**kwargs)
+            choice = completion.choices[0]
+            text = choice.message.content
+            # A response cut off by the token budget is usually invalid/
+            # truncated JSON — treat it as a failure of this model rather
+            # than returning garbage the caller's JSON parser will choke on.
+            if choice.finish_reason == "length":
+                print(f"[groq_chat] OpenRouter {model} truncated (finish_reason=length); trying next...")
+                continue
+            if text and text.strip():
+                if model != OPENROUTER_CHAIN[0][0]:
+                    print(f"[groq_chat] served by OpenRouter fallback model {model}")
+                return text
+        except Exception as e:
+            print(f"[groq_chat] OpenRouter {model} failed ({str(e)[:160]}); trying next...")
+            continue
+    return None
+
+
 def groq_chat(messages, temperature=None, max_tokens=None, api_key=None):
     """
-    Run a chat completion, trying each model in MODEL_CHAIN until one succeeds.
+    Run a chat completion. Tries the free OpenRouter chain first (three models,
+    each on its own key/quota), then falls back to the Groq MODEL_CHAIN below.
     Returns the response text. Raises the LAST error only if every model fails.
     """
+    or_text = _try_openrouter(messages, temperature, max_tokens)
+    if or_text is not None:
+        return or_text
+
     from groq import Groq
 
     key = (api_key or os.getenv("GROQ_API_KEY", "")).strip()
@@ -179,15 +295,17 @@ def groq_chat(messages, temperature=None, max_tokens=None, api_key=None):
             mt = min(mt, tok_cap) if mt else tok_cap
         if mt is not None:
             kwargs["max_tokens"] = mt
-        # Retry transient network blips AND per-minute rate limits before falling
-        # through to the next model. A per-minute TPM limit genuinely clears on
-        # its own within ~60s — one retry can still land in a not-yet-reset
-        # window (e.g. a 32s wait plus a slow-starting request), so this allows
-        # up to 3 waits (the API tells us exactly how long each time).
-        max_attempts = 4
+        # Groq is reached only after the whole OpenRouter chain has already
+        # failed, and a mock-data fallback exists above this — so fail FAST
+        # here rather than waiting out rate limits. One short retry for a
+        # genuine network blip only; a rate limit or anything else moves
+        # straight to the next model/gives up. (Previously this waited up to
+        # 60s x 3 attempts x 2 models — up to 6 minutes of pure sleep(), which
+        # is what made a hung request look like it was stuck for 8 minutes.)
+        max_attempts = 2
         for attempt in range(max_attempts):
             try:
-                completion = client.chat.completions.create(**kwargs)
+                completion = client.chat.completions.create(**kwargs, timeout=15.0)
                 text = completion.choices[0].message.content
                 if model != MODEL_CHAIN[0][0]:
                     print(f"[groq_chat] served by fallback model {model}")
@@ -200,17 +318,6 @@ def groq_chat(messages, temperature=None, max_tokens=None, api_key=None):
                 if transient and attempt < max_attempts - 1:
                     print(f"[groq_chat] {model} transient error ({str(e)[:80]}); retrying...")
                     _time.sleep(1.5)
-                    continue
-                # A per-MINUTE token-rate-limit (as opposed to a daily/quota 429)
-                # tells us exactly how long until it resets — e.g. "Please try
-                # again in 32.13s". Worth waiting out (up to a few times) rather
-                # than immediately giving up on this model, since on the last
-                # model in the chain that means the whole call fails outright.
-                wait_match = re.search(r"try again in (\d+(?:\.\d+)?)s", msg)
-                if wait_match and attempt < max_attempts - 1:
-                    wait_s = min(float(wait_match.group(1)) + 1, 60)
-                    print(f"[groq_chat] {model} per-minute rate limit; waiting {wait_s:.0f}s before retrying (attempt {attempt + 1}/{max_attempts})...")
-                    _time.sleep(wait_s)
                     continue
                 print(f"[groq_chat] {model} failed ({str(e)[:160]}); trying next model...")
                 break

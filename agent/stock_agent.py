@@ -222,6 +222,48 @@ def get_fallback_structured_data(symbol: str) -> dict:
         }
     }
 
+def get_fallback_topics_data(symbol: str) -> dict:
+    """
+    TEMPORARY DEMO FALLBACK for the F-22..F-34 qualitative-topics call
+    (Sections A/B/C). Used only when every LLM provider is unavailable/
+    exhausted, so a demo (e.g. for QA) shows fully populated sections
+    instead of "Not yet available" placeholders. This is clearly labelled
+    placeholder text, not company-specific analysis — remove/stop calling
+    this once a paid LLM tier is reliably available; it exists purely to
+    unblock a demo, not as a permanent feature.
+    """
+    return {
+        "F-22": {"business_model_type": "Portfolio (multiple products/segments)", "revenue_pattern": "Mixed",
+                  "recurring_revenue_pct": 55.0,
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol} operates a diversified business with a mix of recurring and cyclical revenue streams."},
+        "F-23": {"moat_types": {"brand": 3.0, "distribution": 3.0, "cost_leadership": 3.0, "network_effects": 2.5, "switching_costs": 3.0},
+                  "overall_rating": 3.0,
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol} shows moderate competitive advantages across brand, distribution and cost leadership."},
+        "F-24": {"revenue_model_type": "Transactional", "contract_length": "Not disclosed", "contract_renewal_rate_pct": None,
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s revenue model is predominantly transactional in nature."},
+        "F-25": {"lifecycle_stage": "Maturity", "relative_growth_pct": 2.0,
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol} is in a mature stage of its business lifecycle relative to industry peers."},
+        "F-26": {"pricing_power_rating": "Moderate", "price_pass_through_ratio": 0.7,
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol} has moderate pricing power with partial pass-through of input cost inflation."},
+        "F-27": {"structural_defensibility": "Partially temporary tailwinds", "one_off_flags": [],
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s margins reflect a mix of structural strength and cyclical factors."},
+        "F-28": {"ceo_name": "Not disclosed", "ceo_tenure_years": None, "track_record_rating": "Mixed", "prior_ventures": [],
+                  "rationale": f"[DEMO PLACEHOLDER] Track record data for {symbol}'s CEO/MD is not available in this demo run."},
+        "F-29": {"fixed_variable_pay_ratio": "70:30", "esop_pct_of_kmp_comp": 10.0, "long_term_orientation_rating": "Moderate",
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s management incentive structure appears moderately aligned with long-term value."},
+        "F-30": {"bench_depth_rating": "Moderate", "kmp_attrition_rate_pct": 10.0, "key_person_dependency_flags": [],
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s management bench depth is assessed as moderate in this demo run."},
+        "F-31": {"communication_quality_rating": "Moderate", "guidance_consistency": "Not disclosed", "disclosure_flags": [],
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s communication quality could not be assessed from live data in this demo run."},
+        "F-32": {"execution_credibility_rating": "Mixed", "guidance_accuracy_pct": 75.0, "milestone_track_record": [],
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s execution track record is unavailable in this demo run."},
+        "F-33": {"culture_rating": "Moderate", "employee_attrition_rate_pct": 15.0, "culture_flags": [],
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s culture signals could not be assessed from live data in this demo run."},
+        "F-34": {"promoter_holding_pct": 50.0, "qoq_change_pct": 0.0, "holding_trend": "Stable",
+                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s promoter holding is assumed stable in this demo run — verify against real filings."},
+    }
+
+
 def json_to_markdown_narrative(parsed_json: dict, symbol: str) -> str:
     """
     Converts parsed qualitative JSON structure into a markdown text narrative
@@ -384,91 +426,33 @@ def analyze_quality_node(state: SystemState) -> dict:
     )
     
     qualitative_payload = {}
-    
-    # Check for Groq API key availability and execute or fallback
-    if not api_key or api_key.strip() in ["", "your_api_key_here"]:
-        print("[WARNING] GROQ_API_KEY not configured. Generating high-quality simulated JSON payload for prototype...")
-        parsed_data = get_fallback_structured_data(symbol)
-        qualitative_payload = {
-            'status': 'MOCK_SUCCESS',
-            'parsed_json': parsed_data,
-            'narrative': json_to_markdown_narrative(parsed_data, symbol)
-        }
-    else:
-        try:
-            print(f"[analyze_quality_node] Calling Groq (model fallback chain)...")
-            from tools.groq_client import groq_chat
-            response_text = groq_chat(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a professional equity research assistant specialized in qualitative business auditing."
-                    },
-                    {
-                        "role": "user",
-                        "content": f"{system_prompt}\n\nHere is the data context:\n{data_context}"
-                    }
-                ],
-                max_tokens=3500,
-                api_key=api_key,
-            )
-            
-            # Tolerant parse — fallback models emit fences/invalid escapes.
-            from tools.groq_client import parse_json_loose
-            parsed_data = parse_json_loose(response_text)
 
-            # Models sometimes return list items as OBJECTS where strings are
-            # expected (e.g. F-14 risks as {"risk", "management_response"}) —
-            # rendering those crashes the React frontend. Flatten to text.
-            def _stringify_items(section, keys):
-                if not isinstance(section, dict):
-                    return
-                for k in keys:
-                    v = section.get(k)
-                    if isinstance(v, list):
-                        section[k] = [
-                            x if isinstance(x, str)
-                            else " — ".join(str(t) for t in x.values() if t) if isinstance(x, dict)
-                            else str(x)
-                            for x in v if x
-                        ]
-            _stringify_items(parsed_data.get('F-14'), ['financial_highlights', 'growth_drivers',
-                                                       'business_wins', 'risks', 'what_matters'])
-            
-            qualitative_payload = {
-                'status': 'SUCCESS',
-                'parsed_json': parsed_data,
-                'narrative': json_to_markdown_narrative(parsed_data, symbol)
-            }
-            print("[analyze_quality_node] Successfully retrieved and parsed Groq qualitative analysis JSON.")
-        except Exception as e:
-            print(f"[analyze_quality_node] Error calling Groq or parsing JSON: {e}. Shifting to fallback mock structured JSON.")
-            parsed_data = get_fallback_structured_data(symbol)
-            qualitative_payload = {
-                'status': 'ERROR_FALLBACK',
-                'error': str(e),
-                'parsed_json': parsed_data,
-                'narrative': json_to_markdown_narrative(parsed_data, symbol)
-            }
-
-    # ------------------------------------------------------------------
-    # Qualitative Analysis topics (F-22 through F-25) — a SEPARATE, smaller
-    # Groq call rather than folding these into the giant F-07..F-21 prompt
-    # above. That combined schema had grown too large: even with a big token
-    # budget the model would truncate mid-response or garble a section's shape
-    # (e.g. echoing F-20's fields into F-22). A focused, short prompt is far
-    # more reliable. Never fatal — sub-points just stay empty on failure.
-    # ------------------------------------------------------------------
+    # The F-07..F-21 call and the F-22..F-31 topics call below are fully
+    # independent (each only needs data_context/api_key, both already
+    # computed) — firing them concurrently instead of one-after-another
+    # roughly halves the LLM wait time for a fresh (uncached) report.
+    _business_model_future = None
+    _topics_future = None
     if api_key and api_key.strip() not in ("", "your_api_key_here"):
-        try:
-            from tools.groq_client import groq_chat, parse_json_loose
-            import time as _time
-            # Small stagger so this call's tokens don't land in the exact same
-            # per-minute rate-limit window as the F-07..F-21 call just above —
-            # two calls back-to-back is the main reason this was hitting Groq's
-            # shared per-minute cap.
-            _time.sleep(3)
-            topics_prompt = (
+        from tools.groq_client import groq_chat
+        from concurrent.futures import ThreadPoolExecutor
+        _llm_pool = ThreadPoolExecutor(max_workers=2)
+        _business_model_future = _llm_pool.submit(
+            groq_chat,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a professional equity research assistant specialized in qualitative business auditing."
+                },
+                {
+                    "role": "user",
+                    "content": f"{system_prompt}\n\nHere is the data context:\n{data_context}"
+                }
+            ],
+            max_tokens=3500,
+            api_key=api_key,
+        )
+        topics_prompt = (
                 "You are an expert equity research analyst. Given the company data below, return "
                 "ONLY this JSON object (no markdown, no extra text):\n"
                 "{\n"
@@ -503,6 +487,49 @@ def analyze_quality_node(state: SystemState) -> dict:
                 "    \"structural_defensibility\": \"Structurally defensible\",\n"
                 "    \"one_off_flags\": [\"short flag naming the year/event, e.g. 'FY23: one-time forex/subsidy gain lifted margin' - 0 to 3 items, empty list if none evident\"],\n"
                 "    \"rationale\": \"2-3 sentences on whether margins reflect a durable structural advantage (pricing power, cost structure, scale, brand) vs temporary tailwinds (one-off gains, commodity cycle, subsidy, forex, tax credits), referencing the margin trend/status given below\"\n"
+                "  },\n"
+                "  \"F-28\": {\n"
+                "    \"ceo_name\": \"short name of the current CEO/MD, e.g. 'Jane Doe' or 'Not disclosed'\",\n"
+                "    \"ceo_tenure_years\": 6.5,\n"
+                "    \"track_record_rating\": \"Strong\",\n"
+                "    \"prior_ventures\": [\"short flag naming a prior venture/role and its outcome, e.g. 'Founded XYZ Ltd, sold to ABC Group in 2015' - 0 to 3 items, empty list if none evident\"],\n"
+                "    \"rationale\": \"2-3 sentences on the CEO/founder's track record: past successes or failures, tenure at this company, and how relevant their background is to the company's current strategy\"\n"
+                "  },\n"
+                "  \"F-29\": {\n"
+                "    \"fixed_variable_pay_ratio\": \"60:40\",\n"
+                "    \"esop_pct_of_kmp_comp\": 15.0,\n"
+                "    \"long_term_orientation_rating\": \"Strong\",\n"
+                "    \"rationale\": \"2-3 sentences on KMP pay structure (fixed vs variable/bonus), whether ESOPs/equity grants with multi-year vesting are used, and whether the overall incentive design aligns management with long-term shareholder value or rewards short-term results\"\n"
+                "  },\n"
+                "  \"F-30\": {\n"
+                "    \"bench_depth_rating\": \"Moderate\",\n"
+                "    \"kmp_attrition_rate_pct\": 8.0,\n"
+                "    \"key_person_dependency_flags\": [\"short flag naming a key-person dependency risk, e.g. 'CFO resigned FY23, replacement took 4 months' - 0 to 3 items, empty list if none evident\"],\n"
+                "    \"rationale\": \"2-3 sentences on depth of the management bench below the CEO/CFO: whether a second line of leadership is visible (from org chart/LinkedIn mapping), and whether the company has shown it can replace key executives without disruption, per KMP resignation/appointment filings\"\n"
+                "  },\n"
+                "  \"F-31\": {\n"
+                "    \"communication_quality_rating\": \"Strong\",\n"
+                "    \"guidance_consistency\": \"Guidance met or exceeded in most recent quarters\",\n"
+                "    \"disclosure_flags\": [\"short flag naming a transparency concern, e.g. 'FY23 Q2: management deflected margin-guidance question without a direct answer' - 0 to 3 items, empty list if none evident\"],\n"
+                "    \"rationale\": \"2-3 sentences on communication quality: transparency in disclosures, clarity/consistency of guidance across recent quarters, and openness/responsiveness in concall Q&A, based on the last several quarterly transcripts\"\n"
+                "  },\n"
+                "  \"F-32\": {\n"
+                "    \"execution_credibility_rating\": \"Strong\",\n"
+                "    \"guidance_accuracy_pct\": 92.0,\n"
+                "    \"milestone_track_record\": [\"short flag naming a stated milestone/target and whether it was delivered, e.g. 'FY23: guided 15% volume growth, delivered 14%' - 0 to 3 items, empty list if none evident\"],\n"
+                "    \"rationale\": \"2-3 sentences on execution credibility: how consistently management has delivered on stated milestones/targets historically (capacity additions, revenue/margin guidance, new launches), grounded in a guidance-vs-actual comparison across recent quarters\"\n"
+                "  },\n"
+                "  \"F-33\": {\n"
+                "    \"culture_rating\": \"Strong\",\n"
+                "    \"employee_attrition_rate_pct\": 15.0,\n"
+                "    \"culture_flags\": [\"short flag naming an innovation/compliance/morale signal, e.g. 'Glassdoor 4.1/5 - praised for learning culture, cited long hours' - 0 to 3 items, empty list if none evident\"],\n"
+                "    \"rationale\": \"2-3 sentences on culture: innovation focus, compliance orientation, employee morale, and attrition evidence, based on the annual report's HR/CSR disclosures and known employee-review themes\"\n"
+                "  },\n"
+                "  \"F-34\": {\n"
+                "    \"promoter_holding_pct\": 50.0,\n"
+                "    \"qoq_change_pct\": 0.0,\n"
+                "    \"holding_trend\": \"Stable\",\n"
+                "    \"rationale\": \"2-3 sentences on promoter shareholding: current control level, direction of change (buying/selling/stable) over recent quarters, and what that signals about promoter confidence\"\n"
                 "  }\n"
                 "}\n\n"
                 "CRITICAL: every field above is shown with ONE example value already picked for you - that is "
@@ -514,7 +541,12 @@ def analyze_quality_node(state: SystemState) -> dict:
                 "'Annuity', or 'Long-term contract'. lifecycle_stage is exactly 'Growth', 'Maturity', "
                 "'Commoditisation', or 'Decline / obsolescence risk'. pricing_power_rating is exactly 'Strong', "
                 "'Moderate', or 'Weak'. structural_defensibility is exactly 'Structurally defensible', "
-                "'Partially temporary tailwinds', or 'Largely temporary tailwinds'.\n\n"
+                "'Partially temporary tailwinds', or 'Largely temporary tailwinds'. track_record_rating is exactly "
+                "'Strong', 'Mixed', or 'Weak'. long_term_orientation_rating is exactly 'Strong', 'Moderate', or 'Weak'. "
+                "F-30 bench_depth_rating is exactly 'Strong', 'Moderate', or 'Weak'. F-31 communication_quality_rating "
+                "is exactly 'Strong', 'Moderate', or 'Weak'. F-32 execution_credibility_rating is exactly 'Strong', "
+                "'Mixed', or 'Weak'. F-33 culture_rating is exactly 'Strong', 'Moderate', or 'Weak'. F-34 "
+                "holding_trend is exactly 'Increasing', 'Stable', or 'Decreasing'.\n\n"
                 "Rules: F-22 recurring_revenue_pct and F-25 relative_growth_pct are ESTIMATES - never null, "
                 "approximate from the business description and known industry economics even if not explicitly "
                 "disclosed. F-23 moat_types: rate ALL 5 on a 1-5 scale, never null (a low score is a valid answer). "
@@ -524,31 +556,157 @@ def analyze_quality_node(state: SystemState) -> dict:
                 "some inflation): give your best ESTIMATE - never null - based on the company's known pricing "
                 "power and industry structure, even if an exact ratio isn't disclosed. F-27 one_off_flags: only "
                 "include years/events genuinely evidenced in the provided context - an empty list is valid and "
-                "expected for most companies. Follow each field's exact name and shape above - do not reuse "
-                "another section's fields."
-            )
-            topics_text = groq_chat(
-                messages=[
-                    {"role": "system", "content": "You are an equity research assistant. Respond with raw JSON only."},
-                    {"role": "user", "content": f"{topics_prompt}\n\nCompany data:\n{data_context}"},
-                ],
-                max_tokens=1500,
-                api_key=api_key,
-            )
-            topics_data = parse_json_loose(topics_text)
-            for k in ('F-22', 'F-23', 'F-24', 'F-25', 'F-26', 'F-27'):
+                "expected for most companies. F-28 ceo_tenure_years: a hard fact, not an estimate - return null "
+                "if the CEO/MD's start date isn't known from the context. F-28 prior_ventures: only include "
+                "ventures/roles genuinely evidenced in the provided context - an empty list is valid and expected "
+                "when no prior-venture information is available. F-29 esop_pct_of_kmp_comp: give your best ESTIMATE "
+                "- never null - based on typical disclosure patterns for this type of company, even if an exact "
+                "figure isn't stated; return 0 if ESOPs are evidently not used. F-29 fixed_variable_pay_ratio: a "
+                "short 'X:Y' style estimate (e.g. '70:30'), never null. F-30 kmp_attrition_rate_pct (= KMP exits in "
+                "period / average KMP headcount): give your best ESTIMATE - never null - based on known KMP "
+                "resignation history and typical attrition for this type of company, even if an exact figure isn't "
+                "disclosed. F-30 key_person_dependency_flags: only include risks genuinely evidenced in the "
+                "provided context - an empty list is valid and expected when no key-person dependency is evident. "
+                "F-31 disclosure_flags: only include concerns genuinely evidenced in the provided context - an "
+                "empty list is valid and expected when transcripts show no transparency issues. F-31 "
+                "guidance_consistency: a short factual description of whether guidance has been met/missed across "
+                "recent quarters, grounded in the provided context - return 'Not disclosed' if guidance history "
+                "isn't evident rather than inventing one. F-32 guidance_accuracy_pct (= Actual metric / Guided "
+                "metric, tracked per quarter): give your best ESTIMATE - never null - based on the guidance-vs-"
+                "actual pattern evidenced in the provided context, even if an exact tracked percentage isn't "
+                "stated. F-32 milestone_track_record: only include milestones/targets genuinely evidenced in the "
+                "provided context - an empty list is valid and expected when no guidance-vs-actual history is "
+                "available. F-33 employee_attrition_rate_pct (= Employees exited / Average employee headcount): "
+                "give your best ESTIMATE - never null - based on disclosed attrition figures or typical attrition "
+                "for this type of company/industry, even if an exact disclosed figure isn't available. F-33 "
+                "culture_flags: only include signals genuinely evidenced in the provided context - an empty list "
+                "is valid and expected when no culture/review signal is available. F-34 promoter_holding_pct and "
+                "F-34 qoq_change_pct (= Promoter % (Qt) - Promoter % (Qt-1)): give your best ESTIMATE - never "
+                "null - based on known/typical promoter holding levels for this company even if the exact latest "
+                "shareholding-pattern filing figure isn't available; qoq_change_pct should be 0.0 if no change is "
+                "evidenced. "
+                "Follow each field's exact name and shape above - do not reuse another section's fields."
+        )
+        _topics_future = _llm_pool.submit(
+            groq_chat,
+            messages=[
+                {"role": "system", "content": "You are an equity research assistant. Respond with raw JSON only."},
+                {"role": "user", "content": f"{topics_prompt}\n\nCompany data:\n{data_context}"},
+            ],
+            max_tokens=4300,
+            api_key=api_key,
+        )
+
+    # Check for Groq API key availability and execute or fallback
+    if not api_key or api_key.strip() in ["", "your_api_key_here"]:
+        print("[WARNING] GROQ_API_KEY not configured. Generating high-quality simulated JSON payload for prototype...")
+        parsed_data = get_fallback_structured_data(symbol)
+        qualitative_payload = {
+            'status': 'MOCK_SUCCESS',
+            'parsed_json': parsed_data,
+            'narrative': json_to_markdown_narrative(parsed_data, symbol)
+        }
+    else:
+        try:
+            print(f"[analyze_quality_node] Calling Groq (model fallback chain)...")
+            response_text = _business_model_future.result()
+
+            # Tolerant parse — fallback models emit fences/invalid escapes.
+            from tools.groq_client import parse_json_loose
+            parsed_data = parse_json_loose(response_text)
+
+            # Models sometimes return list items as OBJECTS where strings are
+            # expected (e.g. F-14 risks as {"risk", "management_response"}) —
+            # rendering those crashes the React frontend. Flatten to text.
+            def _stringify_items(section, keys):
+                if not isinstance(section, dict):
+                    return
+                for k in keys:
+                    v = section.get(k)
+                    if isinstance(v, list):
+                        section[k] = [
+                            x if isinstance(x, str)
+                            else " — ".join(str(t) for t in x.values() if t) if isinstance(x, dict)
+                            else str(x)
+                            for x in v if x
+                        ]
+            _stringify_items(parsed_data.get('F-14'), ['financial_highlights', 'growth_drivers',
+                                                       'business_wins', 'risks', 'what_matters'])
+            
+            qualitative_payload = {
+                'status': 'SUCCESS',
+                'parsed_json': parsed_data,
+                'narrative': json_to_markdown_narrative(parsed_data, symbol)
+            }
+            print("[analyze_quality_node] Successfully retrieved and parsed Groq qualitative analysis JSON.")
+        except Exception as e:
+            print(f"[analyze_quality_node] Error calling Groq or parsing JSON: {e}. Shifting to fallback mock structured JSON.")
+            _raw = locals().get('response_text')
+            if isinstance(_raw, str) and _raw:
+                print(f"[analyze_quality_node] Raw response ({len(_raw)} chars): {_raw!r}")
+            parsed_data = get_fallback_structured_data(symbol)
+            qualitative_payload = {
+                'status': 'ERROR_FALLBACK',
+                'error': str(e),
+                'parsed_json': parsed_data,
+                'narrative': json_to_markdown_narrative(parsed_data, symbol)
+            }
+
+    # ------------------------------------------------------------------
+    # Qualitative Analysis topics (F-22 through F-25) — a SEPARATE, smaller
+    # Groq call rather than folding these into the giant F-07..F-21 prompt
+    # above. That combined schema had grown too large: even with a big token
+    # budget the model would truncate mid-response or garble a section's shape
+    # (e.g. echoing F-20's fields into F-22). A focused, short prompt is far
+    # more reliable. Never fatal — sub-points just stay empty on failure.
+    # ------------------------------------------------------------------
+    if api_key and api_key.strip() not in ("", "your_api_key_here"):
+        try:
+            from tools.groq_client import groq_chat, parse_json_loose
+            try:
+                topics_text = _topics_future.result()
+                topics_data = parse_json_loose(topics_text)
+            except Exception as first_err:
+                # One quick synchronous retry — an empty/malformed response is
+                # usually a one-off provider hiccup, not a persistent failure.
+                # This only costs extra time on the failure path; a normal
+                # successful call is unaffected.
+                print(f"[analyze_quality_node] Qualitative-topics first attempt failed ({first_err}); retrying once...")
+                topics_text = groq_chat(
+                    messages=[
+                        {"role": "system", "content": "You are an equity research assistant. Respond with raw JSON only."},
+                        {"role": "user", "content": f"{topics_prompt}\n\nCompany data:\n{data_context}"},
+                    ],
+                    max_tokens=4300,
+                    api_key=api_key,
+                )
+                topics_data = parse_json_loose(topics_text)
+            _merged = 0
+            for k in ('F-22', 'F-23', 'F-24', 'F-25', 'F-26', 'F-27', 'F-28', 'F-29', 'F-30', 'F-31', 'F-32', 'F-33', 'F-34'):
                 if isinstance(topics_data.get(k), dict):
                     parsed_data[k] = topics_data[k]
+                    _merged += 1
+            if _merged == 0:
+                # "Succeeded" (valid JSON, no exception) but the model returned
+                # the wrong shape entirely (e.g. a weak fallback model echoing a
+                # different prompt's schema) — treat as a failure, not a silent
+                # empty-but-successful result, so the demo fallback below fires.
+                raise RuntimeError(f"topics call returned 0/13 usable fields; keys were {list(topics_data.keys())}")
             qualitative_payload['parsed_json'] = parsed_data
             qualitative_payload['topics_status'] = 'SUCCESS'
-            print("[analyze_quality_node] Qualitative-topics (F-22..F-27) call succeeded.")
+            print(f"[analyze_quality_node] Qualitative-topics (F-22..F-34) call succeeded, merged {_merged}/13 fields. Keys returned: {list(topics_data.keys())}")
         except Exception as te:
-            # Surface this in the returned payload (not just a server-log print) so
-            # it's inspectable from the cached report JSON when a sub-point stays
-            # empty — otherwise there is no way to tell why without console access.
-            qualitative_payload['topics_status'] = 'FAILED'
+            # TEMPORARY: while every LLM provider is exhausted/unconfigured, fill
+            # Sections A/B/C with clearly-labelled demo placeholder data instead
+            # of leaving them empty, so a QA demo shows a fully populated page.
+            # Remove this fallback once a paid LLM tier is reliably available.
+            demo_topics = get_fallback_topics_data(symbol)
+            for k in ('F-22', 'F-23', 'F-24', 'F-25', 'F-26', 'F-27', 'F-28', 'F-29', 'F-30', 'F-31', 'F-32', 'F-33', 'F-34'):
+                parsed_data[k] = demo_topics[k]
+            qualitative_payload['parsed_json'] = parsed_data
+            qualitative_payload['topics_status'] = 'DEMO_FALLBACK'
             qualitative_payload['topics_error'] = str(te)
-            print(f"[analyze_quality_node] Qualitative-topics call failed (sub-points will stay empty): {te}")
+            print(f"[analyze_quality_node] Qualitative-topics call failed, using DEMO placeholder data instead: {te}")
 
     # Build parsed_sections for backwards compatibility and fallback text
     pdata = qualitative_payload.get('parsed_json') or {}
@@ -1915,6 +2073,13 @@ def build_executive_summary(state: SystemState) -> dict:
     f25 = q.get('F-25', {}) or {}
     f26 = q.get('F-26', {}) or {}
     f27 = q.get('F-27', {}) or {}
+    f28 = q.get('F-28', {}) or {}
+    f29 = q.get('F-29', {}) or {}
+    f30 = q.get('F-30', {}) or {}
+    f31 = q.get('F-31', {}) or {}
+    f32 = q.get('F-32', {}) or {}
+    f33 = q.get('F-33', {}) or {}
+    f34 = q.get('F-34', {}) or {}
 
     _biz_model_type = _enum(f22.get('business_model_type'), ['Single product', 'Portfolio (multiple products/segments)'])
     _revenue_pattern = _enum(f22.get('revenue_pattern'), ['Recurring', 'Cyclical', 'Mixed'])
@@ -1991,6 +2156,63 @@ def build_executive_summary(state: SystemState) -> dict:
         _moat_overall = round(max(0.0, min(5.0, float(_moat_overall))), 1)
     except (TypeError, ValueError):
         _moat_overall = None
+
+    _track_record_rating = _enum(f28.get('track_record_rating'), ['Strong', 'Mixed', 'Weak'])
+    _ceo_tenure = f28.get('ceo_tenure_years')
+    try:
+        _ceo_tenure = round(max(0.0, min(60.0, float(_ceo_tenure))), 1)
+    except (TypeError, ValueError):
+        _ceo_tenure = None
+    _ceo_name = f28.get('ceo_name') if isinstance(f28.get('ceo_name'), str) and f28.get('ceo_name').strip() else None
+    _prior_ventures = [v for v in (f28.get('prior_ventures') or []) if isinstance(v, str) and v.strip()][:3]
+
+    _fixed_variable_ratio = f29.get('fixed_variable_pay_ratio') if isinstance(f29.get('fixed_variable_pay_ratio'), str) and f29.get('fixed_variable_pay_ratio').strip() else None
+    _esop_pct = f29.get('esop_pct_of_kmp_comp')
+    try:
+        _esop_pct = round(max(0.0, min(100.0, float(_esop_pct))), 1)
+    except (TypeError, ValueError):
+        _esop_pct = None
+    _lt_orientation = _enum(f29.get('long_term_orientation_rating'), ['Strong', 'Moderate', 'Weak'])
+
+    _bench_depth_rating = _enum(f30.get('bench_depth_rating'), ['Strong', 'Moderate', 'Weak'])
+    _kmp_attrition_pct = f30.get('kmp_attrition_rate_pct')
+    try:
+        _kmp_attrition_pct = round(max(0.0, min(100.0, float(_kmp_attrition_pct))), 1)
+    except (TypeError, ValueError):
+        _kmp_attrition_pct = None
+    _key_person_flags = [v for v in (f30.get('key_person_dependency_flags') or []) if isinstance(v, str) and v.strip()][:3]
+
+    _comm_quality_rating = _enum(f31.get('communication_quality_rating'), ['Strong', 'Moderate', 'Weak'])
+    _guidance_consistency = f31.get('guidance_consistency') if isinstance(f31.get('guidance_consistency'), str) and f31.get('guidance_consistency').strip() else None
+    _disclosure_flags = [v for v in (f31.get('disclosure_flags') or []) if isinstance(v, str) and v.strip()][:3]
+
+    _execution_credibility_rating = _enum(f32.get('execution_credibility_rating'), ['Strong', 'Mixed', 'Weak'])
+    _guidance_accuracy_pct = f32.get('guidance_accuracy_pct')
+    try:
+        _guidance_accuracy_pct = round(max(0.0, min(200.0, float(_guidance_accuracy_pct))), 1)
+    except (TypeError, ValueError):
+        _guidance_accuracy_pct = None
+    _milestone_track_record = [v for v in (f32.get('milestone_track_record') or []) if isinstance(v, str) and v.strip()][:3]
+
+    _culture_rating = _enum(f33.get('culture_rating'), ['Strong', 'Moderate', 'Weak'])
+    _employee_attrition_pct = f33.get('employee_attrition_rate_pct')
+    try:
+        _employee_attrition_pct = round(max(0.0, min(100.0, float(_employee_attrition_pct))), 1)
+    except (TypeError, ValueError):
+        _employee_attrition_pct = None
+    _culture_flags = [v for v in (f33.get('culture_flags') or []) if isinstance(v, str) and v.strip()][:3]
+
+    _promoter_holding_pct = f34.get('promoter_holding_pct')
+    try:
+        _promoter_holding_pct = round(max(0.0, min(100.0, float(_promoter_holding_pct))), 1)
+    except (TypeError, ValueError):
+        _promoter_holding_pct = None
+    _qoq_change_pct = f34.get('qoq_change_pct')
+    try:
+        _qoq_change_pct = round(max(-100.0, min(100.0, float(_qoq_change_pct))), 2)
+    except (TypeError, ValueError):
+        _qoq_change_pct = None
+    _holding_trend = _enum(f34.get('holding_trend'), ['Increasing', 'Stable', 'Decreasing'])
 
     qualitative_topics = {
         'strategy_business_model': {
@@ -2117,6 +2339,151 @@ def build_executive_summary(state: SystemState) -> dict:
                         'primary': {'label': 'BSE India – Corporate Announcements', 'note': 'Quarterly Results', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
                         'secondary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab'},
                         'tertiary': {'label': 'Screener.in – Documents/Financials tab', 'note': '5-8Y margin trend', 'url': 'https://www.screener.in'},
+                    },
+                },
+            ],
+        },
+        'management_culture': {
+            'topic': 'B. Management team & culture',
+            'subpoints': [
+                {
+                    'key': 'founder_ceo_track_record',
+                    'title': "Founders / CEO track record: past successes/failures, tenure, relevance to current strategy",
+                    'finding': f28.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['CEO / MD', _ceo_name] if _ceo_name else None),
+                        (['Tenure', f"{_ceo_tenure} years"] if _ceo_tenure is not None else None),
+                        (['Track record', _track_record_rating] if _track_record_rating else None),
+                        (['Prior ventures', '; '.join(_prior_ventures)] if _prior_ventures else None),
+                    ] if f],
+                    'chart': ({'type': 'spectrum', 'options': ['Weak', 'Mixed', 'Strong'], 'active': _track_record_rating}
+                               if _track_record_rating else None),
+                    'formula': 'N/A — qualitative track record score',
+                    'sources': {
+                        'primary': {'label': 'MCA – Company/Director Master Data', 'note': 'Director/DIN search', 'url': 'https://www.mca.gov.in'},
+                        'secondary': {'label': 'LinkedIn', 'url': 'https://www.linkedin.com'},
+                        'tertiary': {'label': 'Google News', 'note': 'past ventures/media archive', 'url': 'https://news.google.com'},
+                    },
+                },
+                {
+                    'key': 'management_incentives',
+                    'title': 'Management incentives: pay structure, equity ownership, vesting, long-term orientation',
+                    'finding': f29.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Fixed:variable pay ratio', _fixed_variable_ratio] if _fixed_variable_ratio else None),
+                        (['ESOP as % of KMP pay', f"~{round(_esop_pct)}%"] if _esop_pct is not None else None),
+                        (['Long-term orientation', _lt_orientation] if _lt_orientation else None),
+                    ] if f],
+                    'chart': ({
+                        'type': 'donut',
+                        'data': [
+                            {'label': 'ESOP / equity component', 'pct': round(_esop_pct, 1)},
+                            {'label': 'Cash compensation', 'pct': round(100 - _esop_pct, 1)},
+                        ],
+                    } if _esop_pct is not None else (
+                        {'type': 'spectrum', 'options': ['Weak', 'Moderate', 'Strong'], 'active': _lt_orientation}
+                        if _lt_orientation else None
+                    )),
+                    'formula': 'Fixed:variable pay ratio; ESOP as % of KMP compensation = ESOP value / Total KMP pay',
+                    'sources': {
+                        'primary': {'label': 'Company Annual Report', 'note': 'Remuneration/MGT-9 note, sourced via BSE announcement / company IR page'},
+                        'secondary': {'label': 'Company Annual Report', 'note': 'ESOP disclosure note, sourced via BSE announcement / company IR page'},
+                        'tertiary': {'label': 'MCA – Company/Director Master Data', 'note': 'MGT-7/MGT-9 filings', 'url': 'https://www.mca.gov.in'},
+                    },
+                },
+                {
+                    'key': 'management_bench_depth',
+                    'title': 'Depth of management bench: ability to replace key execs without disruption',
+                    'finding': f30.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Bench depth', _bench_depth_rating] if _bench_depth_rating else None),
+                        (['KMP attrition rate', f"~{_kmp_attrition_pct}%"] if _kmp_attrition_pct is not None else None),
+                        (['Key-person dependency', '; '.join(_key_person_flags)] if _key_person_flags else None),
+                    ] if f],
+                    'chart': ({'type': 'spectrum', 'options': ['Weak', 'Moderate', 'Strong'], 'active': _bench_depth_rating}
+                               if _bench_depth_rating else None),
+                    'formula': 'KMP attrition rate = KMP exits in period / Average KMP headcount',
+                    'sources': {
+                        'primary': {'label': 'LinkedIn', 'note': 'org mapping', 'url': 'https://www.linkedin.com'},
+                        'secondary': {'label': 'BSE India – Corporate Announcements', 'note': 'KMP change filings', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
+                        'tertiary': {'label': 'Company Annual Report', 'note': 'org chart if disclosed, sourced via BSE announcement / company IR page'},
+                    },
+                },
+                {
+                    'key': 'communication_quality',
+                    'title': 'Communication quality: transparency in disclosures, clarity in guidance, openness in meetings',
+                    'finding': f31.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Communication quality', _comm_quality_rating] if _comm_quality_rating else None),
+                        (['Guidance consistency', _guidance_consistency] if _guidance_consistency else None),
+                        (['Disclosure concerns', '; '.join(_disclosure_flags)] if _disclosure_flags else None),
+                    ] if f],
+                    'chart': ({'type': 'spectrum', 'options': ['Weak', 'Moderate', 'Strong'], 'active': _comm_quality_rating}
+                               if _comm_quality_rating else None),
+                    'formula': 'N/A - qualitative rating based on transcript review',
+                    'sources': {
+                        'primary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab'},
+                        'secondary': {'label': 'Screener.in – Documents/Financials tab', 'url': 'https://www.screener.in'},
+                        'tertiary': {'label': 'BSE India – Corporate Announcements', 'note': 'investor presentation filings', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
+                    },
+                },
+                {
+                    'key': 'execution_credibility',
+                    'title': 'Execution credibility: delivered vs stated milestones historically',
+                    'finding': f32.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Execution credibility', _execution_credibility_rating] if _execution_credibility_rating else None),
+                        (['Guidance accuracy', f"~{_guidance_accuracy_pct}%"] if _guidance_accuracy_pct is not None else None),
+                        (['Milestone track record', '; '.join(_milestone_track_record)] if _milestone_track_record else None),
+                    ] if f],
+                    'chart': ({'type': 'spectrum', 'options': ['Weak', 'Mixed', 'Strong'], 'active': _execution_credibility_rating}
+                               if _execution_credibility_rating else None),
+                    'formula': 'Guidance accuracy % = Actual metric / Guided metric (tracked per quarter)',
+                    'sources': {
+                        'primary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page, guidance slides'},
+                        'secondary': {'label': 'BSE India – Corporate Announcements', 'note': 'Quarterly Results', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
+                        'tertiary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab'},
+                    },
+                },
+                {
+                    'key': 'culture',
+                    'title': 'Culture: innovation focus, compliance orientation, employee morale, attrition evidence',
+                    'finding': f33.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Culture', _culture_rating] if _culture_rating else None),
+                        (['Employee attrition rate', f"~{_employee_attrition_pct}%"] if _employee_attrition_pct is not None else None),
+                        (['Culture signals', '; '.join(_culture_flags)] if _culture_flags else None),
+                    ] if f],
+                    'chart': ({'type': 'spectrum', 'options': ['Weak', 'Moderate', 'Strong'], 'active': _culture_rating}
+                               if _culture_rating else None),
+                    'formula': 'Employee attrition rate = Employees exited / Average employee headcount',
+                    'sources': {
+                        'primary': {'label': 'Glassdoor', 'url': 'https://www.glassdoor.co.in'},
+                        'secondary': {'label': 'AmbitionBox', 'url': 'https://www.ambitionbox.com'},
+                        'tertiary': {'label': 'Company Annual Report', 'note': 'HR/CSR section, sourced via BSE announcement / company IR page'},
+                    },
+                },
+            ],
+        },
+        'governance_promoter': {
+            'topic': 'C. Corporate governance & promoter behavior',
+            'subpoints': [
+                {
+                    'key': 'promoter_shareholding_pattern',
+                    'title': 'Promoter shareholding patterns: control levels, changes over time, direction (buying/selling)',
+                    'finding': f34.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Promoter holding', f"~{_promoter_holding_pct}%"] if _promoter_holding_pct is not None else None),
+                        (['QoQ change', f"{'+' if _qoq_change_pct and _qoq_change_pct > 0 else ''}{_qoq_change_pct} pp"] if _qoq_change_pct is not None else None),
+                        (['Holding trend', _holding_trend] if _holding_trend else None),
+                    ] if f],
+                    'chart': ({'type': 'diverging', 'value': _qoq_change_pct, 'range': 5, 'label': 'QoQ change in promoter holding', 'panelTitle': 'Promoter holding QoQ change'}
+                               if _qoq_change_pct is not None else None),
+                    'formula': 'QoQ change in promoter holding = Promoter % (Qt) - Promoter % (Qt-1)',
+                    'sources': {
+                        'primary': {'label': 'BSE India – Shareholding Pattern', 'url': 'https://www.bseindia.com/corporates/shpPromoterNGroup.aspx'},
+                        'secondary': {'label': 'NSE India – Shareholding Pattern', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'tertiary': {'label': 'Trendlyne – Shareholding Trend', 'url': 'https://trendlyne.com'},
                     },
                 },
             ],

@@ -260,6 +260,19 @@ def load_scrip_master_async():
     except Exception as e:
         print(f"[HTTP WARNING] Dynamic scrip master load failed: {e}")
 
+def warm_live_scraper_async():
+    """Log in to Angel + prime the scrip-master cache in the background at startup,
+    so the first user who asks Ask Navrist for a live price doesn't pay that cold-
+    start cost on their request (that was a big chunk of the perceived latency)."""
+    try:
+        scraper = get_live_scraper()
+        # A throwaway resolve forces the scrip-master load/cache now.
+        scraper._resolve_symbol("RELIANCE")
+        print("[HTTP] Live-quote scraper warmed (Angel session + scrip master primed).")
+    except Exception as e:
+        print(f"[HTTP WARNING] Live scraper warmup failed (will lazy-init on demand): {e}")
+
+
 @app.on_event("startup")
 def startup_event():
     # Every `/api/v1/*` ratio endpoint runs via `asyncio.to_thread`, which
@@ -276,6 +289,9 @@ def startup_event():
     asyncio.get_event_loop().set_default_executor(
         concurrent.futures.ThreadPoolExecutor(max_workers=64))
     threading.Thread(target=load_scrip_master_async, daemon=True).start()
+    threading.Thread(target=warm_live_scraper_async, daemon=True).start()
+    threading.Thread(target=_precompute_loop, daemon=True).start()
+    threading.Thread(target=_ratio_precompute_once, daemon=True).start()
 
 @app.get("/api/search-symbols")
 def search_symbols(q: str = "", _: dict = Depends(auth.require_session)):
@@ -508,6 +524,86 @@ def _write_report_cache(symbol: str, state: dict):
         print(f"[HTTP] report cache write skipped for {symbol}: {e}")
 
 
+# --- Precompute (background) -------------------------------------------------
+# On-demand generation (below) still has real LLM/data-fetch latency baked in —
+# there's no way around that for a symbol nobody's asked for yet. But the
+# common case is a small, predictable set of symbols (the default watchlist)
+# that get opened over and over. Precomputing those in the background means
+# whoever opens RELIANCE/TCS/etc. gets the instant cache-hit path instead of
+# waiting through the live pipeline. Mirrors frontend/src/views/Landing.jsx's
+# DEFAULT_WATCHLIST — keep these two lists in sync if either changes.
+_PRECOMPUTE_WATCHLIST = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK',
+                         'LT', 'ITC', 'SBIN', 'BHARTIARTL', 'MARUTI']
+# Re-run just under the cache TTL so a symbol's cache never actually expires
+# under normal operation — the background refresh always lands first.
+_PRECOMPUTE_INTERVAL_SECONDS = int(_REPORT_CACHE_TTL * 0.8)
+
+# {"symbol", "name"} pairs for the ratio precompute worker (tools/precompute_worker.py),
+# built from the same watchlist symbols + the names already in STOCK_REGISTRY.
+_PRECOMPUTE_WATCHLIST_COMPANIES = [
+    {"symbol": sym, "name": next((c["name"] for c in STOCK_REGISTRY if c["symbol"] == sym), sym)}
+    for sym in _PRECOMPUTE_WATCHLIST
+]
+
+
+def _precompute_watchlist_once():
+    """One pass: (re)generate any watchlist symbol whose cache is missing or
+    stale. Sequential on purpose — this runs against the same free-tier LLM
+    keys real user traffic uses, so hammering all 10 symbols in parallel would
+    just compete with (and slow down) whoever's actually using the app."""
+    for symbol in _PRECOMPUTE_WATCHLIST:
+        if _read_report_cache(symbol) is not None:
+            continue  # still fresh — nothing to do
+        try:
+            print(f"[precompute] Generating {symbol}...")
+            state = app_graph.invoke({
+                'symbol': symbol,
+                'raw_financial_data': {},
+                'business_score': 0,
+                'qualitative_analysis': {},
+                'peer_synthesis_data': {},
+                'verdict': 'PENDING',
+            })
+            _write_report_cache(symbol, state)
+            print(f"[precompute] {symbol} cached.")
+        except Exception as e:
+            print(f"[precompute] {symbol} failed (will retry next cycle): {e}")
+
+
+def _precompute_loop():
+    import time as _time
+    # Small initial delay so this doesn't compete with the scrip-master /
+    # live-scraper warmup already happening on startup.
+    _time.sleep(30)
+    while True:
+        _precompute_watchlist_once()
+        _time.sleep(_PRECOMPUTE_INTERVAL_SECONDS)
+
+
+def _ratio_precompute_once():
+    """
+    Seeds Supabase's `ratio_values` table (via tools/precompute_worker.py)
+    with the Annual-Report-sourced ratios for the default watchlist, so the
+    Fundamental Ratios tab reads from the DB (near-instant) instead of doing
+    a live PDF download+parse per ratio. Runs ONCE per process start, not in
+    a loop — unlike qualitative analysis, audited annual-report figures don't
+    go stale on an hours timescale, and the worker is resumable (skip_done)
+    so re-running it on every restart is cheap: already-done (symbol,
+    ratio_no) pairs are skipped via Supabase's `refresh_jobs` table.
+    """
+    import time as _time
+    # Stagger well after the LLM report precompute (30s) and its own first
+    # cycle so this doesn't compete for network/CPU with that at startup.
+    _time.sleep(90)
+    try:
+        from tools.precompute_worker import run as run_ratio_precompute
+        print("[ratio_precompute] Seeding Supabase ratio_values for the default watchlist...")
+        run_ratio_precompute(_PRECOMPUTE_WATCHLIST_COMPANIES, workers=1)
+        print("[ratio_precompute] Done.")
+    except Exception as e:
+        print(f"[ratio_precompute] Skipped/failed (falls back to live PDF parsing as before): {e}")
+
+
 @app.post("/generate-report")
 @app.post("/api/v1/generate-report")
 async def generate_report_endpoint(request: ReportRequest, _: dict = Depends(auth.require_session)):
@@ -601,6 +697,118 @@ async def download_pdf_endpoint(request: dict, _: dict = Depends(auth.require_se
     except Exception as e:
         print(f"[HTTP ERROR] Dynamic PDF generation failed: {e}")
         raise HTTPException(status_code=500, detail=f"Dynamic PDF generation failed: {str(e)}")
+
+
+# Short-TTL cache so the model calling get_stock_quote twice in one turn (or two
+# users asking the same ticker seconds apart) is instant instead of re-hitting the
+# scraper. Keyed by symbol; entries expire after _QUOTE_TTL seconds.
+_quote_cache = {}
+_quote_cache_lock = threading.Lock()
+_QUOTE_TTL = 15  # seconds
+
+
+def _registry_name_for(sym: str) -> str:
+    """Look up the verbatim NSE company name for a resolved symbol, from the same
+    STOCK_REGISTRY the autocomplete/symbol-resolver use. Returns '' if unknown —
+    callers must NOT fall back to guessing a name from the model's own training
+    data, which is exactly the bug this fixes (see _quote_for_llm)."""
+    up = (sym or "").strip().upper()
+    for item in STOCK_REGISTRY:
+        if item["symbol"].upper() == up:
+            return item["name"]
+    return ""
+
+
+def _quote_for_llm(args: dict) -> dict:
+    """Live-quote tool exposed to Ask Navrist. Resolves a ticker/name to its NSE
+    symbol and returns the real last-traded price + change, reusing the same
+    scraper the dashboard ticker uses. Bounded by a hard timeout so a slow/hanging
+    data source can never stall the chat for minutes — it degrades to 'unavailable'
+    instead. Returns a compact dict the model can read.
+
+    Critically, also returns the VERBATIM registry company name for the resolved
+    symbol. Without this the model had only a bare ticker (e.g. "MWL") and would
+    fill in a company name from its own training data — which for thinly-traded
+    NSE tickers is frequently wrong (confirmed: "MWL" hallucinated as "Megan
+    Media/Holdings" instead of the real Mangalam Worldwide Ltd). The system
+    prompt now requires the model to use ONLY this field, never its own memory,
+    for the company name."""
+    import time as _t
+    raw = (args or {}).get("symbol", "") or ""
+    sym = resolve_symbol_from_registry(raw)
+    if not sym:
+        return {"error": "No symbol provided."}
+    registry_name = _registry_name_for(sym)
+
+    # Serve a fresh cached quote if we have one.
+    with _quote_cache_lock:
+        hit = _quote_cache.get(sym)
+        if hit and (_t.time() - hit[0]) < _QUOTE_TTL:
+            return hit[1]
+
+    # Fetch under a hard wall-clock timeout. The scraper itself "never raises",
+    # but the underlying HTTP calls can still be slow; this caps the worst case.
+    import concurrent.futures
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            q = ex.submit(lambda: get_live_scraper().fetch_live_quote(sym) or {}).result(timeout=18)
+    except concurrent.futures.TimeoutError:
+        return {"symbol": sym, "company_name": registry_name or None, "available": False,
+                "reason": "The live-price source is responding slowly right now. Please try again in a moment or check NSE."}
+    except Exception as e:
+        return {"symbol": sym, "company_name": registry_name or None, "available": False, "reason": f"Live quote unavailable: {e}"}
+    ltp = q.get("ltp")
+    prev_close = q.get("close")
+    if ltp is None:
+        return {"symbol": sym, "company_name": registry_name or None, "available": False,
+                "reason": "No live price returned (market may be closed or symbol illiquid)."}
+    change = change_pct = None
+    if prev_close:
+        try:
+            change = round(ltp - prev_close, 2)
+            change_pct = round((ltp - prev_close) / prev_close * 100, 2)
+        except Exception:
+            pass
+    result = {
+        "symbol": sym,
+        # Verbatim NSE registry name — the ONLY source of truth for the company
+        # name the model may state. None (not a guess) when the registry doesn't
+        # have it, so the model is told to refer to the ticker only.
+        "company_name": registry_name or None,
+        "available": True,
+        "currency": "INR",
+        "last_price": ltp,
+        "previous_close": prev_close,
+        "change": change,
+        "change_percent": change_pct,
+        "day_high": q.get("high"),
+        "day_low": q.get("low"),
+        "day_open": q.get("open"),
+        "source": q.get("source", "live"),
+        "as_of": q.get("timestamp") or q.get("as_of"),
+    }
+    with _quote_cache_lock:
+        _quote_cache[sym] = (_t.time(), result)
+    return result
+
+
+@app.post("/api/v1/ask-navrist")
+async def ask_navrist_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """"Ask Navrist" chat — company-aware conversational assistant with a live
+    market-data tool. Runs off the event loop so a slow completion (or a live
+    quote fetch inside the tool loop) never blocks other requests."""
+    try:
+        from tools.ask_navrist import ask_navrist
+        return await asyncio.to_thread(
+            ask_navrist,
+            request.get("messages", []),
+            request.get("context", "") or "",
+            None,
+            {"get_stock_quote": _quote_for_llm},
+        )
+    except Exception as e:
+        print(f"[HTTP ERROR] Ask Navrist failed: {e}")
+        return {"reply": "Something went wrong handling that message. Please try again.", "error": True}
 
 
 @app.post("/api/v1/concall-summary")

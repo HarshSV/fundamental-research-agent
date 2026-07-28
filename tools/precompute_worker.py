@@ -68,6 +68,38 @@ RATIO_FETCHERS = [
     (26, x.fetch_revenue_from_operations),
     (27, x.fetch_dividend_per_share),
     (100, x.fetch_shares_outstanding),
+    # Ratios that tools/nse_xbrl.py already checks the DB for (try_db_ratio)
+    # but were missing from this list, so they only ever got fast AFTER
+    # someone happened to view them live once. Adding them here makes the
+    # bulk precompute cover them proactively instead of relying on
+    # opportunistic first-hit caching.
+    (30, x.fetch_fixed_asset_turnover),
+    (31, x.fetch_days_working_capital),
+    (32, x.fetch_receivables_to_payables_ratio),
+    (33, x.fetch_net_debt_to_ebitda),
+    (34, x.fetch_debt_service_coverage_ratio),
+    (35, x.fetch_cash_flow_coverage_ratio),
+    (36, x.fetch_free_cash_flow),
+    (38, x.fetch_fcf_margin),
+    (39, x.fetch_operating_cash_flow_ratio),
+    (40, x.fetch_capex_intensity),
+    (41, x.fetch_ocf_to_net_profit),
+    (42, x.fetch_roic),
+    (43, x.fetch_effective_tax_rate),
+    (44, x.fetch_contribution_margin),
+    (45, x.fetch_eps_growth),
+    (47, x.fetch_dividend_payout_ratio),
+    (53, x.fetch_operating_cash_flow),
+    (55, x.fetch_altman_z_score_components),
+    (56, x.fetch_piotroski_f_score),
+    (57, x.fetch_beneish_m_score),
+    (58, x.fetch_net_interest_margin),
+    (59, x.fetch_casa_ratio),
+    (60, x.fetch_gross_npa_pct),
+    (61, x.fetch_net_npa_pct),
+    (63, x.fetch_capital_adequacy_ratio),
+    (65, x.fetch_cost_to_income_ratio),
+    (66, x.fetch_beta),
 ]
 
 
