@@ -85,9 +85,9 @@ export default function DashHeader({ symbol, name, data, score, loading, onRefre
   // symbols outside the Nifty Total Market universe.
   const sectorDisplay = getNseSector(symbol) || peer.sector || '—';
 
-  const price = isNum(quote?.price) ? quote.price : val.last_price;
+  const price = isNum(quote?.ltp) ? quote.ltp : val.last_price;
   const chg = isNum(quote?.change) ? quote.change : null;
-  const chgPct = isNum(quote?.change_percent) ? quote.change_percent : (isNum(quote?.changePercent) ? quote.changePercent : null);
+  const chgPct = isNum(quote?.change_pct) ? quote.change_pct : null;
   const tone = isNum(chgPct) ? (chgPct > 0 ? 'nv-pos' : chgPct < 0 ? 'nv-neg' : 'nv-muted') : 'nv-muted';
 
   // Fast Market Cap = live price x fast shares-outstanding (same formula
