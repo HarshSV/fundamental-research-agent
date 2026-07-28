@@ -2171,11 +2171,30 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # note number printed right after its label) — reuses the same
     # last-two-numbers-before-the-next-label helper rather than a blind
     # permissive first-two match.
+    # Some filers (e.g. Tata Steel) print Assets and Equity-and-Liabilities
+    # as two SEPARATE pages of the same statement — `bs_text` here is
+    # whichever page the module located the BS on (confirmed on Tata Steel:
+    # the Assets-only page, with Equity/NCI actually one page later), so a
+    # search restricted to `bs_text` alone silently finds nothing. Falls
+    # back to the immediately following page, same as `_find_bs_row`'s own
+    # cross-page fallback (which is how `equity` above still resolves
+    # correctly even when `bs_text` itself has no Equity section at all).
     nci_amt = None
     if equity_basis == "owners":
-        for lbl in _NCI_LABELS:
-            nci_amt, _ = _find_payables_row(
-                bs_text, lbl, r"total\s*-?\s*equity|liabilities")
+        nci_search_pages = [(bs_text, bs_factor)]
+        if bs_idx + 1 < doc.page_count:
+            try:
+                next_text = _page_text(doc[bs_idx + 1])
+                nci_search_pages.append((next_text, _unit_factor(next_text)))
+            except Exception:
+                pass
+        for page_text, page_factor in nci_search_pages:
+            for lbl in _NCI_LABELS:
+                nci_raw, _ = _find_payables_row(
+                    page_text, lbl, r"total\s*-?\s*equity|liabilities")
+                if nci_raw is not None:
+                    nci_amt = _scale(nci_raw, page_factor)
+                    break
             if nci_amt is not None:
                 break
     if equity is not None:
