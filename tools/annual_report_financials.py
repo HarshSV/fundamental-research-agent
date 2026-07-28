@@ -194,6 +194,19 @@ _EQUITY_OWNERS_LABELS = [
 _EQUITY_GENERIC_LABELS = [
     "total equity", "shareholders' funds", "shareholders funds", "total shareholders' funds",
 ]
+# Non-Controlling Interest — its own always-separate Balance Sheet line
+# under Ind AS (see comment on `_EQUITY_SHARE_CAPITAL_LABELS` below). Needed
+# for Debt-to-Equity (Sr No 23): unlike ROE, D/E's numerator (Total Debt) is
+# the WHOLE consolidated entity's debt, not just the portion funded by the
+# parent's own shareholders — so its denominator must be the WHOLE entity's
+# equity (owners' + NCI), not the owners-only figure ROE uses. Using the
+# owners-only figure against all-entity debt was overstating leverage for
+# every company with a material minority interest.
+_NCI_LABELS = [
+    "non-controlling interests", "non controlling interests",
+    "non-controlling interest", "non controlling interest",
+    "minority interest", "minority interests",
+]
 # Retained Earnings (Altman Z-Score Sr No 55's RE/TA component) — the
 # accumulated-profits Balance Sheet line ONLY, deliberately NOT the same
 # as Total Equity (which also includes paid-up Share Capital). Ind AS
@@ -2148,6 +2161,32 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
             equity = _find_bs_row(_EQUITY_GENERIC_LABELS, reject_after=r"\s*and\s+liabilities")
             equity_basis = "generic" if equity is not None else None
 
+    # Total Equity, WHOLE-entity (owners' + Non-Controlling Interest) — Sr
+    # No 23 Debt-to-Equity's denominator (see `_NCI_LABELS` comment above).
+    # NCI is genuinely absent (real ₹0, standalone company or no minority
+    # shareholders) whenever its label isn't found at all — `equity_full`
+    # then correctly reduces to the same owners-only figure as `equity`.
+    # Same note-reference-digit hazard as Equity Share Capital/Lease
+    # Liabilities above (NCI is routinely a small, comma-less figure with a
+    # note number printed right after its label) — reuses the same
+    # last-two-numbers-before-the-next-label helper rather than a blind
+    # permissive first-two match.
+    nci_amt = None
+    if equity_basis == "owners":
+        for lbl in _NCI_LABELS:
+            nci_amt, _ = _find_payables_row(
+                bs_text, lbl, r"total\s*-?\s*equity|liabilities")
+            if nci_amt is not None:
+                break
+    if equity is not None:
+        if nci_amt is not None:
+            equity_full = (round(equity[0] + nci_amt[0], 2),
+                            round(equity[1] + (nci_amt[1] or 0), 2) if equity[1] is not None else None)
+        else:
+            equity_full = equity
+    else:
+        equity_full = None
+
     # Retained Earnings (Altman Z-Score Sr No 55's RE/TA component) --
     # literal "Reserves and Surplus" tried first (confidence 1.0, an exact
     # match); "Other Equity" (post-2019 Ind AS combined reserves line) used
@@ -2187,14 +2226,36 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     borrowings_face_label_found = bool(re.search(r"\bborrowings\b", bs_text, re.I))
 
     # Lease Liabilities (Total Debt Sr No 20 component b) — Non-current and
-    # Current, section-scoped bare-word match same as plain "Borrowings".
-    lease_liabilities_nc = _find_bs_row(_LEASE_LIABILITY_NC_LABELS,
-                                         after=r"\nNon-current Liabilities\b")
+    # Current, section-scoped. Lease Liabilities is routinely a small
+    # (sub-1,000, no thousands separator) figure with a note-reference digit
+    # printed right after the label — e.g. HUL's Current Lease Liabilities
+    # row is "Lease Liabilities \n 20 \n 374 \n 404" — the exact same shape
+    # as the Equity Share Capital fix above, so it reuses that fix's helper
+    # (`_find_payables_row`: permissive number matching + take the LAST two
+    # numbers before the next row's label, which skips the note-ref digit
+    # AND stays bounded so it can never reach into a later row). Plain
+    # `_find_bs_row`'s strict `_NUM_RE` can't match "374"/"404" at all (no
+    # comma, no 2-decimal suffix) and was silently falling through to the
+    # NEXT comma-formatted numbers on the page — HUL's Trade Payables row
+    # (12,867 / 11,052) — reporting someone else's trade payables as if they
+    # were lease liabilities.
+    lease_nc_anchor = re.search(r"\nNon-current Liabilities\b", bs_text, re.I)
+    lease_liabilities_nc = None
+    if lease_nc_anchor:
+        lease_nc_row, _ = _find_payables_row(
+            bs_text[lease_nc_anchor.end():], r"lease\s+liabilit(?:y|ies)",
+            r"other\s+financial\s+liabilit|provisions|deferred\s+tax|\nCurrent Liabilities\b")
+        lease_liabilities_nc = _scale(lease_nc_row, bs_factor)
     if lease_liabilities_nc is None:
         lease_liabilities_nc = _find_bs_row_bounded(
             _LEASE_LIABILITY_NC_LABELS, r"\nNon-current Liabilities\b", r"\nCurrent Liabilities\b")
-    lease_liabilities_cur = _find_bs_row(_LEASE_LIABILITY_CUR_LABELS,
-                                          after=r"\nCurrent Liabilities\b")
+    lease_cur_anchor = re.search(r"\nCurrent Liabilities\b", bs_text, re.I)
+    lease_liabilities_cur = None
+    if lease_cur_anchor:
+        lease_cur_row, _ = _find_payables_row(
+            bs_text[lease_cur_anchor.end():], r"lease\s+liabilit(?:y|ies)",
+            r"trade\s+payables|other\s+financial\s+liabilit|other\s+current\s+liabilit|provisions")
+        lease_liabilities_cur = _scale(lease_cur_row, bs_factor)
     if lease_liabilities_cur is None:
         lease_liabilities_cur = _find_bs_row_bounded(
             _LEASE_LIABILITY_CUR_LABELS, r"\nCurrent Liabilities\b", r"\nTotal Equity and Liabilities\b")
@@ -2269,6 +2330,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         "net_fixed_assets": net_fixed_assets,  # (cur, prior) or None, normalised to ₹ Cr — Sr No 30
         "equity": equity,  # (cur, prior) or None, normalised to ₹ Cr — owners-attributable Total Equity
         "equity_basis": equity_basis,  # "owners" (explicit exclusion of NCI found) or "generic" (no NCI split found)
+        "equity_full": equity_full,  # (cur, prior) or None, normalised to ₹ Cr — WHOLE-entity Total Equity (owners' + NCI); same as `equity` when NCI is absent
         "retained_earnings": retained_earnings,  # (cur, prior) or None, normalised to ₹ Cr — Sr No 55 (Altman Z-Score)
         "retained_earnings_basis": retained_earnings_basis,  # "exact" (Reserves and Surplus) or "other_equity_proxy"
         "pl_page": pl_idx + 1, "bs_page": bs_idx + 1,
@@ -3265,9 +3327,13 @@ def fetch_debt_to_equity_from_annual_report(symbol, name, fiscal_year, consolida
     details.
 
     Per spec, N/A if Total Equity is negative or zero (same rule as ROE) —
-    never a spurious ratio. Reuses the SAME cached PDF extraction and the
-    SAME owners/generic equity fields as ROE (Sr No 18) — no extra download.
-    Cached 90 days. Never raises.
+    never a spurious ratio. Reuses the SAME cached PDF extraction as ROE
+    (Sr No 18) — no extra download — but, unlike ROE, uses the WHOLE-entity
+    Total Equity (owners' + Non-Controlling Interest, `equity_full`), not
+    the owners-only figure: Total Debt (the numerator) is the whole
+    consolidated entity's debt, so the denominator must match that same
+    scope, or leverage is overstated for any company with a material
+    minority interest. Cached 90 days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
     ckey = f"ar_de_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}"
@@ -3289,7 +3355,7 @@ def fetch_debt_to_equity_from_annual_report(symbol, name, fiscal_year, consolida
             _write_cache(ckey, out)
             return out
 
-        equity = parsed.get("equity")
+        equity = parsed.get("equity_full")
         if equity is None:
             out = {"applicable": False,
                    "reason": "Could not find a 'Total Equity'/'Shareholders' Funds' row on the Balance Sheet page.",
@@ -3300,6 +3366,7 @@ def fetch_debt_to_equity_from_annual_report(symbol, name, fiscal_year, consolida
         total_debt_cur = debt["total_debt_cur"]
         equity_cur, _equity_prior = equity
         equity_basis = parsed.get("equity_basis")
+        nci_included = consolidated and (parsed.get("equity") != equity)
 
         if equity_cur <= 0:
             out = {"applicable": False,
@@ -3316,15 +3383,13 @@ def fetch_debt_to_equity_from_annual_report(symbol, name, fiscal_year, consolida
 
         ratio = round(total_debt_cur / equity_cur, 2)
 
-        # Per spec's tiers: Total Debt's own confidence (from the a+b+c
-        # protocol) combines with the NCI-ambiguity concern on equity, same
-        # as ROE — whichever is more cautious wins.
+        # Unlike ROE, NCI ambiguity isn't a confidence concern here — D/E
+        # deliberately wants the whole-entity figure regardless of whether
+        # NCI could be split out, so only Total Debt's own a+b+c confidence
+        # applies.
         confidence = debt["confidence"]
-        if consolidated and equity_basis != "owners":
-            confidence = min(confidence, 0.8)
 
-        equity_label = ("Total Equity Attributable to Owners of the Company"
-                        if equity_basis == "owners" else "Total Equity")
+        equity_label = "Total Equity (incl. Non-Controlling Interests)" if nci_included else "Total Equity"
 
         out = {
             "applicable": True,
@@ -3344,9 +3409,9 @@ def fetch_debt_to_equity_from_annual_report(symbol, name, fiscal_year, consolida
             "sources": _page_sources(pdf_url, fiscal_year, bs_page=parsed.get("bs_page")),
             "note": "From the company's own Annual Report — closing Balance Sheet subtotals, no averaging. "
                     + debt["note"]
-                    + ("" if equity_basis == "owners" else
-                       " This filing did not print a separate owners-vs-Non-Controlling-Interest equity split, "
-                       "so 'Total Equity' is used as-is."),
+                    + (" Total Equity here is the WHOLE consolidated entity's equity (owners' + Non-Controlling "
+                       "Interests), matching Total Debt's whole-entity scope — unlike ROE (Sr No 18), which uses "
+                       "the owners-only portion." if nci_included else ""),
         }
         _write_cache(ckey, out)
         return out
