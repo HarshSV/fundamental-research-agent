@@ -1086,7 +1086,16 @@ def _unit_factor(text):
     signature-block footnote (seen on Maruti's Balance Sheet: '(in ` million,
     unless otherwise stated)' ~3000 characters in), not a page-top header.
     Defaults to 1.0 (already Crore) when no unit is stated."""
-    if re.search(r"\bmillion\b", text, re.I):
+    # `\bmillion\b` requires the word to end exactly there — but the plural
+    # "millions" (e.g. Bharti Airtel's "(All amounts are in millions of
+    # Indian Rupee)") has no word-boundary between the "n" and the "s", so
+    # the un-pluralised pattern silently never matched it at all, leaving
+    # the factor at the default 1.0 — every figure on that filing came out
+    # 10x too large (confirmed on Bharti Airtel: Net Cash from Operating
+    # Activities read as ₹1,222,296 Cr instead of the real ₹1,22,229.60 Cr).
+    # `million` (without the closing `\b`) matches "millions" too, same
+    # asymmetric-boundary trick "lakh" below already relies on.
+    if re.search(r"\bmillion", text, re.I):
         return 0.1
     if re.search(r"\blakh", text, re.I):
         return 0.01
