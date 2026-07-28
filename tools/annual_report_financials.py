@@ -4177,11 +4177,39 @@ def fetch_dividend_per_share_from_annual_report(symbol, name, fiscal_year, conso
 
         dps = parsed.get("dividend_per_share") or 0.0
         found = parsed.get("dividend_per_share_found", False)
+        screener_fallback_used = False
 
+        # Fallback, only when the Annual Report genuinely found NO dividend
+        # sentence/note at all (found=False — indistinguishable, from PDF
+        # text alone, between "no dividend this year" and "extraction
+        # gap"): try Screener.in's own Dividend Yield x its own last price
+        # as an independent secondary source, rather than silently
+        # defaulting to a possibly-wrong ₹0. Screener's Dividend Yield uses
+        # ITS OWN convention (typically trailing/most-recently-declared,
+        # not necessarily this filing's own "paid in cash during the
+        # fiscal year" basis) — so this is clearly labelled as a
+        # different-methodology fallback, not presented as equal-confidence
+        # to a confirmed Annual Report figure.
+        if not found:
+            try:
+                from tools.screener_scraper import fetch_screener_financials
+                sc = fetch_screener_financials(sym, name) or {}
+                info = sc.get("info") or {}
+                sc_yield = info.get("dividendYield")
+                sc_price = info.get("currentPrice") or info.get("regularMarketPrice") or sc.get("lastPrice")
+                if sc_yield and sc_price:
+                    implied_dps = round(sc_yield * sc_price, 2)
+                    if implied_dps > 0:
+                        dps = implied_dps
+                        screener_fallback_used = True
+            except Exception as e:
+                print(f"[annual_report_financials] Screener DPS fallback skipped for {sym}: {e}")
+
+        confidence = 1.0 if found else (0.6 if screener_fallback_used else 0.4)
         out = {
             "applicable": True,
             "value": round(dps, 2), "unit": "₹",
-            "confidence": 1.0 if found else 0.4,
+            "confidence": confidence,
             "estimated": not found,
             "period": f"FY{str(fiscal_year)[-2:]} (standalone — dividends are always declared by the parent "
                       f"entity, not on a consolidated basis)",
@@ -4191,10 +4219,17 @@ def fetch_dividend_per_share_from_annual_report(symbol, name, fiscal_year, conso
                       "during the year (never a merely recommended/board-proposed dividend still awaiting "
                       "shareholder approval, which Ind AS doesn't recognise as a liability until then)."
                       if found else
-                      "Could not find an explicit 'dividend per share paid during the year' disclosure — "
-                      "defaulted to ₹0 (no dividend) at reduced confidence, since this could genuinely be a "
-                      "zero-dividend year or an extraction gap; per spec, 'no dividend declared' is treated "
-                      "as a real 0%, not missing data."),
+                      "Could not find an explicit 'dividend per share paid during the year' disclosure in the "
+                      "Annual Report. " + (
+                          "Estimated instead from Screener.in's own Dividend Yield x last traded price — a "
+                          "DIFFERENT convention (typically the most recently declared dividend, not necessarily "
+                          "this filing's own 'paid in cash during the fiscal year' basis), shown at reduced "
+                          "confidence and flagged as a fallback, not a confirmed Annual Report figure."
+                          if screener_fallback_used else
+                          "Defaulted to ₹0 (no dividend) at reduced confidence, since this could genuinely be a "
+                          "zero-dividend year or an extraction gap; per spec, 'no dividend declared' is treated "
+                          "as a real 0%, not missing data."
+                      )),
         }
         _write_cache(ckey, out)
         return out
