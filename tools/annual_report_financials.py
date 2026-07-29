@@ -6686,7 +6686,13 @@ def fetch_effective_tax_rate_from_annual_report(symbol, name, fiscal_year, conso
     Effective Tax Rate (Sr No 43) = Total Tax Expense (Current + Deferred
     Tax, `tax_expense`) ÷ Profit Before Tax (`pbt`, Sr No 19's basis) — same
     two fields ROIC (Sr No 42) already reads inline, exposed here as their
-    own dedicated ratio so both agree by construction.
+    own dedicated ratio so both agree by construction. `pbt` (via
+    `_find_pl_row`) already stays scoped to CONTINUING OPERATIONS only when
+    a filer splits the P&L into Continuing/Discontinued sections — it
+    matches the FIRST "Profit before tax" occurrence on the page, and the
+    Continuing-Operations section's own PBT subtotal always appears there,
+    structurally before any separate Discontinued-Operations block further
+    down (same reasoning already documented/validated for ROCE, Sr No 19).
 
     Per spec, N/A if Profit Before Tax <= 0 (ratio not meaningful for a
     loss-making period) — never divide by a non-positive PBT.
