@@ -1120,7 +1120,17 @@ def fetch_net_debt_to_ebitda(symbol, name=None, to_date=None, lease_basis="basis
     first_result = None
     for target_year in ar_years[:MAX_PROBE_YEARS]:
         r = fetch_net_debt_to_ebitda_from_annual_report(sym, name, target_year, consolidated=True, lease_basis=lease_basis)
-        if r.get("applicable"):
+        # `applicable=False` here means two DIFFERENT things: a genuine
+        # extraction failure (worth probing an older year for), or a real
+        # "Net Cash" position (`net_cash: True` — Cash exceeds Total Debt,
+        # so the ratio is correctly undefined, not a leverage multiple).
+        # The latter is a definitive, correct answer for that year, not a
+        # failure — treating it the same as a failure silently discarded
+        # the CURRENT year's genuine Net Cash finding and fell back to an
+        # OLDER year's real (and by now stale/less relevant) multiple
+        # instead (confirmed on HUL: FY26 Net Cash was skipped in favour of
+        # FY25's 0.45x). Both are accepted as a final result here.
+        if r.get("applicable") or r.get("net_cash"):
             out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
             _write_cache(ckey, out)
             return out
@@ -3846,7 +3856,12 @@ def fetch_interest_coverage_ratio(symbol, name=None, to_date=None):
     first_result = None
     for target_year in ar_years[:MAX_PROBE_YEARS]:
         r = fetch_interest_coverage_ratio_from_annual_report(sym, name, target_year, consolidated=True)
-        if r.get("applicable"):
+        # Same fix as Net Debt/EBITDA's probe loop just above: `not_meaningful:
+        # True` (genuinely nil Finance Costs — a debt-free/interest-free
+        # year) is a definitive, correct answer, not an extraction failure —
+        # treating it as one silently discarded the current year's real
+        # "debt-free" finding in favour of an older year's real multiple.
+        if r.get("applicable") or r.get("not_meaningful"):
             out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
             _write_cache(ckey, out)
             return out
