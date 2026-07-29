@@ -126,144 +126,6 @@ def safety_gate_conditional_router(state: SystemState) -> str:
     """
     return "proceed_to_analysis"
 
-def parse_narrative_sections(text: str) -> dict:
-    """
-    Parses the combined LLM output into separate qualitative sections.
-    """
-    sections = {
-        'F-07': "",
-        'F-14': "",
-        'F-15': "",
-        'F-16': "",
-        'F-20': ""
-    }
-    current_section = None
-    lines = text.split('\n')
-    for line in lines:
-        line_strip = line.strip()
-        if "###" in line:
-            if "F-07" in line_strip:
-                current_section = 'F-07'
-                continue
-            elif "F-14" in line_strip:
-                current_section = 'F-14'
-                continue
-            elif "F-15" in line_strip:
-                current_section = 'F-15'
-                continue
-            elif "F-16" in line_strip:
-                current_section = 'F-16'
-                continue
-            elif "F-20" in line_strip:
-                current_section = 'F-20'
-                continue
-            elif any(f in line_strip for f in ["F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-08", "F-09", "F-10", "F-11", "F-12", "F-13", "F-17", "F-18", "F-19"]):
-                current_section = None
-                continue
-        if current_section:
-            sections[current_section] += line + "\n"
-            
-    for k in sections:
-        sections[k] = sections[k].strip()
-        if not sections[k]:
-            sections[k] = f"Detailed analysis for {k} is currently stable."
-    return sections
-
-def get_fallback_structured_data(symbol: str) -> dict:
-    """
-    Returns structured default data if Groq is unconfigured or JSON parsing fails.
-    """
-    return {
-        "F-07": {
-            "commentary": f"{symbol} exhibits stable capital efficiency. Return on Equity (ROE) and Return on Capital Employed (ROCE) closely track operating cycles, showing effective reinvestment of retained earnings."
-        },
-        "F-14": {
-            "summary": f"{symbol} management commentary indicates steady operations with a focus on profitable growth.",
-            "growth_drivers": ["Core business demand", "Operating efficiency", "New deal wins / capacity"],
-            "risks": ["Demand/macro uncertainty", "Margin / cost pressure"],
-            "capex_guidance": "Management guided to disciplined capex aligned with demand.",
-            "tone": "Cautious"
-        },
-        "F-15": {
-            "bear": {
-                "revenue_growth": 4.5,
-                "pat_growth": 2.5,
-                "drivers": "Domestic volumes pressure, input price inflation, and weak rural demand.",
-                "risks": "Margins compress due to failure to pass raw material hikes."
-            },
-            "base": {
-                "revenue_growth": 9.5,
-                "pat_growth": 8.0,
-                "drivers": "Normal market recovery, steady export demand, and standard price updates.",
-                "risks": "Top-line growth tracks general industry pace."
-            },
-            "bull": {
-                "revenue_growth": 14.5,
-                "pat_growth": 13.5,
-                "drivers": "Rapid expansion in overseas segments and margin expansion through digital integrations.",
-                "risks": "Temporary over-investment in capacity could hurt returns."
-            }
-        },
-        "F-16": {
-            "risk_level": "Low",
-            "checks": [
-                {"name": "CFO vs PAT Conversion Check", "status": "PASS", "severity": 1, "details": "Cash flow from operations closely matches Net Income, confirming cash-backed earnings."},
-                {"name": "Share Dilution Check", "status": "PASS", "severity": 0, "details": "Outstanding share counts are stable, indicating zero equity dilution for current shareholders."},
-                {"name": "Receivables vs Sales Trend Check", "status": "PASS", "severity": 2, "details": "Debtor days are stable, with receivables growing at a similar pace to total revenues."},
-                {"name": "Asset Quality & Capitalization Check", "status": "PASS", "severity": 1, "details": "Capitalization policies match standard Ind-AS norms, with low intangible capitalization levels."}
-            ]
-        },
-        "F-20": {
-            "moat_strength": "Narrow to Wide",
-            "confidence_level": 80.0,
-            "pricing_power": 8.0,
-            "barriers_to_entry": 8.0,
-            "memo_text": f"The company possesses a defensible business model protected by brand strength and customer switching costs."
-        }
-    }
-
-def get_fallback_topics_data(symbol: str) -> dict:
-    """
-    TEMPORARY DEMO FALLBACK for the F-22..F-34 qualitative-topics call
-    (Sections A/B/C). Used only when every LLM provider is unavailable/
-    exhausted, so a demo (e.g. for QA) shows fully populated sections
-    instead of "Not yet available" placeholders. This is clearly labelled
-    placeholder text, not company-specific analysis — remove/stop calling
-    this once a paid LLM tier is reliably available; it exists purely to
-    unblock a demo, not as a permanent feature.
-    """
-    return {
-        "F-22": {"business_model_type": "Portfolio (multiple products/segments)", "revenue_pattern": "Mixed",
-                  "recurring_revenue_pct": 55.0,
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol} operates a diversified business with a mix of recurring and cyclical revenue streams."},
-        "F-23": {"moat_types": {"brand": 3.0, "distribution": 3.0, "cost_leadership": 3.0, "network_effects": 2.5, "switching_costs": 3.0},
-                  "overall_rating": 3.0,
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol} shows moderate competitive advantages across brand, distribution and cost leadership."},
-        "F-24": {"revenue_model_type": "Transactional", "contract_length": "Not disclosed", "contract_renewal_rate_pct": None,
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s revenue model is predominantly transactional in nature."},
-        "F-25": {"lifecycle_stage": "Maturity", "relative_growth_pct": 2.0,
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol} is in a mature stage of its business lifecycle relative to industry peers."},
-        "F-26": {"pricing_power_rating": "Moderate", "price_pass_through_ratio": 0.7,
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol} has moderate pricing power with partial pass-through of input cost inflation."},
-        "F-27": {"structural_defensibility": "Partially temporary tailwinds", "one_off_flags": [],
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s margins reflect a mix of structural strength and cyclical factors."},
-        "F-28": {"ceo_name": "Not disclosed", "ceo_tenure_years": None, "track_record_rating": "Mixed", "prior_ventures": [],
-                  "rationale": f"[DEMO PLACEHOLDER] Track record data for {symbol}'s CEO/MD is not available in this demo run."},
-        "F-29": {"fixed_variable_pay_ratio": "70:30", "esop_pct_of_kmp_comp": 10.0, "long_term_orientation_rating": "Moderate",
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s management incentive structure appears moderately aligned with long-term value."},
-        "F-30": {"bench_depth_rating": "Moderate", "kmp_attrition_rate_pct": 10.0, "key_person_dependency_flags": [],
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s management bench depth is assessed as moderate in this demo run."},
-        "F-31": {"communication_quality_rating": "Moderate", "guidance_consistency": "Not disclosed", "disclosure_flags": [],
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s communication quality could not be assessed from live data in this demo run."},
-        "F-32": {"execution_credibility_rating": "Mixed", "guidance_accuracy_pct": 75.0, "milestone_track_record": [],
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s execution track record is unavailable in this demo run."},
-        "F-33": {"culture_rating": "Moderate", "employee_attrition_rate_pct": 15.0, "culture_flags": [],
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s culture signals could not be assessed from live data in this demo run."},
-        "F-34": {"promoter_holding_pct": 50.0, "qoq_change_pct": 0.0, "holding_trend": "Stable",
-                  "rationale": f"[DEMO PLACEHOLDER] {symbol}'s promoter holding is assumed stable in this demo run — verify against real filings."},
-    }
-
-
 def json_to_markdown_narrative(parsed_json: dict, symbol: str) -> str:
     """
     Converts parsed qualitative JSON structure into a markdown text narrative
@@ -530,6 +392,39 @@ def analyze_quality_node(state: SystemState) -> dict:
                 "    \"qoq_change_pct\": 0.0,\n"
                 "    \"holding_trend\": \"Stable\",\n"
                 "    \"rationale\": \"2-3 sentences on promoter shareholding: current control level, direction of change (buying/selling/stable) over recent quarters, and what that signals about promoter confidence\"\n"
+                "  },\n"
+                "  \"F-35\": {\n"
+                "    \"pledge_pct\": 0.0,\n"
+                "    \"pledge_trend\": \"Stable\",\n"
+                "    \"risk_level\": \"Low\",\n"
+                "    \"rationale\": \"2-3 sentences on promoter share pledging: whether shares are pledged/encumbered, the size relative to total promoter holding, the trend over recent quarters, and the risk of forced selling/margin calls if pledged\"\n"
+                "  },\n"
+                "  \"F-36\": {\n"
+                "    \"rpt_intensity_pct\": 2.0,\n"
+                "    \"rpt_frequency\": \"Occasional\",\n"
+                "    \"counterparty_flags\": [\"short flag naming a related-party counterparty and the nature of the transaction, e.g. 'XYZ Promoter Holdings - shared services agreement' - 0 to 3 items, empty list if none evident\"],\n"
+                "    \"rationale\": \"2-3 sentences on related-party transactions: frequency, identity of counterparties (especially promoter-group entities), whether pricing/rationale appears arm's-length, based on the Annual Report's RPT note\"\n"
+                "  },\n"
+                "  \"F-37\": {\n"
+                "    \"subsidiary_count\": 5,\n"
+                "    \"structural_layers\": 2,\n"
+                "    \"complexity_rating\": \"Moderate\",\n"
+                "    \"unclear_purpose_flags\": [\"short flag naming a subsidiary/SPV with unclear business purpose, e.g. 'XYZ Overseas Ltd (Mauritius) - purpose not disclosed in AR' - 0 to 3 items, empty list if none evident\"],\n"
+                "    \"rationale\": \"2-3 sentences on the group's structural complexity: number and nature of subsidiaries/associates/SPVs, offshore entities, layering, and whether the group structure appears reasonably transparent or unusually complex for a company of this size\"\n"
+                "  },\n"
+                "  \"F-38\": {\n"
+                "    \"independent_director_pct\": 50.0,\n"
+                "    \"board_size\": 8,\n"
+                "    \"committee_activity_rating\": \"Adequate\",\n"
+                "    \"governance_flags\": [\"short flag naming a board/committee governance concern, e.g. 'Audit Committee met only 2 times in FY24 vs 4 required' - 0 to 3 items, empty list if none evident\"],\n"
+                "    \"rationale\": \"2-3 sentences on board composition and independence: proportion and quality of independent directors, board size, and committee (Audit/Nomination/Risk) meeting frequency per the Corporate Governance Report\"\n"
+                "  },\n"
+                "  \"F-39\": {\n"
+                "    \"auditor_name\": \"short name of the current statutory auditor firm, e.g. 'Deloitte Haskins & Sells' or 'Not disclosed'\",\n"
+                "    \"auditor_tenure_years\": 5.0,\n"
+                "    \"qualification_rating\": \"Clean\",\n"
+                "    \"auditor_flags\": [\"short flag naming an auditor switch/qualification/emphasis-of-matter, e.g. 'FY22: auditor changed from XYZ to ABC mid-cycle' - 0 to 3 items, empty list if none evident\"],\n"
+                "    \"rationale\": \"2-3 sentences on the auditor relationship: current auditor's tenure, any recent auditor switches, and whether the Auditor's Report carries qualifications, adverse opinions, or emphasis-of-matter paragraphs\"\n"
                 "  }\n"
                 "}\n\n"
                 "CRITICAL: every field above is shown with ONE example value already picked for you - that is "
@@ -546,7 +441,12 @@ def analyze_quality_node(state: SystemState) -> dict:
                 "F-30 bench_depth_rating is exactly 'Strong', 'Moderate', or 'Weak'. F-31 communication_quality_rating "
                 "is exactly 'Strong', 'Moderate', or 'Weak'. F-32 execution_credibility_rating is exactly 'Strong', "
                 "'Mixed', or 'Weak'. F-33 culture_rating is exactly 'Strong', 'Moderate', or 'Weak'. F-34 "
-                "holding_trend is exactly 'Increasing', 'Stable', or 'Decreasing'.\n\n"
+                "holding_trend is exactly 'Increasing', 'Stable', or 'Decreasing'. F-35 pledge_trend is exactly "
+                "'Increasing', 'Stable', or 'Decreasing'. F-35 risk_level is exactly 'Low', 'Moderate', or 'High'. "
+                "F-36 rpt_frequency is exactly 'None', 'Occasional', or 'Frequent'. F-37 complexity_rating is "
+                "exactly 'Low', 'Moderate', or 'High'. F-38 committee_activity_rating is exactly 'Inadequate', "
+                "'Adequate', or 'Strong'. F-39 qualification_rating is exactly 'Clean', 'Emphasis of Matter', or "
+                "'Qualified'.\n\n"
                 "Rules: F-22 recurring_revenue_pct and F-25 relative_growth_pct are ESTIMATES - never null, "
                 "approximate from the business description and known industry economics even if not explicitly "
                 "disclosed. F-23 moat_types: rate ALL 5 on a 1-5 scale, never null (a low score is a valid answer). "
@@ -584,7 +484,27 @@ def analyze_quality_node(state: SystemState) -> dict:
                 "F-34 qoq_change_pct (= Promoter % (Qt) - Promoter % (Qt-1)): give your best ESTIMATE - never "
                 "null - based on known/typical promoter holding levels for this company even if the exact latest "
                 "shareholding-pattern filing figure isn't available; qoq_change_pct should be 0.0 if no change is "
-                "evidenced. "
+                "evidenced. F-35 pledge_pct (= Shares pledged / Total promoter shareholding): give your best "
+                "ESTIMATE - never null - based on known/typical pledging levels for this company even if the "
+                "exact latest figure isn't available; return 0.0 if no pledging is evidently disclosed. F-36 "
+                "rpt_intensity_pct (= Total RPT value / Total revenue): give your best ESTIMATE - never null - "
+                "based on typical RPT levels for this type of company even if the exact disclosed figure isn't "
+                "available; return 0.0 if no related-party transactions are evidently disclosed. F-36 "
+                "counterparty_flags: only include counterparties genuinely evidenced in the provided context - an "
+                "empty list is valid and expected when no RPT counterparty information is available. F-37 "
+                "subsidiary_count and F-37 structural_layers: give your best ESTIMATE - never null - based on "
+                "known/typical group structure for this type of company even if the exact disclosed count isn't "
+                "available. F-37 unclear_purpose_flags: only include entities genuinely evidenced in the provided "
+                "context - an empty list is valid and expected when the group structure appears reasonably "
+                "transparent. F-38 independent_director_pct (= Independent directors / Total board size) and "
+                "F-38 board_size: give your best ESTIMATE - never null - based on known/typical board composition "
+                "for this type of company even if the exact disclosed figures aren't available. F-38 "
+                "governance_flags: only include concerns genuinely evidenced in the provided context - an empty "
+                "list is valid and expected when board/committee governance appears adequate. F-39 "
+                "auditor_tenure_years (= Current year - Year of appointment): a hard fact, not an estimate - "
+                "return null if the appointment year isn't known from the context. F-39 auditor_flags: only "
+                "include switches/qualifications/emphasis-of-matter genuinely evidenced in the provided context - "
+                "an empty list is valid and expected when the Auditor's Report is clean with no recent switch. "
                 "Follow each field's exact name and shape above - do not reuse another section's fields."
         )
         _topics_future = _llm_pool.submit(
@@ -593,16 +513,16 @@ def analyze_quality_node(state: SystemState) -> dict:
                 {"role": "system", "content": "You are an equity research assistant. Respond with raw JSON only."},
                 {"role": "user", "content": f"{topics_prompt}\n\nCompany data:\n{data_context}"},
             ],
-            max_tokens=4300,
+            max_tokens=5800,
             api_key=api_key,
         )
 
     # Check for Groq API key availability and execute or fallback
     if not api_key or api_key.strip() in ["", "your_api_key_here"]:
-        print("[WARNING] GROQ_API_KEY not configured. Generating high-quality simulated JSON payload for prototype...")
-        parsed_data = get_fallback_structured_data(symbol)
+        print("[WARNING] GROQ_API_KEY not configured. Skipping qualitative analysis (no fabricated data).")
+        parsed_data = {}
         qualitative_payload = {
-            'status': 'MOCK_SUCCESS',
+            'status': 'NOT_CONFIGURED',
             'parsed_json': parsed_data,
             'narrative': json_to_markdown_narrative(parsed_data, symbol)
         }
@@ -640,13 +560,13 @@ def analyze_quality_node(state: SystemState) -> dict:
             }
             print("[analyze_quality_node] Successfully retrieved and parsed Groq qualitative analysis JSON.")
         except Exception as e:
-            print(f"[analyze_quality_node] Error calling Groq or parsing JSON: {e}. Shifting to fallback mock structured JSON.")
+            print(f"[analyze_quality_node] Error calling Groq or parsing JSON: {e}. Leaving qualitative analysis empty (no fabricated data).")
             _raw = locals().get('response_text')
             if isinstance(_raw, str) and _raw:
                 print(f"[analyze_quality_node] Raw response ({len(_raw)} chars): {_raw!r}")
-            parsed_data = get_fallback_structured_data(symbol)
+            parsed_data = {}
             qualitative_payload = {
-                'status': 'ERROR_FALLBACK',
+                'status': 'ERROR',
                 'error': str(e),
                 'parsed_json': parsed_data,
                 'narrative': json_to_markdown_narrative(parsed_data, symbol)
@@ -677,12 +597,12 @@ def analyze_quality_node(state: SystemState) -> dict:
                         {"role": "system", "content": "You are an equity research assistant. Respond with raw JSON only."},
                         {"role": "user", "content": f"{topics_prompt}\n\nCompany data:\n{data_context}"},
                     ],
-                    max_tokens=4300,
+                    max_tokens=5800,
                     api_key=api_key,
                 )
                 topics_data = parse_json_loose(topics_text)
             _merged = 0
-            for k in ('F-22', 'F-23', 'F-24', 'F-25', 'F-26', 'F-27', 'F-28', 'F-29', 'F-30', 'F-31', 'F-32', 'F-33', 'F-34'):
+            for k in ('F-22', 'F-23', 'F-24', 'F-25', 'F-26', 'F-27', 'F-28', 'F-29', 'F-30', 'F-31', 'F-32', 'F-33', 'F-34', 'F-35', 'F-36', 'F-37', 'F-38', 'F-39'):
                 if isinstance(topics_data.get(k), dict):
                     parsed_data[k] = topics_data[k]
                     _merged += 1
@@ -694,19 +614,15 @@ def analyze_quality_node(state: SystemState) -> dict:
                 raise RuntimeError(f"topics call returned 0/13 usable fields; keys were {list(topics_data.keys())}")
             qualitative_payload['parsed_json'] = parsed_data
             qualitative_payload['topics_status'] = 'SUCCESS'
-            print(f"[analyze_quality_node] Qualitative-topics (F-22..F-34) call succeeded, merged {_merged}/13 fields. Keys returned: {list(topics_data.keys())}")
+            print(f"[analyze_quality_node] Qualitative-topics (F-22..F-39) call succeeded, merged {_merged}/18 fields. Keys returned: {list(topics_data.keys())}")
         except Exception as te:
-            # TEMPORARY: while every LLM provider is exhausted/unconfigured, fill
-            # Sections A/B/C with clearly-labelled demo placeholder data instead
-            # of leaving them empty, so a QA demo shows a fully populated page.
-            # Remove this fallback once a paid LLM tier is reliably available.
-            demo_topics = get_fallback_topics_data(symbol)
-            for k in ('F-22', 'F-23', 'F-24', 'F-25', 'F-26', 'F-27', 'F-28', 'F-29', 'F-30', 'F-31', 'F-32', 'F-33', 'F-34'):
-                parsed_data[k] = demo_topics[k]
+            # Leave Sections A/B/C empty on failure — the frontend already
+            # renders an honest "Not yet available" state per subpoint
+            # rather than fabricated placeholder content.
             qualitative_payload['parsed_json'] = parsed_data
-            qualitative_payload['topics_status'] = 'DEMO_FALLBACK'
+            qualitative_payload['topics_status'] = 'ERROR'
             qualitative_payload['topics_error'] = str(te)
-            print(f"[analyze_quality_node] Qualitative-topics call failed, using DEMO placeholder data instead: {te}")
+            print(f"[analyze_quality_node] Qualitative-topics call failed, leaving sections empty: {te}")
 
     # Build parsed_sections for backwards compatibility and fallback text
     pdata = qualitative_payload.get('parsed_json') or {}
@@ -2080,6 +1996,11 @@ def build_executive_summary(state: SystemState) -> dict:
     f32 = q.get('F-32', {}) or {}
     f33 = q.get('F-33', {}) or {}
     f34 = q.get('F-34', {}) or {}
+    f35 = q.get('F-35', {}) or {}
+    f36 = q.get('F-36', {}) or {}
+    f37 = q.get('F-37', {}) or {}
+    f38 = q.get('F-38', {}) or {}
+    f39 = q.get('F-39', {}) or {}
 
     _biz_model_type = _enum(f22.get('business_model_type'), ['Single product', 'Portfolio (multiple products/segments)'])
     _revenue_pattern = _enum(f22.get('revenue_pattern'), ['Recurring', 'Cyclical', 'Mixed'])
@@ -2213,6 +2134,57 @@ def build_executive_summary(state: SystemState) -> dict:
     except (TypeError, ValueError):
         _qoq_change_pct = None
     _holding_trend = _enum(f34.get('holding_trend'), ['Increasing', 'Stable', 'Decreasing'])
+
+    _pledge_pct = f35.get('pledge_pct')
+    try:
+        _pledge_pct = round(max(0.0, min(100.0, float(_pledge_pct))), 1)
+    except (TypeError, ValueError):
+        _pledge_pct = None
+    _pledge_trend = _enum(f35.get('pledge_trend'), ['Increasing', 'Stable', 'Decreasing'])
+    _pledge_risk_level = _enum(f35.get('risk_level'), ['Low', 'Moderate', 'High'])
+
+    _rpt_intensity_pct = f36.get('rpt_intensity_pct')
+    try:
+        _rpt_intensity_pct = round(max(0.0, min(100.0, float(_rpt_intensity_pct))), 2)
+    except (TypeError, ValueError):
+        _rpt_intensity_pct = None
+    _rpt_frequency = _enum(f36.get('rpt_frequency'), ['None', 'Occasional', 'Frequent'])
+    _counterparty_flags = [v for v in (f36.get('counterparty_flags') or []) if isinstance(v, str) and v.strip()][:3]
+
+    _subsidiary_count = f37.get('subsidiary_count')
+    try:
+        _subsidiary_count = max(0, int(_subsidiary_count))
+    except (TypeError, ValueError):
+        _subsidiary_count = None
+    _structural_layers = f37.get('structural_layers')
+    try:
+        _structural_layers = max(0, int(_structural_layers))
+    except (TypeError, ValueError):
+        _structural_layers = None
+    _group_complexity_rating = _enum(f37.get('complexity_rating'), ['Low', 'Moderate', 'High'])
+    _unclear_purpose_flags = [v for v in (f37.get('unclear_purpose_flags') or []) if isinstance(v, str) and v.strip()][:3]
+
+    _independent_director_pct = f38.get('independent_director_pct')
+    try:
+        _independent_director_pct = round(max(0.0, min(100.0, float(_independent_director_pct))), 1)
+    except (TypeError, ValueError):
+        _independent_director_pct = None
+    _board_size = f38.get('board_size')
+    try:
+        _board_size = max(0, int(_board_size))
+    except (TypeError, ValueError):
+        _board_size = None
+    _committee_activity_rating = _enum(f38.get('committee_activity_rating'), ['Inadequate', 'Adequate', 'Strong'])
+    _governance_flags = [v for v in (f38.get('governance_flags') or []) if isinstance(v, str) and v.strip()][:3]
+
+    _auditor_name = f39.get('auditor_name') if isinstance(f39.get('auditor_name'), str) and f39.get('auditor_name').strip() else None
+    _auditor_tenure = f39.get('auditor_tenure_years')
+    try:
+        _auditor_tenure = round(max(0.0, min(60.0, float(_auditor_tenure))), 1)
+    except (TypeError, ValueError):
+        _auditor_tenure = None
+    _qualification_rating = _enum(f39.get('qualification_rating'), ['Clean', 'Emphasis of Matter', 'Qualified'])
+    _auditor_flags = [v for v in (f39.get('auditor_flags') or []) if isinstance(v, str) and v.strip()][:3]
 
     qualitative_topics = {
         'strategy_business_model': {
@@ -2484,6 +2456,112 @@ def build_executive_summary(state: SystemState) -> dict:
                         'primary': {'label': 'BSE India – Shareholding Pattern', 'url': 'https://www.bseindia.com/corporates/shpPromoterNGroup.aspx'},
                         'secondary': {'label': 'NSE India – Shareholding Pattern', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
                         'tertiary': {'label': 'Trendlyne – Shareholding Trend', 'url': 'https://trendlyne.com'},
+                    },
+                },
+                {
+                    'key': 'promoter_share_pledging',
+                    'title': 'Promoter pledging of shares: presence, size, trend and risk if margin calls occur',
+                    'finding': f35.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Pledge %', f"~{_pledge_pct}%"] if _pledge_pct is not None else None),
+                        (['Pledge trend', _pledge_trend] if _pledge_trend else None),
+                        (['Margin-call risk', _pledge_risk_level] if _pledge_risk_level else None),
+                    ] if f],
+                    'chart': ({
+                        'type': 'donut',
+                        'data': [
+                            {'label': 'Pledged shares', 'pct': _pledge_pct},
+                            {'label': 'Unpledged shares', 'pct': round(100 - _pledge_pct, 1)},
+                        ],
+                    } if _pledge_pct is not None else None),
+                    'formula': 'Pledge % = Shares pledged / Total promoter shareholding',
+                    'sources': {
+                        'primary': {'label': 'BSE India – Shareholding Pattern', 'note': 'Pledge/Encumbrance column', 'url': 'https://www.bseindia.com/corporates/shpPromoterNGroup.aspx'},
+                        'secondary': {'label': 'NSE India – Shareholding Pattern', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'tertiary': {'label': 'Trendlyne – Shareholding Trend', 'note': 'pledge trend', 'url': 'https://trendlyne.com'},
+                    },
+                },
+                {
+                    'key': 'related_party_transactions',
+                    'title': 'Related-party transactions (RPTs): frequency, counterparty identity, pricing and rationale',
+                    'finding': f36.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['RPT intensity', f"~{_rpt_intensity_pct}%"] if _rpt_intensity_pct is not None else None),
+                        (['RPT frequency', _rpt_frequency] if _rpt_frequency else None),
+                        (['Counterparties', '; '.join(_counterparty_flags)] if _counterparty_flags else None),
+                    ] if f],
+                    'chart': ({'type': 'spectrum', 'options': ['None', 'Occasional', 'Frequent'], 'active': _rpt_frequency}
+                               if _rpt_frequency else None),
+                    'formula': 'RPT intensity = Total RPT value / Total revenue',
+                    'sources': {
+                        'primary': {'label': 'Company Annual Report', 'note': 'RPT note, sourced via BSE announcement / company IR page'},
+                        'secondary': {'label': 'MCA – Company/Director Master Data', 'note': 'counterparty cross-check', 'url': 'https://www.mca.gov.in'},
+                        'tertiary': {'label': 'Tofler – Company/Director Search', 'url': 'https://www.tofler.in'},
+                    },
+                },
+                {
+                    'key': 'group_structural_complexity',
+                    'title': 'Use of complex group entities: off-balance-sheet vehicles, SPVs, subsidiaries abroad',
+                    'finding': f37.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Subsidiary count', str(_subsidiary_count)] if _subsidiary_count is not None else None),
+                        (['Structural layers', str(_structural_layers)] if _structural_layers is not None else None),
+                        (['Complexity', _group_complexity_rating] if _group_complexity_rating else None),
+                        (['Unclear-purpose entities', '; '.join(_unclear_purpose_flags)] if _unclear_purpose_flags else None),
+                    ] if f],
+                    'chart': ({'type': 'bar', 'data': [
+                                  {'label': 'Subsidiaries', 'value': _subsidiary_count},
+                                  {'label': 'Structural layers', 'value': _structural_layers},
+                              ], 'scaleMax': max(10, (_subsidiary_count or 0), (_structural_layers or 0))}
+                               if _subsidiary_count is not None and _structural_layers is not None else None),
+                    'formula': 'N/A - structural complexity score (count of entities, layers)',
+                    'sources': {
+                        'primary': {'label': 'MCA – Company/Director Master Data', 'note': 'group/company master data', 'url': 'https://www.mca.gov.in'},
+                        'secondary': {'label': 'Company Annual Report', 'note': 'subsidiaries/associates list, sourced via BSE announcement / company IR page'},
+                        'tertiary': {'label': 'Tofler – Company/Director Search', 'note': 'group structure mapping', 'url': 'https://www.tofler.in'},
+                    },
+                },
+                {
+                    'key': 'board_composition_independence',
+                    'title': "Board composition & independence: independent directors' quality, committee activity",
+                    'finding': f38.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Independent directors', f"~{_independent_director_pct}%"] if _independent_director_pct is not None else None),
+                        (['Board size', str(_board_size)] if _board_size is not None else None),
+                        (['Committee activity', _committee_activity_rating] if _committee_activity_rating else None),
+                        (['Governance concerns', '; '.join(_governance_flags)] if _governance_flags else None),
+                    ] if f],
+                    'chart': ({
+                        'type': 'donut',
+                        'data': [
+                            {'label': 'Independent directors', 'pct': _independent_director_pct},
+                            {'label': 'Other directors', 'pct': round(100 - _independent_director_pct, 1)},
+                        ],
+                    } if _independent_director_pct is not None else None),
+                    'formula': 'Independent director % = Independent directors / Total board size',
+                    'sources': {
+                        'primary': {'label': 'Annual Report – Corporate Governance Report', 'note': 'via BSE announcement above'},
+                        'secondary': {'label': 'NSE India – Corporate Governance Filings', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-corporate-governance'},
+                        'tertiary': {'label': 'BSE India – Corporate Announcements', 'note': 'Corporate Governance Report filing', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
+                    },
+                },
+                {
+                    'key': 'auditor_relationships',
+                    'title': 'Auditor relationships: long/short tenure, auditor switches, qualifications/reservations',
+                    'finding': f39.get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Auditor', _auditor_name] if _auditor_name else None),
+                        (['Auditor tenure', f"{_auditor_tenure} years"] if _auditor_tenure is not None else None),
+                        (['Qualification', _qualification_rating] if _qualification_rating else None),
+                        (['Auditor flags', '; '.join(_auditor_flags)] if _auditor_flags else None),
+                    ] if f],
+                    'chart': ({'type': 'spectrum', 'options': ['Qualified', 'Emphasis of Matter', 'Clean'], 'active': _qualification_rating}
+                               if _qualification_rating else None),
+                    'formula': 'Auditor tenure (years) = Current year - Year of appointment',
+                    'sources': {
+                        'primary': {'label': 'Company Annual Report', 'note': "Auditor's Report, sourced via BSE announcement / company IR page"},
+                        'secondary': {'label': 'BSE India – Corporate Announcements', 'note': 'auditor appointment/resignation filing', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
+                        'tertiary': {'label': 'MCA – Company/Director Master Data', 'note': 'Form ADT-1/ADT-3', 'url': 'https://www.mca.gov.in'},
                     },
                 },
             ],

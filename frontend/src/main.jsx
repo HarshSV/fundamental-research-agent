@@ -10752,24 +10752,6 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => document.removeEventListener('mousedown', handleClickOutside);
             }, []);
 
-            // DEV-ONLY: /?mock renders the dashboard with a bundled sample report so the
-            // logged-in UI can be verified without the backend/login. Stripped in prod
-            // (import.meta.env.DEV is false -> dead-code eliminated).
-            useEffect(() => {
-                if (!import.meta.env.DEV) return;
-                if (!new URLSearchParams(window.location.search).has('mock')) return;
-                setCurrentUser(true);
-                setAuthChecked(true);
-                fetch('/mock-report.json')
-                    .then((r) => r.json())
-                    .then((data) => {
-                        setReportData({ status: 'success', qualitativeLoading: false, data });
-                        setStatus('SUCCESS');
-                        setDashView('overview');
-                    })
-                    .catch(() => {});
-            }, []);
-
             // On load, validate any stored token so the session survives refreshes.
             useEffect(() => {
                 if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('mock')) return;
