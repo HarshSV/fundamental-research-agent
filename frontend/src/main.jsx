@@ -7028,6 +7028,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         const BookValuePerShareCard = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('book-value-per-share-standalone', state.loading && !state.data);
+            // Sr No 46's dedicated card: unlike the P/B ratio's (consolidated)
+            // Book Value per Share, this one requests consolidated:false — see
+            // the fetch below and fetch_book_value_per_share's own docstring.
             const [period, setPeriod] = React.useState(null);
             const [showCalc, setShowCalc] = React.useState(false);
             const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -7039,7 +7042,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 fetch(`${API_BASE}/api/v1/book-value-per-share`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ symbol, name, to_date: period }),
+                    body: JSON.stringify({ symbol, name, to_date: period, consolidated: false }),
                 }).then(r => r.json()).then(d => { if (!cancelled) setState({ loading: false, data: d }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, data: { applicable: false, reason: 'Network error.' } }); });
                 return () => { cancelled = true; };
@@ -7065,7 +7068,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="relative flex-shrink-0">
                     <button onClick={() => setPickerOpen(o => !o)} disabled={periods.length === 0}
                         className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-blue-300 bg-blue-500/10 border border-blue-500/25 px-2 py-1 rounded-md whitespace-nowrap disabled:cursor-default">
-                        {d.period || 'Consolidated'}
+                        {d.period || 'Standalone'}
                         {periods.length > 0 && <span className="text-[10px]">{pickerOpen ? '▴' : '▾'}</span>}
                     </button>
                     {pickerOpen && periods.length > 0 && (

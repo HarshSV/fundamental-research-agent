@@ -4002,22 +4002,30 @@ def fetch_eps(symbol, name=None, to_date=None):
 # applicable_industries list — P/B applies to all of them, including banks,
 # where it's especially relevant).
 # --------------------------------------------------------------------------- #
-def fetch_book_value_per_share(symbol, name=None, to_date=None):
+def fetch_book_value_per_share(symbol, name=None, to_date=None, consolidated=True):
     """
     Book Value per Share = Total Equity (owners-attributable, closing) ÷
     Equity Shares Outstanding (closing). Same year-selection behaviour as
     `fetch_inventory_turnover`, but with NO lender/financial-business
     exclusion. Returns {'applicable': False} for negative-equity companies
-    (per spec). Cached; never raises.
+    (per spec). `consolidated` defaults to True (Sr No 25's own card, paired
+    with a consolidated-basis Market Cap for P/B) — pass `consolidated=False`
+    for Sr No 46's dedicated "Book Value per Share (Standalone)" card, which
+    used to silently ALWAYS fetch consolidated data regardless of its own
+    name (there was no way to request standalone at all) — confirmed
+    wrong on companies with a material owners-vs-consolidated equity gap.
+    The Supabase fast-path (`try_db_ratio`) only ever stores the
+    consolidated figure, so it's skipped entirely for a standalone request.
+    Cached; never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"bvps_{sym}_{to_date or 'latest'}"
+    ckey = f"bvps_{sym}_{to_date or 'latest'}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
 
     base = {"symbol": sym, "ratio_name": "Book Value per Share"}
-    if to_date is None:
+    if to_date is None and consolidated:
         db_row = try_db_ratio(sym, 25)
         if db_row is not None:
             return {**base, **db_row}
@@ -4041,7 +4049,7 @@ def fetch_book_value_per_share(symbol, name=None, to_date=None):
 
     if to_date:
         target_year = _yr_from_to_date(to_date) or ar_years[0]
-        r = fetch_book_value_per_share_from_annual_report(sym, name, target_year, consolidated=True)
+        r = fetch_book_value_per_share_from_annual_report(sym, name, target_year, consolidated=consolidated)
         out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
         _write_cache(ckey, out)
         return out
@@ -4049,7 +4057,7 @@ def fetch_book_value_per_share(symbol, name=None, to_date=None):
     MAX_PROBE_YEARS = 4
     first_result = None
     for target_year in ar_years[:MAX_PROBE_YEARS]:
-        r = fetch_book_value_per_share_from_annual_report(sym, name, target_year, consolidated=True)
+        r = fetch_book_value_per_share_from_annual_report(sym, name, target_year, consolidated=consolidated)
         if r.get("applicable"):
             out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
             _write_cache(ckey, out)

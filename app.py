@@ -1712,7 +1712,8 @@ async def book_value_per_share_endpoint(request: dict, _: dict = Depends(auth.re
         return {"applicable": False, "reason": "Symbol required."}
     try:
         from tools.nse_xbrl import fetch_book_value_per_share
-        return await asyncio.to_thread(fetch_book_value_per_share, sym, request.get("name"), request.get("to_date"))
+        return await asyncio.to_thread(fetch_book_value_per_share, sym, request.get("name"), request.get("to_date"),
+                                        request.get("consolidated", True))
     except Exception as e:
         print(f"[HTTP ERROR] Book Value per Share failed for {sym}: {e}")
         return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
