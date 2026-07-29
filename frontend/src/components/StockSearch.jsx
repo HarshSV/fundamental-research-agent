@@ -33,8 +33,20 @@ export default function StockSearch({ onSelect, placeholder = 'Search a company 
   }, []);
 
   const go = (sym) => { if (sym) { setQ(''); setOpen(false); onSelect(String(sym).toUpperCase()); } };
-  const onKey = (e) => {
-    if (!open || !matches.length) { if (e.key === 'Enter' && q.trim()) go(q.trim()); return; }
+  const onKey = async (e) => {
+    if (!open || !matches.length) {
+      // No dropdown match yet (e.g. typed and hit Enter faster than the
+      // debounced search resolved). Try one direct lookup for the exact
+      // symbol/name before falling back to raw text — otherwise a full
+      // company name like "Gopal Snacks" gets sent as the "symbol" to the
+      // backend instead of the real ticker "GOPAL".
+      if (e.key === 'Enter' && q.trim()) {
+        const query = q.trim();
+        const r = await searchSymbols(query);
+        go(r[0]?.symbol || query);
+      }
+      return;
+    }
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => (i + 1) % matches.length); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => (i - 1 + matches.length) % matches.length); }
     else if (e.key === 'Enter') { e.preventDefault(); go(matches[active]?.symbol || q.trim()); }

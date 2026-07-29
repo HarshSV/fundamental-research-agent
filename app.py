@@ -55,6 +55,8 @@ if os.path.isdir(_STATIC_ASSETS):
     app.mount("/assets", StaticFiles(directory=_STATIC_ASSETS), name="assets")
 
 # Static dictionary of top 100+ Indian stocks with symbol and name
+_REGISTRY_READY = threading.Event()
+
 STOCK_REGISTRY = [
     {"symbol": "RELIANCE", "name": "Reliance Industries Limited"},
     {"symbol": "TCS", "name": "Tata Consultancy Services Limited"},
@@ -259,6 +261,11 @@ def load_scrip_master_async():
                   f"({named} with full company names).")
     except Exception as e:
         print(f"[HTTP WARNING] Dynamic scrip master load failed: {e}")
+    finally:
+        # Unblock any search/resolve requests that were waiting on the full
+        # universe — even on failure, so we don't hang forever on just the
+        # curated ~100-stock list (better degraded than stuck).
+        _REGISTRY_READY.set()
 
 def warm_live_scraper_async():
     """Log in to Angel + prime the scrip-master cache in the background at startup,
@@ -306,6 +313,11 @@ def search_symbols(q: str = "", _: dict = Depends(auth.require_session)):
     query = q.strip().upper()
     if not query:
         return []
+    # Wait for the full NSE universe to load (background fetch at startup)
+    # before searching, so an early query doesn't silently miss everything
+    # outside the curated ~100-stock seed list. Bounded so a slow/failed
+    # fetch still serves the curated list rather than hanging the request.
+    _REGISTRY_READY.wait(timeout=15)
     starts_symbol, starts_name, contains = [], [], []
     for item in STOCK_REGISTRY:
         sym = item["symbol"].upper()
@@ -353,7 +365,13 @@ def resolve_symbol_from_registry(query_symbol: str) -> str:
     cleaned = query_symbol.strip().upper()
     if not cleaned:
         return cleaned
-        
+
+    # Same startup race as search_symbols: wait for the full universe so a
+    # request that lands before the background load finishes still resolves
+    # a name like "Gopal Snacks" to its symbol instead of falling through to
+    # the raw, unresolved input further down.
+    _REGISTRY_READY.wait(timeout=15)
+
     # Check if there is an exact symbol match in STOCK_REGISTRY
     for item in STOCK_REGISTRY:
         if item["symbol"].upper() == cleaned:

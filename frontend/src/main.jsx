@@ -12652,25 +12652,6 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                 </div>
                                                 <h2 className="font-heading text-base font-bold text-slate-100">{aiResearchSection === 'fundamental' ? 'Fundamental Ratios' : 'Qualitative Analysis'}</h2>
                                                 <p className="text-[10px] text-slate-500 mt-0.5">{aiResearchSection === 'fundamental' ? 'Sector-aware ratio dashboard — every card is traceable to its source.' : 'Business, management, moat and forensic checks — grounded in filings and management commentary.'}</p>
-                                                {aiResearchSection === 'fundamental' && (
-                                                    <div className="flex items-center gap-2 mt-3">
-                                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Lease Liabilities in Total Debt:</span>
-                                                        <div className="inline-flex rounded-md border border-slate-800 overflow-hidden">
-                                                            <button
-                                                                onClick={() => setLeaseBasis('basis1')}
-                                                                title="Total Debt = Borrowings + Lease Liabilities (post-Ind AS 116) — affects Debt-to-Equity, Debt Ratio, EV/EBITDA, Net Debt/EBITDA, Cash Flow Coverage Ratio, EV/Sales, EV/FCF"
-                                                                className={`px-2.5 py-1 text-[10px] font-bold transition ${leaseBasis === 'basis1' ? 'bg-blue-600/25 text-blue-300' : 'bg-slate-950/50 text-slate-500 hover:text-slate-300'}`}>
-                                                                With Lease
-                                                            </button>
-                                                            <button
-                                                                onClick={() => setLeaseBasis('basis2')}
-                                                                title="Total Debt = Borrowings only (excludes Lease Liabilities) — the pre-Ind AS 116 / traditional view"
-                                                                className={`px-2.5 py-1 text-[10px] font-bold transition border-l border-slate-800 ${leaseBasis === 'basis2' ? 'bg-blue-600/25 text-blue-300' : 'bg-slate-950/50 text-slate-500 hover:text-slate-300'}`}>
-                                                                Without Lease
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
                                             </div>
 
                                             {aiResearchSection === 'qualitative' && (

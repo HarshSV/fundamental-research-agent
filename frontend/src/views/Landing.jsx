@@ -113,8 +113,19 @@ export default function Landing({ onSelect, onLogout }) {
   }, []);
 
   const go = (sym) => { if (sym) onSelect(String(sym).toUpperCase()); };
-  const onKey = (e) => {
-    if (!open || !matches.length) { if (e.key === 'Enter' && q.trim()) go(q.trim()); return; }
+  const onKey = async (e) => {
+    if (!open || !matches.length) {
+      // No dropdown match yet (typed faster than the debounced search
+      // resolved) — try one direct lookup before sending the raw text as
+      // the "symbol", otherwise a full company name like "Gopal Snacks"
+      // reaches the backend instead of its real ticker "GOPAL".
+      if (e.key === 'Enter' && q.trim()) {
+        const query = q.trim();
+        const r = await searchSymbols(query);
+        go(r[0]?.symbol || query);
+      }
+      return;
+    }
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => (i + 1) % matches.length); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => (i - 1 + matches.length) % matches.length); }
     else if (e.key === 'Enter') { e.preventDefault(); go(matches[active]?.symbol || q.trim()); }
