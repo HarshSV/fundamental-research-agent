@@ -1,6 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { API_BASE, getToken } from '../lib/api.js';
 
+/* Anonymous, per-browser session id (this app has no per-user login — a
+ * single shared SITE_PASSWORD, see auth.py) so the backend can persist chat
+ * memory across reloads without a real user id. Generated once, kept in
+ * localStorage. */
+function getSessionId() {
+  try {
+    let id = localStorage.getItem('nv_chat_session_id');
+    if (!id) {
+      id = 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem('nv_chat_session_id', id);
+    }
+    return id;
+  } catch (e) { return ''; }
+}
+
 /* ---------------------------------------------------------------------------
  * Ask Navrist — floating conversational assistant.
  *
@@ -180,7 +195,7 @@ function getRecognition() {
 /* -------------------------------- widget -------------------------------- */
 const WELCOME = { role: 'assistant', content: "Hi — I'm **Ask Navrist**. Ask me about a company on screen, any financial ratio, or how this terminal works. I can also draw quick charts and take voice input." };
 
-export default function AskNavrist({ context }) {
+export default function AskNavrist({ context, symbol }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([WELCOME]);
   const [input, setInput] = useState('');
@@ -190,6 +205,7 @@ export default function AskNavrist({ context }) {
   const scrollRef = useRef(null);
   const recRef = useRef(null);
   const baseInputRef = useRef('');
+  const sessionIdRef = useRef(getSessionId());
 
   const canVoice = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
   const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -225,6 +241,8 @@ export default function AskNavrist({ context }) {
         body: JSON.stringify({
           messages: next.filter((m) => m !== WELCOME).map((m) => ({ role: m.role, content: m.content })),
           context: context || '',
+          session_id: sessionIdRef.current,
+          symbol: symbol || '',
         }),
       });
       const data = await res.json();

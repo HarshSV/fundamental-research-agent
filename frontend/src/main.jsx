@@ -12904,7 +12904,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                     <MobileNav activeKey={dashView} onSelect={onSelectSection} />
 
                     {/* Floating conversational assistant — company-aware via askContext */}
-                    <AskNavrist context={askContext} />
+                    <AskNavrist context={askContext} symbol={reportData?.data?.symbol} />
                 </div>
             );
         }

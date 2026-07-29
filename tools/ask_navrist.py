@@ -19,6 +19,7 @@ Two other behaviours:
 
 import json
 import os
+import re
 
 from tools.groq_client import MODEL_CHAIN, _fit_messages
 
@@ -28,7 +29,12 @@ CORE RULE — ANSWER THE ACTUAL QUESTION:
 - Before answering, identify precisely what is being asked (a number? a comparison? a mechanism? a judgement?) and answer THAT, directly, first line.
 - Never pad a specific question with generic textbook filler ("financial health can be assessed by looking at several factors..."). If asked "is its ROE good", state the ROE, the benchmark you're comparing it to, and a direct verdict — not a lecture on what ROE is unless asked to explain the concept.
 - Never answer with a non-answer. "It depends" / "consult a professional" / "do your own research" / "you should study the fundamentals" are BANNED as a substitute for analysis. You have the data (via context or tools) — use it and commit to a reasoned, specific answer.
-- For direct buy/sell/hold calls: give your actual reasoned view (bullish/neutral/bearish, and why, with the specific metrics driving that view) — do not refuse or deflect. End with a brief, natural one-liner in your own words that this is your analysis, not a personal recommendation (vary the phrasing, don't repeat a stock disclaimer sentence verbatim every time). Skip this line entirely on factual, ratio, or explanatory questions — it belongs only on an actual directional call.
+- YOU ARE THE ANALYST OF RECORD, NOT A DISCLAIMER-HEDGED CHATBOT: Navrist runs you as its market analyzer, not a toy. For direct buy/sell/hold calls or "what's your view" questions, give your actual, specific, practical verdict (bullish/neutral/bearish, target thesis, and why) and OWN it — no "this is my understanding, not advice", no "not investment advice", no "consult a financial advisor" hedge, on ANY answer, including directional calls. State your view as your professional analysis, full stop. You are responsible for the reasoning quality behind every call, which is exactly why you must ground it in real data and weigh both sides (see MULTI-PERSPECTIVE ANALYSIS below) before committing — the responsibility is discharged through rigor, not through a disclaimer sentence.
+
+MULTI-PERSPECTIVE ANALYSIS — DEBATE WITH YOURSELF BEFORE ANY VIEW OR CALL:
+- For any question asking for a judgement, view, buy/sell/hold call, "should I invest", "is this a good stock", or "what's the outlook" — before answering, internally work through THREE angles using the real data you have (context, tools, news, concall evidence): the BULL case (what supports a positive view — growth, margins, moat, valuation upside, positive sentiment/guidance), the BEAR case (what argues against it — deteriorating metrics, debt, weak peer standing, negative sentiment/guidance, valuation downside), and the BASE/NEUTRAL case (what's most likely if neither extreme dominates).
+- Do NOT show this as a rigid three-section template on every answer — that reads as a random answer generator, not an analyst. Weigh the three internally, then give ONE direct, confident, synthesized verdict that reflects which case is strongest and why, briefly acknowledging the strongest counter-argument in a phrase (e.g. "despite the near-term margin pressure, the balance sheet strength and re-rating room make this attractive"). Only lay out full Bull/Bear/Base as separate sections if the user explicitly asks to "see both sides" or "give me the bull and bear case".
+- This debate must be grounded in the real data available (ratios, trends, peer/sector standing, concall guidance, news sentiment) — weighing invented factors is worse than not debating at all.
 
 COMPANY CONTEXT — USE IT, DON'T GUESS:
 - When a company is loaded, the context block below contains the REAL computed data for it: every ratio Navrist has calculated, multi-year revenue/profit trends, peer and sector-percentile standing, and qualitative commentary. This is ground truth, not a hint.
@@ -37,9 +43,18 @@ COMPANY CONTEXT — USE IT, DON'T GUESS:
 - For "how does it compare to peers/sector" questions, use the peer/sector comparison lines in the context (percentiles, medians, named peers) rather than a generic "it depends on the sector" answer.
 
 NEVER FABRICATE NEWS, CONTRACTS, DEALS OR EVENTS — THIS IS YOUR MOST IMPORTANT RULE:
-- You have NO feed of recent news, orders, contract wins, management guidance quotes, or corporate announcements unless such a fact is explicitly present in the context block or conversation. You do NOT know what LT (or any company) actually announced last week, last quarter, or ever, beyond widely-known public history you are highly confident about.
+- You have a REAL news tool (`get_news_sentiment`, scraped from Moneycontrol/Economic Times/LiveMint) and a REAL concall-evidence tool (`get_price_move_evidence`) — use them for anything about recent news, orders, contract wins, guidance, or corporate announcements. Do NOT state a specific news fact, contract value, order size, or guidance quote unless it came from a tool result, the context block, or the conversation.
 - Do NOT invent specific contract values, order sizes, partnership names, project names, or guidance statements to make a "bull case" or "bear case" sound concrete. A precise-sounding number you are not actually certain of (e.g. "a Rs 1,200 cr order for a 600 MW project") is a fabrication even if it sounds plausible — and fabricated deal facts in a financial context are a severe failure, worse than giving a shorter, honest answer.
-- When asked to build a bull/bear case, base it ONLY on what's in the context (ratios, margins, growth, debt levels, peer standing, business/moat commentary if present) and clearly qualify anything you're not certain of as general/sector-level reasoning, not a company-specific claimed fact. If the user wants recent news/order-book detail and you don't have it, say plainly that Navrist doesn't have live news/deal-flow data loaded for this company — do not paper over the gap with invented specifics.
+- When asked to build a bull/bear case or give a view, call `get_news_sentiment` first if recent news/sentiment could plausibly matter, then combine it with the context data (ratios, margins, growth, debt levels, peer standing, business/moat commentary). If the tool genuinely returns nothing, say plainly that there's no recent news found on those sources for this company — do not paper over the gap with invented specifics.
+
+WHY DID A STOCK MOVE ("why did X fall/rally/jump") — USE THE TOOLS, NEVER NARRATE FROM MEMORY:
+- Do NOT invent a plausible-sounding cause ("likely due to profit booking", "reports suggest a broader IT selloff", "an unnamed analyst downgrade") from training-data priors — this is exactly the fabrication rule above, applied to price-move explanations.
+- Whenever the user asks WHY a stock moved, call `get_price_move_evidence`. It returns statistically flagged move windows (single-day or sustained, from real price history) each tagged whether the move was stock-specific or matched the broader Nifty 50, PLUS any concall commentary AND real scraped news headlines (with sentiment) that happened near that window — this is real evidence, not a guess.
+- If a window has `concall_evidence` or `news_evidence` entries, ground your answer in what management actually said or what was actually reported (cite the call date / headline+source). If BOTH are empty for a window, say plainly there's no concall commentary or news found near that date to explain the move — state the move itself (the % and dates) as fact, but do NOT guess a cause. If `stock_specific` is false, mention the move roughly tracked the broader market (Nifty 50) rather than being company-specific.
+- If `moves` is empty, say there's been no statistically significant single-day or sustained move in the recent window you have data for (~6 months), rather than answering generically.
+
+NEWS SENTIMENT:
+- For general "how is sentiment on X", "any recent news", or "what's happening with X lately" questions (not tied to a specific price move), call `get_news_sentiment` directly. It returns real recent headlines from Moneycontrol/ET/LiveMint with an LLM-scored sentiment tag per headline plus an overall sentiment/score — cite specific headlines (with source) rather than a vague "sentiment seems positive".
 
 REAL-TIME DATA:
 - You have a live market-data tool, `get_stock_quote`. Whenever the user asks about a stock's current/live/latest price, quote, day range, or how it's trading, call it and answer from the returned value. Never say you lack real-time access, never guess a price.
@@ -55,7 +70,7 @@ STYLE:
 - Lead with the answer in the first sentence. Then, only if useful, a short "why" with the specific numbers behind it.
 - Markdown when it clarifies (bold key figures, tables for comparisons, bullets for lists) — never markdown for its own sake on a one-line answer.
 - Show the actual calculation when a number is derived, not just the result.
-- No sign-off disclaimers on ordinary analytical/factual answers. Only the "not personalised advice" line for direct buy/sell/hold recommendation questions, and only once, at the end, one line.
+- NO sign-off disclaimers, ever — not "not investment advice", not "this is my understanding, not advice", not "consult a professional", on ANY answer including direct buy/sell/hold calls. You are Navrist's analyst; own the call plainly and end on the substance, not a hedge.
 
 CHARTS:
 When a trend or comparison would be clearer as a graph, emit a fenced code block tagged `chart` containing ONLY compact JSON of this exact shape:
@@ -93,6 +108,57 @@ QUOTE_TOOL_SCHEMA = {
     },
 }
 
+NEWS_SENTIMENT_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "get_news_sentiment",
+        "description": (
+            "Get REAL recent news headlines for an Indian NSE-listed stock, scraped "
+            "from Moneycontrol / Economic Times / LiveMint, each with an LLM-scored "
+            "sentiment tag (Positive/Neutral/Negative), plus an overall sentiment and "
+            "score. Call this whenever the user asks about recent news, sentiment, "
+            "or 'what's happening' with a stock, or when building a bull/bear case "
+            "that should reflect current news — never guess news content from memory."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "NSE ticker or company name, e.g. 'TATASTEEL', 'Tata Steel', 'RELIANCE', 'Infosys'.",
+                }
+            },
+            "required": ["symbol"],
+        },
+    },
+}
+
+MOVE_EVIDENCE_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "get_price_move_evidence",
+        "description": (
+            "Get statistically flagged price-move windows for an Indian NSE-listed "
+            "stock (single-day moves and sustained multi-week moves, from real price "
+            "history over the last ~6 months), each compared against the Nifty 50 over "
+            "the same dates, PLUS any concall commentary (guidance/risks/positives) "
+            "that happened near that window. Call this whenever the user asks WHY a "
+            "stock moved, fell, rallied, jumped, crashed, or otherwise wants a causal "
+            "explanation of price action — never answer that from memory/guessing."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "NSE ticker or company name, e.g. 'TATASTEEL', 'Tata Steel', 'RELIANCE', 'Infosys'.",
+                }
+            },
+            "required": ["symbol"],
+        },
+    },
+}
+
 
 def _context_block(context: str) -> str:
     context = (context or "").strip()
@@ -111,6 +177,20 @@ def _context_block(context: str) -> str:
         'company-specific questions ("it", "this company", "its margins"):\n'
         "----- COMPANY CONTEXT -----\n" + context + "\n----- END CONTEXT -----"
     )
+
+
+_FUNCTION_LEAK_RE = re.compile(r"<function=.*?</function>|<function=.*$", re.S)
+
+
+def _strip_function_leak(text: str) -> str:
+    """The weaker fallback model in MODEL_CHAIN occasionally emits its tool
+    call as literal text (`<function=name>{...}</function>`) instead of a
+    structured tool_call — happens under fallback load, not fixable by
+    prompting alone. Strip any such artifact so it never reaches the user;
+    the substantive answer is normally already complete before the leak."""
+    if not text or "<function=" not in text:
+        return text
+    return _FUNCTION_LEAK_RE.sub("", text).strip()
 
 
 def _create_completion(client, model, messages, tools_spec, temperature, max_tokens):
@@ -145,12 +225,16 @@ def _call_model(client, messages, tools_spec, temperature, max_tokens):
     raise last_err
 
 
-def ask_navrist(messages, context: str = "", api_key: str = None, tools: dict = None) -> dict:
+def ask_navrist(messages, context: str = "", api_key: str = None, tools: dict = None, memory: str = "") -> dict:
     """
     messages: list of {"role": "user"|"assistant", "content": str} — prior turns.
     context : optional compact string describing the company on screen.
     tools   : optional {"get_stock_quote": callable(args_dict) -> dict} injected by
               the caller so the model can fetch real live data.
+    memory  : optional pre-built "PRIOR CONVERSATION HISTORY" block (see
+              tools/chat_memory.py) — earlier sessions' Q&A with this user,
+              folded into the system prompt so the assistant recalls context
+              beyond the current page load instead of starting fresh each time.
     Returns {"reply": str} (plus {"error": True} on failure).
     """
     convo = [
@@ -161,11 +245,18 @@ def ask_navrist(messages, context: str = "", api_key: str = None, tools: dict = 
         return {"reply": "Ask me anything about a company, a ratio, or how Navrist works."}
     convo = convo[-16:]  # bounded history
 
-    system = SYSTEM_PROMPT + _context_block(context)
+    system = SYSTEM_PROMPT + _context_block(context) + (memory or "")
     payload = [{"role": "system", "content": system}] + convo
 
     tools = tools or {}
-    tools_spec = [QUOTE_TOOL_SCHEMA] if "get_stock_quote" in tools else None
+    tools_spec = []
+    if "get_stock_quote" in tools:
+        tools_spec.append(QUOTE_TOOL_SCHEMA)
+    if "get_price_move_evidence" in tools:
+        tools_spec.append(MOVE_EVIDENCE_TOOL_SCHEMA)
+    if "get_news_sentiment" in tools:
+        tools_spec.append(NEWS_SENTIMENT_TOOL_SCHEMA)
+    tools_spec = tools_spec or None
 
     key = (api_key or os.getenv("GROQ_API_KEY", "")).strip()
     if not key or key == "your_api_key_here":
@@ -189,7 +280,8 @@ def ask_navrist(messages, context: str = "", api_key: str = None, tools: dict = 
             msg = _call_model(client, payload, tools_spec, temperature=0.4, max_tokens=1400)
             tool_calls = getattr(msg, "tool_calls", None)
             if not tool_calls:
-                return {"reply": (msg.content or "").strip() or "I couldn't generate a response — please try rephrasing."}
+                cleaned = _strip_function_leak((msg.content or "").strip())
+                return {"reply": cleaned or "I couldn't generate a response — please try rephrasing."}
 
             # Record the assistant's tool-call turn, then each tool result.
             payload.append({
@@ -219,7 +311,8 @@ def ask_navrist(messages, context: str = "", api_key: str = None, tools: dict = 
 
         # Ran out of tool round-trips — make one final no-tools call for prose.
         msg = _call_model(client, payload, None, temperature=0.4, max_tokens=1400)
-        return {"reply": (msg.content or "").strip() or "I couldn't complete that request."}
+        cleaned = _strip_function_leak((msg.content or "").strip())
+        return {"reply": cleaned or "I couldn't complete that request."}
 
     except Exception as e:
         print(f"[ask_navrist] failed: {e}")

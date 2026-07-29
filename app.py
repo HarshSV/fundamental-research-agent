@@ -792,20 +792,106 @@ def _quote_for_llm(args: dict) -> dict:
     return result
 
 
+def _price_move_evidence_for_llm(args: dict) -> dict:
+    """Event-grounded reasoning tool for Ask Navrist ("why did X move"). Detects
+    flagged price-move windows purely from price history (no news source yet —
+    see memory "event-grounded-reasoning-scope"), then attaches any concall
+    commentary that falls near each window as evidence. Returns empty `moves`
+    or empty per-window `concall_evidence` when there's genuinely nothing to
+    show — the system prompt requires the model to say "no evidence found"
+    rather than invent a cause in that case. Never raises."""
+    raw = (args or {}).get("symbol", "") or ""
+    sym = resolve_symbol_from_registry(raw)
+    if not sym:
+        return {"error": "No symbol provided."}
+    registry_name = _registry_name_for(sym)
+
+    try:
+        from tools.move_detection import detect_significant_moves
+        from tools.event_evidence import evidence_for_window, news_for_window
+        moves = detect_significant_moves(sym)
+    except Exception as e:
+        return {"symbol": sym, "company_name": registry_name or None,
+                "available": False, "reason": f"Move detection failed: {e}"}
+
+    if not moves:
+        return {"symbol": sym, "company_name": registry_name or None,
+                "available": True, "moves": [],
+                "note": "No single-day or sustained moves beyond threshold in the last ~6 months."}
+
+    for m in moves:
+        ev = evidence_for_window(sym, m["date_from"], m["date_to"], name=registry_name or None)
+        m["concall_evidence"] = ev.get("calls", []) if ev.get("available") else []
+        if not ev.get("available"):
+            m["concall_evidence_note"] = ev.get("reason", "Concall data unavailable.")
+
+        news = news_for_window(sym, m["date_from"], m["date_to"], name=registry_name or None)
+        m["news_evidence"] = news.get("headlines", []) if news.get("available") else []
+        if not news.get("available"):
+            m["news_evidence_note"] = news.get("reason", "News unavailable.")
+
+    return {"symbol": sym, "company_name": registry_name or None, "available": True, "moves": moves}
+
+
+def _news_sentiment_for_llm(args: dict) -> dict:
+    """General news-sentiment tool for Ask Navrist (not tied to a specific
+    flagged move — for "how is sentiment on X" / "any recent news" questions).
+    Scrapes Moneycontrol/ET/LiveMint via Google News RSS + Groq-scores each
+    headline. Never raises."""
+    raw = (args or {}).get("symbol", "") or ""
+    sym = resolve_symbol_from_registry(raw)
+    if not sym:
+        return {"error": "No symbol provided."}
+    registry_name = _registry_name_for(sym)
+    try:
+        from tools.news_sentiment import get_news_sentiment
+        result = get_news_sentiment(sym, registry_name or None)
+    except Exception as e:
+        return {"symbol": sym, "company_name": registry_name or None,
+                "available": False, "reason": f"News sentiment failed: {e}"}
+    return {"symbol": sym, "company_name": registry_name or None, **result}
+
+
 @app.post("/api/v1/ask-navrist")
 async def ask_navrist_endpoint(request: dict, _: dict = Depends(auth.require_session)):
-    """"Ask Navrist" chat — company-aware conversational assistant with a live
-    market-data tool. Runs off the event loop so a slow completion (or a live
-    quote fetch inside the tool loop) never blocks other requests."""
+    """"Ask Navrist" chat — company-aware conversational assistant with live
+    market-data, news-sentiment, and price-move-evidence tools, plus persistent
+    memory of the user's prior questions (keyed by a client-generated
+    session_id, since this app has no per-user login — see chat_memory.py).
+    Runs off the event loop so a slow completion (or a tool fetch inside the
+    tool loop) never blocks other requests."""
     try:
         from tools.ask_navrist import ask_navrist
-        return await asyncio.to_thread(
+        from tools.chat_memory import memory_block, save_message
+
+        session_id = (request.get("session_id") or "").strip()
+        symbol = (request.get("symbol") or "").strip() or None
+        msgs = request.get("messages", [])
+        mem = await asyncio.to_thread(memory_block, session_id) if session_id else ""
+
+        result = await asyncio.to_thread(
             ask_navrist,
-            request.get("messages", []),
+            msgs,
             request.get("context", "") or "",
             None,
-            {"get_stock_quote": _quote_for_llm},
+            {
+                "get_stock_quote": _quote_for_llm,
+                "get_price_move_evidence": _price_move_evidence_for_llm,
+                "get_news_sentiment": _news_sentiment_for_llm,
+            },
+            mem,
         )
+
+        # Persist this turn (fire-and-forget-ish; never blocks the reply on failure).
+        if session_id and msgs:
+            last_user = next((m.get("content") for m in reversed(msgs) if m.get("role") == "user"), None)
+            if last_user:
+                await asyncio.to_thread(save_message, session_id, "user", last_user, symbol)
+            reply = result.get("reply")
+            if reply and not result.get("error"):
+                await asyncio.to_thread(save_message, session_id, "assistant", reply, symbol)
+
+        return result
     except Exception as e:
         print(f"[HTTP ERROR] Ask Navrist failed: {e}")
         return {"reply": "Something went wrong handling that message. Please try again.", "error": True}
