@@ -5160,11 +5160,23 @@ def fetch_cash_ratio_from_annual_report(symbol, name, fiscal_year, consolidated=
 
         ratio = round(numerator_cur / tcl_cur, 2)
 
+        # Per spec: when Other Bank Balances is a real, non-trivial line but
+        # its Notes breakup couldn't be determined (obb_cur found, but
+        # unrestricted_cur stayed None — no sub-item labels to classify),
+        # the WHOLE amount is correctly excluded from the numerator, but the
+        # result is only an ESTIMATE of the true unrestricted cash position,
+        # not a confirmed figure — confidence must drop to 0.8, never stay
+        # at a confirmed 1.0. Only applies when there's actually a
+        # meaningful amount at stake (a genuinely ₹0/negligible Other Bank
+        # Balances line carries no such ambiguity).
+        obb_undetermined = obb_unrestricted_cur is None and obb_cur is not None and abs(obb_cur) >= 0.005
+        confidence = 0.8 if obb_undetermined else 1.0
+
         out = {
             "applicable": True,
             "value": ratio, "unit": "x",
-            "confidence": 1.0,
-            "estimated": False,
+            "confidence": confidence,
+            "estimated": obb_undetermined,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": {
                 "label": numerator_label,
