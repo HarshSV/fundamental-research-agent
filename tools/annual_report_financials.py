@@ -6492,21 +6492,29 @@ def fetch_roic_from_annual_report(symbol, name, fiscal_year, consolidated=True, 
     """
     Return on Invested Capital (ROIC, Sr No 42) = NOPAT / Invested Capital.
 
-    NOPAT = EBIT x (1 - Effective Tax Rate). EBIT reuses Sr No 19's basis
-    (Profit Before Tax + Finance Costs -- interest add-back only, never
-    Depreciation, so this is EBIT not EBITDA). Effective Tax Rate = Tax
-    Expense / Profit Before Tax -- computed inline here rather than calling
-    a Sr No 43 endpoint, since Effective Tax Rate (Sr No 43) has not been
-    built yet as its own ratio; when it is, both should read the identical
-    underlying `tax_expense`/`pbt` fields, so the two will always agree.
-    N/A if Profit Before Tax <= 0 (an effective tax rate is not meaningful
-    on a pre-tax loss).
+    NOPAT = EBIT x (1 - Effective Tax Rate). EBIT is the SAME Revenue -
+    COGS - Employee Benefit Expense - Other Expenses - D&A computation
+    already validated for Operating Profit Margin (Sr No 15) / ROCE (Sr No
+    19) / Interest Coverage Ratio (Sr No 25) -- NOT "Profit Before Tax +
+    Finance Costs" (that PBT-based approximation silently bakes in Other
+    Income, the same bug already fixed for ROCE/ICR but originally missed
+    here). Effective Tax Rate = Tax Expense / Profit Before Tax -- computed
+    inline here rather than calling a Sr No 43 endpoint, since Effective
+    Tax Rate (Sr No 43) has not been built yet as its own ratio; when it
+    is, both should read the identical underlying `tax_expense`/`pbt`
+    fields, so the two will always agree. N/A if Profit Before Tax <= 0 (an
+    effective tax rate is not meaningful on a pre-tax loss).
 
     Invested Capital = Total Debt (Sr No 20's full a+b+c protocol, via the
     SAME shared `_compute_total_debt` used by Debt-to-Equity/Debt
     Ratio/Enterprise Value -- never a simplified Borrowings-only figure) +
-    Total Equity (owners-attributable, Sr No 18's field) - Cash and Cash
-    Equivalents (Sr No 12's field).
+    Total Equity, WHOLE-entity (owners' + Non-Controlling Interest,
+    `equity_full` -- NOT the owners-only `equity` ROE/BVPS use) - Cash and
+    Cash Equivalents (Sr No 12's field). Total Debt is the whole
+    consolidated entity's debt, so Invested Capital's equity leg must match
+    that same scope, same reasoning as Debt-to-Equity's (Sr No 23) own
+    equity_full fix -- using owners-only equity here understated Invested
+    Capital (and so overstated ROIC) for any company with material NCI.
 
     DEVIATION FROM SPEC, DISCLOSED: the spec calls for averaging Invested
     Capital over opening and closing balance sheet dates. `_compute_total_debt`
@@ -6538,22 +6546,39 @@ def fetch_roic_from_annual_report(symbol, name, fiscal_year, consolidated=True, 
             _write_cache(ckey, out)
             return out
 
-        pbt = parsed.get("pbt")
-        finance_costs = parsed.get("finance_costs")
-        tax_expense = parsed.get("tax_expense")
-        if pbt is None:
-            out = {"applicable": False, "reason": "Could not find a 'Profit before tax' row on the P&L page.",
+        components = parsed.get("components") or {}
+        if len(components) == 0:
+            out = {"applicable": False,
+                   "reason": "Could not find any Cost of Goods Sold line (Cost of materials consumed / "
+                             "Purchases of stock-in-trade / Changes in inventories) on the P&L page — "
+                             "not a goods business.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
-        if tax_expense is None:
-            out = {"applicable": False, "reason": "Could not find a 'Tax expense' row on the P&L page.",
+        ebe = parsed.get("employee_benefit_expense")
+        oe = parsed.get("other_expenses")
+        dep = parsed.get("depreciation")
+        revenue = parsed.get("revenue")
+        pbt = parsed.get("pbt")
+        tax_expense = parsed.get("tax_expense")
+        missing = ("Revenue from operations" if revenue is None else
+                   "Employee Benefit Expense" if ebe is None else
+                   "Other Expenses" if oe is None else
+                   "Depreciation and Amortisation Expense" if dep is None else
+                   "Profit before tax" if pbt is None else
+                   "Tax expense" if tax_expense is None else None)
+        if missing:
+            out = {"applicable": False, "reason": f"Could not find '{missing}' row on the P&L page.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
 
+        rev_cur, _rev_prior = revenue
+        cogs_cur = sum(v[0] for v in components.values())
+        ebe_cur, _ebe_prior = ebe
+        oe_cur, _oe_prior = oe
+        dep_cur, _dep_prior = dep
         pbt_cur, _pbt_prior = pbt
-        fc_cur = finance_costs[0] if finance_costs is not None else 0.0
         tax_cur, _tax_prior = tax_expense
 
         if pbt_cur <= 0:
@@ -6567,7 +6592,7 @@ def fetch_roic_from_annual_report(symbol, name, fiscal_year, consolidated=True, 
             _write_cache(ckey, out)
             return out
 
-        ebit_cur = pbt_cur + fc_cur
+        ebit_cur = rev_cur - cogs_cur - ebe_cur - oe_cur - dep_cur
         effective_tax_rate = tax_cur / pbt_cur
         nopat_cur = round(ebit_cur * (1 - effective_tax_rate), 2)
 
@@ -6577,7 +6602,7 @@ def fetch_roic_from_annual_report(symbol, name, fiscal_year, consolidated=True, 
             _write_cache(ckey, out)
             return out
 
-        equity = parsed.get("equity")
+        equity = parsed.get("equity_full")
         if equity is None:
             out = {"applicable": False, "reason": "Could not find a 'Total Equity' row on the Balance Sheet page.",
                    "source_url": pdf_url}
@@ -6588,6 +6613,7 @@ def fetch_roic_from_annual_report(symbol, name, fiscal_year, consolidated=True, 
         equity_cur, _equity_prior = equity
         cash_cur = cash[0] if cash is not None else 0.0
         equity_basis = parsed.get("equity_basis")
+        nci_included = consolidated and (parsed.get("equity") != equity)
 
         invested_capital_cur = round(debt["total_debt_cur"] + equity_cur - cash_cur, 2)
 
@@ -6595,7 +6621,7 @@ def fetch_roic_from_annual_report(symbol, name, fiscal_year, consolidated=True, 
             "label": "NOPAT (EBIT x (1 - Effective Tax Rate))",
             "value_cr": nopat_cur,
             "components": {
-                "EBIT (Profit Before Tax + Finance Costs)": round(ebit_cur, 2),
+                "EBIT (Revenue − COGS − Employee Costs − Other Expenses − D&A)": round(ebit_cur, 2),
                 "Effective Tax Rate": round(effective_tax_rate * 100, 2),
             },
         }
@@ -6604,7 +6630,7 @@ def fetch_roic_from_annual_report(symbol, name, fiscal_year, consolidated=True, 
             "value_cr": invested_capital_cur,
             "components": {
                 "Total Debt": debt["total_debt_cur"],
-                "Total Equity": round(equity_cur, 2),
+                "Total Equity" + (" (incl. Non-Controlling Interests)" if nci_included else ""): round(equity_cur, 2),
                 "less: Cash and Cash Equivalents": round(cash_cur, 2),
             },
         }
@@ -6636,9 +6662,11 @@ def fetch_roic_from_annual_report(symbol, name, fiscal_year, consolidated=True, 
             "numerator": numerator,
             "denominator": denominator,
             "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-            "note": "From the company's own Annual Report — NOPAT (Profit Before Tax + Finance Costs, taxed at "
-                    "the effective rate = Tax Expense ÷ Profit Before Tax) ÷ Invested Capital (Total Debt, full "
-                    "a+b+c protocol reused from Debt-to-Equity, + Total Equity − Cash and Cash Equivalents). "
+            "note": "From the company's own Annual Report — NOPAT (EBIT, identical to Operating Profit Margin's/"
+                    "ROCE's numerator, taxed at the effective rate = Tax Expense ÷ Profit Before Tax) ÷ Invested "
+                    "Capital (Total Debt, full a+b+c protocol reused from Debt-to-Equity, + Total Equity "
+                    + ("(incl. Non-Controlling Interests) " if nci_included else "")
+                    + "− Cash and Cash Equivalents). "
                     "Invested Capital is CLOSING-BALANCE only, not the opening+closing average the spec calls "
                     "for — Total Debt has no reliable prior-year signal in this pipeline, same limitation "
                     "already accepted by Debt-to-Equity/Debt Ratio. Benchmark against the company/sector's WACC "
