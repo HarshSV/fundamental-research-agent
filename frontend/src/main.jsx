@@ -2134,10 +2134,20 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        const InventoryTurnover = ({ symbol, name }) => {
+        // `period`/`onPeriodChange` are optional — when omitted this manages its
+        // own year-picker state (uncontrolled, original behaviour). When
+        // provided (see InventoryTurnoverGroup below) the selected FY is lifted
+        // to a shared parent so sibling cards derived from this same ratio
+        // (Days Inventory Outstanding = 365 ÷ this value) fetch the SAME year
+        // the user picked here, instead of independently defaulting to
+        // "latest" and silently disagreeing with this card (QA: DOH kept
+        // showing FY24 even after FY25 was selected/available here).
+        const InventoryTurnover = ({ symbol, name, period: controlledPeriod, onPeriodChange }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('inventory-turnover', state.loading && !state.data);
-            const [period, setPeriod] = React.useState(null); // to_date; null = latest
+            const [internalPeriod, setInternalPeriod] = React.useState(null); // to_date; null = latest
+            const period = onPeriodChange ? controlledPeriod : internalPeriod;
+            const setPeriod = onPeriodChange || setInternalPeriod;
             const [showCalc, setShowCalc] = React.useState(false); // "how we calculated this" — collapsed by default
             const [pickerOpen, setPickerOpen] = React.useState(false); // small year dropdown next to the period badge
             React.useEffect(() => { setPeriod(null); setPickerOpen(false); }, [symbol]);
@@ -2738,7 +2748,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Inventory Turnover's card. Fetches the SAME /inventory-turnover
         // endpoint (server-side cached, so this costs nothing extra) purely to
         // read `value` — no independent calculation happens here.
-        const DaysInventoryOutstanding = ({ symbol, name }) => {
+        const DaysInventoryOutstanding = ({ symbol, name, toDate }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('days-inventory-outstanding', state.loading && !state.data);
             React.useEffect(() => {
@@ -2748,11 +2758,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 fetch(`${API_BASE}/api/v1/inventory-turnover`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ symbol, name, to_date: null }),
+                    body: JSON.stringify({ symbol, name, to_date: toDate ?? null }),
                 }).then(r => r.json()).then(d => { if (!cancelled) setState({ loading: false, data: d }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, data: { applicable: false } }); });
                 return () => { cancelled = true; };
-            }, [symbol]);
+            }, [symbol, toDate]);
 
             const d = state.data || {};
             const doh = (d.value != null && d.value > 0) ? (365 / d.value).toFixed(2) : null;
@@ -2775,12 +2785,25 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
+        // Owns the shared selected-FY state for Inventory Turnover (Sr 1) and
+        // its derived Days Inventory Outstanding (Sr 2) card, so picking a
+        // year in Inventory Turnover's own dropdown also re-fetches DOH for
+        // that SAME year instead of DOH silently staying on "latest".
+        const InventoryTurnoverGroup = ({ symbol, name }) => {
+            const [period, setPeriod] = React.useState(null);
+            React.useEffect(() => { setPeriod(null); }, [symbol]);
+            return (<>
+                <InventoryTurnover symbol={symbol} name={name} period={period} onPeriodChange={setPeriod} />
+                <DaysInventoryOutstanding symbol={symbol} name={name} toDate={period} />
+            </>);
+        };
+
         // Days Sales Outstanding (DSO) = 365 ÷ Receivables Turnover — a pure
         // derivation of Sr No 3 (Receivables Turnover), never independently
         // recomputed from raw financials. Same pattern as DaysInventoryOutstanding:
         // its own small card, fetches the SAME /receivables-turnover endpoint
         // (server-side cached) purely to read `value`.
-        const DaysSalesOutstanding = ({ symbol, name }) => {
+        const DaysSalesOutstanding = ({ symbol, name, toDate }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('days-sales-outstanding', state.loading && !state.data);
             React.useEffect(() => {
@@ -2790,11 +2813,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 fetch(`${API_BASE}/api/v1/receivables-turnover`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ symbol, name, to_date: null }),
+                    body: JSON.stringify({ symbol, name, to_date: toDate ?? null }),
                 }).then(r => r.json()).then(d => { if (!cancelled) setState({ loading: false, data: d }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, data: { applicable: false } }); });
                 return () => { cancelled = true; };
-            }, [symbol]);
+            }, [symbol, toDate]);
 
             const d = state.data || {};
             const dso = (d.value != null && d.value > 0) ? (365 / d.value).toFixed(2) : null;
@@ -2817,12 +2840,24 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
+        // Owns the shared selected-FY state for Receivables Turnover (Sr 3)
+        // and its derived Days Sales Outstanding (Sr 4) card — same rationale
+        // as InventoryTurnoverGroup above.
+        const ReceivablesTurnoverGroup = ({ symbol, name }) => {
+            const [period, setPeriod] = React.useState(null);
+            React.useEffect(() => { setPeriod(null); }, [symbol]);
+            return (<>
+                <ReceivablesTurnover symbol={symbol} name={name} period={period} onPeriodChange={setPeriod} />
+                <DaysSalesOutstanding symbol={symbol} name={name} toDate={period} />
+            </>);
+        };
+
         // Days Payables Outstanding (DPO) = 365 ÷ Payables Turnover — a pure
         // derivation of Sr No 5 (Payables Turnover), never independently
         // recomputed from raw financials. Same pattern as DaysSalesOutstanding:
         // its own small card, fetches the SAME /payables-turnover endpoint
         // (server-side cached) purely to read `value`.
-        const DaysPayablesOutstanding = ({ symbol, name }) => {
+        const DaysPayablesOutstanding = ({ symbol, name, toDate }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('days-payables-outstanding', state.loading && !state.data);
             React.useEffect(() => {
@@ -2832,11 +2867,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 fetch(`${API_BASE}/api/v1/payables-turnover`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ symbol, name, to_date: null }),
+                    body: JSON.stringify({ symbol, name, to_date: toDate ?? null }),
                 }).then(r => r.json()).then(d => { if (!cancelled) setState({ loading: false, data: d }); })
                   .catch(() => { if (!cancelled) setState({ loading: false, data: { applicable: false } }); });
                 return () => { cancelled = true; };
-            }, [symbol]);
+            }, [symbol, toDate]);
 
             const d = state.data || {};
             const dpo = (d.value != null && d.value > 0) ? (365 / d.value).toFixed(2) : null;
@@ -2857,6 +2892,18 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     )}
                 </div>
             );
+        };
+
+        // Owns the shared selected-FY state for Payables Turnover (Sr 5) and
+        // its derived Days Payables Outstanding (Sr 6) card — same rationale
+        // as InventoryTurnoverGroup/ReceivablesTurnoverGroup above.
+        const PayablesTurnoverGroup = ({ symbol, name }) => {
+            const [period, setPeriod] = React.useState(null);
+            React.useEffect(() => { setPeriod(null); }, [symbol]);
+            return (<>
+                <PayablesTurnover symbol={symbol} name={name} period={period} onPeriodChange={setPeriod} />
+                <DaysPayablesOutstanding symbol={symbol} name={name} toDate={period} />
+            </>);
         };
 
         // Cash Conversion Cycle (CCC) = DSO + DOH − DPO — pure arithmetic on the
@@ -2936,10 +2983,17 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // (Revenue used as a proxy for Net Credit Sales — Indian Annual Reports don't
         // split cash vs. credit sales). Mirrors InventoryTurnover's structure/UX:
         // period picker, confidence badge, expandable calculation breakdown.
-        const ReceivablesTurnover = ({ symbol, name }) => {
+        // `period`/`onPeriodChange` optional — see InventoryTurnover's comment
+        // for why: lets a shared parent (ReceivablesTurnoverGroup) sync the
+        // selected FY into Days Sales Outstanding, which is derived from this
+        // ratio (365 ÷ this value) but used to always fetch "latest"
+        // independently regardless of the year picked here.
+        const ReceivablesTurnover = ({ symbol, name, period: controlledPeriod, onPeriodChange }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('receivables-turnover', state.loading && !state.data);
-            const [period, setPeriod] = React.useState(null);
+            const [internalPeriod, setInternalPeriod] = React.useState(null);
+            const period = onPeriodChange ? controlledPeriod : internalPeriod;
+            const setPeriod = onPeriodChange || setInternalPeriod;
             const [showCalc, setShowCalc] = React.useState(false);
             const [pickerOpen, setPickerOpen] = React.useState(false);
             React.useEffect(() => { setPeriod(null); setPickerOpen(false); }, [symbol]);
@@ -3061,10 +3115,16 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Payables Turnover = Purchases (a+b) ÷ Average Trade Payables. Mirrors
         // ReceivablesTurnover's structure/UX: period picker, confidence badge,
         // expandable calculation breakdown.
-        const PayablesTurnover = ({ symbol, name }) => {
+        // `period`/`onPeriodChange` optional — see InventoryTurnover's comment
+        // for why: lets a shared parent (PayablesTurnoverGroup) sync the
+        // selected FY into Days Payables Outstanding, derived from this ratio
+        // (365 ÷ this value) but previously fetching "latest" independently.
+        const PayablesTurnover = ({ symbol, name, period: controlledPeriod, onPeriodChange }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('payables-turnover', state.loading && !state.data);
-            const [period, setPeriod] = React.useState(null);
+            const [internalPeriod, setInternalPeriod] = React.useState(null);
+            const period = onPeriodChange ? controlledPeriod : internalPeriod;
+            const setPeriod = onPeriodChange || setInternalPeriod;
             const [showCalc, setShowCalc] = React.useState(false);
             const [pickerOpen, setPickerOpen] = React.useState(false);
             React.useEffect(() => { setPeriod(null); setPickerOpen(false); }, [symbol]);
@@ -12634,6 +12694,25 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                 </div>
                                                 <h2 className="font-heading text-base font-bold text-slate-100">{aiResearchSection === 'fundamental' ? 'Fundamental Ratios' : 'Qualitative Analysis'}</h2>
                                                 <p className="text-[10px] text-slate-500 mt-0.5">{aiResearchSection === 'fundamental' ? 'Sector-aware ratio dashboard — every card is traceable to its source.' : 'Business, management, moat and forensic checks — grounded in filings and management commentary.'}</p>
+                                                {aiResearchSection === 'fundamental' && (
+                                                    <div className="flex items-center gap-2 mt-3">
+                                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Lease Liabilities in Total Debt:</span>
+                                                        <div className="inline-flex rounded-md border border-slate-800 overflow-hidden">
+                                                            <button
+                                                                onClick={() => setLeaseBasis('basis1')}
+                                                                title="Total Debt = Borrowings + Lease Liabilities (post-Ind AS 116) — affects Debt-to-Equity, Debt Ratio, EV/EBITDA, Net Debt/EBITDA, Cash Flow Coverage Ratio, EV/Sales, EV/FCF"
+                                                                className={`px-2.5 py-1 text-[10px] font-bold transition ${leaseBasis === 'basis1' ? 'bg-blue-600/25 text-blue-300' : 'bg-slate-950/50 text-slate-500 hover:text-slate-300'}`}>
+                                                                With Lease
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setLeaseBasis('basis2')}
+                                                                title="Total Debt = Borrowings only (excludes Lease Liabilities) — the pre-Ind AS 116 / traditional view"
+                                                                className={`px-2.5 py-1 text-[10px] font-bold transition border-l border-slate-800 ${leaseBasis === 'basis2' ? 'bg-blue-600/25 text-blue-300' : 'bg-slate-950/50 text-slate-500 hover:text-slate-300'}`}>
+                                                                Without Lease
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             {aiResearchSection === 'qualitative' && (
@@ -12657,9 +12736,9 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                 { ratio_no: 12, title: 'Cash Ratio', node: <CashRatio {...rp} /> },
                                                                 { ratio_no: 39, title: 'Operating Cash Flow Ratio', node: <OperatingCashFlowRatio {...rp} /> },
                                                                 { ratio_no: 9, title: 'Cash Conversion Cycle', node: <CashConversionCycle {...rp} /> },
-                                                                { ratio_no: 1, title: 'Inventory Turnover', node: <><InventoryTurnover {...rp} /><DaysInventoryOutstanding {...rp} /></> },
-                                                                { ratio_no: 3, title: 'Receivables Turnover', node: <><ReceivablesTurnover {...rp} /><DaysSalesOutstanding {...rp} /></> },
-                                                                { ratio_no: 5, title: 'Payables Turnover', node: <><PayablesTurnover {...rp} /><DaysPayablesOutstanding {...rp} /></> },
+                                                                { ratio_no: 1, title: 'Inventory Turnover', node: <InventoryTurnoverGroup {...rp} /> },
+                                                                { ratio_no: 3, title: 'Receivables Turnover', node: <ReceivablesTurnoverGroup {...rp} /> },
+                                                                { ratio_no: 5, title: 'Payables Turnover', node: <PayablesTurnoverGroup {...rp} /> },
                                                                 { ratio_no: 7, title: 'Asset Turnover', node: <AssetTurnover {...rp} /> },
                                                                 { ratio_no: 30, title: 'Fixed Asset Turnover', node: <FixedAssetTurnover {...rp} /> },
                                                                 { ratio_no: 8, title: 'Working Capital Turnover', node: <><WorkingCapitalTurnover {...rp} /><DaysWorkingCapital {...rp} /><ReceivablesToPayablesRatio {...rp} /></> },

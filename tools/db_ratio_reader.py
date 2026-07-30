@@ -10,7 +10,54 @@ for not-yet-precomputed companies, just no speedup either until the
 background run reaches them.
 """
 
+import os
+import json
+import time
+
 from tools.supabase_client import get_client
+
+_FRESHNESS_CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                     "cache", "db_ratio_freshness")
+_FRESHNESS_TTL = 12 * 3600  # short — just enough to keep the fast path fast
+
+
+def _latest_ar_year_cached(symbol):
+    """Cheap, short-TTL-cached lookup of the newest fiscal year an Annual
+    Report exists for — used only to detect a STALE Supabase "latest" row
+    (see `try_db_ratio` below), not for the ratio computation itself.
+
+    Confirmed on Gopal Snacks (a recently-listed company): the precompute
+    worker wrote its FY24 Receivables Turnover row before FY25's Annual
+    Report was published, and with no freshness check `try_db_ratio` kept
+    serving that FY24 row forever afterwards — the exact "shows FY24 even
+    though FY25 is publicly available" bug QA flagged, and a general risk
+    for ANY company whose precompute run predates its latest filing, not
+    just this one. A short TTL (12h, separate from the 7-day TTL other BSE
+    lookups in this codebase use) keeps this near-free on repeat requests
+    while still catching a newly-published Annual Report within the same
+    day, rather than waiting on the background precompute job's queue
+    position. Never raises."""
+    path = os.path.join(_FRESHNESS_CACHE_DIR, f"{symbol}.json")
+    try:
+        if os.path.exists(path) and time.time() - os.path.getmtime(path) <= _FRESHNESS_TTL:
+            with open(path, "r", encoding="utf-8") as fh:
+                return json.load(fh).get("year")
+    except Exception:
+        pass
+    year = None
+    try:
+        from tools.annual_report_financials import list_annual_report_years
+        years = list_annual_report_years(symbol, None) or []
+        year = max(years) if years else None
+    except Exception:
+        pass
+    try:
+        os.makedirs(_FRESHNESS_CACHE_DIR, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"year": year}, fh)
+    except Exception:
+        pass
+    return year
 
 
 def write_db_ratio(symbol, ratio_no, out):
@@ -78,6 +125,15 @@ def try_db_ratio(symbol, ratio_no):
         if not r.data:
             return None
         row = r.data[0]
+        # Stale-"latest" guard: if a newer Annual Report has since been
+        # published, this row is out of date — fall through to the live
+        # path instead of serving an outdated year. The live call also
+        # writes back through `write_db_ratio`, so this self-heals: the
+        # NEXT request for this (symbol, ratio) is fast again, precompute
+        # worker or not.
+        latest_year = _latest_ar_year_cached(symbol)
+        if latest_year is not None and latest_year > row["fiscal_year"]:
+            return None
         return {
             "applicable": row["applicable"],
             "value": row["value"],

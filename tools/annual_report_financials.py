@@ -86,6 +86,21 @@ def _page_text(page):
     return (page.get_text() or "").translate(_LIGATURE_MAP)
 
 
+def _has_pl_caption(tl):
+    """True if 'statement of profit and loss' appears on the page as a
+    genuine statement caption/heading, not as prose. Directors' Reports
+    routinely reference the statement in prose when discussing retained
+    earnings — e.g. "the Board has decided to retain the entire profit ...
+    in the Statement of Profit and Loss" (seen verbatim on Gopal Snacks'
+    FY25 Annual Report) — and a bare substring test treats that sentence
+    the same as a real heading, wrongly flipping section-tracking state (or
+    matching the P&L shape fallback) on a Directors' Report page many pages
+    before the real statement. A genuine heading is never preceded by
+    "in/to/under/from the", which only occurs in prose referencing it."""
+    return re.search(r"(?<!in the )(?<!to the )(?<!under the )(?<!from the )"
+                      r"statement of profit and loss", tl) is not None
+
+
 # --- Canonical row-label synonyms (from the ratio spec) ---------------------
 _COGS_LABELS = {
     "Cost of materials consumed": [
@@ -238,19 +253,38 @@ _EQUITY_SHARE_CAPITAL_LABELS = [
     "equity share capital",
 ]
 _PBT_LABELS = [
-    "profit before exceptional items and tax", "profit before tax and exceptional items",
-    "profit before tax", "profit before exceptional item and tax",
+    # The plain "profit before tax" (the TRUE final PBT — after Exceptional
+    # Items, immediately before Tax Expense) is tried FIRST, ahead of the
+    # "before exceptional items and tax" subtotals. Those are a DIFFERENT,
+    # larger figure (Exceptional Items not yet deducted) — when a filing
+    # prints both (e.g. Gopal Snacks: "Profit before exceptional items and
+    # tax" → "Exceptional items" → "Profit before tax"), matching whichever
+    # synonym happened to be tried first is wrong; the two are NOT
+    # interchangeable. `_find_pl_row` returns on the first label that
+    # matches, so this list's ORDER is a correctness decision — confirmed
+    # this was silently grabbing the "before exceptional items" subtotal
+    # instead of the real final PBT wherever both exist, corrupting every
+    # ratio that reads `parsed["pbt"]` (ROIC, Effective Tax Rate, Altman
+    # Z-Score, Interest Coverage Ratio). The "before exceptional items"
+    # variants are kept as a FALLBACK only, for the (much rarer) filing that
+    # never prints a separate final "profit before tax" line at all.
+    #
+    # Deliberately DROPPED "profit before tax AND exceptional items" (a
+    # phrasing variant of the before-exceptional subtotal) — it literally
+    # STARTS WITH "profit before tax", so once that's tried first it can
+    # never be distinctly reached anyway (label-order search would already
+    # have matched the plain-PBT prefix), making it dead weight that only
+    # risked silently matching the wrong subtotal if ever reordered again.
+    "profit before tax", "profit before exceptional items and tax", "profit before exceptional item and tax",
     # Same "/(Loss)" suffix issue as `_PAT_GENERIC_LABELS`/`_PAT_OWNERS_LABELS`
     # (Sr No 16 fix) — loss-making-history filings (e.g. Eternal/Zomato)
     # caption this "Profit/(Loss) before tax" rather than plain "Profit
     # before tax". `_find_pl_row` already normalises this via
     # `_strip_formula_refs` before matching, but these are kept explicitly in
     # the canonical list too (belt-and-suspenders): a match must never be
-    # skipped just because of the "/(Loss)" suffix. This feeds ROCE's (Sr No
-    # 19) EBIT approximation (PBT + Finance Costs), so the same root cause
-    # would otherwise silently break ROCE too.
-    "profit/(loss) before exceptional items and tax", "profit/(loss) before tax and exceptional items",
-    "profit/(loss) before tax", "profit/(loss) before exceptional item and tax",
+    # skipped just because of the "/(Loss)" suffix.
+    "profit/(loss) before tax", "profit/(loss) before exceptional items and tax",
+    "profit/(loss) before exceptional item and tax",
 ]
 def _find_eps_row(text):
     """Basic EPS — Ind AS Schedule III mandates this disclosure on the P&L
@@ -388,7 +422,7 @@ def _find_shares_outstanding(doc, start_idx, want_section, max_pages=250):
         if "consolidated balance sheet" in tl or "consolidated statement of profit" in tl:
             section = "consolidated"
         elif "standalone balance sheet" in tl \
-                or ("statement of profit and loss" in tl and "consolidated" not in tl):
+                or (_has_pl_caption(tl) and "consolidated" not in tl):
             section = "standalone"
         if section != want_section:
             continue
@@ -459,7 +493,7 @@ def _find_shares_outstanding(doc, start_idx, want_section, max_pages=250):
 
 
 def _find_dividend_per_share(doc, start_idx, max_pages=250):
-    """Total Dividend per Equity Share DECLARED during the year (Sr No 27
+    """Total Dividend per Equity Share for the CURRENT fiscal year (Sr No 27
     numerator) — lives in the Retained Earnings movement note, right next to
     (often the same note number as) the Equity Share Capital note. Per spec,
     dividends are ALWAYS sourced STANDALONE regardless of which basis
@@ -468,18 +502,31 @@ def _find_dividend_per_share(doc, start_idx, max_pages=250):
     basis — so this ALWAYS tracks toward "standalone", ignoring the
     `consolidated` flag every other extractor respects.
 
-    Per spec, only a dividend actually DECLARED (shareholder-approved) counts
-    — a "recommended"/"proposed" final dividend awaiting AGM approval must
-    be EXCLUDED even though it's disclosed on the same page (seen on
-    MARUTI: the FY25 Annual Report discloses "The Board of Directors
-    recommended a final dividend of ₹135 per share... subject to approval...
-    has not been accounted as a liability" — that ₹135 must NOT be used).
-    The line that IS correct is the "During the year, a dividend of ₹X per
-    share... was paid to equity shareholders" sentence in the Retained
-    Earnings note, which reports what was ACTUALLY declared+paid in cash
-    during the fiscal year (typically last year's approved final dividend
-    plus any interim declared this year) — exactly the "declared, not merely
-    proposed" figure the spec calls for.
+    Per QA (2026-07-30, matching Screener's convention and standard market
+    usage): this year's INTERIM dividend + this year's PROPOSED final
+    dividend (board-recommended, subject to AGM approval, not yet a
+    recognised liability) — e.g. HUL: Interim ₹19/share (FY25-26) +
+    Proposed Final ₹22/share (FY25-26) = ₹41. Deliberately does NOT include
+    the "declared and paid" FINAL dividend row some filers ALSO print in
+    the same note — that figure is last fiscal year's approved final
+    dividend, merely PAID during the current year's cash flow, not part of
+    the current year's own declared dividend total (e.g. HUL's "Final
+    dividend of ₹24 per share for FY 2024-25" is a PRIOR-year amount and
+    must be excluded here even though the cash left the company this year).
+    A tabulated note breaks these out as separate Final/Interim/Special
+    rows (seen on HUL: "NOTE X DIVIDEND ON EQUITY SHARE"); Interim and
+    Special rows under the (non-proposed) main heading are inherently
+    ALWAYS for the current year (a company never "interim-declares" a
+    PRIOR year's dividend), so those are summed unconditionally; the
+    current-year Final component comes ONLY from the separate "Proposed
+    dividend ... not recognised as liability" sub-heading, never from the
+    main declared-and-paid Final row.
+
+    A single narrative sentence ("During the year, a dividend of ₹X per
+    share ... was paid") is tried first for filers that don't tabulate —
+    that sentence describes cash actually paid (same "prior year's approved
+    final" caveat applies, but there's no separate current-year proposed
+    figure to add for these simpler filings, so it's used as-is).
 
     Per spec, "no dividend declared" is a real 0%, NOT missing data — so
     finding no match here returns 0.0 at REDUCED confidence (0.4) rather
@@ -497,10 +544,50 @@ def _find_dividend_per_share(doc, start_idx, max_pages=250):
         if "consolidated balance sheet" in tl or "consolidated statement of profit" in tl:
             section = "consolidated"
         elif "standalone balance sheet" in tl \
-                or ("statement of profit and loss" in tl and "consolidated" not in tl):
+                or (_has_pl_caption(tl) and "consolidated" not in tl):
             section = "standalone"
         if section != "standalone":
             continue
+
+        # Tabulated note (tried FIRST — a filer that tabulates Final/Interim/
+        # Special separately always has this be the authoritative figure;
+        # the narrative sentence below, if also present, describes the same
+        # "declared and paid" cash figure and would double-count Interim).
+        anchor = re.search(r"declared and paid during the year", t, re.I)
+        if anchor:
+            window = t[anchor.end():anchor.end() + 700]
+            stop = re.search(r"proposed dividend", window, re.I)
+            proposed_window = window[stop.start():stop.start() + 400] if stop else ""
+            if stop:
+                window = window[:stop.start()]
+
+            def _sum_rows(text, kinds):
+                total, found = 0.0, False
+                for line in text.split("\n"):
+                    line_no_paren = re.sub(r"\([^)]*\)", "", line)
+                    rm = re.search(
+                        rf"(?:{kinds})\s+dividend\s+of\s*[^\d\s]{{0,2}}\s*"
+                        r"(nil|[\d,]+(?:\.\d+)?)\s*(?:per\s+)?(?:equity\s+)?share",
+                        line_no_paren, re.I)
+                    if rm:
+                        v = 0.0 if rm.group(1).lower() == "nil" else _parse_num(rm.group(1))
+                        if v is not None:
+                            total += v
+                            found = True
+                return total, found
+
+            # Interim/Special under the main heading are always CURRENT-year
+            # (never a prior-year carryover) — sum unconditionally. The main
+            # heading's Final row is EXCLUDED (that's last year's approved
+            # dividend, merely paid in cash this year); current-year Final
+            # comes only from the "Proposed" sub-section below.
+            row_total, row_found = _sum_rows(window, "interim|special")
+            if proposed_window:
+                prop_total, prop_found = _sum_rows(proposed_window, "final")
+                row_total += prop_total
+                row_found = row_found or prop_found
+            if row_found:
+                return round(row_total, 2), True
 
         m = re.search(r"during the year,?\s*a dividend of\s*`?\s*([\d,]+(?:\.\d+)?)\s*per share", tl)
         if m:
@@ -512,41 +599,6 @@ def _find_dividend_per_share(doc, start_idx, max_pages=250):
             v = _parse_num(m2.group(1))
             if v is not None:
                 return v, True
-
-        # Fallback: some filers (e.g. HUL) don't print a single narrative
-        # sentence at all — the "declared and paid during the year" figure
-        # only exists as a TABULATED note ("NOTE X DIVIDEND ON EQUITY
-        # SHARE"), broken into separate Final/Interim/Special dividend
-        # rows, each with its own per-share amount, e.g. "Final dividend of
-        # ₹24 per share for FY 2024-25 ... / Interim dividend of ₹19 per
-        # share for FY 2025-26 ...". Sums whichever of these three rows are
-        # present under that heading. Each row also repeats the SAME
-        # per-share figure a second time as a prior-year comparator in a
-        # trailing parenthetical on the same line (e.g. "(2023-24: ₹24 per
-        # share)") — stripped per-line before matching, or it would be
-        # double-counted. "Nil" (a genuinely skipped dividend type that
-        # year) parses to 0 via `_parse_num`, same as a bare "-".
-        anchor = re.search(r"declared and paid during the year", t, re.I)
-        if anchor:
-            window = t[anchor.end():anchor.end() + 700]
-            stop = re.search(r"proposed dividend", window, re.I)
-            if stop:
-                window = window[:stop.start()]
-            row_total = 0.0
-            row_found = False
-            for line in window.split("\n"):
-                line_no_paren = re.sub(r"\([^)]*\)", "", line)
-                rm = re.search(
-                    r"(?:final|interim|special)\s+dividend\s+of\s*[^\d\s]{0,2}\s*"
-                    r"(nil|[\d,]+(?:\.\d+)?)\s*(?:per\s+)?(?:equity\s+)?share",
-                    line_no_paren, re.I)
-                if rm:
-                    v = 0.0 if rm.group(1).lower() == "nil" else _parse_num(rm.group(1))
-                    if v is not None:
-                        row_total += v
-                        row_found = True
-            if row_found:
-                return round(row_total, 2), True
     return 0.0, False
 
 # NOTE on the `start_idx` argument used at the call site below: Standalone
@@ -726,7 +778,7 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
                 or "consolidated statement of cash flow" in tl or "consolidated cash flow statement" in tl:
             section = "consolidated"
         elif "standalone balance sheet" in tl \
-                or ("statement of profit and loss" in tl and "consolidated" not in tl) \
+                or (_has_pl_caption(tl) and "consolidated" not in tl) \
                 or "standalone statement of cash flow" in tl or "standalone cash flow statement" in tl:
             section = "standalone"
         if section != want_section:
@@ -1127,7 +1179,7 @@ def _parse_num(tok):
 _PERMISSIVE_NUM_RE = r"\(?-?[\d,]+(?:\.\d{1,2})?\)?|(?<=\s)-(?=\s)"
 
 
-def _find_row_values(text, canonical_names, after=None, reject_after=None, permissive=False):
+def _find_row_values(text, canonical_names, after=None, reject_after=None, permissive=False, words=None):
     """Find a row by any of its canonical label variants and return
     (current_year_value, prior_year_value) — the two trailing numbers on that
     logical line — or None. Case-insensitive, tries each synonym in order.
@@ -1157,7 +1209,11 @@ def _find_row_values(text, canonical_names, after=None, reject_after=None, permi
     silently grabbing a completely different, unrelated row instead
     (confirmed on HUL: "Equity share capital ... 235 235" was skipped in
     favour of the following "Other equity ... 48,504 49,167" line). Only use
-    this for labels where the value is known to often be a small number."""
+    this for labels where the value is known to often be a small number.
+
+    `words`: optional page word-boxes from `_page_words`, used ONLY as a
+    fallback when the near-window scan above finds nothing at all — see
+    `_find_row_values_spatial`."""
     num_pattern = _PERMISSIVE_NUM_RE if permissive else _NUM_RE
     search_text = text
     if after:
@@ -1172,11 +1228,218 @@ def _find_row_values(text, canonical_names, after=None, reject_after=None, permi
             if reject_after and re.match(reject_after, search_text[m.end():m.end() + 30], re.I):
                 continue
             window = search_text[m.end():m.end() + 250]
-            nums = re.findall(num_pattern, window)
+            nums = []
+            for nm in re.finditer(num_pattern, window):
+                tok = nm.group()
+                # A lone "-" is normally a genuine nil-value table cell, but
+                # on a page where labels and values are printed as two
+                # separate blocks (see `_find_row_values_spatial`), the same
+                # pattern also matches a plain-text "- " BULLET before an
+                # unrelated label a few rows down (e.g. Gopal Snacks FY25:
+                # "Employee benefits expense\n...\n - Current tax\n -
+                # Deferred tax" — those two dashes are list markers for
+                # "Current tax"/"Deferred tax", not Employee Benefit
+                # Expense's own figures) — confirmed this silently returned
+                # (0.0, 0.0) instead of falling through to the spatial
+                # fallback below, which has the real numbers. A genuine nil
+                # cell is never immediately followed by a new label word.
+                if tok == "-" and window[nm.end():].lstrip(" \t")[:1].isalpha():
+                    continue
+                nums.append(tok)
             if len(nums) >= 2:
                 a, b = _parse_num(nums[0]), _parse_num(nums[1])
                 if a is not None and b is not None:
                     return a, b
+    if words:
+        result = _find_row_values_spatial(words, canonical_names, permissive=permissive, after=after)
+        if result is not None:
+            return result
+    return None
+
+
+def _page_words(page):
+    """Ligature-normalised `page.get_text("words")` — (x0, y0, x1, y1, text)
+    boxes for every word on the page. Used only by `_find_row_values_spatial`
+    as a fallback when a statement's rows don't sit in the same linear
+    reading order plain text extraction produces (see that function)."""
+    return [(w[0], w[1], w[2], w[3], w[4].translate(_LIGATURE_MAP)) for w in page.get_text("words")]
+
+
+def _side_by_side_split_x(words):
+    """When the Balance Sheet and Statement of Profit and Loss are printed
+    as two tables SIDE BY SIDE on one landscape page (Gopal Snacks FY25),
+    `_find_row_values_spatial` must only look at whichever half its target
+    statement is on — otherwise a generic BS synonym (e.g. "stock" for
+    Inventories) can match a substring inside a completely unrelated P&L row
+    on the other half of the same page (e.g. "Purchase of STOCK-in-trade"),
+    silently returning that row's figures instead.
+
+    Finds the vertical gap between the two tables by looking for the widest
+    horizontal gap between consecutive distinct word x-positions (a real
+    page-wide gutter between two tables is far wider than the gap between
+    any two adjacent columns WITHIN one table — confirmed on Gopal Snacks:
+    123pt between the tables vs a next-widest of 22pt within one). Returns
+    the x to split on, or None if there's no gap wide enough to be a genuine
+    table gutter (the normal single-statement-per-page case — nothing to
+    split)."""
+    MIN_GUTTER = 60  # pt; comfortably above any real within-table column gap
+    xs = sorted(set(round(w[0]) for w in words))
+    if len(xs) < 2:
+        return None
+    widest_gap, split_x = 0, None
+    for prev, cur in zip(xs, xs[1:]):
+        if cur - prev > widest_gap:
+            widest_gap, split_x = cur - prev, (prev + cur) / 2
+    return split_x if widest_gap >= MIN_GUTTER else None
+
+
+def _bs_only_words(words):
+    """Restrict `words` to the Balance Sheet's own half of the page — see
+    `_side_by_side_split_x`. The Balance Sheet is always the LEFT-hand table
+    (its own caption always precedes the P&L's in the filing). Returns
+    `words` unchanged when there's no side-by-side split to make."""
+    split_x = _side_by_side_split_x(words)
+    return [w for w in words if w[0] < split_x] if split_x is not None else words
+
+
+def _pl_only_words(words):
+    """P&L-side counterpart to `_bs_only_words` — see that function and
+    `_side_by_side_split_x`."""
+    split_x = _side_by_side_split_x(words)
+    return [w for w in words if w[0] >= split_x] if split_x is not None else words
+
+
+def _cluster_lines(words):
+    """Group word-boxes into visual table rows by y-midpoint (a small
+    tolerance absorbs sub-pixel jitter within one printed line), each row
+    returned sorted by x — i.e. left-to-right READING order within that row,
+    regardless of the order PyMuPDF originally emitted the words in."""
+    Y_TOL = 3.0
+    rows = []
+    cur, cur_y = [], None
+    for w in sorted(words, key=lambda w: (w[1] + w[3]) / 2):
+        ymid = (w[1] + w[3]) / 2
+        if cur_y is None or abs(ymid - cur_y) <= Y_TOL:
+            cur.append(w)
+            cur_y = cur_y if cur_y is not None else ymid
+        else:
+            rows.append(sorted(cur, key=lambda w: w[0]))
+            cur, cur_y = [w], ymid
+    if cur:
+        rows.append(sorted(cur, key=lambda w: w[0]))
+    return rows
+
+
+# Number-token regexes for `_find_row_values_spatial` — same shape as
+# `_NUM_RE`/`_PERMISSIVE_NUM_RE` but without the whitespace-lookaround dash
+# alternative (meaningless against a single already-tokenised word); a bare
+# "-" placeholder is instead checked for directly.
+_NUM_TOKEN_RE = re.compile(
+    r"\A(?:\([\d,]+(?:\.\d{1,2})?\)|-?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?"
+    r"|-?\d{1,2}(?:,\d{2})*,\d{3}(?:\.\d{1,2})?|-?\d{2,}\.\d{2})\Z")
+_PERMISSIVE_NUM_TOKEN_RE = re.compile(r"\A\(?-?[\d,]+(?:\.\d{1,2})?\)?\Z")
+
+
+def _find_row_values_spatial(words, canonical_names, permissive=False, after=None, reject_context=None):
+    """Spatial counterpart to `_find_row_values`'s near-window text scan:
+    locates a row by its label and reads the two numbers immediately to its
+    RIGHT on the same visual table row (grouped by y-coordinate via
+    `_cluster_lines`), instead of by how close they sit in PyMuPDF's linear
+    text-extraction order.
+
+    Exists for filings where a statement's PRINTED layout puts a row's
+    numbers right next to its label, but plain text extraction reads them
+    far apart — confirmed on Gopal Snacks Ltd's FY25 Annual Report, where
+    the Balance Sheet and Statement of Profit and Loss are laid out as two
+    tables SIDE BY SIDE on one landscape page (extraction interleaves BOTH
+    tables' rows by absolute y-position, so a P&L row's own note-number and
+    values can land 1,000+ characters after its label in linear text, with
+    an unrelated Balance Sheet row's cells in between). Reading by table ROW
+    instead sidesteps that entirely: it doesn't matter what page-extraction
+    order put nearby, only what's physically printed on the row's own line.
+
+    `reject_context`: optional list of lowercase terms; if any appears in the
+    row's own joined text, this occurrence is disqualified and the next
+    occurrence/name is tried instead — mirrors `_find_cash_row`'s
+    `_RESTRICTED_CASH_TERMS` check (e.g. "unpaid dividend accounts" printed
+    as a face-level Cash sub-line must never be counted as unrestricted
+    cash, even though it also says "cash"/"bank balances")."""
+    token_re = _PERMISSIVE_NUM_TOKEN_RE if permissive else _NUM_TOKEN_RE
+    rows = _cluster_lines(words)
+    y_cutoff = None
+    if after:
+        for row in rows:
+            # `after` patterns are written for TEXT search (e.g.
+            # r"\nCurrent Assets\b", expecting the boundary at the START of
+            # a line) — a row here has no leading "\n" of its own (words are
+            # joined with plain spaces), so prepend one to preserve that
+            # same "start of this row" semantics; otherwise the pattern can
+            # never match at all and `after` silently does nothing.
+            row_text = "\n" + " ".join(w[4] for w in row)
+            if re.search(after, row_text, re.I):
+                y_cutoff = (row[0][1] + row[0][3]) / 2
+                break
+    for row in rows:
+        if y_cutoff is not None and (row[0][1] + row[0][3]) / 2 <= y_cutoff:
+            continue
+        texts = [w[4] for w in row]
+        joined = " ".join(texts).lower()
+        for name in canonical_names:
+            idx = joined.find(name.lower())
+            if idx == -1:
+                continue
+            # Walk the row's own words to find which one the match starts
+            # and ends inside, so only numbers STRICTLY to its right are
+            # considered (and so the guard below can look strictly to its
+            # left).
+            pos, start_word_i, end_word_i = 0, None, None
+            for wi, t in enumerate(texts):
+                pos_end = pos + len(t)
+                if start_word_i is None and pos_end > idx:
+                    start_word_i = wi
+                if pos_end >= idx + len(name):
+                    end_word_i = wi
+                    break
+                pos = pos_end + 1  # +1 for the joining space in `joined`
+            if end_word_i is None or start_word_i is None:
+                continue
+            if reject_context and any(term in joined for term in reject_context):
+                continue
+            # Two independent tables printed side-by-side can land on the
+            # SAME visual row purely by coincidence of height (seen on Gopal
+            # Snacks: a Balance Sheet non-current-asset row and the P&L's
+            # "Changes in inventories..." row share a y-band). If numbers
+            # already appear in the row BEFORE our match, our match is a
+            # second, unrelated table's label glued onto the same row, not
+            # this row's own leading label — skip it rather than risk
+            # pairing it with the wrong table's figures.
+            if any(t == "-" or token_re.match(t) for t in texts[:start_word_i]):
+                continue
+            nums = []
+            for w in row[end_word_i + 1:]:
+                tok = w[4]
+                if tok == "-" or token_re.match(tok):
+                    nums.append(tok)
+                if len(nums) >= 6:  # plenty for note-ref + 2 values; avoids scanning the whole row
+                    break
+            if len(nums) < 2:
+                continue
+            # Permissive mode (comma-optional, so a genuine small face value
+            # like "1.81" — one digit before the decimal, which the strict
+            # pattern deliberately excludes to avoid grabbing a bare
+            # note-reference — matches too) means a bare note-ref number
+            # (e.g. "12a"'s numeric-only sibling shape, or a lone "24") could
+            # itself slip through as a false first "value". The note
+            # reference always sits FIRST on the row, the two real values
+            # always LAST — taking the last two sidesteps that regardless
+            # (mirrors `_find_payables_row`'s same last-two-in-window
+            # approach, same reasoning). Strict mode never has this
+            # ambiguity (a bare note number never matches `_NUM_TOKEN_RE` at
+            # all), so first-two vs last-two makes no difference there.
+            pick = nums[-2:] if permissive else nums[:2]
+            a, b = _parse_num(pick[0]), _parse_num(pick[1])
+            if a is not None and b is not None:
+                return a, b
     return None
 
 
@@ -1193,13 +1456,20 @@ _RESTRICTED_CASH_TERMS = [
 ]
 
 
-def _find_cash_row(text, canonical_names, after=None):
+def _find_cash_row(text, canonical_names, after=None, words=None):
     """Same matching as `_find_row_values`, but for Cash and Cash Equivalents
     specifically: skips any occurrence whose surrounding text marks it as
     restricted/earmarked (unpaid dividend accounts, margin money, escrow —
     see `_RESTRICTED_CASH_TERMS`), instead of blindly taking the first
     label match. Tries every occurrence of every label, not just the first,
-    so a disqualified match doesn't block a genuine one later on the page."""
+    so a disqualified match doesn't block a genuine one later on the page.
+
+    `words`: optional page word-boxes, tried only when the near-window text
+    scan above finds nothing at all — see `_find_row_values_spatial` (same
+    fallback `_find_row_values` uses, needed for the same reason: Gopal
+    Snacks Ltd's FY25 Annual Report prints the Balance Sheet and P&L side by
+    side on one page, so "Cash and cash equivalents"'s own figures can land
+    far away from its label in linear text order)."""
     search_text = text
     if after:
         m = re.search(after, text, re.I)
@@ -1216,6 +1486,17 @@ def _find_cash_row(text, canonical_names, after=None):
                 a, b = _parse_num(nums[0]), _parse_num(nums[1])
                 if a is not None and b is not None:
                     return a, b
+    if words:
+        # `permissive=True`: Cash and Cash Equivalents is routinely a small
+        # face value (e.g. Gopal Snacks FY25: "1.81") that the strict
+        # pattern's 2+-digit-integer requirement would otherwise miss
+        # entirely (see `_find_row_values`'s `permissive` doc for why that
+        # requirement exists) — the last-two-of-row pick above keeps a bare
+        # note-reference number from being mistaken for a real value.
+        result = _find_row_values_spatial(words, canonical_names, after=after,
+                                           reject_context=_RESTRICTED_CASH_TERMS, permissive=True)
+        if result is not None:
+            return result
     return None
 
 
@@ -1397,7 +1678,7 @@ def _find_borrowings_note_total(doc, start_idx, max_pages=60):
     return None
 
 
-def _sum_after_label(text, labels, stop_pattern, default_window=400, after=None):
+def _sum_after_label(text, labels, stop_pattern, default_window=400, after=None, words=None):
     """Find the first matching label, then SUM every (current, prior) number
     pair between it and `stop_pattern` (or `default_window` chars if the stop
     pattern isn't found). Handles the common case where a total is disclosed
@@ -1407,7 +1688,11 @@ def _sum_after_label(text, labels, stop_pattern, default_window=400, after=None)
     single total row) — this also correctly reduces to just reading the
     number when there's only one row, so one code path covers both shapes.
     `after`: optional regex: only search after its first match (see
-    `_find_row_values`'s `after` for why — restricts to the right sub-section)."""
+    `_find_row_values`'s `after` for why — restricts to the right sub-section).
+    `words`: optional page word-boxes, tried only as a single-row fallback
+    (see `_find_row_values_spatial`) when the text-based scan above finds
+    nothing — doesn't attempt the multi-row sum spatially, just the common
+    single-row case."""
     search_text = text
     if after:
         m = re.search(after, text, re.I)
@@ -1418,28 +1703,30 @@ def _sum_after_label(text, labels, stop_pattern, default_window=400, after=None)
         m = re.search(re.escape(lbl), search_text, re.I)
         if m:
             break
-    if not m:
-        return None
-    tail = search_text[m.end():]
-    stop = re.search(stop_pattern, tail, re.I) if stop_pattern else None
-    window = tail[:stop.start()] if stop else tail[:default_window]
-    nums = re.findall(_NUM_RE, window)
-    if len(nums) < 2 or len(nums) % 2 != 0:
-        return None
-    cur_vals = [_parse_num(n) for n in nums[0::2]]
-    prior_vals = [_parse_num(n) for n in nums[1::2]]
-    if any(v is None for v in cur_vals) or any(v is None for v in prior_vals):
-        return None
-    return round(sum(cur_vals), 2), round(sum(prior_vals), 2)
+    if m:
+        tail = search_text[m.end():]
+        stop = re.search(stop_pattern, tail, re.I) if stop_pattern else None
+        window = tail[:stop.start()] if stop else tail[:default_window]
+        nums = re.findall(_NUM_RE, window)
+        if len(nums) >= 2 and len(nums) % 2 == 0:
+            cur_vals = [_parse_num(n) for n in nums[0::2]]
+            prior_vals = [_parse_num(n) for n in nums[1::2]]
+            if not any(v is None for v in cur_vals) and not any(v is None for v in prior_vals):
+                return round(sum(cur_vals), 2), round(sum(prior_vals), 2)
+    if words:
+        result = _find_row_values_spatial(words, labels, after=after)
+        if result is not None:
+            return result
+    return None
 
 
-def _find_revenue(pl_text):
+def _find_revenue(pl_text, words=None):
     """Revenue from Operations, from the P&L page already located for COGS.
     Most filings print a single total row (e.g. HUL, Tata Steel, Sun Pharma) —
     matched directly. Some (e.g. Asian Paints) print only sub-items under a
     'REVENUE FROM OPERATIONS' section header with no total row before 'Other
     Income' — sum every row in between instead."""
-    return _sum_after_label(pl_text, _REVENUE_LABELS, r"other\s+income")
+    return _sum_after_label(pl_text, _REVENUE_LABELS, r"other\s+income", words=words)
 
 
 def _find_payables_row(search_text, label_pattern, boundary_pattern, window_cap=250):
@@ -1486,7 +1773,16 @@ def _find_payables(text, after=None):
             search_text = text[m.end():]
 
     msme_pat = r"total\s+outstanding\s+dues\s+of\s+micro\s+enterprises\s+and\s+small\s+enterprises"
-    others_pat = r"total\s+outstanding\s+dues\s+of\s+creditors\s+other\s+than\s+micro\s+enterprises\s+and\s+small\s+enterprises"
+    # The word "creditors" before "other than" isn't universal — Gopal
+    # Snacks' Annual Report (both FY24 and FY25) phrases the complement row
+    # as "Total outstanding dues of OTHER THAN micro enterprises and small
+    # enterprises", with no "creditors" at all. The old pattern required it
+    # literally, so `others_pat` never matched, the boundary-bounded MSME
+    # window search then also failed, and `_find_payables` returned None —
+    # not a missing-MSME-row bug (both rows ARE present and correctly
+    # split), just a stricter-than-necessary label match. Made "creditors "
+    # optional to cover both phrasings.
+    others_pat = r"total\s+outstanding\s+dues\s+of\s+(?:creditors\s+)?other\s+than\s+micro\s+enterprises\s+and\s+small\s+enterprises"
     msme_anchor = re.search(msme_pat, search_text, re.I)
     if not msme_anchor:
         # No MSME/non-MSME split disclosed at all (rare, e.g. very old/small
@@ -1682,7 +1978,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         if "consolidated balance sheet" in tl or "consolidated statement of profit" in tl:
             section = "consolidated"
         elif "standalone balance sheet" in tl \
-             or ("statement of profit and loss" in tl and "consolidated" not in tl):
+             or (_has_pl_caption(tl) and "consolidated" not in tl):
             section = "standalone"
 
         if section != want:
@@ -1719,9 +2015,24 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         # never carries — and a genuine statement always has a Note-number
         # reference column, which this summary table never does.
         is_mda_page = "md&a" in tl or "management discussion and analysis" in tl
+        # Word boxes for this page, split to each statement's own half when
+        # the Balance Sheet and P&L are printed SIDE BY SIDE on one landscape
+        # page (see `_side_by_side_split_x`) — a no-op split on the ordinary
+        # one-statement-per-page layout. Tried as a fallback ONLY when the
+        # text-only near-window check below finds nothing, so a row whose
+        # label and figures sit far apart in linear text order (confirmed on
+        # Gopal Snacks Ltd's FY25 filing) still lets its OWN page pass
+        # detection, instead of losing out to some other page's shape-match.
+        try:
+            page_words = _page_words(page)
+        except Exception:
+            page_words = []
+        pl_page_words = _pl_only_words(page_words)
+        bs_page_words = _bs_only_words(page_words)
         if pl_cogs_idx is None:
             if is_real_pl_statement and not is_mda_page and all(
-                    _find_row_values(t, names) is not None for names in _COGS_LABELS.values()):
+                    _find_row_values(t, names, words=pl_page_words) is not None
+                    for names in _COGS_LABELS.values()):
                 pl_cogs_idx, pl_cogs_text = i, t
             # Shape fallback for no-COGS (services/IT) businesses. Content
             # shape alone isn't enough — Integrated Annual Reports carry
@@ -1733,8 +2044,24 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
             # somewhere on the page too (heading POSITION is unreliable, per
             # the header-window issue above, but heading PRESENCE reliably
             # rules out every MD&A analysis table, which never carries it).
+            #
+            # A plain substring test isn't enough, though: Directors' Reports
+            # routinely reference the statement in prose when discussing
+            # retained earnings — "the Board has decided to retain the
+            # entire profit ... in the Statement of Profit and Loss" (seen
+            # verbatim on Gopal Snacks' FY25 Annual Report) — and that
+            # sentence sits on the SAME page as the Directors' Report's own
+            # "Financial Performance" summary table, which independently
+            # satisfies the Revenue/Other income/Finance costs shape check.
+            # Together they falsely won pl_shape_idx on a page ~40 pages
+            # before the real (COGS-bearing) statement, permanently blocking
+            # the strong match from ever overriding it. A genuine heading is
+            # never preceded by "in/to/under/from the" (which only occurs in
+            # prose referencing the statement) — require that instead of a
+            # bare substring test.
             elif pl_shape_idx is None and not is_cash_flow_page and not is_mda_page \
-                    and "statement of profit and loss" in tl and _find_revenue(t) is not None \
+                    and _has_pl_caption(tl) \
+                    and _find_revenue(t, words=pl_page_words) is not None \
                     and "other income" in tl \
                     and any(k in tl for k in ("employee benefit", "finance cost", "depreciation and amortisation")):
                 pl_shape_idx, pl_shape_text = i, t
@@ -1754,7 +2081,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
             # were all unreadable). Same principle as the P&L's "total
             # expenses" guard against components-only notes pages.
             has_bs_subtotal = "total assets" in tl or "equity and liabilities" in tl
-            if _find_row_values(t, _INVENTORY_LABELS) is not None and has_non_current_marker \
+            if _find_row_values(t, _INVENTORY_LABELS, words=bs_page_words) is not None and has_non_current_marker \
                     and has_bs_subtotal:
                 bs_inv_idx, bs_inv_text = i, t
             # Shape fallback for no-inventory businesses: "total assets" (the
@@ -1764,7 +2091,8 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
             # pages, so "equity and liabilities" can't be required on this
             # SAME page — "total assets" already rules out the CFS page.
             elif bs_shape_idx is None and "total assets" in tl and has_non_current_marker \
-                    and _find_row_values(t, _RECEIVABLES_LABELS, after=r"\nCurrent Assets\b") is not None:
+                    and _find_row_values(t, _RECEIVABLES_LABELS, after=r"\nCurrent Assets\b",
+                                         words=bs_page_words) is not None:
                 bs_shape_idx, bs_shape_text = i, t
 
     pl_idx, pl_text = (pl_cogs_idx, pl_cogs_text) if pl_cogs_idx is not None else (pl_shape_idx, pl_shape_text)
@@ -1784,9 +2112,57 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     pl_factor = _unit_factor(pl_text)
     bs_factor = _unit_factor(bs_text)
 
+    # Word boxes for the spatial fallback (`_find_row_values_spatial`) — only
+    # needed when the near-window text scan fails, but cheap enough (one
+    # `get_text("words")` call per already-identified page) to compute
+    # upfront. When both statements share ONE page (Gopal Snacks FY25:
+    # Balance Sheet and P&L printed side by side on a landscape page),
+    # restrict each to its own half — see `_bs_only_words`/`_pl_only_words`.
+    combined_page = pl_idx == bs_idx
+
+    def _label_directly_followed_by_number(text, label_pattern, after=None):
+        """True if `label_pattern`'s FIRST match in `text` is followed
+        (skipping only whitespace/note-number tokens) by an actual number —
+        i.e. the label's own figures sit right after it, not several OTHER
+        labels away. Used to distinguish a page where the near-window text
+        scan is trustworthy from one where it isn't: on Gopal Snacks' FY24
+        Annual Report, "Total Current liabilities" is followed immediately
+        by "1,201.18" — safe. On the SAME company's FY25 filing (different
+        page layout — two statements interleaved), the same label is
+        followed by two MORE subtotal labels ("Total Liabilities", "Total
+        Equity and Liabilities") and a column of note-reference numbers
+        before any real figure appears — the near-window scan then quietly
+        returns some OTHER row's numbers instead of failing outright, which
+        a bare "did it return 2 numbers" check can't catch. Cheap and
+        page-agnostic: doesn't matter WHY a page is laid out either way,
+        only whether this specific label's own value sits right next to it."""
+        search_text = text
+        if after:
+            m = re.search(after, text, re.I)
+            if m:
+                search_text = text[m.end():]
+        m = re.search(label_pattern, search_text, re.I)
+        if not m:
+            return False
+        # The very next non-whitespace text after the label: a genuine
+        # match has a NUMBER here (its own note-reference or value). A
+        # wrong match — the label found, but its real figures sit far away
+        # — has more LABEL WORDS here instead (e.g. "Total Liabilities").
+        tail = search_text[m.end():m.end() + 10].lstrip()
+        return bool(re.match(r"\(?-?[\d,]", tail))
+
+    try:
+        pl_words = _page_words(doc[pl_idx])
+        bs_words = _page_words(doc[bs_idx])
+        if combined_page:
+            pl_words = _pl_only_words(pl_words)
+            bs_words = _bs_only_words(bs_words)
+    except Exception:
+        pl_words, bs_words = [], []
+
     components = {}
     for canon, names in _COGS_LABELS.items():
-        vals = _find_row_values(pl_text, names)
+        vals = _find_row_values(pl_text, names, words=pl_words)
         if vals is not None:
             components[canon] = _scale(vals, pl_factor)  # (current, prior), normalised to ₹ Cr
 
@@ -1794,29 +2170,43 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # EBITDA-basis Operating Profit (Sr No 15): Revenue − COGS − these two.
     # Kept as their OWN fields (not folded into `components`), since Inventory
     # Turnover's COGS sum must stay exactly (a+b+c) — never silently widened.
-    employee_benefit_expense = _scale(_find_row_values(pl_text, _EMPLOYEE_BENEFIT_LABELS), pl_factor)
-    other_expenses = _scale(_find_row_values(pl_text, _OTHER_EXPENSES_LABELS), pl_factor)
+    employee_benefit_expense = _scale(_find_row_values(pl_text, _EMPLOYEE_BENEFIT_LABELS, words=pl_words), pl_factor)
+    other_expenses = _scale(_find_row_values(pl_text, _OTHER_EXPENSES_LABELS, words=pl_words), pl_factor)
     # Depreciation & Amortisation — needed (alongside COGS/Employee
     # Costs/Other Expenses) for EBIT-basis Operating Profit (Sr No 15):
     # Revenue − COGS − Employee Costs − Other Expenses − D&A.
-    depreciation = _scale(_find_row_values(pl_text, _DEPRECIATION_LABELS), pl_factor)
+    depreciation = _scale(_find_row_values(pl_text, _DEPRECIATION_LABELS, words=pl_words), pl_factor)
 
-    inv = _scale(_find_row_values(bs_text, _INVENTORY_LABELS), bs_factor)
-    revenue = _scale(_find_revenue(pl_text), pl_factor)
-    receivables = _scale(_find_row_values(bs_text, _RECEIVABLES_LABELS, after=r"\nCurrent Assets\b"), bs_factor)
+    inv = _scale(_find_row_values(bs_text, _INVENTORY_LABELS, words=bs_words), bs_factor)
+    revenue = _scale(_find_revenue(pl_text, words=pl_words), pl_factor)
+    receivables = _scale(_find_row_values(bs_text, _RECEIVABLES_LABELS, after=r"\nCurrent Assets\b",
+                                           words=bs_words), bs_factor)
     # Cash and Cash Equivalents — only the specifically-labelled row, never
     # "Bank balances other than Cash and Cash Equivalents" (a separate,
     # often part-restricted, line some filings print just below it), and
     # never a restricted/earmarked balance like unpaid dividend accounts or
     # margin money even if it happens to say "cash"/"bank balances" (see
     # `_find_cash_row`).
-    cash = _scale(_find_cash_row(bs_text, _CASH_LABELS, after=r"\nCurrent Assets\b"), bs_factor)
+    #
+    # On some combined BS+P&L pages, "Cash and cash equivalents" is followed
+    # immediately by the NEXT label ("(iii) Bank balance other than...")
+    # rather than its own figures, which sit far away — confirmed on Gopal
+    # Snacks FY25. The near-window text scan then quietly returns some
+    # OTHER row's numbers instead of failing outright. Verify the label is
+    # genuinely followed by a number (as it is on, e.g., the same company's
+    # FY24 filing, a differently-laid-out combined page where this is safe)
+    # before trusting the result — force N/A rather than risk silently
+    # attributing the wrong sub-item's figures to Cash.
+    cash_label_ok = any(_label_directly_followed_by_number(bs_text, re.escape(n), after=r"\nCurrent Assets\b")
+                         for n in _CASH_LABELS)
+    cash = None if not cash_label_ok else _scale(
+        _find_cash_row(bs_text, _CASH_LABELS, after=r"\nCurrent Assets\b", words=bs_words), bs_factor)
     # Other Bank Balances — kept SEPARATE from `cash` on purpose (see
     # _OTHER_BANK_BALANCES_LABELS comment). Restricted/unrestricted split is
     # rebuilt deterministically via `_other_bank_balances_unrestricted`
     # (Base -> Net-off -> Optional-Add) rather than left to AI judgement.
     other_bank_balances = _scale(_find_row_values(bs_text, _OTHER_BANK_BALANCES_LABELS,
-                                                   after=r"\nCurrent Assets\b"), bs_factor)
+                                                   after=r"\nCurrent Assets\b", words=bs_words), bs_factor)
     other_bank_balances_breakup = _other_bank_balances_unrestricted(
         bs_text, _OTHER_BANK_BALANCES_LABELS, after=r"\nCurrent Assets\b")
     if other_bank_balances_breakup is not None and bs_factor != 1.0:
@@ -1877,7 +2267,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         text = re.sub(r"profit\s*/\s*\(\s*loss\s*\)", "profit", text, flags=re.I)
         return re.sub(r"\([IVXLCM]+(?:\s*[+\-=]\s*[IVXLCM]+)+\)", "", text, flags=re.I)
 
-    def _find_single_label_loose(segment, label, max_skip=2):
+    def _find_single_label_loose(segment, label, max_skip=2, words=None):
         """Find ONE label's (current, prior) pair in `segment`, tolerating a
         BARE 1-4 digit value with no comma/decimal (e.g. "331") that `_NUM_RE`
         deliberately never matches — that pattern is indistinguishable from a
@@ -1916,7 +2306,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
             a, b = _parse_num(lines[i]), _parse_num(lines[i + 1])
             if a is not None and b is not None:
                 return (a, b)
-        return _find_row_values(segment, [label])
+        return _find_row_values(segment, [label], words=words)
 
     def _find_pl_row(labels, after=None, max_skip=0):
         """Find a P&L row on the primary pl_text page, falling back to the
@@ -1946,19 +2336,19 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         entirely (confirmed on HUL: finance_costs came back as (33.0, 410.0)
         instead of (410.0, 381.0), corrupting Interest Coverage Ratio's
         denominator). Callers for genuine line items must pass max_skip>=1."""
-        def _try(text):
+        def _try(text, page_words=None):
             search_text = text
             if after:
                 m = re.search(after, text, re.I)
                 if m:
                     search_text = text[m.end():]
             for label in labels:
-                r = _find_single_label_loose(search_text, label, max_skip=max_skip)
+                r = _find_single_label_loose(search_text, label, max_skip=max_skip, words=page_words)
                 if r is not None:
                     return r
             return None
 
-        raw = _try(_strip_formula_refs(pl_text))
+        raw = _try(_strip_formula_refs(pl_text), pl_words)
         factor = pl_factor
         if raw is None and pl_idx + 1 < doc.page_count:
             try:
@@ -2030,10 +2420,10 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
                     return (a, b)
             return None
 
-        def _try(text):
+        def _try(text, page_words=None):
             for lbl in ("total tax expense", "total tax expenses",
                         "tax expense/(credit)", "total tax expense/(credit)"):
-                total = _find_single_label_loose(text, lbl, max_skip=0)
+                total = _find_single_label_loose(text, lbl, max_skip=0, words=page_words)
                 if total is not None:
                     return total
 
@@ -2060,7 +2450,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
                     return (a, b)
             return None
 
-        raw = _try(_strip_formula_refs(pl_text))
+        raw = _try(_strip_formula_refs(pl_text), pl_words)
         factor = pl_factor
         if raw is None and pl_idx + 1 < doc.page_count:
             try:
@@ -2143,12 +2533,13 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         is immediately followed by the Cash Flow Statement and a naive
         next-page read grabbed a negative cash-flow adjustment instead of the
         real (positive, or genuinely absent) Balance Sheet borrowings figure."""
-        def _try(text):
-            v = _find_row_values(text, labels, after=after, reject_after=reject_after, permissive=permissive)
+        def _try(text, page_words=None):
+            v = _find_row_values(text, labels, after=after, reject_after=reject_after,
+                                  permissive=permissive, words=page_words)
             if v is None and subtotal_before:
                 v = _find_subtotal_before(text, subtotal_before, after=after)
             return v
-        raw = _try(bs_text)
+        raw = _try(bs_text, bs_words)
         factor = bs_factor
         if raw is None and bs_idx + 1 < doc.page_count:
             try:
@@ -2213,8 +2604,22 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # there's no explicit "Total current assets/liabilities" label.
     total_current_assets = _find_bs_row(_TOTAL_CURRENT_ASSETS_LABELS, after=r"\nCurrent Assets\b",
                                          subtotal_before="total assets")
-    total_current_liabilities = _find_bs_row(_TOTAL_CURRENT_LIABILITIES_LABELS, after=r"\nCurrent Liabilities\b",
-                                              subtotal_before="total equity and liabilities")
+    # On some combined BS+P&L pages, "Total Current liabilities" is followed
+    # by MORE subtotal labels ("Total Liabilities", "Total Equity and
+    # Liabilities") and a column of note-reference numbers before its own
+    # real figures appear far away — confirmed on Gopal Snacks FY25 (the
+    # text-window scan then quietly returns some OTHER row's numbers, and
+    # the spatial fallback is ALSO unreliable for this specific row despite
+    # working correctly for Total Assets/Total Current Assets on the same
+    # page — not yet root-caused). Verify the label is genuinely followed by
+    # a number first (true on, e.g., the same company's differently-laid-out
+    # FY24 filing, where this is safe) — force N/A rather than risk a
+    # silently ~10x-wrong Current/Quick/Cash Ratio.
+    tcl_label_ok = any(_label_directly_followed_by_number(bs_text, re.escape(n), after=r"\nCurrent Liabilities\b")
+                        for n in _TOTAL_CURRENT_LIABILITIES_LABELS)
+    total_current_liabilities = None if not tcl_label_ok else _find_bs_row(
+        _TOTAL_CURRENT_LIABILITIES_LABELS, after=r"\nCurrent Liabilities\b",
+        subtotal_before="total equity and liabilities")
 
     # Net Fixed Assets (Sr No 30 denominator).
     net_fixed_assets = _find_bs_row(_NET_FIXED_ASSETS_LABELS)
@@ -3619,35 +4024,36 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
     Costs), current year only — no averaging (EBIT itself is never averaged,
     same as Sr No 19).
 
-    EBIT here is the SAME Revenue − COGS − Employee Benefit Expense − Other
-    Expenses − D&A computation already validated for Operating Profit
-    Margin (Sr No 15) and ROCE (Sr No 19) — NOT "Profit Before Tax + Finance
-    Costs". That PBT-based approximation was left unfixed when ROCE's own
-    version of this same bug was fixed (commit "Fix Sr No 22 ROCE" — a
-    historical numbering collision, that commit's "Sr No 22" was ROCE, not
-    this ratio) because it wasn't yet QA-reviewed; it has the identical
-    flaw: PBT implicitly bakes in Other Income (PBT = Total Income −
-    Total Expenses = (Revenue + Other Income) − Total Expenses), so
-    PBT + Finance Costs silently inflates "EBIT" by however much Other
-    Income the company reports. QA's own cross-check formula for this ratio
-    (PBT_beforeExceptional + Finance Costs − Other Income) reduces
-    algebraically to exactly this Revenue-based formula. Using the
-    Revenue-based computation directly (rather than PBT minus Other Income)
-    also naturally satisfies QA's other two requirements without any new
-    extraction: it reads Revenue/COGS/Expenses from the Continuing-
-    Operations block only (never blended with a Discontinued-Operations
-    section further down the statement), and it never includes Exceptional
-    Items in the first place (those sit below this operating-profit line in
-    the P&L, not inside COGS/Employee Costs/Other Expenses/D&A) — i.e. this
-    is already QA's "EBIT excluding one-offs" by construction, with no
-    separate "including one-offs" variant needed.
+    EBIT = PBT (Continuing Operations) + Finance Costs — per QA's spec
+    (2026-07-30), superseding an earlier Revenue-based approximation used
+    here. Unlike ROCE/OPM (pure operating-efficiency ratios, which
+    deliberately exclude Other Income and Exceptional Items), Interest
+    Coverage is a debt-SERVICEABILITY question — "can this company's total
+    earnings, from whatever source, cover its interest obligations" — so
+    Other Income is intentionally INCLUDED here (standard PBIT convention),
+    unlike ROCE. `parsed["pbt"]` is already the TRUE final "Profit before
+    tax" line (after Exceptional Items, before Tax Expense) — see
+    `_PBT_LABELS`'s ordering fix, which also corrected a real bug this
+    exposed on HUL: the OLD code was silently reading "Profit before
+    EXCEPTIONAL ITEMS and tax from continuing operations" (₹14,047 Cr) as
+    if it were the real "Profit before tax from continuing operations"
+    (₹13,812 Cr) — a different, larger figure with the ₹235 Cr exceptional
+    charge not yet deducted. Since PBT is read from the Continuing-
+    Operations-scoped P&L (never blended with Discontinued Operations,
+    confirmed via `_PBT_LABELS`'s "profit before tax" match landing on
+    HUL's literal "...from continuing operations" line), and is already NET
+    of Exceptional Items (the true final PBT, not the before-exceptional
+    subtotal), this is QA's "EBIT (including one-offs)" by construction —
+    no separate extraction needed for that variant. QA's "EBIT (excluding
+    one-offs)" variant (PBT + Finance Costs + Exceptional Items add-back)
+    is NOT implemented — Exceptional Items isn't extracted as its own field
+    yet, and the add-back sign convention (charge vs. credit) needs more
+    verification before shipping a second ratio card.
 
-    Built as its OWN function (not a client-side derivation of the ROCE/OPM
-    endpoints) for the same reason as Debt Ratio (Sr No 21): those ratios'
-    own N/A branches don't always carry a computed EBIT (e.g. ROCE returns
-    before EBIT is even used if Capital Employed can't be computed) —
-    reusing the shared extraction fields directly keeps this ratio correct
-    independent of ROCE/OPM's own applicability gates.
+    Built as its OWN function (not a client-side derivation of another
+    ratio's endpoint) for the same reason as Debt Ratio (Sr No 21): reusing
+    the shared extraction fields directly keeps this ratio correct
+    independent of any other ratio's own applicability gates.
 
     Per spec, gross Finance Costs is used as the denominator as reported —
     never net off Interest Income. If Finance Costs is exactly nil (a
@@ -3661,7 +4067,7 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_intcov_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_intcov_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3674,24 +4080,9 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
             _write_cache(ckey, out)
             return out
 
-        components = parsed.get("components") or {}
-        if len(components) == 0:
-            out = {"applicable": False,
-                   "reason": "Could not find any Cost of Goods Sold line (Cost of materials consumed / "
-                             "Purchases of stock-in-trade / Changes in inventories) on the P&L page — "
-                             "not a goods business.",
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-        ebe = parsed.get("employee_benefit_expense")
-        oe = parsed.get("other_expenses")
-        dep = parsed.get("depreciation")
-        revenue = parsed.get("revenue")
+        pbt = parsed.get("pbt")
         finance_costs = parsed.get("finance_costs")
-        missing = ("Revenue from operations" if revenue is None else
-                   "Employee Benefit Expense" if ebe is None else
-                   "Other Expenses" if oe is None else
-                   "Depreciation and Amortisation Expense" if dep is None else
+        missing = ("Profit Before Tax" if pbt is None else
                    "Finance Costs" if finance_costs is None else None)
         if missing:
             out = {"applicable": False, "reason": f"Could not find '{missing}' row on the P&L page.",
@@ -3699,20 +4090,13 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
             _write_cache(ckey, out)
             return out
 
-        rev_cur, _rev_prior = revenue
-        cogs_cur = sum(v[0] for v in components.values())
-        ebe_cur, _ebe_prior = ebe
-        oe_cur, _oe_prior = oe
-        dep_cur, _dep_prior = dep
+        pbt_cur, _pbt_prior = pbt
         fc_cur, _fc_prior = finance_costs
-        ebit_cur = rev_cur - cogs_cur - ebe_cur - oe_cur - dep_cur
+        ebit_cur = pbt_cur + fc_cur
 
         ebit_components = {
-            "Revenue from Operations": round(rev_cur, 2),
-            **{f"less: {k}": round(v[0], 2) for k, v in components.items()},
-            "less: Employee Benefit Expense": round(ebe_cur, 2),
-            "less: Other Expenses": round(oe_cur, 2),
-            "less: Depreciation and Amortisation Expense": round(dep_cur, 2),
+            "Profit Before Tax (Continuing Operations, after Exceptional Items)": round(pbt_cur, 2),
+            "add: Finance Costs": round(fc_cur, 2),
         }
 
         if abs(fc_cur) < 0.005:  # nil Finance Costs (rounds to ₹0.00 Cr) — genuinely debt-free/interest-free
@@ -3721,7 +4105,7 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
                              "no finance costs), so the ratio isn't defined rather than being computed as "
                              "an arbitrarily large or infinite number.",
                    "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-                   "numerator": {"label": "EBIT (Revenue − COGS − Employee Costs − Other Expenses − D&A)",
+                   "numerator": {"label": "EBIT (Profit Before Tax + Finance Costs)",
                                  "value_cr": round(ebit_cur, 2), "components": ebit_components},
                    "denominator": {"label": "Interest Expense (Finance Costs)", "value_cr": round(fc_cur, 2)},
                    "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
@@ -3730,16 +4114,15 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
             return out
 
         ratio = round(ebit_cur / fc_cur, 2)
-        confidence = 1.0 if len(components) == len(_COGS_LABELS) else 0.95
 
         out = {
             "applicable": True,
             "value": ratio, "unit": "x",
-            "confidence": confidence,
-            "estimated": confidence < 1.0,
+            "confidence": 1.0,
+            "estimated": False,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": {
-                "label": "EBIT (Revenue − COGS − Employee Costs − Other Expenses − D&A)",
+                "label": "EBIT (Profit Before Tax + Finance Costs)",
                 "value_cr": round(ebit_cur, 2),
                 "components": ebit_components,
             },
@@ -3748,11 +4131,11 @@ def fetch_interest_coverage_ratio_from_annual_report(symbol, name, fiscal_year, 
                 "value_cr": round(fc_cur, 2),
             },
             "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
-            "note": "From the company's own Annual Report — EBIT is identical to Operating Profit Margin's "
-                    "(Sr No 15) and Return on Capital Employed's (Sr No 19) numerator: Revenue from Operations "
-                    "minus COGS, Employee Benefit Expense, Other Expenses and Depreciation & Amortisation — "
-                    "scoped to Continuing Operations only, excludes Other Income and Exceptional Items. Finance "
-                    "Costs used gross, as reported; Interest Income is never netted off.",
+            "note": "From the company's own Annual Report — EBIT = Profit Before Tax (Continuing Operations, "
+                    "already net of Exceptional Items) + Finance Costs. Unlike Operating Profit Margin/ROCE, "
+                    "Other Income IS included here (standard PBIT convention for debt-serviceability), since "
+                    "PBT already reflects it. Finance Costs used gross, as reported; Interest Income is never "
+                    "netted off.",
         }
         _write_cache(ckey, out)
         return out
@@ -4208,7 +4591,10 @@ def fetch_dividend_per_share_from_annual_report(symbol, name, fiscal_year, conso
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_dps_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    # "_v2" cache-busts every DPS cached before the interim+proposed-final
+    # methodology switch (2026-07-30) — old entries used declared-and-paid
+    # (prior year's final + this year's interim), a different figure.
+    ckey = f"ar_dps_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -4261,9 +4647,10 @@ def fetch_dividend_per_share_from_annual_report(symbol, name, fiscal_year, conso
                       f"entity, not on a consolidated basis)",
             "numerator": {"label": "Dividend per Equity Share (declared, standalone)", "value_cr": round(dps, 2)},
             "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
-            "note": ("From the company's own Annual Report — the dividend actually declared and paid in cash "
-                      "during the year (never a merely recommended/board-proposed dividend still awaiting "
-                      "shareholder approval, which Ind AS doesn't recognise as a liability until then)."
+            "note": ("From the company's own Annual Report — this fiscal year's Interim dividend plus this "
+                      "year's Proposed Final dividend (board-recommended, pending AGM approval — matches "
+                      "Screener's convention). Excludes any PRIOR year's final dividend merely paid in cash "
+                      "during this year, which is not part of this year's own declared total."
                       if found else
                       "Could not find an explicit 'dividend per share paid during the year' disclosure in the "
                       "Annual Report. " + (
