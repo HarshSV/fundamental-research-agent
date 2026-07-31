@@ -1434,7 +1434,40 @@ _NUM_TOKEN_RE = re.compile(
 _PERMISSIVE_NUM_TOKEN_RE = re.compile(r"\A\(?-?[\d,]+(?:\.\d{1,2})?\)?\Z")
 
 
-def _find_row_values_spatial(words, canonical_names, permissive=False, after=None, reject_context=None):
+def _merge_loss_qualifier_tokens(texts, row):
+    """Merge a 'Profit/(loss)'-style loss-qualifier into the preceding word
+    so spatial label matching sees the same normalised text the
+    character-based path gets via `_strip_formula_refs` — some filers (e.g.
+    Gopal Snacks) caption a P&L subtotal as 'Profit/ (loss) before tax',
+    which PyMuPDF tokenises as SEPARATE word-boxes ('Profit/', '(loss)',
+    'before', 'tax'); a plain substring search for 'profit before tax'
+    never matches that. Handles both the split-token form ('Profit/' +
+    '(loss)') and a single merged token ('Profit/(loss)'). Keeps `texts`
+    and `row` in lockstep (same shrunk length) so the caller's word-index
+    math stays valid."""
+    out_t, out_r = [], []
+    i = 0
+    while i < len(texts):
+        t = texts[i]
+        merged_single = re.sub(r"/\s*\(\s*loss\s*\)", "", t, flags=re.I)
+        if merged_single != t:
+            out_t.append(merged_single)
+            out_r.append(row[i])
+            i += 1
+            continue
+        stripped = t.rstrip("/")
+        if stripped != t and i + 1 < len(texts) and re.fullmatch(r"\(\s*loss\s*\)", texts[i + 1], re.I):
+            out_t.append(stripped)
+            out_r.append(row[i])
+            i += 2
+            continue
+        out_t.append(t)
+        out_r.append(row[i])
+        i += 1
+    return out_t, out_r
+
+
+def _find_row_values_spatial(words, canonical_names, permissive=False, after=None, before=None, reject_context=None):
     """Spatial counterpart to `_find_row_values`'s near-window text scan:
     locates a row by its label and reads the two numbers immediately to its
     RIGHT on the same visual table row (grouped by y-coordinate via
@@ -1451,6 +1484,15 @@ def _find_row_values_spatial(words, canonical_names, permissive=False, after=Non
     an unrelated Balance Sheet row's cells in between). Reading by table ROW
     instead sidesteps that entirely: it doesn't matter what page-extraction
     order put nearby, only what's physically printed on the row's own line.
+
+    `before`: optional regex, upper y-bound counterpart to `after` — needed
+    for a generically-labeled row (e.g. plain "Borrowings") that repeats
+    under BOTH "Non-current Liabilities" and "Current Liabilities" sections
+    with identical label text; without an upper bound, a company with NO
+    non-current entry for that label would have its `after="Non-current
+    Liabilities"` search run straight past the empty section and wrongly
+    grab the Current section's row instead (same mislabelling risk
+    `_find_bs_row_bounded`'s text-based version already guards against).
 
     `reject_context`: optional list of lowercase terms; if any appears in the
     row's own joined text, this occurrence is disqualified and the next
@@ -1473,10 +1515,19 @@ def _find_row_values_spatial(words, canonical_names, permissive=False, after=Non
             if re.search(after, row_text, re.I):
                 y_cutoff = (row[0][1] + row[0][3]) / 2
                 break
+    y_upper = None
+    if before:
+        for row in rows:
+            row_text = "\n" + " ".join(w[4] for w in row)
+            if re.search(before, row_text, re.I):
+                y_upper = (row[0][1] + row[0][3]) / 2
+                break
     for row in rows:
+        if y_upper is not None and (row[0][1] + row[0][3]) / 2 >= y_upper:
+            continue
         if y_cutoff is not None and (row[0][1] + row[0][3]) / 2 <= y_cutoff:
             continue
-        texts = [w[4] for w in row]
+        texts, row = _merge_loss_qualifier_tokens([w[4] for w in row], row)
         joined = " ".join(texts).lower()
         for name in canonical_names:
             idx = joined.find(name.lower())
@@ -2680,7 +2731,13 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         the immediately FOLLOWING page (skipping Cash Flow Statement pages,
         same as `_find_bs_row`) — the Balance Sheet's Equity & Liabilities
         side, where Borrowings sits, is sometimes a "(CONTD.)" continuation
-        page (seen on Tata Steel)."""
+        page (seen on Tata Steel).
+
+        Also tries the spatial (row-position) fallback, BOUNDED by the same
+        two section markers via `_find_row_values_spatial`'s `after`/`before`
+        — needed for combined-page layouts (Gopal Snacks FY25) where the
+        section markers and the "Borrowings" row sit far apart in linear
+        text order but are a well-formed table row spatially."""
         segment = _bounded_segment(bs_text, start_after, stop_before)
         raw = _find_single_label_loose(segment, labels[0]) if segment else None
         factor = bs_factor
@@ -2694,6 +2751,9 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
                         factor = _unit_factor(next_text)
             except Exception:
                 pass
+        if raw is None and bs_words:
+            raw = _find_row_values_spatial(bs_words, labels, permissive=True,
+                                            after=start_after, before=stop_before)
         return _scale(raw, factor)
 
     # Total Assets is the Balance Sheet's own closing subtotal (the last line
@@ -2839,13 +2899,23 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # prefix) since the Non-current-vs-Current split already comes from
     # which SECTION it sits under, not the label itself — tried as a
     # section-scoped fallback when the more specific label isn't found.
-    lt_borrowings = _find_bs_row(_LT_BORROWINGS_LABELS)
+    # `permissive=True`: same reasoning as Cash and Cash Equivalents above —
+    # Borrowings/Current Maturities are routinely small (sub-1,000, no
+    # thousands separator) figures on smaller filers (confirmed on Gopal
+    # Snacks: "5.73"/"36.65"), which the strict spatial-fallback number token
+    # (`_NUM_TOKEN_RE`, requires a comma or 2+ integer digits before the
+    # decimal) can't match at all — silently returning no value even though
+    # the row is spatially well-formed. The permissive path's last-two-tokens
+    # rule already exists specifically to skip a leading note-reference digit
+    # (e.g. "18" before "5.73"/"36.65"), so this carries the same low risk
+    # already accepted for Cash.
+    lt_borrowings = _find_bs_row(_LT_BORROWINGS_LABELS, permissive=True)
     if lt_borrowings is None:
         lt_borrowings = _find_bs_row_bounded(["borrowings"], r"\nNon-current Liabilities\b", r"\nCurrent Liabilities\b")
-    st_borrowings = _find_bs_row(_ST_BORROWINGS_LABELS)
+    st_borrowings = _find_bs_row(_ST_BORROWINGS_LABELS, permissive=True)
     if st_borrowings is None:
         st_borrowings = _find_bs_row_bounded(["borrowings"], r"\nCurrent Liabilities\b", r"\nTotal Equity and Liabilities\b")
-    current_maturities = _find_bs_row(_CURRENT_MATURITIES_LABELS)
+    current_maturities = _find_bs_row(_CURRENT_MATURITIES_LABELS, permissive=True)
 
     # Distinguishes "genuinely absent" (real ₹0 — a debt-free company) from
     # "extraction failure" (the label IS present on the face of the Balance
