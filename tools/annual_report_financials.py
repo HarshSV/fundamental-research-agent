@@ -632,7 +632,7 @@ _REPAYMENT_BORROWINGS_LABELS = [
     # Service whenever fresh borrowings exceeded repayments that year, and
     # can even be a net INFLOW), so a filing with only that netted line
     # correctly falls through to "Could not find" instead of a wrong number.
-    "repayment of borrowings",
+    "repayment of borrowings", "repayments of borrowings",
 ]
 # Ind AS 116 splits a lease payment into interest and principal components in
 # the Cash Flow Statement — only the PRINCIPAL portion belongs in Total Debt
@@ -695,6 +695,12 @@ _OPERATING_CASH_FLOW_LABELS = [
     # operating activities" alone).
     "net cash from/(used in) operating activities", "net cash used in/generated from operating activities",
     "net cash generated/(used in) operating activities",
+    # Missing the "net"/"generated" prefix entirely (confirmed on Gopal
+    # Snacks: "Cash flow from/(used in) operating activities") — the
+    # section-heading CAPTION itself doubling as the subtotal's own row
+    # label, common on smaller/recently-listed filers.
+    "cash flow from/(used in) operating activities", "cash flow from operating activities",
+    "cash flows from/(used in) operating activities",
 ]
 # Free Cash Flow (Sr No 36) denominator components — Capital Expenditure,
 # from the Cash Flow Statement's INVESTING ACTIVITIES section, NEVER the
@@ -721,6 +727,9 @@ _CAPEX_DISPOSAL_PROCEEDS_LABELS = [
     "proceeds from sale of fixed assets", "sale of property, plant and equipment", "sale of fixed assets",
     "sale of capital assets",
     "proceeds from sale/disposal of property, plant and equipment", "sale of tangible fixed assets",
+    # "Sale proceeds FROM property..." (word order reversed from the "sale
+    # OF property..." variants above — confirmed on Gopal Snacks).
+    "sale proceeds from property plant", "sale proceeds from property, plant",
 ]
 
 
@@ -733,9 +742,33 @@ _CAPEX_DISPOSAL_PROCEEDS_LABELS = [
 # operating_cash_flow/capex/repayments came back "Could not find..." even
 # though the figures were sitting right there on the page. `s?` makes both
 # forms match.
-_CFS_OPERATING_PAT = r"cash\s+flows?\s+from\s+operating\s+activities"
-_CFS_INVESTING_PAT = r"cash\s+flows?\s+from\s+investing\s+activities"
-_CFS_FINANCING_PAT = r"cash\s+flows?\s+from\s+financing\s+activities"
+# Section-heading captions routinely insert a "/(used in)" or "/(used)"
+# qualifier between "from" and the activity type — very common Indian
+# filing convention showing both possible directions in one caption (e.g.
+# "Cash flow from/(used in) operating activities", "Cash flow from/(used)
+# in financing activities" — confirmed BOTH phrasings on the SAME company's
+# SAME filing, Gopal Snacks FY24/FY25). The plain "cash flows? from X
+# activities" pattern doesn't match either variant AT ALL (the inserted
+# text sits directly between "from" and the activity word), which
+# previously made the ENTIRE Cash Flow Statement section boundary
+# detection silently fail for any such filing — not just the headline
+# Operating Cash Flow figure, but every other CFS-sourced field scoped by
+# these same three patterns (Capex, Borrowings/Lease Repayment, Interest
+# Paid, etc.). The permissive middle segment below accepts the qualifier
+# in either position (inside or outside the parenthesis) or its absence
+# entirely, while still requiring the literal "from" and activity-type
+# anchor so it can never accidentally match somewhere unrelated.
+_CFS_FROM_QUALIFIER = r"from(?:\s*/\s*\(?\s*used\s*(?:in)?\s*\)?)?\s*(?:in\s+)?\s*"
+# Line-start anchor for Cash Flow Statement item labels — tolerates a
+# stray bullet-point glyph PyMuPDF sometimes extracts as a raw control
+# character (confirmed \x07 immediately before "Purchase of..." on Gopal
+# Snacks' filing) between the line break and the label text, which the
+# plain "only tabs/spaces" anchor doesn't skip over, silently failing the
+# match entirely.
+_CFS_LINE_START = r"(?:^|\n)[ \t]*[\x00-\x1f•●▪]?[ \t]*"
+_CFS_OPERATING_PAT = r"cash\s+flows?\s+" + _CFS_FROM_QUALIFIER + r"operating\s+activities"
+_CFS_INVESTING_PAT = r"cash\s+flows?\s+" + _CFS_FROM_QUALIFIER + r"investing\s+activities"
+_CFS_FINANCING_PAT = r"cash\s+flows?\s+" + _CFS_FROM_QUALIFIER + r"financing\s+activities"
 
 
 def _bounded_segment_module(text, start_after, stop_before):
@@ -872,7 +905,7 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
             # plant and equipment" (a receivable, not actual disposal cash).
             if capex_ppe_purchase is None:
                 for label in _CAPEX_PPE_PURCHASE_LABELS:
-                    m = re.search(r"(?:^|\n)[ \t]*" + re.escape(label), inv_segment, re.I | re.M)
+                    m = re.search(_CFS_LINE_START + re.escape(label), inv_segment, re.I | re.M)
                     if not m:
                         continue
                     window = inv_segment[m.end():m.end() + 200]
@@ -885,7 +918,7 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
 
             if capex_intangible_purchase is None:
                 for label in _CAPEX_INTANGIBLE_PURCHASE_LABELS:
-                    m = re.search(r"(?:^|\n)[ \t]*" + re.escape(label), inv_segment, re.I | re.M)
+                    m = re.search(_CFS_LINE_START + re.escape(label), inv_segment, re.I | re.M)
                     if not m:
                         continue
                     window = inv_segment[m.end():m.end() + 200]
@@ -898,7 +931,7 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
 
             if capex_disposal_proceeds is None:
                 for label in _CAPEX_DISPOSAL_PROCEEDS_LABELS:
-                    m = re.search(r"(?:^|\n)[ \t]*" + re.escape(label), inv_segment, re.I | re.M)
+                    m = re.search(_CFS_LINE_START + re.escape(label), inv_segment, re.I | re.M)
                     if not m:
                         continue
                     window = inv_segment[m.end():m.end() + 200]
