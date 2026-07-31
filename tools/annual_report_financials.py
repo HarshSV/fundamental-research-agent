@@ -169,6 +169,17 @@ _PAT_OWNERS_LABELS = [
     "attributable to owners of the parent",
     "attributable to the owners of the company",
     "attributable to shareholders of the company",
+    # HUL captions its "Net profit attributable to:" split as "Owners of the
+    # HOLDING Company" (not "the Company"/"the Parent") — confirmed this
+    # caused the label to fall through entirely to `_PAT_GENERIC_LABELS`,
+    # whose first entry ("profit for the year") then matched the WRONG,
+    # earlier subtotal "PROFIT FOR THE YEAR FROM CONTINUING OPERATIONS (A)"
+    # instead of the real combined (continuing + discontinued) owners'
+    # profit — silently understating Net Profit/Dividend Payout Ratio's
+    # denominator by the entire discontinued-operations gain whenever a
+    # filer splits the P&L (HUL FY26: ₹10,652 Cr picked up instead of the
+    # correct ₹15,040 Cr, a ~₹4,400 Cr miss from the ice-cream demerger).
+    "owners of the holding company",
     # Same "/(Loss)" suffix as `_PAT_GENERIC_LABELS` below, but on the
     # owners-attributable caption — a loss-making-history consolidated filing
     # can print "Profit/(Loss) for the year attributable to Owners of the
@@ -546,14 +557,29 @@ def _find_dividend_per_share(doc, start_idx, max_pages=250):
         elif "standalone balance sheet" in tl \
                 or (_has_pl_caption(tl) and "consolidated" not in tl):
             section = "standalone"
-        if section != "standalone":
+        if section == "consolidated":
             continue
-
-        # Tabulated note (tried FIRST — a filer that tabulates Final/Interim/
-        # Special separately always has this be the authoritative figure;
-        # the narrative sentence below, if also present, describes the same
-        # "declared and paid" cash figure and would double-count Interim).
-        anchor = re.search(r"declared and paid during the year", t, re.I)
+        # The tabulated Notes-to-Accounts path below is gated to the
+        # standalone FINANCIAL STATEMENTS section (dividends are always
+        # standalone-sourced, and a tabulated note can appear duplicated
+        # under both standalone/consolidated notes). The narrative-sentence
+        # fallback further down is NOT gated the same way — a filer that
+        # never tabulates at all (e.g. Gopal Snacks) only states its
+        # dividend in the DIRECTORS' REPORT, which always sits BEFORE either
+        # financial-statements section even begins (`section` is still
+        # `None` at that point) — confirmed this silently skipped page 32
+        # entirely (Gopal's own dividend disclosure) since the old blanket
+        # `if section != "standalone": continue` gate ran before the
+        # narrative regexes ever got a chance to see that page.
+        if section == "standalone":
+            # Tabulated note (tried FIRST — a filer that tabulates Final/
+            # Interim/Special separately always has this be the
+            # authoritative figure; the narrative sentence below, if also
+            # present, describes the same "declared and paid" cash figure
+            # and would double-count Interim).
+            anchor = re.search(r"declared and paid during the year", t, re.I)
+        else:
+            anchor = None
         if anchor:
             window = t[anchor.end():anchor.end() + 700]
             stop = re.search(r"proposed dividend", window, re.I)
@@ -589,14 +615,68 @@ def _find_dividend_per_share(doc, start_idx, max_pages=250):
             if row_found:
                 return round(row_total, 2), True
 
-        m = re.search(r"during the year,?\s*a dividend of\s*`?\s*([\d,]+(?:\.\d+)?)\s*per share", tl)
+        # Currency prefix between "dividend of" and the figure isn't always
+        # a single-char symbol/placeholder — Dabur's PDF spells it out as
+        # the literal word "Rs." (with its OWN trailing space/newline
+        # before the number: "dividend of rs. \n2.75 per equity share"),
+        # which neither the backtick placeholder nor a 0-2-char symbol class
+        # can match. Shared across `m`/`m2`/`fm` below so all three
+        # narrative patterns tolerate the same currency-prefix variants.
+        _cur = r"(?:rs\.?\s*|inr\s*|`\s*|[^\da-z\s]{0,2}\s*)?"
+        m = re.search(rf"during the year,?\s*a dividend of\s*{_cur}([\d,]+(?:\.\d+)?)\s*per share", tl)
         if m:
             v = _parse_num(m.group(1))
             if v is not None:
                 return v, True  # (value, found_with_confidence)
-        m2 = re.search(r"dividend of\s*`?\s*([\d,]+(?:\.\d+)?)\s*per (?:equity )?share[^.]{0,60}(?:was paid|paid to)", tl)
+        m2 = re.search(rf"dividend of\s*{_cur}([\d,]+(?:\.\d+)?)\s*per (?:equity )?share[^.]{{0,60}}(?:was paid|paid to)", tl)
         if m2:
             v = _parse_num(m2.group(1))
+            if v is not None:
+                # Some filers (e.g. Dabur's AGM Notice / Shareholder
+                # Information page, never tabulated) state Interim (paid)
+                # and Final/Proposed (recommended) dividends as TWO
+                # SEPARATE narrative sentences on the same page — m2 above
+                # only ever finds the interim "was paid" leg on its own,
+                # silently dropping the equally-current-year final/proposed
+                # leg (confirmed on Dabur FY26: interim ₹2.75 + final ₹5.5
+                # recommended, m2 alone would report only ₹2.75). Mirrors
+                # the tabulated Interim+Proposed-Final summing convention
+                # above — look for a companion "final dividend ...
+                # recommended/proposed" sentence on the SAME page and add it
+                # if present.
+                fm = re.search(
+                    rf"final\s+dividend\s+of\s*{_cur}([\d,]+(?:\.\d+)?)\s*per\s*(?:equity\s+)?share"
+                    r"[^.]{0,120}(?:recommended|proposed)", tl)
+                if fm:
+                    fv = _parse_num(fm.group(1))
+                    if fv is not None:
+                        return round(v + fv, 2), True
+                return v, True
+
+        # A third, common narrative phrasing puts the "paid"/"declared" verb
+        # BEFORE the per-share figure instead of after (e.g. Gopal Snacks
+        # FY25 Directors' Report: "the Board of Directors has paid an
+        # interim dividend of ₹1.00 per equity share ... during the year") —
+        # neither of the two patterns above match this word order (the first
+        # requires "during the year" to IMMEDIATELY precede "a dividend of";
+        # the second requires "was paid"/"paid to" to follow the per-share
+        # figure within 60 chars), so this genuinely common phrasing was
+        # silently returning the unconfirmed 0.0 default. Confirmed only
+        # ONE such sentence is ever present when a filer narrates rather
+        # than tabulates (no separate current-year Final to also add), so a
+        # single match is sufficient here, unlike the tabulated path above.
+        # The currency symbol before the figure isn't always the literal "`"
+        # placeholder `m`/`m2` above assume (a font-specific glyph
+        # substitution seen on some filings) — Gopal Snacks' PDF instead
+        # embeds the genuine "₹" Unicode character, which neither `\s` nor
+        # "`" can match, so `[^\d\s]{0,2}` (any 0-2 non-digit/non-space
+        # symbol chars — mirrors `_sum_rows`'s own tolerance a few lines up)
+        # is used here instead of a single hardcoded placeholder.
+        m3 = re.search(
+            rf"(?:has\s+)?(?:paid|declared|recommended)\s+(?:an?\s+)?(?:interim\s+|final\s+|special\s+)?"
+            rf"dividend\s+of\s*{_cur}([\d,]+(?:\.\d+)?)\s*per\s*(?:equity\s+)?share", tl)
+        if m3:
+            v = _parse_num(m3.group(1))
             if v is not None:
                 return v, True
     return 0.0, False
