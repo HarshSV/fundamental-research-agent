@@ -2258,8 +2258,16 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # FY24 filing, a differently-laid-out combined page where this is safe)
     # before trusting the result — force N/A rather than risk silently
     # attributing the wrong sub-item's figures to Cash.
-    cash_label_ok = any(_label_directly_followed_by_number(bs_text, re.escape(n), after=r"\nCurrent Assets\b")
-                         for n in _CASH_LABELS)
+    #
+    # Only apply this on a `combined_page` (see the identical, confirmed-
+    # regression rationale on `tcl_label_ok` above) — `_find_cash_row` has
+    # its own separate near-window text scan AND spatial fallback, and a
+    # filer whose "Cash and cash equivalents" label doesn't exist verbatim
+    # (e.g. a filing captioning it differently) must not be blocked here
+    # just because this narrow check can't confirm it.
+    cash_label_ok = (not combined_page) or any(
+        _label_directly_followed_by_number(bs_text, re.escape(n), after=r"\nCurrent Assets\b")
+        for n in _CASH_LABELS)
     cash = None if not cash_label_ok else _scale(
         _find_cash_row(bs_text, _CASH_LABELS, after=r"\nCurrent Assets\b", words=bs_words), bs_factor)
     # Other Bank Balances — kept SEPARATE from `cash` on purpose (see
@@ -2673,11 +2681,25 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # the spatial fallback is ALSO unreliable for this specific row despite
     # working correctly for Total Assets/Total Current Assets on the same
     # page — not yet root-caused). Verify the label is genuinely followed by
-    # a number first (true on, e.g., the same company's differently-laid-out
-    # FY24 filing, where this is safe) — force N/A rather than risk a
-    # silently ~10x-wrong Current/Quick/Cash Ratio.
-    tcl_label_ok = any(_label_directly_followed_by_number(bs_text, re.escape(n), after=r"\nCurrent Liabilities\b")
-                        for n in _TOTAL_CURRENT_LIABILITIES_LABELS)
+    # a number first — force N/A rather than risk a silently ~10x-wrong
+    # Current/Quick/Cash Ratio.
+    #
+    # CRITICAL: only apply this suspicion check on a `combined_page` (the
+    # confirmed-bad scenario) — some filers (e.g. HUL) never print an
+    # explicit "Total Current Liabilities" LABEL at all and rely entirely
+    # on `_find_bs_row`'s own `subtotal_before` bare-number-pair fallback
+    # (the figure sits unlabelled directly above "Total Equity and
+    # Liabilities"). `_label_directly_followed_by_number` only checks for a
+    # number after the LABEL text, so on a filing with no such label it
+    # always returns False — applying this guard unconditionally wrongly
+    # blocked a perfectly good extraction on every ordinary (non-combined-
+    # page) filing that uses the label-less bare-subtotal convention,
+    # regressing Sr No 39 (Operating Cash Flow Ratio, which reads this
+    # field directly) among others. Confirmed: HUL has no "total current
+    # liabilities" text anywhere on its Balance Sheet page at all.
+    tcl_label_ok = (not combined_page) or any(
+        _label_directly_followed_by_number(bs_text, re.escape(n), after=r"\nCurrent Liabilities\b")
+        for n in _TOTAL_CURRENT_LIABILITIES_LABELS)
     total_current_liabilities = None if not tcl_label_ok else _find_bs_row(
         _TOTAL_CURRENT_LIABILITIES_LABELS, after=r"\nCurrent Liabilities\b",
         subtotal_before="total equity and liabilities")
