@@ -645,6 +645,33 @@ _REPAYMENT_LEASE_LABELS = [
     "repayment of lease liabilities", "payment of lease liabilities",
     "principal payment of lease liabilities", "principal repayment of lease liabilities",
     "repayment of lease liability", "payment of lease liability",
+    "repayment of lease obligations", "payment towards lease liabilities",
+    "payment of principal portion of lease liabilities",
+]
+# DSCR (Sr No 34) Interest components — CASH interest actually PAID during
+# the year, from the Cash Flow Statement's Financing Activities section
+# (2026-07-31, per QA spec) — NOT the P&L's accrual-basis Finance Costs,
+# for consistency with Principal Repayment which is already CFS-sourced
+# (DSCR is a cash-adequacy question: can operating cash cover CASH debt
+# service, not accrued expense). Split into borrowings-interest and
+# lease-interest, mirroring the existing Repayment split, so each can be
+# independently included/excluded per `lease_basis` the same way.
+_INTEREST_PAID_LABELS = [
+    "interest paid on borrowings", "interest paid on term loans",
+    "interest paid on working capital loans", "interest paid on cash credit",
+    "interest paid on overdraft", "interest paid on debentures",
+    "interest paid on non-convertible debentures", "interest paid on ncds",
+    "interest on loans", "interest and finance charges paid",
+    "interest expense paid", "finance cost paid", "finance costs paid",
+    # Deliberately LAST — the generic catch-all, same reasoning as
+    # `_REPAYMENT_BORROWINGS_LABELS`'s trailing entry: tried only after
+    # every more specific instrument label above has had a chance to match.
+    "interest paid",
+]
+_INTEREST_LEASE_LABELS = [
+    "interest paid on lease liabilities", "interest expense on lease liabilities",
+    "finance cost on lease liabilities", "interest on lease obligations",
+    "interest paid on right-of-use lease liabilities", "interest on lease liabilities",
 ]
 # Cash Flow Coverage Ratio (Sr No 35) numerator — the FINAL, post-tax
 # subtotal at the bottom of the Operating Activities section, NEVER the
@@ -759,6 +786,8 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
     capex_disposal_proceeds = None
     borrowings_repayment = None
     lease_repayment = None
+    interest_paid = None
+    lease_interest_paid = None
     for i in range(start_idx, min(start_idx + max_pages, doc.page_count)):
         try:
             t = _page_text(doc[i])
@@ -912,19 +941,51 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
                             lease_repayment = (round(abs(a) * factor, 2), round(abs(b) * factor, 2))
                             break
 
+            # DSCR (Sr No 34) Interest components — cash Interest Paid, same
+            # section/window mechanics as the two Repayment components above.
+            if interest_paid is None:
+                for label in _INTEREST_PAID_LABELS:
+                    m = re.search(re.escape(label), segment, re.I)
+                    if not m:
+                        continue
+                    window = segment[m.end():m.end() + 200]
+                    nums = re.findall(_NUM_RE, window)
+                    if len(nums) >= 2:
+                        a, b = _parse_num(nums[0]), _parse_num(nums[1])
+                        if a is not None and b is not None:
+                            interest_paid = (round(abs(a) * factor, 2), round(abs(b) * factor, 2))
+                            break
+
+            if lease_interest_paid is None:
+                for label in _INTEREST_LEASE_LABELS:
+                    m = re.search(re.escape(label), segment, re.I)
+                    if not m:
+                        continue
+                    window = segment[m.end():m.end() + 200]
+                    nums = re.findall(_NUM_RE, window)
+                    if len(nums) >= 2:
+                        a, b = _parse_num(nums[0]), _parse_num(nums[1])
+                        if a is not None and b is not None:
+                            lease_interest_paid = (round(abs(a) * factor, 2), round(abs(b) * factor, 2))
+                            break
+
         # Early-exit once every REQUIRED item is found — capex_intangible_purchase
         # and capex_disposal_proceeds are genuinely optional (many companies have
         # no intangible purchases or disposals in a given year) and would never
-        # gate the scan to completion if required here.
+        # gate the scan to completion if required here. Lease interest is also
+        # genuinely optional (many filers fold it into a single undifferentiated
+        # "Interest paid" line covering both borrowings and leases).
         if (operating_cash_flow is not None and capex_ppe_purchase is not None
-                and borrowings_repayment is not None and lease_repayment is not None):
+                and borrowings_repayment is not None and lease_repayment is not None
+                and interest_paid is not None):
             break
 
     return {"operating_cash_flow": operating_cash_flow,
             "capex_ppe_purchase": capex_ppe_purchase,
             "capex_intangible_purchase": capex_intangible_purchase,
             "capex_disposal_proceeds": capex_disposal_proceeds,
-            "borrowings_repayment": borrowings_repayment, "lease_repayment": lease_repayment}
+            "borrowings_repayment": borrowings_repayment, "lease_repayment": lease_repayment,
+            "interest_paid": interest_paid, "lease_interest_paid": lease_interest_paid}
 
 
 _FINANCE_COST_LABELS = [
@@ -2823,6 +2884,8 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         "shares_outstanding": shares_outstanding,  # (cur, prior) or None, raw share COUNT — NEVER Crore-scaled
         "borrowings_repayment": cf_items.get("borrowings_repayment"),  # (cur, prior) or None, normalised to ₹ Cr — Sr No 34
         "lease_repayment": cf_items.get("lease_repayment"),  # (cur, prior) or None, normalised to ₹ Cr — Sr No 34
+        "interest_paid": cf_items.get("interest_paid"),  # (cur, prior) or None, normalised to ₹ Cr — Sr No 34, cash-basis (Cash Flow Statement)
+        "lease_interest_paid": cf_items.get("lease_interest_paid"),  # (cur, prior) or None, normalised to ₹ Cr — Sr No 34
         "operating_cash_flow": cf_items.get("operating_cash_flow"),  # (cur, prior) or None, normalised to ₹ Cr — Sr No 35
         "capex_ppe_purchase": cf_items.get("capex_ppe_purchase"),  # (cur, prior) or None, normalised to ₹ Cr — Sr No 36
         "capex_intangible_purchase": cf_items.get("capex_intangible_purchase"),  # (cur, prior) or None, normalised to ₹ Cr — Sr No 36
@@ -5971,21 +6034,33 @@ def fetch_debt_service_coverage_ratio_from_annual_report(symbol, name, fiscal_ye
         calculation (mirrors `fetch_ebitda_from_annual_report`'s internals
         exactly, Sr No 93, EBITDA-basis), NEVER Sr No 15's now-EBIT-basis
         Operating Profit Margin.
-      - Total Debt Service = Finance Costs (P&L) + Repayment of Borrowings
-        (Cash Flow Statement, Financing Activities — the actual PRINCIPAL
-        repaid during the year, via `_find_cash_flow_statement_items`, NOT
-        the Balance Sheet's outstanding Borrowings balance, and never netted
-        against fresh borrowings raised in the same section).
-      - Lease principal repayment (Ind AS 116 splits a lease payment into
-        interest — already inside Finance Costs — and principal components
-        in the Cash Flow Statement): per Sr No 34's OWN spec, Basis 1
-        (default) EXCLUDES this from Total Debt Service; Basis 2 (opt-in
-        `lease_basis="basis2"`) INCLUDES it. NOTE this is the OPPOSITE
-        direction from Sr No 20/33's Basis 1 (which INCLUDES leases in Total
-        Debt) — each ratio's Basis 1/Basis 2 toggle is defined independently
-        per its own spec row; "apply the same basis consistently" means
-        whichever basis position the user selected, not that the literal
-        include/exclude behaviour matches across ratios.
+      - Total Debt Service = Interest Paid + Repayment of Borrowings, BOTH
+        from the Cash Flow Statement's Financing Activities section (via
+        `_find_cash_flow_statement_items`) — cash-basis throughout, per QA
+        spec (2026-07-31). Interest Paid is CASH interest actually paid
+        during the year (e.g. "Interest paid on borrowings"/"Interest paid"/
+        "Finance cost paid" — see `_INTEREST_PAID_LABELS`), NOT the P&L's
+        accrual-basis Finance Costs — DSCR is a cash-adequacy question ("can
+        operating cash cover cash obligations"), so mixing an accrual
+        interest figure with a cash principal figure would be internally
+        inconsistent. Falls back to P&L Finance Costs ONLY if no CFS
+        "Interest paid"-style line was found at all (flagged as `estimated`
+        when this fallback is used) — never silently substitutes it when a
+        genuine cash figure exists. Repayment of Borrowings is the actual
+        PRINCIPAL repaid during the year, NOT the Balance Sheet's
+        outstanding Borrowings balance, and never netted against fresh
+        borrowings raised in the same section (see `_REPAYMENT_BORROWINGS_
+        LABELS`'s deliberate exclusion of single "net" lines).
+      - Lease Interest Paid + Lease principal repayment (Ind AS 116 splits a
+        lease payment into interest and principal components in the Cash
+        Flow Statement): per Sr No 34's OWN spec, Basis 1 (default) EXCLUDES
+        both from Total Debt Service; Basis 2 (opt-in `lease_basis="basis2"`)
+        INCLUDES both. NOTE this is the OPPOSITE direction from Sr No
+        20/33's Basis 1 (which INCLUDES leases in Total Debt) — each
+        ratio's Basis 1/Basis 2 toggle is defined independently per its own
+        spec row; "apply the same basis consistently" means whichever basis
+        position the user selected, not that the literal include/exclude
+        behaviour matches across ratios.
 
     A stricter solvency test than Interest Coverage (Sr No 22) — accounts
     for BOTH interest AND scheduled principal repayments; DSCR can fail even
@@ -6046,9 +6121,23 @@ def fetch_debt_service_coverage_ratio_from_annual_report(symbol, name, fiscal_ye
             _write_cache(ckey, out)
             return out
 
+        # Interest Paid — cash basis (Cash Flow Statement), preferred. Falls
+        # back to P&L Finance Costs only if no CFS "Interest paid"-style
+        # line was found at all (some filers, especially smaller/SME ones,
+        # don't itemise Financing-Activities cash outflows this granularly).
+        interest_paid = parsed.get("interest_paid")
         finance_costs = parsed.get("finance_costs")
-        if finance_costs is None:
-            out = {"applicable": False, "reason": "Could not find 'Finance Costs' row on the P&L page.",
+        interest_is_estimated = False
+        if interest_paid is not None:
+            interest_source_note = "Interest Paid (cash basis, Cash Flow Statement)"
+        elif finance_costs is not None:
+            interest_paid = finance_costs
+            interest_is_estimated = True
+            interest_source_note = "Finance Costs (P&L, accrual basis — no CFS 'Interest Paid' line found)"
+        else:
+            out = {"applicable": False,
+                   "reason": "Could not find an 'Interest Paid' line in the Cash Flow Statement, nor a "
+                             "'Finance Costs' row on the P&L page.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
@@ -6069,23 +6158,27 @@ def fetch_debt_service_coverage_ratio_from_annual_report(symbol, name, fiscal_ye
         ebitda_cur = rev_cur - cogs_cur - ebe_cur - oe_cur
         ebitda_confidence = 1.0 if len(components) == len(_COGS_LABELS) else 0.95
 
-        fc_cur, _fc_prior = finance_costs
+        int_cur, _int_prior = interest_paid
         repay_cur, _repay_prior = borrowings_repayment
 
         lease_repayment = parsed.get("lease_repayment")
+        lease_interest_paid = parsed.get("lease_interest_paid")
         lease_repay_cur = lease_repayment[0] if (lease_basis == "basis2" and lease_repayment is not None) else 0.0
+        lease_int_cur = lease_interest_paid[0] if (lease_basis == "basis2" and lease_interest_paid is not None) else 0.0
 
-        total_debt_service = round(fc_cur + repay_cur + lease_repay_cur, 2)
+        total_debt_service = round(int_cur + repay_cur + lease_repay_cur + lease_int_cur, 2)
 
         debt_service_components = {
-            "Finance Costs": round(fc_cur, 2),
+            interest_source_note: round(int_cur, 2),
             "Repayment of Borrowings (principal, Cash Flow Statement)": round(repay_cur, 2),
         }
         if lease_basis == "basis2":
             debt_service_components["Repayment of Lease Liabilities (principal, Basis 2)"] = round(lease_repay_cur, 2)
+            if lease_int_cur:
+                debt_service_components["Interest on Lease Liabilities (Basis 2)"] = round(lease_int_cur, 2)
 
         numerator = {"label": "EBITDA (Net Operating Income proxy)", "value_cr": round(ebitda_cur, 2)}
-        denominator = {"label": "Total Debt Service (Finance Costs + Principal Repayment)",
+        denominator = {"label": "Total Debt Service (Interest Paid + Principal Repayment, cash basis)",
                         "value_cr": total_debt_service, "components": debt_service_components}
 
         if total_debt_service == 0:
@@ -6101,22 +6194,26 @@ def fetch_debt_service_coverage_ratio_from_annual_report(symbol, name, fiscal_ye
 
         ratio = round(ebitda_cur / total_debt_service, 2)
 
+        confidence = min(ebitda_confidence, 0.9) if interest_is_estimated else ebitda_confidence
         out = {
             "applicable": True,
             "value": ratio, "unit": "x",
-            "confidence": ebitda_confidence,
-            "estimated": ebitda_confidence < 1.0,
+            "confidence": confidence,
+            "estimated": confidence < 1.0,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": numerator,
             "denominator": denominator,
             "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
             "note": "From the company's own Annual Report — EBITDA (Sr No 93, EBITDA-basis, never Sr No 15's "
-                    "EBIT-basis Operating Profit Margin) ÷ Total Debt Service (Finance Costs + actual Principal "
-                    "Repaid during the year, from the Cash Flow Statement's Financing Activities section — never "
-                    "the outstanding Balance Sheet balance, never netted against fresh borrowings raised). "
-                    + ("Basis 2: Lease Liabilities principal repayment included in Total Debt Service."
+                    "EBIT-basis Operating Profit Margin) ÷ Total Debt Service (" + interest_source_note +
+                    " + actual Principal Repaid during the year, from the Cash Flow Statement's Financing "
+                    "Activities section — never the outstanding Balance Sheet balance, never netted against "
+                    "fresh borrowings raised). "
+                    + ("Basis 2: Lease Liabilities interest and principal repayment both included in Total Debt "
+                       "Service."
                        if lease_basis == "basis2" else
-                       "Basis 1 (default): Lease Liabilities principal repayment excluded from Total Debt Service."),
+                       "Basis 1 (default): Lease Liabilities interest and principal repayment both excluded from "
+                       "Total Debt Service."),
         }
         _write_cache(ckey, out)
         return out
