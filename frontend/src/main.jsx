@@ -8099,10 +8099,29 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const token = localStorage.getItem(TOKEN_KEY);
                 const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
                 const body = JSON.stringify({ symbol, name, to_date: null });
-                Promise.all([
-                    fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body }).then(r => r.json()),
-                    fetch(`${API_BASE}/api/v1/book-value-per-share`, { method: 'POST', headers, body }).then(r => r.json()),
-                ]).then(([eps, bvps]) => { if (!cancelled) setState({ loading: false, eps, bvps }); })
+                // EPS and Book Value per Share are each independently probed
+                // across the last few Annual Reports (whichever year first
+                // successfully extracts) with NO cross-check that they land
+                // on the SAME year — confirmed on Gopal Snacks: EPS's own
+                // FY25 extraction fails (falls back to FY24), while BVPS's
+                // FY25 extraction succeeds, silently multiplying FY24 EPS by
+                // FY25 Book Value per Share into one number. Fixed by
+                // fetching EPS FIRST, then re-requesting Book Value per
+                // Share pinned to EPS's own resolved `selected_period` —
+                // if BVPS isn't available for that exact year, this
+                // correctly falls through to N/A rather than mixing years.
+                fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body }).then(r => r.json())
+                  .then(eps => {
+                      if (cancelled) return;
+                      if (!eps?.applicable || !eps?.selected_period) {
+                          setState({ loading: false, eps, bvps: { applicable: false } });
+                          return;
+                      }
+                      const bvpsBody = JSON.stringify({ symbol, name, to_date: eps.selected_period });
+                      fetch(`${API_BASE}/api/v1/book-value-per-share`, { method: 'POST', headers, body: bvpsBody })
+                        .then(r => r.json())
+                        .then(bvps => { if (!cancelled) setState({ loading: false, eps, bvps }); });
+                  })
                   .catch(() => { if (!cancelled) setState({ loading: false, error: true }); });
                 return () => { cancelled = true; };
             }, [symbol]);
