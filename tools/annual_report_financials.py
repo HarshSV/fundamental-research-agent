@@ -6684,17 +6684,25 @@ def fetch_operating_cash_flow_ratio_from_annual_report(symbol, name, fiscal_year
 
 def fetch_capex_intensity_from_annual_report(symbol, name, fiscal_year, consolidated=True):
     """
-    Capex Intensity (Sr No 40) = Capital Expenditure (net) ÷ Revenue from
+    Capex Intensity (Sr No 40) = Capital Expenditure (GROSS) ÷ Revenue from
     Operations — a structural indicator of how much of every rupee of sales
     must be reinvested just to sustain/grow the asset base. Central to
     distinguishing asset-light compounders (low, stable capex intensity)
     from capital-hungry businesses (telecom, infra, semiconductors) that
     require continuous heavy reinvestment.
 
-    Pure arithmetic reuse of the SAME Capex components as Free Cash Flow (Sr
-    No 36) — Purchase of PP&E (REQUIRED) + Purchase of Intangible Assets
-    (optional, "sum what's there") − Proceeds from Disposal of Fixed Assets
-    (optional, netted off) — and Revenue from Operations (Sr No 3).
+    Deliberately GROSS (Purchase of PP&E [REQUIRED] + Purchase of Intangible
+    Assets [optional, "sum what's there"] — Proceeds from Disposal of Fixed
+    Assets NEVER netted off here), unlike Free Cash Flow (Sr No 36), which
+    correctly nets disposal proceeds off since FCF asks "how much cash is
+    left over" (a one-off asset sale genuinely adds usable cash). Capex
+    Intensity asks a different question — "how capital-hungry is this
+    business, structurally" — and netting off a one-off disposal would make
+    a year with a big asset sale look artificially less capital-intensive
+    than the business actually is, distorting the trend QA (2026-07-31)
+    flagged. Reuses the SAME `capex_ppe_purchase`/`capex_intangible_purchase`
+    fields as FCF, just without the disposal-proceeds subtraction, and
+    Revenue from Operations (Sr No 3).
 
     Per spec, N/A only if Revenue = 0.
 
@@ -6702,7 +6710,9 @@ def fetch_capex_intensity_from_annual_report(symbol, name, fiscal_year, consolid
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_capexint_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    # "_v4" cache-busts every entry cached under the old net-capex
+    # methodology (pre-2026-07-31 QA fix — see docstring).
+    ckey = f"ar_capexint_v4_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -6738,20 +6748,19 @@ def fetch_capex_intensity_from_annual_report(symbol, name, fiscal_year, consolid
             return out
 
         intangible = parsed.get("capex_intangible_purchase")
-        disposal = parsed.get("capex_disposal_proceeds")
 
         ppe_cur, _ppe_prior = ppe
         intangible_cur = intangible[0] if intangible is not None else 0.0
-        disposal_cur = disposal[0] if disposal is not None else 0.0
 
-        net_capex_cur = round(ppe_cur + intangible_cur - disposal_cur, 2)
-        intensity = round((net_capex_cur / rev_cur) * 100, 2)
+        # Deliberately GROSS — no disposal-proceeds subtraction (see
+        # docstring: a one-off asset sale would otherwise make the business
+        # look artificially less capital-intensive than it structurally is).
+        gross_capex_cur = round(ppe_cur + intangible_cur, 2)
+        intensity = round((gross_capex_cur / rev_cur) * 100, 2)
 
         capex_components = {"Purchase of Property, Plant and Equipment": round(ppe_cur, 2)}
         if intangible is not None:
             capex_components["Purchase of Intangible Assets"] = round(intangible_cur, 2)
-        if disposal is not None:
-            capex_components["less: Proceeds from Disposal of Fixed Assets"] = round(disposal_cur, 2)
 
         out = {
             "applicable": True,
@@ -6760,8 +6769,8 @@ def fetch_capex_intensity_from_annual_report(symbol, name, fiscal_year, consolid
             "estimated": False,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": {
-                "label": "Capital Expenditure (net)",
-                "value_cr": net_capex_cur,
+                "label": "Capital Expenditure (gross)",
+                "value_cr": gross_capex_cur,
                 "components": capex_components,
             },
             "denominator": {
@@ -6769,9 +6778,10 @@ def fetch_capex_intensity_from_annual_report(symbol, name, fiscal_year, consolid
                 "value_cr": round(rev_cur, 2),
             },
             "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-            "note": "From the company's own Annual Report — net Capital Expenditure (Purchase of PP&E and "
-                    "Intangible Assets, net of disposal proceeds — identical components to Free Cash Flow's Sr "
-                    "No 36 denominator) ÷ Revenue from Operations.",
+            "note": "From the company's own Annual Report — GROSS Capital Expenditure (Purchase of PP&E and "
+                    "Intangible Assets, deliberately NOT netted against disposal proceeds — a one-off asset "
+                    "sale shouldn't make the business look structurally less capital-intensive) ÷ Revenue "
+                    "from Operations.",
         }
         _write_cache(ckey, out)
         return out
