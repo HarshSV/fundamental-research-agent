@@ -7606,10 +7606,17 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // 15.5%) — /api/v1/eps-growth's own `value` is stored that way, so
             // no decimal-to-percent conversion is needed here.
             const growthVal = state.growth?.applicable ? state.growth.value : null;
-            // Per spec, N/A / DO NOT CALCULATE if EPS Growth Rate is zero or
-            // negative — never a raw negative or infinite PEG.
-            const negativeGrowth = growthVal != null && growthVal <= 0;
-            const applicable = peApplicable && growthVal != null && growthVal > 0;
+            // Per QA (2026-07-31): do not calculate/display a raw PEG value
+            // whenever EPS Growth Rate is negative OR its absolute value is
+            // below a small threshold (~2-3%) — dividing by a growth rate
+            // near zero (even a small POSITIVE one) produces an extremely
+            // large, misleading number that has no valid valuation
+            // interpretation, even though it's mathematically calculable.
+            // The old guard only caught <= 0, so e.g. a genuine 1% growth
+            // year would still silently produce a huge, meaningless PEG.
+            const NM_GROWTH_THRESHOLD = 3;
+            const negativeGrowth = growthVal != null && Math.abs(growthVal) < NM_GROWTH_THRESHOLD;
+            const applicable = peApplicable && growthVal != null && !negativeGrowth;
             const peg = applicable ? Math.round((pe / growthVal) * 100) / 100 : null;
             const confidence = applicable
                 ? Math.min(state.eps.confidence ?? 1, state.growth.confidence ?? 1)
@@ -7622,9 +7629,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 </div>
             );
 
-            // Zero/negative EPS Growth Rate — a distinct finding, never a raw
-            // negative or infinite PEG, same pattern as P/E's own "Loss-Making"
-            // state.
+            // Negative OR near-zero EPS Growth Rate — a distinct finding,
+            // never a raw negative or extremely large/sign-flipped PEG,
+            // same pattern as P/E's own "Loss-Making" state.
             if (peApplicable && negativeGrowth) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -7632,7 +7639,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <span className="text-[10px] font-bold uppercase tracking-wider text-red-200 bg-red-950 border border-red-500/60 px-2 py-0.5 rounded whitespace-nowrap">Flat/Declining EPS</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
-                        Not Meaningful — EPS Growth Rate is {growthVal.toFixed(2)}% (zero or negative), so PEG isn't defined rather than being shown as a raw negative or infinite number.
+                        Not Meaningful — EPS Growth Rate is {growthVal.toFixed(2)}% (negative, or too close to zero), so PEG isn't defined rather than being shown as an extremely large or sign-flipped number.
                     </div>
                 </div>
             );
