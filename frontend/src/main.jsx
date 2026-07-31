@@ -9712,7 +9712,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             </div>
                             <div className="flex items-baseline justify-between gap-3">
                                 <span className="text-[11px] text-slate-400">{den.label || 'Total Promoter Shareholding'}</span>
-                                <span className="text-[11px] font-mono text-slate-300">{den.value_cr != null ? `${den.value_cr}%` : '—'}</span>
+                                <span className="text-[11px] font-mono text-slate-300">{shares(den.value_cr)}</span>
                             </div>
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1">

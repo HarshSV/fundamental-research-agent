@@ -2923,6 +2923,22 @@ def fetch_promoter_pledge_pct(symbol, name=None, to_date=None):
     pledge_status = sh.get("pledge_status")
     confidence = 1.0 if pledge_status == "ok" else (0.95 if pledge_status == "zero" else 0.6)
     num_shares_pledged = sh.get("num_shares_pledged")
+    total_promoter_shares = sh.get("total_promoter_holding")
+    # Per spec, Promoter Pledge % = Pledged Promoter Shares / Total PROMOTER
+    # Shares -- but NSE's own `percSharesPledged` field (what `pledge_pct`
+    # holds) is actually pledged shares as a percent of the company's
+    # TOTAL ISSUED shares, a different, smaller denominator (confirmed on
+    # Gopal Snacks: NSE's raw field gives 11.66%, using num_shares_pledged /
+    # total_issued_shares; recomputing against the actual Total Promoter
+    # Shareholding count gives the spec-correct 14.32% -- materially
+    # different since promoter holding is always < 100% of the company).
+    # Recompute locally whenever both raw share counts are available
+    # (matches the numerator/denominator now shown in the breakdown);
+    # only fall back to NSE's own pre-computed percentage when the raw
+    # counts aren't both present (e.g. a "zero" pledge status with no
+    # promoter-holding count returned).
+    if num_shares_pledged is not None and total_promoter_shares:
+        pledge_pct = round((num_shares_pledged / total_promoter_shares) * 100, 2)
 
     out = {
         **base,
@@ -2933,8 +2949,8 @@ def fetch_promoter_pledge_pct(symbol, name=None, to_date=None):
         "assumed_zero": pledge_status == "assumed_zero",
         "period": sh.get("as_of_quarter") or "most recent quarter",
         "numerator": {"label": "Pledged Promoter Shares", "value_cr": num_shares_pledged},
-        "denominator": {"label": "Total Promoter Shareholding (% of equity)",
-                         "value_cr": round(promoter_holding_pct, 2)},
+        "denominator": {"label": "Total Promoter Shareholding (shares)",
+                         "value_cr": total_promoter_shares},
         "sources": [{"url": "https://www.nseindia.com/companies-listing/corporate-filings-pledged-data",
                      "label": "NSE Shareholding Pattern ↗"}],
         "note": ("From the most recent SEBI Shareholding Pattern filing (BSE/NSE), a governance/risk "

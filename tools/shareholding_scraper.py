@@ -355,6 +355,7 @@ def fetch_shareholding(symbol: str, name: str = None) -> dict:
         "promoter_holding_pct": promoter_pct,
         "promoter_pledge_pct": pledge_pct,
         "num_shares_pledged": pledge.get("num_shares_pledged"),
+        "total_promoter_holding": pledge.get("total_promoter_holding"),
         # F-10 — ownership split (REAL via Screener)
         "institutional_holding_pct": institutional_pct,
         "fii_stake": fii_stake,
