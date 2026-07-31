@@ -10,7 +10,7 @@ sys.path.insert(0, ".")
 from tools.supabase_client import get_client
 from tools.precompute_worker import compute_one, upsert_company, RATIO_FETCHERS
 
-TARGET_RATIO_NOS = {10, 11, 12, 39, 40}
+TARGET_RATIO_NOS = {10, 11, 12, 34, 35, 36, 39, 40, 41}
 targets = [(rn, fn) for rn, fn in RATIO_FETCHERS if rn in TARGET_RATIO_NOS]
 
 sb = get_client()
