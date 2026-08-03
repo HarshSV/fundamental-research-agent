@@ -179,14 +179,20 @@ function layoutTree(nodeId, nodesById, childrenOf, x0, xStep, y0, y1, depth, out
   const gap = kids.length > 1 ? Math.min(22, h * 0.08) : 0;
   const effectiveH = Math.max(h - gap * (kids.length - 1), 1);
   let cursor = y0;
-  for (const { link, childId } of kids) {
+  kids.forEach(({ link, childId }, i) => {
     const frac = Math.min(Math.max(Math.abs(link.value) / parentVal, 0), 1);
     const childH = effectiveH * frac;
     const cy0 = cursor, cy1 = cursor + childH;
     out.ribbons.push({ x1: x0 + xStep.barW, y1Top: cy0, y1Bot: cy1, x2: x0 + xStep.col, color: colorFor(nodesById[childId]) });
     layoutTree(childId, nodesById, childrenOf, x0 + xStep.col, xStep, cy0, cy1, depth + 1, out);
+    if (i > 0) {
+      // Mark the gap itself with a faint divider — on a dark card, empty
+      // space and a 0.28-opacity ribbon fill can read as nearly the same
+      // shade, so the gap needs an explicit visual marker, not just geometry.
+      out.gapMarkers.push({ x1: x0 + xStep.barW, x2: x0 + xStep.col, y: cy0 - gap / 2 });
+    }
     cursor = cy1 + gap;
-  }
+  });
 }
 
 // Minimum vertical gap (px) between two node labels stacked in the same
@@ -239,14 +245,17 @@ function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 340, onH
   const col = maxDepth > 0 ? usableW / maxDepth : usableW;
   const usableH = height - pad * 2;
 
-  const out = { bars: [], ribbons: [] };
+  const out = { bars: [], ribbons: [], gapMarkers: [] };
   layoutTree(rootId, nodesById, childrenOf, pad, { barW, col }, pad, pad + usableH, 0, out);
   withLabelPositions(out.bars);
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} className="min-w-[680px]">
       {out.ribbons.map((r, i) => (
-        <path key={i} d={ribbonPath(r.x1, r.y1Top, r.y1Bot, r.x2, r.y1Top, r.y1Bot)} fill={r.color} opacity="0.28" />
+        <path key={i} d={ribbonPath(r.x1, r.y1Top, r.y1Bot, r.x2, r.y1Top, r.y1Bot)} fill={r.color} opacity="0.42" />
+      ))}
+      {out.gapMarkers.map((g, i) => (
+        <line key={i} x1={g.x1} x2={g.x2} y1={g.y} y2={g.y} stroke="rgb(var(--slate-600))" strokeWidth="1" strokeDasharray="2 3" opacity="0.8" />
       ))}
       {out.bars.map(({ node, x, y0, y1, depth, labelY }, i) => {
         const h = Math.max(y1 - y0, 1.5);
