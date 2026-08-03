@@ -170,7 +170,32 @@ function layoutTree(nodeId, nodesById, childrenOf, x0, xStep, y0, y1, depth, out
   }
 }
 
-function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 320 }) {
+// Minimum vertical gap (px) between two node labels stacked in the same
+// column, so a small sliver (e.g. Tax next to Net Profit on a low-margin
+// company) never collides with its neighbour's text — nudges the label
+// down and draws a short leader line back to the bar it belongs to instead.
+const MIN_LABEL_GAP = 30;
+
+function withLabelPositions(bars) {
+  const byCol = new Map();
+  bars.forEach((b) => {
+    const key = b.x;
+    if (!byCol.has(key)) byCol.set(key, []);
+    byCol.get(key).push(b);
+  });
+  byCol.forEach((col) => {
+    col.sort((a, b) => (a.y0 + a.y1) - (b.y0 + b.y1));
+    let prevLabelY = -Infinity;
+    col.forEach((b) => {
+      const center = (b.y0 + b.y1) / 2;
+      b.labelY = Math.max(center, prevLabelY + MIN_LABEL_GAP);
+      prevLabelY = b.labelY;
+    });
+  });
+  return bars;
+}
+
+function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 380, onHover }) {
   const nodesById = {};
   nodes.forEach((n) => { nodesById[n.id] = n; });
   const childrenOf = {};
@@ -197,33 +222,45 @@ function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 320 }) {
 
   const out = { bars: [], ribbons: [] };
   layoutTree(rootId, nodesById, childrenOf, pad, { barW, col }, pad, pad + usableH, 0, out);
+  withLabelPositions(out.bars);
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} className="min-w-[680px]">
       {out.ribbons.map((r, i) => (
         <path key={i} d={ribbonPath(r.x1, r.y1Top, r.y1Bot, r.x2, r.y1Top, r.y1Bot)} fill={r.color} opacity="0.16" />
       ))}
-      {out.bars.map(({ node, x, y0, y1, depth }, i) => {
+      {out.bars.map(({ node, x, y0, y1, depth, labelY }, i) => {
         const h = Math.max(y1 - y0, 1.5);
+        const centerY = (y0 + y1) / 2;
         const align = depth === maxDepth ? 'right' : 'left';
         const textX = align === 'left' ? x - 10 : x + barW + 10;
         const anchor = align === 'left' ? 'end' : 'start';
-        const revPct = isNum(revenue) && revenue > 0 ? (Math.abs(node.value) / revenue) * 100 : null;
-        const tooltip = [
-          node.label,
-          inrCrore(node.value),
-          isNum(revPct) ? `${revPct.toFixed(1)}% of Revenue` : null,
-          node.note || null,
-        ].filter(Boolean).join('\n');
+        const leaderNeeded = Math.abs(labelY - centerY) > 4;
         return (
-          <g key={node.id + i}>
-            <rect x={x} y={y0} width={barW} height={h} fill={colorFor(node)} rx="1.5">
-              <title>{tooltip}</title>
-            </rect>
-            <text x={textX} y={y0 + h / 2 - 6} textAnchor={anchor} className="fill-slate-200 text-[11px] font-semibold">
+          <g
+            key={node.id + i}
+            className="cursor-pointer"
+            onMouseEnter={(e) => onHover?.(node, revenue, e)}
+            onMouseMove={(e) => onHover?.(node, revenue, e)}
+            onMouseLeave={() => onHover?.(null)}
+          >
+            {leaderNeeded && (
+              <line
+                x1={align === 'left' ? x : x + barW}
+                y1={centerY}
+                x2={textX}
+                y2={labelY}
+                stroke="rgb(var(--slate-500))"
+                strokeWidth="0.75"
+                strokeDasharray="1.5 1.5"
+                opacity="0.5"
+              />
+            )}
+            <rect x={x} y={y0} width={barW} height={h} fill={colorFor(node)} rx="1.5" />
+            <text x={textX} y={labelY - 6} textAnchor={anchor} className="fill-slate-200 text-[11px] font-semibold">
               {node.label}{node.value < 0 ? ' (loss)' : ''}
             </text>
-            <text x={textX} y={y0 + h / 2 + 9} textAnchor={anchor} className="fill-slate-500 text-[10px] nv-num">
+            <text x={textX} y={labelY + 9} textAnchor={anchor} className="fill-slate-500 text-[10px] nv-num">
               {inrCrore(node.value)}
             </text>
           </g>
@@ -233,11 +270,39 @@ function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 320 }) {
   );
 }
 
+function FlowTooltip({ hover }) {
+  if (!hover || !hover.node) return null;
+  const { node, revenue, x, y } = hover;
+  const revPct = isNum(revenue) && revenue > 0 ? (Math.abs(node.value) / revenue) * 100 : null;
+  return (
+    <div
+      className="pointer-events-none absolute z-10 nv-card px-3 py-2 shadow-lg border border-slate-800 max-w-[260px]"
+      style={{ left: x + 14, top: y + 14 }}
+    >
+      <div className="text-[11px] font-semibold text-slate-200">{node.label}{node.value < 0 ? ' (loss)' : ''}</div>
+      <div className="text-[12px] font-bold nv-num text-slate-100 mt-0.5">{inrCrore(node.value)}</div>
+      {isNum(revPct) && <div className="text-[10px] text-slate-500 mt-0.5">{revPct.toFixed(1)}% of Revenue</div>}
+      {node.note && <div className="text-[10px] text-slate-500 mt-1 leading-snug">{node.note}</div>}
+    </div>
+  );
+}
+
 export default function IncomeSankey({ incomeStmt, symbol, companyName }) {
   const flow = useIncomeFlow(symbol, companyName);
 
   const apiReady = flow && flow.applicable && Array.isArray(flow.nodes) && flow.nodes.length;
   const graph = apiReady ? fromApiFlow(flow) : buildShallowFallback(incomeStmt);
+
+  const [hover, setHover] = React.useState(null);
+  const containerRef = React.useRef(null);
+  const handleHover = React.useCallback((node, revenue, evt) => {
+    if (!node) { setHover(null); return; }
+    const rect = containerRef.current?.getBoundingClientRect();
+    const x = evt && rect ? evt.clientX - rect.left : 0;
+    const y = evt && rect ? evt.clientY - rect.top : 0;
+    setHover({ node, revenue, x, y });
+  }, []);
+
   if (!graph) return null;
 
   const revenueNode = graph.nodes.find((n) => n.id === 'revenue' || n.category === 'neutral');
@@ -257,8 +322,9 @@ export default function IncomeSankey({ incomeStmt, symbol, companyName }) {
           Revenue → Profit &amp; Cost Flow{year ? ` · FY${year}` : ''} · {basisLabel}
         </span>
       </div>
-      <div className="w-full overflow-x-auto">
-        <IncomeFlowChart nodes={graph.nodes} links={graph.links} revenue={revenue} />
+      <div ref={containerRef} className="relative w-full overflow-x-auto">
+        <IncomeFlowChart nodes={graph.nodes} links={graph.links} revenue={revenue} onHover={handleHover} />
+        <FlowTooltip hover={hover} />
       </div>
     </div>
   );
