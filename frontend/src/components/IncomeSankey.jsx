@@ -171,14 +171,21 @@ function layoutTree(nodeId, nodesById, childrenOf, x0, xStep, y0, y1, depth, out
   const rank = (childId) => (nodesById[childId].category === 'profit' ? 0 : nodesById[childId].category === 'other' ? 1 : 2);
   const kids = [...rawKids].sort((a, b) => rank(a.childId) - rank(b.childId));
   const parentVal = Math.abs(node.value) || kids.reduce((s, k) => s + Math.abs(k.link.value), 0) || 1;
+  // Reserve a visible gap BETWEEN sibling ribbons/nodes (never before the
+  // first or after the last) so separate flows read as distinct bands with
+  // negative space between them, like the reference diagram — without this,
+  // adjacent ribbons of different colors tile edge-to-edge into one solid
+  // two-tone block instead of looking like flowing, separated ribbons.
+  const gap = kids.length > 1 ? Math.min(8, h * 0.04) : 0;
+  const effectiveH = Math.max(h - gap * (kids.length - 1), 1);
   let cursor = y0;
   for (const { link, childId } of kids) {
     const frac = Math.min(Math.max(Math.abs(link.value) / parentVal, 0), 1);
-    const childH = h * frac;
+    const childH = effectiveH * frac;
     const cy0 = cursor, cy1 = cursor + childH;
     out.ribbons.push({ x1: x0 + xStep.barW, y1Top: cy0, y1Bot: cy1, x2: x0 + xStep.col, color: colorFor(nodesById[childId]) });
     layoutTree(childId, nodesById, childrenOf, x0 + xStep.col, xStep, cy0, cy1, depth + 1, out);
-    cursor = cy1;
+    cursor = cy1 + gap;
   }
 }
 
