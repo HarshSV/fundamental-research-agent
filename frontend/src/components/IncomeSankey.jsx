@@ -200,7 +200,7 @@ function withLabelPositions(bars) {
   return bars;
 }
 
-function IncomeFlowChart({ nodes, links, revenue, width = 980, height = 460, onHover }) {
+function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 340, onHover }) {
   const nodesById = {};
   nodes.forEach((n) => { nodesById[n.id] = n; });
   const childrenOf = {};
@@ -220,7 +220,7 @@ function IncomeFlowChart({ nodes, links, revenue, width = 980, height = 460, onH
   })(rootId, 0);
 
   const pad = 24;
-  const barW = 18;
+  const barW = 10;
   const usableW = width - pad * 2 - barW;
   const col = maxDepth > 0 ? usableW / maxDepth : usableW;
   const usableH = height - pad * 2;
@@ -232,7 +232,7 @@ function IncomeFlowChart({ nodes, links, revenue, width = 980, height = 460, onH
   return (
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} className="min-w-[680px]">
       {out.ribbons.map((r, i) => (
-        <path key={i} d={ribbonPath(r.x1, r.y1Top, r.y1Bot, r.x2, r.y1Top, r.y1Bot)} fill={r.color} opacity="0.38" />
+        <path key={i} d={ribbonPath(r.x1, r.y1Top, r.y1Bot, r.x2, r.y1Top, r.y1Bot)} fill={r.color} opacity="0.22" />
       ))}
       {out.bars.map(({ node, x, y0, y1, depth, labelY }, i) => {
         const h = Math.max(y1 - y0, 1.5);
