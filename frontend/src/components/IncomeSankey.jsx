@@ -21,9 +21,14 @@ import { fetchRatio } from '../lib/api.js';
  * a simpler truthful chart beats a richer fabricated one.
  */
 
+// Solid node colors, theme-aware via the app's CSS variable tokens (so they
+// still invert correctly in dark mode). Ribbons reuse the SAME color at
+// higher opacity (0.38, up from 0.16) for the pastel-flow texture the
+// reference diagram has — the old low opacity made ribbons nearly invisible,
+// which is why the chart read as disconnected bars instead of a flow.
 const GREEN = 'rgb(var(--emerald-500))';
 const RED = 'rgb(var(--red-500))';
-const DARK_RED = 'rgb(var(--red-500))';
+const DARK_RED = 'rgb(var(--red-600, var(--red-500)))';
 const SLATE = 'rgb(var(--slate-500))';
 const BLUE = 'rgb(var(--blue-500))';
 
@@ -195,7 +200,7 @@ function withLabelPositions(bars) {
   return bars;
 }
 
-function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 380, onHover }) {
+function IncomeFlowChart({ nodes, links, revenue, width = 980, height = 460, onHover }) {
   const nodesById = {};
   nodes.forEach((n) => { nodesById[n.id] = n; });
   const childrenOf = {};
@@ -215,7 +220,7 @@ function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 380, onH
   })(rootId, 0);
 
   const pad = 24;
-  const barW = 9;
+  const barW = 18;
   const usableW = width - pad * 2 - barW;
   const col = maxDepth > 0 ? usableW / maxDepth : usableW;
   const usableH = height - pad * 2;
@@ -227,7 +232,7 @@ function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 380, onH
   return (
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} className="min-w-[680px]">
       {out.ribbons.map((r, i) => (
-        <path key={i} d={ribbonPath(r.x1, r.y1Top, r.y1Bot, r.x2, r.y1Top, r.y1Bot)} fill={r.color} opacity="0.16" />
+        <path key={i} d={ribbonPath(r.x1, r.y1Top, r.y1Bot, r.x2, r.y1Top, r.y1Bot)} fill={r.color} opacity="0.38" />
       ))}
       {out.bars.map(({ node, x, y0, y1, depth, labelY }, i) => {
         const h = Math.max(y1 - y0, 1.5);
@@ -256,7 +261,7 @@ function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 380, onH
                 opacity="0.5"
               />
             )}
-            <rect x={x} y={y0} width={barW} height={h} fill={colorFor(node)} rx="1.5" />
+            <rect x={x} y={y0} width={barW} height={h} fill={colorFor(node)} rx="1" />
             <text x={textX} y={labelY - 6} textAnchor={anchor} className="fill-slate-200 text-[11px] font-semibold">
               {node.label}{node.value < 0 ? ' (loss)' : ''}
             </text>
