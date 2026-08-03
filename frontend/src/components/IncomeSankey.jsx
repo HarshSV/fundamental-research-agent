@@ -161,8 +161,15 @@ function layoutTree(nodeId, nodesById, childrenOf, x0, xStep, y0, y1, depth, out
   const h = Math.max(y1 - y0, 0);
   out.bars.push({ node, x: x0, y0, y1, depth });
 
-  const kids = childrenOf[nodeId] || [];
-  if (!kids.length || h <= 0) return;
+  const rawKids = childrenOf[nodeId] || [];
+  if (!rawKids.length || h <= 0) return;
+  // Match the reference diagram's convention: the profit/continuing path is
+  // always the top band (a straight-ish "spine" running the full width of
+  // the chart), with cost/tax branches stacked below it at each stage —
+  // never determined by link insertion order, which happened to put Cost of
+  // Revenue above Gross Profit.
+  const rank = (childId) => (nodesById[childId].category === 'profit' ? 0 : nodesById[childId].category === 'other' ? 1 : 2);
+  const kids = [...rawKids].sort((a, b) => rank(a.childId) - rank(b.childId));
   const parentVal = Math.abs(node.value) || kids.reduce((s, k) => s + Math.abs(k.link.value), 0) || 1;
   let cursor = y0;
   for (const { link, childId } of kids) {
@@ -232,7 +239,7 @@ function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 340, onH
   return (
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} className="min-w-[680px]">
       {out.ribbons.map((r, i) => (
-        <path key={i} d={ribbonPath(r.x1, r.y1Top, r.y1Bot, r.x2, r.y1Top, r.y1Bot)} fill={r.color} opacity="0.22" />
+        <path key={i} d={ribbonPath(r.x1, r.y1Top, r.y1Bot, r.x2, r.y1Top, r.y1Bot)} fill={r.color} opacity="0.28" />
       ))}
       {out.bars.map(({ node, x, y0, y1, depth, labelY }, i) => {
         const h = Math.max(y1 - y0, 1.5);
