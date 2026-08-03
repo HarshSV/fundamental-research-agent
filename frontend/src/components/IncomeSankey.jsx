@@ -176,7 +176,7 @@ function layoutTree(nodeId, nodesById, childrenOf, x0, xStep, y0, y1, depth, out
   // negative space between them, like the reference diagram — without this,
   // adjacent ribbons of different colors tile edge-to-edge into one solid
   // two-tone block instead of looking like flowing, separated ribbons.
-  const gap = kids.length > 1 ? Math.min(8, h * 0.04) : 0;
+  const gap = kids.length > 1 ? Math.min(22, h * 0.08) : 0;
   const effectiveH = Math.max(h - gap * (kids.length - 1), 1);
   let cursor = y0;
   for (const { link, childId } of kids) {
