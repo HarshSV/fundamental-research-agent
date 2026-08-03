@@ -2,6 +2,7 @@ import React from 'react';
 import { inr, inrCrore, pct, num, isNum, signedPct, toneClass } from '../lib/format.js';
 import { fetchRatio, fetchQuote } from '../lib/api.js';
 import IncomeSankey from '../components/IncomeSankey.jsx';
+import FinancialComparisonChart from '../components/FinancialComparisonChart.jsx';
 
 /* --- tiny sparkline --- */
 function Sparkline({ series, tone = 'blue', w = 96, h = 30 }) {
@@ -174,7 +175,19 @@ export default function Overview({ data, onOpenSection, onSearch }) {
 
   return (
     <div className="space-y-5">
-      <IncomeSankey incomeStmt={inc} symbol={data?.symbol} companyName={m.company_name || data?.symbol} />
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 items-stretch">
+        {/* wrapper (not IncomeSankey.jsx itself) stretches its card to match
+            the comparison chart's height, without touching the Sankey component */}
+        <div className="[&>.nv-card]:h-full">
+          <IncomeSankey incomeStmt={inc} symbol={data?.symbol} companyName={m.company_name || data?.symbol} />
+        </div>
+        <FinancialComparisonChart
+          incomeStmt={inc}
+          ratios={ratios}
+          peer={data?.peer_synthesis_data}
+          companyName={m.company_name || data?.symbol}
+        />
+      </div>
       {/* metric grid */}
       <div>
         <div className="flex items-baseline justify-between mb-3">
