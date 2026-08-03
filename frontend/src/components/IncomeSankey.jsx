@@ -270,14 +270,31 @@ function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 380, onH
   );
 }
 
+// Fixed to the viewport (not the scrollable chart container) and clamped
+// inside the window so it never gets clipped by the card's horizontal
+// scroll area or hidden behind the cursor near the card's edges — flips to
+// whichever side of the pointer actually has room.
+const TOOLTIP_W = 260;
+const TOOLTIP_H = 90;
+const CURSOR_GAP = 16;
+
 function FlowTooltip({ hover }) {
   if (!hover || !hover.node) return null;
-  const { node, revenue, x, y } = hover;
+  const { node, revenue, clientX, clientY } = hover;
   const revPct = isNum(revenue) && revenue > 0 ? (Math.abs(node.value) / revenue) * 100 : null;
+
+  let left = clientX + CURSOR_GAP;
+  if (left + TOOLTIP_W > window.innerWidth - 8) left = clientX - CURSOR_GAP - TOOLTIP_W;
+  left = Math.max(8, left);
+
+  let top = clientY + CURSOR_GAP;
+  if (top + TOOLTIP_H > window.innerHeight - 8) top = clientY - CURSOR_GAP - TOOLTIP_H;
+  top = Math.max(8, top);
+
   return (
     <div
-      className="pointer-events-none absolute z-10 nv-card px-3 py-2 shadow-lg border border-slate-800 max-w-[260px]"
-      style={{ left: x + 14, top: y + 14 }}
+      className="pointer-events-none fixed z-50 nv-card px-3 py-2 shadow-lg border border-slate-800"
+      style={{ left, top, width: TOOLTIP_W }}
     >
       <div className="text-[11px] font-semibold text-slate-200">{node.label}{node.value < 0 ? ' (loss)' : ''}</div>
       <div className="text-[12px] font-bold nv-num text-slate-100 mt-0.5">{inrCrore(node.value)}</div>
@@ -294,13 +311,9 @@ export default function IncomeSankey({ incomeStmt, symbol, companyName }) {
   const graph = apiReady ? fromApiFlow(flow) : buildShallowFallback(incomeStmt);
 
   const [hover, setHover] = React.useState(null);
-  const containerRef = React.useRef(null);
   const handleHover = React.useCallback((node, revenue, evt) => {
     if (!node) { setHover(null); return; }
-    const rect = containerRef.current?.getBoundingClientRect();
-    const x = evt && rect ? evt.clientX - rect.left : 0;
-    const y = evt && rect ? evt.clientY - rect.top : 0;
-    setHover({ node, revenue, x, y });
+    setHover({ node, revenue, clientX: evt?.clientX ?? 0, clientY: evt?.clientY ?? 0 });
   }, []);
 
   if (!graph) return null;
@@ -322,10 +335,10 @@ export default function IncomeSankey({ incomeStmt, symbol, companyName }) {
           Revenue → Profit &amp; Cost Flow{year ? ` · FY${year}` : ''} · {basisLabel}
         </span>
       </div>
-      <div ref={containerRef} className="relative w-full overflow-x-auto">
+      <div className="relative w-full overflow-x-auto">
         <IncomeFlowChart nodes={graph.nodes} links={graph.links} revenue={revenue} onHover={handleHover} />
-        <FlowTooltip hover={hover} />
       </div>
+      <FlowTooltip hover={hover} />
     </div>
   );
 }
