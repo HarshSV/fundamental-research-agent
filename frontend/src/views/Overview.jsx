@@ -1,6 +1,7 @@
 import React from 'react';
 import { inr, inrCrore, pct, num, isNum, signedPct, toneClass } from '../lib/format.js';
 import { fetchRatio, fetchQuote } from '../lib/api.js';
+import IncomeSankey from '../components/IncomeSankey.jsx';
 
 /* --- tiny sparkline --- */
 function Sparkline({ series, tone = 'blue', w = 96, h = 30 }) {
@@ -173,6 +174,7 @@ export default function Overview({ data, onOpenSection, onSearch }) {
 
   return (
     <div className="space-y-5">
+      <IncomeSankey incomeStmt={inc} companyName={m.company_name || data?.symbol} />
       {/* metric grid */}
       <div>
         <div className="flex items-baseline justify-between mb-3">
