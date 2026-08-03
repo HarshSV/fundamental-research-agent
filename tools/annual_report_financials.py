@@ -3700,7 +3700,7 @@ def fetch_income_statement_flow_from_annual_report(symbol, name, fiscal_year, co
     Cached 90 days via the shared extraction cache. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_incflow_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_incflow_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3757,6 +3757,17 @@ def fetch_income_statement_flow_from_annual_report(symbol, name, fiscal_year, co
                 add_link(cursor_id, "gross_profit", gross_profit)
                 cursor_id, cursor_val = "gross_profit", gross_profit
 
+                # Branch Cost of Revenue into its own reported sub-items (a
+                # pure trader may legitimately have only 1 of the 3 — only
+                # branch when there's more than one, otherwise the "branch"
+                # would just duplicate the parent's own value under a new name).
+                real_components = {k: v[0] for k, v in components.items() if abs(v[0]) > tol}
+                if len(real_components) > 1:
+                    for i, (label, val) in enumerate(real_components.items()):
+                        cid = f"cogs_{i}"
+                        add_node(cid, label, val, "cost")
+                        add_link("cogs", cid, val)
+
         # --- Operating Expenses / Operating Profit ------------------------------
         ebe = parsed.get("employee_benefit_expense")
         oe = parsed.get("other_expenses")
@@ -3771,6 +3782,17 @@ def fetch_income_statement_flow_from_annual_report(symbol, name, fiscal_year, co
                 add_link(cursor_id, "opex", opex_cur)
                 add_link(cursor_id, "operating_profit", operating_profit)
                 cursor_id, cursor_val = "operating_profit", operating_profit
+
+                # Branch Operating Expenses into its own reported components,
+                # same rationale as the Cost of Revenue branch above.
+                opex_components = {"Employee Benefit Expense": ebe[0], "Other Expenses": oe[0],
+                                    "Depreciation & Amortisation": dep[0]}
+                real_opex = {k: v for k, v in opex_components.items() if abs(v) > tol}
+                if len(real_opex) > 1:
+                    for i, (label, val) in enumerate(real_opex.items()):
+                        cid = f"opex_{i}"
+                        add_node(cid, label, val, "cost")
+                        add_link("opex", cid, val)
 
         # --- Bridge to Profit Before Tax ---------------------------------------
         # If the Operating Expenses split above succeeded, this bridge is a
