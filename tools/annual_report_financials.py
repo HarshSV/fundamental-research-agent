@@ -2067,6 +2067,116 @@ def _page_sources(pdf_url, fiscal_year, pl_page=None, bs_page=None):
     return out
 
 
+_GOVERNANCE_SECTION_ANCHORS = {
+    # AR-02: KMP remuneration table (Board's Report Annexure, Sec. 197(12))
+    "remuneration": [
+        "particulars of employees", "managerial remuneration",
+        "remuneration of directors", "remuneration to directors",
+        "ratio of remuneration",
+    ],
+    # AR-03: ESOP disclosure note (SEBI SBEB Regulations 2021 Annexure)
+    "esop": [
+        "employee stock option", "stock option scheme", "esop disclosure",
+    ],
+    # AR-06 subsection: Key Managerial Personnel — appointments/resignations,
+    # the closest a standard AR gets to "management bench depth" evidence.
+    "kmp_changes": [
+        "key managerial personnel", "change in key managerial",
+    ],
+}
+
+
+def fetch_governance_text_sections(symbol, name):
+    """Real, grounded text excerpts from the company's OWN latest Annual
+    Report PDF for the governance sub-points (B.2 remuneration/ESOP, B.3 KMP
+    changes) that need AR-02/AR-03/AR-06 content — not a business-description
+    proxy, the actual filing. Scans every page for the section anchors above
+    (case-insensitive) and returns up to ~1500 chars of real page text around
+    each first match found. Returns {'pdf_url', 'fiscal_year', 'remuneration_text',
+    'esop_text', 'kmp_changes_text'} (each text field None if that section
+    wasn't located) or {'error': reason}. Never raises. Reuses the same
+    PDF-fetch plumbing as the ratio extractors (BSE/NSE lookup, retry, cache),
+    so a company already visited for its ratios pays no extra download cost."""
+    try:
+        sym = symbol.strip().upper().replace(".NS", "")
+        years = list_annual_report_years(sym, name)
+        if not years:
+            return {"error": "No Annual Report found for this company."}
+        fiscal_year = years[0]
+        ckey = f"ar_gov_text_v1_{sym}_{fiscal_year}"
+        cached = _read_cache(ckey)
+        if cached is not None:
+            return cached
+
+        pdf_url = _find_annual_report_pdf(sym, name, fiscal_year)
+        if not pdf_url:
+            out = {"error": "Annual Report PDF URL not found."}
+            _write_cache(ckey, out)
+            return out
+
+        is_nse_url = "nseindia.com" in pdf_url
+        content = None
+        for attempt in range(2):
+            try:
+                if is_nse_url:
+                    from tools.nse_annual_reports import download_nse_pdf_bytes
+                    content = download_nse_pdf_bytes(pdf_url)
+                    if content is None:
+                        raise RuntimeError("NSE download/zip-extract returned nothing")
+                else:
+                    content = _sess().get(pdf_url, timeout=90).content
+                break
+            except Exception as e:
+                print(f"[annual_report_financials] governance-text PDF download failed for {sym}: {e}")
+        if content is None or len(content) < 50000:
+            return {"error": "Could not download the Annual Report right now.", "source_url": pdf_url}
+
+        try:
+            import fitz
+        except Exception as e:
+            return {"error": f"pymupdf unavailable: {e}"}
+        try:
+            doc = fitz.open(stream=content, filetype="pdf")
+        except Exception as e:
+            return {"error": f"PDF read failed: {e}"}
+
+        # Collect EVERY candidate match per section (an anchor phrase can
+        # appear many times incidentally — AGM notice text, cross-references —
+        # before the real data table/annexure). Score each by digit density in
+        # its window: a genuine remuneration table or ESOP disclosure annexure
+        # is numbers-heavy; a passing prose mention isn't. Keep the best-scoring
+        # candidate per section rather than just the first occurrence.
+        best = {k: (None, -1) for k in _GOVERNANCE_SECTION_ANCHORS}
+        for page in doc:
+            try:
+                t = _page_text(page)
+            except Exception:
+                continue
+            tl = t.lower()
+            for key, anchors in _GOVERNANCE_SECTION_ANCHORS.items():
+                for anchor in anchors:
+                    idx = tl.find(anchor)
+                    if idx == -1:
+                        continue
+                    window = t[max(0, idx - 200):idx + 1300].strip()
+                    score = sum(c.isdigit() for c in window)
+                    if score > best[key][1]:
+                        best[key] = (window, score)
+
+        out = {
+            "pdf_url": pdf_url,
+            "fiscal_year": fiscal_year,
+            "remuneration_text": best["remuneration"][0],
+            "esop_text": best["esop"][0],
+            "kmp_changes_text": best["kmp_changes"][0],
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] fetch_governance_text_sections failed for {symbol}: {e}")
+        return {"error": f"Error: {e}"}
+
+
 def list_annual_report_years(symbol, name):
     """All fiscal years (as ints) an Annual Report exists for, newest first,
     deduplicated. Tries BSE first, then falls back to NSE for companies BSE
@@ -3548,6 +3658,193 @@ def fetch_operating_profit_margin_from_annual_report(symbol, name, fiscal_year, 
                     "minus all operating expense lines (COGS a+b+c + Employee Benefit Expense + Other Expenses + "
                     "Depreciation and Amortisation Expense), excluding Finance Costs, Other Income and "
                     "Exceptional Items.",
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] {ckey} failed: {e}")
+        return {"applicable": False, "reason": "Something went wrong reading the Annual Report — please try again."}
+        # not cached: an unexpected/transient error shouldn't be locked in for a week
+
+
+def fetch_income_statement_flow_from_annual_report(symbol, name, fiscal_year, consolidated=True):
+    """
+    Builds a Revenue -> Profit/Cost node+link "waterfall" for the Overview
+    page Sankey, reusing the SAME cached P&L extraction as Gross/Operating
+    Profit Margin (`_get_extracted_financials`) — no extra download, no
+    invented numbers. Every node value is either a figure read directly off
+    the Annual Report P&L, or a subtraction of two such figures (so it always
+    reconciles exactly with its parent by construction).
+
+    The depth of the flow adapts to what the statement actually discloses:
+      - No COGS lines at all (services co., bank, NBFC, insurer) -> skip the
+        Cost of Revenue / Gross Profit split entirely, never fabricate one.
+      - COGS present but Employee/Other Expenses/D&A missing -> stop at
+        Gross Profit, skip the Operating Profit split.
+      - A net financing/other-income drag between operating profit and PBT
+        -> shown as a single "Finance cost & other items (net)" outflow.
+        A net GAIN (other income exceeds finance costs) is folded silently
+        into the profit carried forward rather than drawn as a widening
+        ribbon, since sankeys conventionally only ever narrow left-to-right.
+      - Tax vs Net Profit only split out when Tax Expense and PAT actually
+        reconcile against PBT within tolerance; otherwise collapsed into a
+        single "Tax & other adjustments" node (or, if net profit exceeds
+        PBT — e.g. a tax credit/NCI reversal — the split is skipped, never
+        shown as a negative-cost lie).
+
+    Returns {'applicable': False, 'reason': ...} when there isn't enough to
+    build even the shallowest Revenue -> PBT -> Net Profit flow (fiscal-year
+    caller should fall back to a coarser, non-AR-sourced source in that
+    case). Values are returned in ₹ Cr (matching every other AR ratio in
+    this module) — the API layer converts to raw rupees for the frontend.
+    Cached 90 days via the shared extraction cache. Never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_incflow_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    try:
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
+        pdf_url = parsed.get("source_url")
+        if "error" in parsed:
+            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        revenue = parsed.get("revenue")
+        pbt = parsed.get("pbt")
+        pat = parsed.get("pat")
+        if revenue is None or revenue[0] in (None, 0):
+            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+        if pbt is None or pat is None:
+            out = {"applicable": False,
+                   "reason": "Could not find both Profit Before Tax and Profit After Tax on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+
+        rev_cur = round(revenue[0], 2)
+        pbt_cur = round(pbt[0], 2)
+        pat_cur = round(pat[0], 2)
+        tol = max(0.5, abs(rev_cur) * 0.003)  # ₹0.5 Cr or 0.3% of revenue, whichever is larger
+
+        nodes, links = [], []
+
+        def add_node(nid, label, value, category, note=None):
+            nodes.append({"id": nid, "label": label, "value": round(value, 2), "category": category, "note": note})
+
+        def add_link(src, tgt, value):
+            links.append({"source": src, "target": tgt, "value": round(value, 2)})
+
+        add_node("revenue", "Revenue", rev_cur, "neutral")
+        cursor_id, cursor_val = "revenue", rev_cur
+
+        # --- Cost of Revenue / Gross Profit -----------------------------------
+        components = parsed.get("components") or {}
+        if components:
+            cogs_cur = sum(v[0] for v in components.values())
+            gross_profit = cursor_val - cogs_cur
+            if abs(cogs_cur) > tol:
+                add_node("cogs", "Cost of Revenue", cogs_cur, "cost",
+                         note="Cost of materials consumed + Purchases of stock-in-trade + Changes in inventories")
+                add_node("gross_profit", "Gross Profit", gross_profit, "profit")
+                add_link(cursor_id, "cogs", cogs_cur)
+                add_link(cursor_id, "gross_profit", gross_profit)
+                cursor_id, cursor_val = "gross_profit", gross_profit
+
+        # --- Operating Expenses / Operating Profit ------------------------------
+        ebe = parsed.get("employee_benefit_expense")
+        oe = parsed.get("other_expenses")
+        dep = parsed.get("depreciation")
+        if ebe is not None and oe is not None and dep is not None:
+            opex_cur = ebe[0] + oe[0] + dep[0]
+            operating_profit = cursor_val - opex_cur
+            if abs(opex_cur) > tol:
+                add_node("opex", "Operating Expenses", opex_cur, "cost",
+                         note="Employee Benefit Expense + Other Expenses + Depreciation and Amortisation")
+                add_node("operating_profit", "Operating Profit", operating_profit, "profit")
+                add_link(cursor_id, "opex", opex_cur)
+                add_link(cursor_id, "operating_profit", operating_profit)
+                cursor_id, cursor_val = "operating_profit", operating_profit
+
+        # --- Bridge to Profit Before Tax ---------------------------------------
+        # If the Operating Expenses split above succeeded, this bridge is a
+        # genuine "below the operating line" item (finance costs, other
+        # income, exceptional items). If it didn't (couldn't isolate Employee
+        # Benefit Expense/Other Expenses/D&A), this bridge is carrying ALL of
+        # operating expenses PLUS finance costs/other income lumped together —
+        # label it honestly so it isn't read as a pure financing cost.
+        bridge = cursor_val - pbt_cur  # positive = net drag (costs > other income)
+        if bridge > tol:
+            drag_val = bridge
+            remaining = cursor_val - drag_val
+            if cursor_id == "operating_profit":
+                bridge_label = "Finance Cost & Other Items (net)"
+                bridge_note = "Finance Costs less net Other Income/exceptional items between operating profit and PBT"
+            elif cursor_id == "gross_profit":
+                bridge_label = "Operating & Other Expenses (net)"
+                bridge_note = ("Employee Benefit Expense, Other Expenses and Depreciation could not be isolated "
+                               "separately, so this combines all operating costs plus Finance Costs, net of Other "
+                               "Income/exceptional items")
+            else:
+                bridge_label = "Total Costs & Expenses (net)"
+                bridge_note = ("No goods-based Cost of Revenue or operating-expense breakdown found on the P&L "
+                               "page, so this combines every cost line between Revenue and Profit Before Tax")
+            add_node("pbt_bridge", bridge_label, drag_val, "cost", note=bridge_note)
+            add_link(cursor_id, "pbt_bridge", drag_val)
+            add_node("pbt", "Profit Before Tax", pbt_cur, "profit")
+            add_link(cursor_id, "pbt", remaining)
+            cursor_id, cursor_val = "pbt", pbt_cur
+        else:
+            # Net gain (or ~flat) between this stage and PBT — fold silently
+            # into the carried-forward profit rather than draw a widening
+            # ribbon; PBT node still shows the true audited figure.
+            add_node("pbt", "Profit Before Tax", pbt_cur, "profit",
+                     note=("Includes net Other Income/exceptional gains beyond Finance Costs"
+                           if bridge < -tol else None))
+            add_link(cursor_id, "pbt", cursor_val)
+            cursor_id, cursor_val = "pbt", pbt_cur
+
+        # --- Tax / Net Profit ---------------------------------------------------
+        tax_expense = parsed.get("tax_expense")
+        tax_cur = tax_expense[0] if tax_expense is not None else None
+        implied_deduction = pbt_cur - pat_cur
+        if tax_cur is not None and abs((pbt_cur - tax_cur) - pat_cur) <= tol and tax_cur > tol:
+            add_node("tax", "Tax", tax_cur, "tax")
+            add_node("net_profit", "Net Profit", pat_cur, "profit")
+            add_link("pbt", "tax", tax_cur)
+            add_link("pbt", "net_profit", pat_cur)
+        elif implied_deduction > tol:
+            add_node("tax", "Tax & Other Adjustments", implied_deduction, "tax",
+                     note="Tax expense could not be cleanly isolated from other PBT-to-PAT items "
+                          "(e.g. minority interest) — shown combined.")
+            add_node("net_profit", "Net Profit", pat_cur, "profit")
+            add_link("pbt", "tax", implied_deduction)
+            add_link("pbt", "net_profit", pat_cur)
+        else:
+            # Net profit >= PBT (tax credit / NCI reversal) — never show a
+            # negative-cost node; carry PBT straight through to Net Profit.
+            add_node("net_profit", "Net Profit", pat_cur, "profit",
+                     note="Net profit exceeds Profit Before Tax (tax credit or minority-interest adjustment) "
+                          "— not separable from the P&L page alone.")
+            add_link("pbt", "net_profit", pat_cur)
+
+        out = {
+            "applicable": True,
+            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "fiscal_year": fiscal_year,
+            "basis": "consolidated" if consolidated else "standalone",
+            "revenue_cr": rev_cur,
+            "nodes": nodes,
+            "links": links,
+            "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
+            "note": "Built entirely from the company's own Annual Report P&L — every node is either a reported "
+                    "line item or a deterministic subtraction of two reported figures; nothing is estimated.",
         }
         _write_cache(ckey, out)
         return out

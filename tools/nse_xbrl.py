@@ -3434,6 +3434,71 @@ def fetch_operating_profit_margin(symbol, name=None, to_date=None):
 
 
 # --------------------------------------------------------------------------- #
+# Income Statement Flow — Revenue -> Cost of Revenue/Gross Profit -> Operating
+# Expenses/Operating Profit -> PBT bridge -> Tax/Net Profit, for the Overview
+# page Sankey. Applicable to ALL industries (does NOT gate on _NON_INVENTORY)
+# since the AR-level builder itself degrades the flow's depth to whatever the
+# statement discloses — a bank/NBFC naturally comes back with no Cost of
+# Revenue split rather than a fabricated one.
+# --------------------------------------------------------------------------- #
+def fetch_income_statement_flow(symbol, name=None, to_date=None):
+    """
+    Nodes/links for the Revenue -> Profit & Cost Sankey, built only from the
+    company's own Annual Report P&L (see
+    `fetch_income_statement_flow_from_annual_report` for the tiering rules).
+    Same year-selection behaviour as `fetch_inventory_turnover`. Returns
+    {'applicable': False} when even the shallowest Revenue -> PBT -> Net
+    Profit flow can't be built from the P&L page. Cached; never raises.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"incflow_v2_{sym}_{to_date or 'latest'}"
+    cached = _read_cache(ckey)
+    if cached is not None:
+        return cached
+
+    base = {"symbol": sym}
+    # No Supabase precompute table for this one yet (ratio_no is int-keyed) —
+    # relies solely on the 90-day file cache in `_get_extracted_financials`.
+    try:
+        from tools.annual_report_financials import (
+            list_annual_report_years, fetch_income_statement_flow_from_annual_report)
+        ar_years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[nse_xbrl] Annual Report year list skipped for {sym}: {e}")
+        ar_years = []
+
+    if not ar_years:
+        out = {**base, "applicable": False,
+               "reason": "No Annual Report filings found for this company.", "available_periods": None}
+        _write_cache(ckey, out)
+        return out
+
+    available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
+
+    if to_date:
+        target_year = _yr_from_to_date(to_date) or ar_years[0]
+        r = fetch_income_statement_flow_from_annual_report(sym, name, target_year, consolidated=True)
+        out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+        _write_cache(ckey, out)
+        return out
+
+    MAX_PROBE_YEARS = 4
+    first_reason = None
+    for target_year in ar_years[:MAX_PROBE_YEARS]:
+        r = fetch_income_statement_flow_from_annual_report(sym, name, target_year, consolidated=True)
+        if r.get("applicable"):
+            out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
+            _write_cache(ckey, out)
+            return out
+        if first_reason is None:
+            first_reason = r.get("reason")
+    out = {**base, "applicable": False, "reason": first_reason or "Not applicable for this company.",
+           "selected_period": f"31-Mar-{ar_years[0]}", "available_periods": available}
+    _write_cache(ckey, out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # Net Profit Margin — Profit After Tax (owners-attributable) ÷ Revenue.
 # Sourced from the Annual Report only, same rationale as Gross/Operating
 # Profit Margin. Applicable to ALL industries per spec (only banks/NBFC/

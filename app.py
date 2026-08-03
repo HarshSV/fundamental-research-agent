@@ -964,6 +964,12 @@ async def business_evolution_endpoint(request: dict, _: dict = Depends(auth.requ
         return {"available": False, "reason": f"Error: {e}"}
 
 
+# Note: A.1-A.4 no longer have standalone /api/v1/qualitative/aN routes — they're
+# computed inside build_executive_summary (agent/stock_agent.py) and shipped as
+# part of ai_summary.qualitative_topics, rendered by the SAME Qualitative Analysis
+# tab/format as every other topic (see frontend QualitativeTopics/QualitativeSubpoint).
+
+
 @app.post("/api/v1/inventory-turnover")
 async def inventory_turnover_endpoint(request: dict, _: dict = Depends(auth.require_session)):
     """Inventory Turnover = COGS (a+b+c) / Average Inventory, computed from the
@@ -1662,6 +1668,24 @@ async def operating_profit_margin_endpoint(request: dict, _: dict = Depends(auth
     except Exception as e:
         print(f"[HTTP ERROR] Operating profit margin failed for {sym}: {e}")
         return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
+
+
+@app.post("/api/v1/income-statement-flow")
+async def income_statement_flow_endpoint(request: dict, _: dict = Depends(auth.require_session)):
+    """Revenue -> Cost of Revenue/Gross Profit -> Operating Expenses/Operating
+    Profit -> PBT bridge -> Tax/Net Profit node+link graph for the Overview
+    page Sankey, computed entirely from the company's OWN audited Annual
+    Report P&L. Runs off the event loop. Returns {applicable: False} when
+    even the shallow Revenue -> PBT -> Net Profit flow can't be built."""
+    sym = resolve_symbol_from_registry(request.get("symbol", "") or "")
+    if not sym:
+        return {"applicable": False, "reason": "Symbol required."}
+    try:
+        from tools.nse_xbrl import fetch_income_statement_flow
+        return await asyncio.to_thread(fetch_income_statement_flow, sym, request.get("name"), request.get("to_date"))
+    except Exception as e:
+        print(f"[HTTP ERROR] Income statement flow failed for {sym}: {e}")
+        return {"applicable": False, "reason": "Something went wrong computing this — please try again."}
 
 
 @app.post("/api/v1/net-profit-margin")

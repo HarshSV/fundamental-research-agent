@@ -174,7 +174,7 @@ export default function Overview({ data, onOpenSection, onSearch }) {
 
   return (
     <div className="space-y-5">
-      <IncomeSankey incomeStmt={inc} companyName={m.company_name || data?.symbol} />
+      <IncomeSankey incomeStmt={inc} symbol={data?.symbol} companyName={m.company_name || data?.symbol} />
       {/* metric grid */}
       <div>
         <div className="flex items-baseline justify-between mb-3">
