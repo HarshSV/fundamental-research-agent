@@ -146,22 +146,29 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
   const dates = Object.keys(primaryBar.byDate).filter((d) => !isNaN(new Date(d).getTime())).sort();
   const years = dates.slice(-6).reverse(); // latest first, up to 6 years
 
+  // Signed range — a loss-making year has a genuinely negative Net Profit
+  // etc., and must be drawn dipping BELOW a zero baseline, not clamped to 0
+  // or shown as a positive magnitude (that would misrepresent a loss as a
+  // profit of the same size).
+  const allVals = years.flatMap((d) => metric.bars.map((b) => (isNum(b.byDate?.[d]) ? b.byDate[d] : (isNum(b.constant) ? b.constant : null)))).filter(isNum);
+  const rawMax = Math.max(0, ...allVals);
+  const rawMin = Math.min(0, ...allVals);
   // Floor prevents a divide-by-zero scale when every value is 0, but must be
   // unit-aware: a flat "1" floor is fine for rupee metrics (₹1 is negligible)
   // but pins percentage metrics (fractions like 0.09) to a 100% axis top.
-  const rawMax = Math.max(
-    0,
-    ...years.flatMap((d) => metric.bars.map((b) => (isNum(b.byDate?.[d]) ? Math.abs(b.byDate[d]) : (isNum(b.constant) ? Math.abs(b.constant) : 0)))),
-  );
   const floor = metric.unit === 'pct' ? 0.01 : 1;
   const maxVal = Math.max(rawMax, floor) * 1.12;
+  const minVal = rawMin < 0 ? rawMin * 1.12 : 0;
+  const range = maxVal - minVal;
 
-  const W = 620, H = 300, pad = { l: 8, r: 8, t: 12, b: 34 };
+  const W = 620, H = 300, pad = { l: 64, r: 12, t: 16, b: 34 };
   const plotH = H - pad.t - pad.b;
   const plotW = W - pad.l - pad.r;
   const clusterW = plotW / years.length;
   const barGap = 4;
   const barW = Math.max(6, (clusterW - barGap * (metric.bars.length + 1)) / metric.bars.length);
+  // y-pixel of the value-0 line — at the very bottom when nothing is negative.
+  const baselineY = pad.t + (maxVal / range) * plotH;
 
   const yTicks = 4;
 
@@ -191,15 +198,25 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
       </div>
 
       <div className="flex-1 flex items-center justify-center min-h-[260px]">
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} className="max-w-[640px]">
-          {/* gridlines */}
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} className="max-w-[640px]" overflow="visible">
+          <defs>
+            <marker id="fc-arrow-y" markerWidth="8" markerHeight="8" refX="4" refY="0.5" orient="auto">
+              <path d="M0,7 L4,0 L8,7 Z" fill="rgb(var(--slate-500))" />
+            </marker>
+            <marker id="fc-arrow-x" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 Z" fill="rgb(var(--slate-500))" />
+            </marker>
+          </defs>
+
+          {/* gridlines, spanning the full signed range top(maxVal) to bottom(minVal) */}
           {Array.from({ length: yTicks + 1 }).map((_, i) => {
             const y = pad.t + (plotH / yTicks) * i;
-            const val = maxVal * (1 - i / yTicks);
+            const val = maxVal - (range / yTicks) * i;
+            const isZero = Math.abs(val) < range * 0.001;
             return (
               <g key={i}>
-                <line x1={pad.l} x2={W - pad.r} y1={y} y2={y} stroke="rgb(var(--slate-800))" strokeWidth="1" />
-                <text x={pad.l} y={y - 3} className="fill-slate-500 text-[8.5px] nv-num">{formatVal(val, metric.unit)}</text>
+                <line x1={pad.l} x2={W - pad.r} y1={y} y2={y} stroke="rgb(var(--slate-800))" strokeWidth={isZero ? 1.25 : 1} opacity={isZero ? 0.9 : 0.6} />
+                <text x={pad.l - 6} y={y + 3} textAnchor="end" className="fill-slate-500 text-[8.5px] nv-num">{formatVal(val, metric.unit)}</text>
               </g>
             );
           })}
@@ -216,14 +233,13 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
                 {metric.bars.map((bar, bi) => {
                   const raw = isNum(bar.byDate?.[d]) ? bar.byDate[d] : (isNum(bar.constant) ? bar.constant : null);
                   if (!isNum(raw)) return null;
-                  const h = Math.max((Math.abs(raw) / maxVal) * plotH, 1);
+                  const h = Math.max((Math.abs(raw) / range) * plotH, 1);
                   const x = cx0 + barGap + bi * (barW + barGap);
-                  const y = pad.t + plotH - h;
+                  const y = raw >= 0 ? baselineY - h : baselineY;
                   // YoY: previous (older) date relative to this bar's own series
                   const prevDate = dates[dates.indexOf(d) - 1];
                   const prevVal = isNum(bar.byDate?.[prevDate]) ? bar.byDate[prevDate] : null;
                   const yoy = (isNum(prevVal) && prevVal !== 0 && bar.key === 'company') ? (raw - prevVal) / Math.abs(prevVal) : null;
-                  const companyVal = primaryBar.byDate?.[d];
                   const peerDiff = (bar.key === 'company' && metric.bars.some((b) => b.key === 'peer'))
                     ? raw - metric.bars.find((b) => b.key === 'peer').constant
                     : null;
@@ -247,6 +263,10 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
               </g>
             );
           })}
+
+          {/* explicit Y axis (up) and X axis (right, at the value-0 baseline) with arrowheads */}
+          <line x1={pad.l} y1={H - pad.b + 6} x2={pad.l} y2={pad.t - 8} stroke="rgb(var(--slate-500))" strokeWidth="1.25" markerEnd="url(#fc-arrow-y)" />
+          <line x1={pad.l} y1={baselineY} x2={W - pad.r + 8} y2={baselineY} stroke="rgb(var(--slate-500))" strokeWidth="1.25" markerEnd="url(#fc-arrow-x)" />
         </svg>
       </div>
 

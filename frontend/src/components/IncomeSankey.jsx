@@ -237,7 +237,10 @@ function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 340, onH
       {out.bars.map(({ node, x, y0, y1, depth, labelY }, i) => {
         const h = Math.max(y1 - y0, 1.5);
         const centerY = (y0 + y1) / 2;
-        const align = depth === maxDepth ? 'right' : 'left';
+        // The root node (depth 0) has nothing to its left — a 'left' label
+        // there draws backward from x=pad-10 and runs off the canvas edge
+        // (this is what was clipping "Revenue" to "...ue"/"...Cr").
+        const align = (depth === maxDepth || depth === 0) ? 'right' : 'left';
         const textX = align === 'left' ? x - 10 : x + barW + 10;
         const anchor = align === 'left' ? 'end' : 'start';
         const leaderNeeded = Math.abs(labelY - centerY) > 4;
