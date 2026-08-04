@@ -1987,27 +1987,302 @@ def build_executive_summary(state: SystemState) -> dict:
     f23 = q.get('F-23', {}) or {}
     f24 = q.get('F-24', {}) or {}
     f25 = q.get('F-25', {}) or {}
+
+    # A.1-A.4 now come from the sourcing-pathway-verified qualitative engine
+    # (tools/qualitative_engine.py) instead of the raw ungrounded LLM call above —
+    # every value below carries a confidence tag (VERIFIED/SINGLE_SOURCE/etc, see
+    # the sourcing-pathway spec) and is timestamped/cached per symbol. Overwriting
+    # f22-f25 here (rather than restructuring every downstream read) means the
+    # existing facts/chart/finding wiring for subpoints 1-4 below picks this up
+    # automatically. f22-f25 are not read anywhere else in this file.
+    _a1 = _a2 = _a3 = _a4 = _a5 = None
+    try:
+        from tools.qualitative_engine import (
+            compute_a1_business_model_clarity, compute_a2_competitive_moat,
+            compute_a3_revenue_model_quality, compute_a4_product_lifecycle_stage,
+            compute_a5_pricing_power,
+        )
+        _biz_desc_for_qual = (info.get('longBusinessSummary') or "").strip()
+        _a1 = compute_a1_business_model_clarity(symbol, name, _biz_desc_for_qual)
+        _a2 = compute_a2_competitive_moat(symbol, name, _biz_desc_for_qual)
+        _a3 = compute_a3_revenue_model_quality(symbol, name, _biz_desc_for_qual)
+        _a4 = compute_a4_product_lifecycle_stage(symbol, name, _biz_desc_for_qual)
+        _a5 = compute_a5_pricing_power(symbol, name, _biz_desc_for_qual)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced A.1-A.5 engine failed, falling back to raw LLM fields: {e}")
+
+    _MODEL_TYPE_MAP = {'single_product': 'Single product', 'portfolio': 'Portfolio (multiple products/segments)'}
+    _REV_PATTERN_MAP = {'recurring': 'Recurring', 'cyclical': 'Cyclical', 'mixed': 'Mixed'}
+    _REV_MODEL_MAP = {'transactional': 'Transactional', 'recurring': 'Recurring subscription', 'annuity': 'Annuity', 'mixed': 'Mixed'}
+    _LIFECYCLE_MAP = {'growth': 'Growth', 'maturity': 'Maturity', 'commoditisation': 'Commoditisation', 'decline_obsolescence': 'Decline / obsolescence risk', 'mixed': 'Maturity'}
+
+    if _a1 and _a1.get('available'):
+        f22 = {
+            'business_model_type': _MODEL_TYPE_MAP.get(_a1.get('model_type')),
+            'revenue_pattern': _REV_PATTERN_MAP.get(_a1.get('revenue_pattern')),
+            'recurring_revenue_pct': _a1.get('recurring_revenue_pct'),
+            'segment_shares': _a1.get('segment_shares'),
+            'rationale': _a1.get('rationale'),
+            'confidence_tag': _a1.get('confidence_tag'), 'retrieved_at': _a1.get('retrieved_at'),
+            'pathway_results': _a1.get('pathway_results'),
+        }
+    if _a2 and _a2.get('available'):
+        f23 = {
+            'overall_rating': _a2.get('moat_rating'),
+            'moat_types': {},
+            'moat_pillars_bar': _a2.get('moat_pillars_bar') or [],
+            'rationale': _a2.get('rationale') or 'Not computed — neither sourcing pathway (PORTAL-07 rating-agency rationale, AGG-01 Screener/Tijori) is wired yet.',
+            'confidence_tag': _a2.get('confidence_tag'), 'retrieved_at': _a2.get('retrieved_at'),
+            'pathway_results': _a2.get('pathway_results'),
+        }
+    if _a3 and _a3.get('available'):
+        f24 = {
+            'revenue_model_type': _REV_MODEL_MAP.get(_a3.get('revenue_model')),
+            'contract_length': None,
+            'contract_renewal_rate_pct': _a3.get('contract_renewal_rate_pct'),
+            'rationale': _a3.get('rationale'),
+            'confidence_tag': _a3.get('confidence_tag'), 'retrieved_at': _a3.get('retrieved_at'),
+            'pathway_results': _a3.get('pathway_results'),
+        }
+    if _a4 and _a4.get('available'):
+        f25 = {
+            'lifecycle_stage': _LIFECYCLE_MAP.get(_a4.get('lifecycle_stage')),
+            'relative_growth_pct': _a4.get('relative_growth_pct'),
+            'rationale': _a4.get('rationale'),
+            'confidence_tag': _a4.get('confidence_tag'), 'retrieved_at': _a4.get('retrieved_at'),
+            'pathway_results': _a4.get('pathway_results'),
+        }
     f26 = q.get('F-26', {}) or {}
-    f27 = q.get('F-27', {}) or {}
+    if _a5 and _a5.get('available'):
+        f26 = {
+            'pricing_power_rating': _a5.get('pricing_power_rating'),
+            'price_pass_through_ratio': _a5.get('price_pass_through_ratio'),
+            'rationale': _a5.get('rationale'),
+            'confidence_tag': _a5.get('confidence_tag'), 'retrieved_at': _a5.get('retrieved_at'),
+            'pathway_results': _a5.get('pathway_results'),
+        }
     f28 = q.get('F-28', {}) or {}
+    _b1 = None
+    try:
+        from tools.qualitative_engine import compute_b1_founder_ceo_track_record
+        _b1 = compute_b1_founder_ceo_track_record(symbol, name, _biz_desc_for_qual)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced B.1 engine failed, falling back to raw LLM fields: {e}")
+    if _b1 and _b1.get('available'):
+        f28 = {
+            'ceo_name': _b1.get('ceo_name'),
+            'ceo_tenure_years': None,  # not knowable without FOUNDER-01 (MCA appointment date)
+            'track_record_rating': None,  # deliberately not scored — see qualitative_engine docstring
+            'prior_ventures': [],
+            'rationale': _b1.get('rationale'),
+            'confidence_tag': _b1.get('confidence_tag'), 'retrieved_at': _b1.get('retrieved_at'),
+            'pathway_results': _b1.get('pathway_results'),
+        }
     f29 = q.get('F-29', {}) or {}
+    try:
+        from tools.qualitative_engine import compute_b2_management_incentives
+        _b2 = compute_b2_management_incentives(symbol, name)
+        if _b2 and _b2.get('available'):
+            f29 = {
+                'fixed_variable_pay_ratio': _b2.get('fixed_variable_pay_ratio'),
+                'esop_pct_of_kmp_comp': _b2.get('esop_pct_of_kmp_comp'),
+                'esop_facts': _b2.get('esop_facts') or [],
+                'long_term_orientation_rating': None,
+                'rationale': _b2.get('rationale'),
+                'confidence_tag': _b2.get('confidence_tag'), 'retrieved_at': _b2.get('retrieved_at'),
+                'pathway_results': _b2.get('pathway_results'),
+            }
+    except Exception as e:
+        print(f"[qualitative_topics] sourced B.2 engine failed, falling back to raw LLM fields: {e}")
     f30 = q.get('F-30', {}) or {}
+    try:
+        from tools.qualitative_engine import compute_b3_management_bench_depth
+        _b3 = compute_b3_management_bench_depth(symbol, name)
+        if _b3 and _b3.get('available'):
+            f30 = {
+                'bench_depth_rating': None,
+                'kmp_attrition_rate_pct': None,
+                'key_person_dependency_flags': _b3.get('kmp_change_facts') or [],
+                'rationale': _b3.get('rationale'),
+                'confidence_tag': _b3.get('confidence_tag'), 'retrieved_at': _b3.get('retrieved_at'),
+                'pathway_results': _b3.get('pathway_results'),
+            }
+    except Exception as e:
+        print(f"[qualitative_topics] sourced B.3 engine failed, falling back to raw LLM fields: {e}")
     f31 = q.get('F-31', {}) or {}
+    try:
+        from tools.qualitative_engine import compute_b4_communication_quality
+        _b4 = compute_b4_communication_quality(symbol, name)
+        if _b4 and _b4.get('available'):
+            f31 = {
+                'communication_quality_rating': _b4.get('communication_quality_rating'),
+                'guidance_consistency': None,
+                'disclosure_flags': [],
+                'rationale': _b4.get('rationale'),
+                'confidence_tag': _b4.get('confidence_tag'), 'retrieved_at': _b4.get('retrieved_at'),
+                'pathway_results': _b4.get('pathway_results'),
+            }
+    except Exception as e:
+        print(f"[qualitative_topics] sourced B.4 engine failed, falling back to raw LLM fields: {e}")
     f32 = q.get('F-32', {}) or {}
+    try:
+        from tools.qualitative_engine import compute_b5_execution_credibility
+        _b5 = compute_b5_execution_credibility(symbol, name)
+        if _b5 and _b5.get('available'):
+            f32 = {
+                'execution_credibility_rating': _b5.get('execution_credibility_rating'),
+                'guidance_accuracy_pct': _b5.get('guidance_accuracy_pct'),
+                'milestone_track_record': _b5.get('milestone_track_record') or [],
+                'rationale': _b5.get('rationale'),
+                'confidence_tag': _b5.get('confidence_tag'), 'retrieved_at': _b5.get('retrieved_at'),
+                'pathway_results': _b5.get('pathway_results'),
+            }
+    except Exception as e:
+        print(f"[qualitative_topics] sourced B.5 engine failed, falling back to raw LLM fields: {e}")
     f33 = q.get('F-33', {}) or {}
+    try:
+        from tools.qualitative_engine import compute_b6_culture
+        _b6 = compute_b6_culture(symbol, name)
+        if _b6 and _b6.get('available'):
+            f33 = {
+                'culture_rating': None,
+                'employee_attrition_rate_pct': None,
+                'culture_flags': [],
+                'rationale': _b6.get('rationale'),
+                'confidence_tag': _b6.get('confidence_tag'), 'retrieved_at': _b6.get('retrieved_at'),
+                'pathway_results': _b6.get('pathway_results'),
+            }
+    except Exception as e:
+        print(f"[qualitative_topics] sourced B.6 engine failed, falling back to raw LLM fields: {e}")
     f34 = q.get('F-34', {}) or {}
+    try:
+        from tools.qualitative_engine import compute_c1_promoter_shareholding
+        _c1 = compute_c1_promoter_shareholding(symbol, name)
+        if _c1 and _c1.get('available'):
+            f34 = {
+                'promoter_holding_pct': _c1.get('promoter_holding_pct'),
+                'qoq_change_pct': _c1.get('qoq_change_pct'),
+                'holding_trend': {'increasing': 'Increasing', 'decreasing': 'Decreasing', 'stable': 'Stable'}.get(_c1.get('direction')),
+                'rationale': (
+                    f"{_c1.get('control_level')} as of {_c1.get('as_of_quarter')} — "
+                    f"real NSE Shareholding Pattern data ({_c1.get('quarters_available')} quarter(s) available "
+                    "from the live endpoint this run)."
+                ),
+                'confidence_tag': _c1.get('confidence_tag'), 'retrieved_at': _c1.get('retrieved_at'),
+                'pathway_results': _c1.get('pathway_results'),
+            }
+    except Exception as e:
+        print(f"[qualitative_topics] sourced C.1 engine failed, falling back to raw LLM fields: {e}")
     f35 = q.get('F-35', {}) or {}
+    try:
+        from tools.qualitative_engine import compute_c2_promoter_pledging
+        _c2 = compute_c2_promoter_pledging(symbol, name)
+        if _c2 and _c2.get('available'):
+            f35 = {
+                'pledge_pct': _c2.get('pledge_pct'),
+                'pledge_trend': None,  # single-quarter data — no trend computable yet
+                'risk_level': _c2.get('risk_level'),
+                'rationale': _c2.get('rationale'),
+                'confidence_tag': _c2.get('confidence_tag'), 'retrieved_at': _c2.get('retrieved_at'),
+                'pathway_results': _c2.get('pathway_results'),
+            }
+    except Exception as e:
+        print(f"[qualitative_topics] sourced C.2 engine failed, falling back to raw LLM fields: {e}")
     f36 = q.get('F-36', {}) or {}
+    try:
+        from tools.qualitative_engine import compute_c3_related_party_transactions
+        _c3 = compute_c3_related_party_transactions(symbol, name)
+        if _c3 and _c3.get('available'):
+            f36 = {
+                'rpt_intensity_pct': None,
+                'rpt_frequency': None,
+                'counterparty_flags': [],
+                'rationale': _c3.get('rationale'),
+                'confidence_tag': _c3.get('confidence_tag'), 'retrieved_at': _c3.get('retrieved_at'),
+                'pathway_results': _c3.get('pathway_results'),
+            }
+    except Exception as e:
+        print(f"[qualitative_topics] sourced C.3 engine failed, falling back to raw LLM fields: {e}")
     f37 = q.get('F-37', {}) or {}
+    try:
+        from tools.qualitative_engine import compute_c4_group_structural_complexity
+        _c4 = compute_c4_group_structural_complexity(symbol, name)
+        if _c4 and _c4.get('available'):
+            f37 = {
+                'subsidiary_count': None,
+                'structural_layers': None,
+                'unclear_purpose_flags': [],
+                'rationale': _c4.get('rationale'),
+                'confidence_tag': _c4.get('confidence_tag'), 'retrieved_at': _c4.get('retrieved_at'),
+                'pathway_results': _c4.get('pathway_results'),
+            }
+    except Exception as e:
+        print(f"[qualitative_topics] sourced C.4 engine failed, falling back to raw LLM fields: {e}")
     f38 = q.get('F-38', {}) or {}
+    try:
+        from tools.qualitative_engine import compute_c5_board_composition
+        _c5 = compute_c5_board_composition(symbol, name)
+        if _c5 and _c5.get('available'):
+            f38 = {
+                'independent_director_pct': None,
+                'board_size': None,
+                'committee_activity_rating': None,
+                'governance_flags': [],
+                'rationale': _c5.get('rationale'),
+                'confidence_tag': _c5.get('confidence_tag'), 'retrieved_at': _c5.get('retrieved_at'),
+                'pathway_results': _c5.get('pathway_results'),
+            }
+    except Exception as e:
+        print(f"[qualitative_topics] sourced C.5 engine failed, falling back to raw LLM fields: {e}")
     f39 = q.get('F-39', {}) or {}
+    try:
+        from tools.qualitative_engine import compute_c6_auditor_relationships
+        _c6 = compute_c6_auditor_relationships(symbol, name)
+        if _c6 and _c6.get('available'):
+            f39 = {
+                'auditor_name': None,
+                'auditor_tenure_years': None,
+                'qualification_rating': None,
+                'auditor_flags': [],
+                'rationale': _c6.get('rationale'),
+                'confidence_tag': _c6.get('confidence_tag'), 'retrieved_at': _c6.get('retrieved_at'),
+                'pathway_results': _c6.get('pathway_results'),
+            }
+    except Exception as e:
+        print(f"[qualitative_topics] sourced C.6 engine failed, falling back to raw LLM fields: {e}")
+
+    _c7 = None
+    try:
+        from tools.qualitative_engine import compute_c7_capital_allocation
+        _c7 = compute_c7_capital_allocation(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced C.7 engine failed: {e}")
+        _c7 = {
+            'available': True,
+            'rationale': 'Not computed — C.7 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
+    _c8 = None
+    try:
+        from tools.qualitative_engine import compute_c8_minority_shareholder_treatment
+        _c8 = compute_c8_minority_shareholder_treatment(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced C.8 engine failed: {e}")
+        _c8 = {
+            'available': True,
+            'rationale': 'Not computed — C.8 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
 
     _biz_model_type = _enum(f22.get('business_model_type'), ['Single product', 'Portfolio (multiple products/segments)'])
     _revenue_pattern = _enum(f22.get('revenue_pattern'), ['Recurring', 'Cyclical', 'Mixed'])
-    _revenue_model_type = _enum(f24.get('revenue_model_type'), ['Transactional', 'Recurring subscription', 'Annuity', 'Long-term contract'])
+    _revenue_model_type = _enum(f24.get('revenue_model_type'), ['Transactional', 'Recurring subscription', 'Annuity', 'Long-term contract', 'Mixed'])
     _lifecycle_stage = _enum(f25.get('lifecycle_stage'), ['Growth', 'Maturity', 'Commoditisation', 'Decline / obsolescence risk'])
     _pricing_power_rating = _enum(f26.get('pricing_power_rating'), ['Strong', 'Moderate', 'Weak'])
-    _structural_defensibility = _enum(f27.get('structural_defensibility'), ['Structurally defensible', 'Partially temporary tailwinds', 'Largely temporary tailwinds'])
+    # _structural_defensibility is computed further down, AFTER f27 is potentially
+    # overridden by the sourced A.6 engine (needs _margin_volatility/_ebitda_margin_series
+    # computed first) — see the `_a6 = None` block below.
 
     _recurring_pct = f22.get('recurring_revenue_pct')
     try:
@@ -2053,6 +2328,26 @@ def build_executive_summary(state: SystemState) -> dict:
             _variance = sum((v - _mean) ** 2 for v in _vals) / len(_vals)
             _margin_volatility = round((_variance ** 0.5) / abs(_mean), 2)
 
+    _a6 = None
+    try:
+        from tools.qualitative_engine import compute_a6_margin_sustainability
+        _a6 = compute_a6_margin_sustainability(
+            symbol, name, _biz_desc_for_qual,
+            ebitda_margin_series=_ebitda_margin_series, margin_volatility=_margin_volatility,
+        )
+    except Exception as e:
+        print(f"[qualitative_topics] sourced A.6 engine failed, falling back to raw LLM fields: {e}")
+    f27 = q.get('F-27', {}) or {}
+    if _a6 and _a6.get('available'):
+        f27 = {
+            'structural_defensibility': _a6.get('structural_defensibility'),
+            'one_off_flags': _a6.get('one_off_flags'),
+            'rationale': _a6.get('rationale'),
+            'confidence_tag': _a6.get('confidence_tag'), 'retrieved_at': _a6.get('retrieved_at'),
+            'pathway_results': _a6.get('pathway_results'),
+        }
+    _structural_defensibility = _enum(f27.get('structural_defensibility'), ['Structurally defensible', 'Partially temporary tailwinds', 'Largely temporary tailwinds'])
+
     _ar_ip_screener_sources = {
         'primary': {'label': 'Company Annual Report', 'note': 'sourced via BSE announcement / company IR page'},
         'secondary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page'},
@@ -2065,13 +2360,24 @@ def build_executive_summary(state: SystemState) -> dict:
                    'network_effects': 'Network effects', 'switching_costs': 'Switching costs'}
     _moat_types = f23.get('moat_types') or {}
     _moat_bars = []
-    for _mk, _mlabel in _moat_label.items():
-        _mv = _moat_types.get(_mk)
-        try:
-            _mv = max(0.0, min(5.0, float(_mv)))
-        except (TypeError, ValueError):
-            continue
-        _moat_bars.append({'label': _mlabel, 'value': round(_mv, 1)})
+    # Sourced A.2 (tools/qualitative_engine.py) supplies real Screener.in-derived
+    # pillar scores directly — prefer those over the old fixed brand/distribution/
+    # cost-leadership/network-effects/switching-costs labels, which were never
+    # actually measured, just LLM-guessed.
+    if f23.get('moat_pillars_bar'):
+        for _pb in f23['moat_pillars_bar']:
+            try:
+                _moat_bars.append({'label': _pb['label'], 'value': round(max(0.0, min(5.0, float(_pb['value']))), 1)})
+            except (TypeError, ValueError, KeyError):
+                continue
+    else:
+        for _mk, _mlabel in _moat_label.items():
+            _mv = _moat_types.get(_mk)
+            try:
+                _mv = max(0.0, min(5.0, float(_mv)))
+            except (TypeError, ValueError):
+                continue
+            _moat_bars.append({'label': _mlabel, 'value': round(_mv, 1)})
     _moat_overall = f23.get('overall_rating')
     try:
         _moat_overall = round(max(0.0, min(5.0, float(_moat_overall))), 1)
@@ -2199,15 +2505,40 @@ def build_executive_summary(state: SystemState) -> dict:
                         (['Revenue pattern', _revenue_pattern] if _revenue_pattern else None),
                         (['Recurring revenue', f"~{round(_recurring_pct)}%"] if _recurring_pct is not None else None),
                     ] if f],
-                    'chart': ({
-                        'type': 'donut',
-                        'data': [
-                            {'label': 'Recurring revenue', 'pct': round(_recurring_pct, 1)},
-                            {'label': 'Non-recurring / cyclical revenue', 'pct': round(100 - _recurring_pct, 1)},
-                        ],
-                    } if _recurring_pct is not None else None),
+                    'chart': (
+                        # Real AR-14 segment revenue shares (see
+                        # tools/qualitative_engine.py's `_fetch_segment_revenue_context`)
+                        # — a stacked bar, one block per reported segment, sized by its
+                        # real revenue share and colored by the LLM's per-segment
+                        # recurring/mixed/cyclical read. Preferred over the coarser
+                        # donut/spectrum fallbacks below whenever real segment data exists.
+                        {'type': 'segment_share',
+                         'segments': f22.get('segment_shares'),
+                         'panelTitle': 'Revenue by segment'}
+                        if f22.get('segment_shares') else (
+                            {
+                                'type': 'donut',
+                                'data': [
+                                    {'label': 'Recurring revenue', 'pct': round(_recurring_pct, 1)},
+                                    {'label': 'Non-recurring / cyclical revenue', 'pct': round(100 - _recurring_pct, 1)},
+                                ],
+                            } if _recurring_pct is not None else (
+                                # No disclosed recurring-revenue % (no reconciled AR-14
+                                # segment note found) — still show *something* visual:
+                                # where this business sits on the revenue-pattern
+                                # spectrum, same fallback convention as
+                                # revenue_model_quality below.
+                                {'type': 'spectrum',
+                                 'options': ['Recurring', 'Mixed', 'Cyclical'],
+                                 'active': _revenue_pattern}
+                                if _revenue_pattern else None
+                            )
+                        )
+                    ),
                     'formula': 'Recurring revenue % = Recurring revenue / Total revenue',
                     'sources': _ar_ip_screener_sources,
+                    'confidence_tag': f22.get('confidence_tag'), 'retrieved_at': f22.get('retrieved_at'),
+                    'pathway_results': f22.get('pathway_results'),
                 },
                 {
                     'key': 'competitive_advantage_moats',
@@ -2221,6 +2552,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'ICRA Research', 'url': 'https://www.icra.in'},
                         'tertiary': {'label': 'Screener.in – peer/moat comparison, incl. Tijori Finance', 'url': 'https://www.screener.in'},
                     },
+                    'confidence_tag': f23.get('confidence_tag'), 'retrieved_at': f23.get('retrieved_at'),
+                    'pathway_results': f23.get('pathway_results'),
                 },
                 {
                     'key': 'revenue_model_quality',
@@ -2242,7 +2575,7 @@ def build_executive_summary(state: SystemState) -> dict:
                         # *something* visual: where this business sits on the
                         # revenue-model spectrum, rather than a bare text label.
                         {'type': 'spectrum',
-                         'options': ['Transactional', 'Recurring subscription', 'Annuity', 'Long-term contract'],
+                         'options': ['Transactional', 'Recurring subscription', 'Annuity', 'Long-term contract', 'Mixed'],
                          'active': _revenue_model_type}
                         if _revenue_model_type else None
                     )),
@@ -2252,6 +2585,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page'},
                         'tertiary': {'label': 'Screener.in – Documents/Financials tab', 'url': 'https://www.screener.in'},
                     },
+                    'confidence_tag': f24.get('confidence_tag'), 'retrieved_at': f24.get('retrieved_at'),
+                    'pathway_results': f24.get('pathway_results'),
                 },
                 {
                     'key': 'product_lifecycle_stage',
@@ -2275,6 +2610,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page'},
                         'tertiary': {'label': 'Moneycontrol News/Research', 'note': 'Research/analyst reports', 'url': 'https://www.moneycontrol.com'},
                     },
+                    'confidence_tag': f25.get('confidence_tag'), 'retrieved_at': f25.get('retrieved_at'),
+                    'pathway_results': f25.get('pathway_results'),
                 },
                 {
                     'key': 'pricing_power',
@@ -2294,6 +2631,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'Company Annual Report', 'note': 'MD&A, sourced via BSE announcement / company IR page'},
                         'tertiary': {'label': 'MCX – Commodity Prices', 'note': '+ LME for commodity input costs', 'url': 'https://www.mcx.co.in'},
                     },
+                    'confidence_tag': f26.get('confidence_tag'), 'retrieved_at': f26.get('retrieved_at'),
+                    'pathway_results': f26.get('pathway_results'),
                 },
                 {
                     'key': 'margin_sustainability',
@@ -2312,6 +2651,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab'},
                         'tertiary': {'label': 'Screener.in – Documents/Financials tab', 'note': '5-8Y margin trend', 'url': 'https://www.screener.in'},
                     },
+                    'confidence_tag': f27.get('confidence_tag'), 'retrieved_at': f27.get('retrieved_at'),
+                    'pathway_results': f27.get('pathway_results'),
                 },
             ],
         },
@@ -2336,6 +2677,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'LinkedIn', 'url': 'https://www.linkedin.com'},
                         'tertiary': {'label': 'Google News', 'note': 'past ventures/media archive', 'url': 'https://news.google.com'},
                     },
+                    'confidence_tag': f28.get('confidence_tag'), 'retrieved_at': f28.get('retrieved_at'),
+                    'pathway_results': f28.get('pathway_results'),
                 },
                 {
                     'key': 'management_incentives',
@@ -2345,6 +2688,7 @@ def build_executive_summary(state: SystemState) -> dict:
                         (['Fixed:variable pay ratio', _fixed_variable_ratio] if _fixed_variable_ratio else None),
                         (['ESOP as % of KMP pay', f"~{round(_esop_pct)}%"] if _esop_pct is not None else None),
                         (['Long-term orientation', _lt_orientation] if _lt_orientation else None),
+                        (['ESOP details (from AR)', '; '.join(f29.get('esop_facts'))] if f29.get('esop_facts') else None),
                     ] if f],
                     'chart': ({
                         'type': 'donut',
@@ -2362,6 +2706,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'Company Annual Report', 'note': 'ESOP disclosure note, sourced via BSE announcement / company IR page'},
                         'tertiary': {'label': 'MCA – Company/Director Master Data', 'note': 'MGT-7/MGT-9 filings', 'url': 'https://www.mca.gov.in'},
                     },
+                    'confidence_tag': f29.get('confidence_tag'), 'retrieved_at': f29.get('retrieved_at'),
+                    'pathway_results': f29.get('pathway_results'),
                 },
                 {
                     'key': 'management_bench_depth',
@@ -2380,6 +2726,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'BSE India – Corporate Announcements', 'note': 'KMP change filings', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
                         'tertiary': {'label': 'Company Annual Report', 'note': 'org chart if disclosed, sourced via BSE announcement / company IR page'},
                     },
+                    'confidence_tag': f30.get('confidence_tag'), 'retrieved_at': f30.get('retrieved_at'),
+                    'pathway_results': f30.get('pathway_results'),
                 },
                 {
                     'key': 'communication_quality',
@@ -2398,6 +2746,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'Screener.in – Documents/Financials tab', 'url': 'https://www.screener.in'},
                         'tertiary': {'label': 'BSE India – Corporate Announcements', 'note': 'investor presentation filings', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
                     },
+                    'confidence_tag': f31.get('confidence_tag'), 'retrieved_at': f31.get('retrieved_at'),
+                    'pathway_results': f31.get('pathway_results'),
                 },
                 {
                     'key': 'execution_credibility',
@@ -2416,6 +2766,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'BSE India – Corporate Announcements', 'note': 'Quarterly Results', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
                         'tertiary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab'},
                     },
+                    'confidence_tag': f32.get('confidence_tag'), 'retrieved_at': f32.get('retrieved_at'),
+                    'pathway_results': f32.get('pathway_results'),
                 },
                 {
                     'key': 'culture',
@@ -2434,6 +2786,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'AmbitionBox', 'url': 'https://www.ambitionbox.com'},
                         'tertiary': {'label': 'Company Annual Report', 'note': 'HR/CSR section, sourced via BSE announcement / company IR page'},
                     },
+                    'confidence_tag': f33.get('confidence_tag'), 'retrieved_at': f33.get('retrieved_at'),
+                    'pathway_results': f33.get('pathway_results'),
                 },
             ],
         },
@@ -2457,6 +2811,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'NSE India – Shareholding Pattern', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
                         'tertiary': {'label': 'Trendlyne – Shareholding Trend', 'url': 'https://trendlyne.com'},
                     },
+                    'confidence_tag': f34.get('confidence_tag'), 'retrieved_at': f34.get('retrieved_at'),
+                    'pathway_results': f34.get('pathway_results'),
                 },
                 {
                     'key': 'promoter_share_pledging',
@@ -2480,6 +2836,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'NSE India – Shareholding Pattern', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
                         'tertiary': {'label': 'Trendlyne – Shareholding Trend', 'note': 'pledge trend', 'url': 'https://trendlyne.com'},
                     },
+                    'confidence_tag': f35.get('confidence_tag'), 'retrieved_at': f35.get('retrieved_at'),
+                    'pathway_results': f35.get('pathway_results'),
                 },
                 {
                     'key': 'related_party_transactions',
@@ -2498,6 +2856,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'MCA – Company/Director Master Data', 'note': 'counterparty cross-check', 'url': 'https://www.mca.gov.in'},
                         'tertiary': {'label': 'Tofler – Company/Director Search', 'url': 'https://www.tofler.in'},
                     },
+                    'confidence_tag': f36.get('confidence_tag'), 'retrieved_at': f36.get('retrieved_at'),
+                    'pathway_results': f36.get('pathway_results'),
                 },
                 {
                     'key': 'group_structural_complexity',
@@ -2520,6 +2880,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'Company Annual Report', 'note': 'subsidiaries/associates list, sourced via BSE announcement / company IR page'},
                         'tertiary': {'label': 'Tofler – Company/Director Search', 'note': 'group structure mapping', 'url': 'https://www.tofler.in'},
                     },
+                    'confidence_tag': f37.get('confidence_tag'), 'retrieved_at': f37.get('retrieved_at'),
+                    'pathway_results': f37.get('pathway_results'),
                 },
                 {
                     'key': 'board_composition_independence',
@@ -2544,6 +2906,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'NSE India – Corporate Governance Filings', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-corporate-governance'},
                         'tertiary': {'label': 'BSE India – Corporate Announcements', 'note': 'Corporate Governance Report filing', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
                     },
+                    'confidence_tag': f38.get('confidence_tag'), 'retrieved_at': f38.get('retrieved_at'),
+                    'pathway_results': f38.get('pathway_results'),
                 },
                 {
                     'key': 'auditor_relationships',
@@ -2563,6 +2927,38 @@ def build_executive_summary(state: SystemState) -> dict:
                         'secondary': {'label': 'BSE India – Corporate Announcements', 'note': 'auditor appointment/resignation filing', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
                         'tertiary': {'label': 'MCA – Company/Director Master Data', 'note': 'Form ADT-1/ADT-3', 'url': 'https://www.mca.gov.in'},
                     },
+                    'confidence_tag': f39.get('confidence_tag'), 'retrieved_at': f39.get('retrieved_at'),
+                    'pathway_results': f39.get('pathway_results'),
+                },
+                {
+                    'key': 'capital_allocation',
+                    'title': 'Capital allocation decisions: history of cash deployment and rationale',
+                    'finding': (_c7 or {}).get('rationale') or None,
+                    'facts': [],
+                    'chart': None,
+                    'formula': 'Capital allocation mix % = Each use of cash / Total cash deployed',
+                    'sources': {
+                        'primary': {'label': 'Company Annual Report', 'note': 'Cash Flow Statement, sourced via BSE announcement / company IR page'},
+                        'secondary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page'},
+                        'tertiary': {'label': 'Screener.in – Documents/Financials tab', 'note': 'Cash Flow tab', 'url': 'https://www.screener.in'},
+                    },
+                    'confidence_tag': (_c7 or {}).get('confidence_tag'), 'retrieved_at': (_c7 or {}).get('retrieved_at'),
+                    'pathway_results': (_c7 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'minority_shareholder_treatment',
+                    'title': 'Track record on minority shareholder treatment and disclosure habits',
+                    'finding': (_c8 or {}).get('rationale') or None,
+                    'facts': [],
+                    'chart': None,
+                    'formula': 'N/A — qualitative flag count of adverse governance events',
+                    'sources': {
+                        'primary': {'label': 'SEBI – Disclosures/Enforcement Orders', 'note': 'enforcement orders', 'url': 'https://www.sebi.gov.in'},
+                        'secondary': {'label': 'Proxy Advisory – IiAS / InGovern', 'url': 'https://www.iias.in'},
+                        'tertiary': {'label': 'BSE India – Corporate Announcements', 'note': 'AGM voting/scrutinizer results', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
+                    },
+                    'confidence_tag': (_c8 or {}).get('confidence_tag'), 'retrieved_at': (_c8 or {}).get('retrieved_at'),
+                    'pathway_results': (_c8 or {}).get('pathway_results'),
                 },
             ],
         },

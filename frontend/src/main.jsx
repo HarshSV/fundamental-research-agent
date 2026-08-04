@@ -796,6 +796,67 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
+        // --- SUBCOMPONENT: business-segment revenue share, one stacked block per
+        // reported segment (real % of total revenue, from the Annual Report's own
+        // segment note), colored by that segment's recurring/mixed/cyclical read.
+        // Real data (bar width) is never something the LLM can change — only the
+        // color classification is a judgment call.
+        const SEGMENT_PATTERN_COLOR = {
+            recurring: { bg: 'rgb(45 212 191)', text: 'rgb(19 78 74)' },   // teal
+            mixed: { bg: 'rgb(250 204 21)', text: 'rgb(113 63 18)' },      // amber
+            cyclical: { bg: 'rgb(251 146 60)', text: 'rgb(124 45 18)' },   // coral/orange
+        };
+        const SegmentShareChart = ({ segments, dark = false }) => {
+            const segs = (segments || []).filter(s => s && s.label && s.pct > 0);
+            if (!segs.length) return null;
+            const total = segs.reduce((s, x) => s + x.pct, 0);
+            const other = Math.max(0, 100 - total);
+            const mutedColor = dark ? 'rgb(148 163 184)' : 'rgb(100 116 139)';
+            const patternsUsed = [...new Set(segs.map(s => s.revenue_pattern))];
+            return (
+                <div>
+                    <div className="text-[11px] mb-2" style={{ color: mutedColor }}>
+                        Portfolio · {segs.length} reported segment{segs.length === 1 ? '' : 's'}
+                    </div>
+                    <div className="flex w-full h-10 rounded-md overflow-hidden">
+                        {segs.map((s) => {
+                            const c = SEGMENT_PATTERN_COLOR[s.revenue_pattern] || SEGMENT_PATTERN_COLOR.mixed;
+                            return (
+                                <div key={s.label} className="flex flex-col items-center justify-center px-1 min-w-0"
+                                    style={{ width: `${s.pct}%`, background: c.bg }} title={`${s.label} — ${s.pct}%`}>
+                                    {s.pct >= 10 && (
+                                        <>
+                                            <span className="text-[11px] font-bold truncate max-w-full" style={{ color: c.text }}>{s.label}</span>
+                                            <span className="text-[10px] font-semibold" style={{ color: c.text }}>{s.pct}%</span>
+                                        </>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        {other > 0.5 && (
+                            <div className="flex items-center justify-center" style={{ width: `${other}%`, background: dark ? 'rgb(30 41 59)' : 'rgb(226 232 240)' }} title={`Other / unallocated — ${other.toFixed(0)}%`}>
+                                <span className="text-[10px] font-semibold" style={{ color: mutedColor }}>{other >= 6 ? `${Math.round(other)}%` : ''}</span>
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-4 mt-2 flex-wrap">
+                        {patternsUsed.map((p) => {
+                            const c = SEGMENT_PATTERN_COLOR[p] || SEGMENT_PATTERN_COLOR.mixed;
+                            return (
+                                <div key={p} className="flex items-center gap-1.5">
+                                    <span className="w-2.5 h-2.5 rounded-sm" style={{ background: c.bg }} />
+                                    <span className="text-[11px] capitalize" style={{ color: mutedColor }}>{p}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <p className="text-[11px] mt-2 leading-snug" style={{ color: mutedColor }}>
+                        Bar width = revenue share per segment · color = that segment's revenue pattern.
+                    </p>
+                </div>
+            );
+        };
+
         // --- SUBCOMPONENT: Revenue streams — pie of how the company makes money,
         // with each stream expandable (tap the row) to reveal its plain-English
         // "how it earns" detail. Falls back to the driver text if no structured
@@ -892,6 +953,78 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // --- SUBCOMPONENT: Qualitative Analysis — main topics as collapsible sections,
         // each holding sub-points (LLM finding + chart when numeric + source citation
         // trail). Renders nothing but a "coming soon" note until a topic has data.
+        // Confidence tag per the verification protocol (VERIFIED/SINGLE_SOURCE/
+        // CONFLICT_UNRESOLVED/terminal negative code) — only present on subpoints
+        // computed by the sourcing-pathway-verified engine (tools/qualitative_engine.py),
+        // e.g. topic A's first 4 subpoints. Older, un-sourced subpoints simply omit it.
+        const QUAL_CONFIDENCE_STYLE = {
+            VERIFIED: 'text-emerald-200 bg-emerald-950 border-emerald-500/60',
+            SINGLE_SOURCE: 'text-blue-200 bg-blue-950 border-blue-500/60',
+            CONFLICT_UNRESOLVED: 'text-red-200 bg-red-950 border-red-500/60',
+        };
+        const QualitativeSubpoint = ({ sp }) => {
+            const chart = sp.chart;
+            const chartTop = chart?.type === 'donut' && chart.data?.length
+                ? [...chart.data].sort((a, b) => b.pct - a.pct)[0] : null;
+            const chartTitle = chart?.panelTitle || (chart?.type === 'donut' ? 'Mix' : chart?.type === 'bar' ? 'Rating breakdown' : chart?.type === 'spectrum' ? 'Category' : chart?.type === 'diverging' ? 'Growth vs industry' : null);
+            const facts = sp.facts || [];
+            return (
+                <div className="border border-slate-800 rounded-lg overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-2">
+                        <h4 className="text-sm font-bold text-slate-100 uppercase tracking-wide">{sp.title}</h4>
+                        {sp.confidence_tag && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap flex-shrink-0 ${QUAL_CONFIDENCE_STYLE[sp.confidence_tag] || 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
+                                title="Per the verification protocol: VERIFIED = 2+ independent pathways agreed; SINGLE_SOURCE = only one pathway checked; CONFLICT_UNRESOLVED = pathways disagreed, must not feed a decision unreviewed; any other tag is a terminal negative-result state.">
+                                {sp.confidence_tag}
+                            </span>
+                        )}
+                    </div>
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-[1.3fr_1fr] gap-4">
+                        <div>
+                            {facts.length > 0 ? (
+                                <ul className="space-y-2 mb-3">
+                                    {facts.map(([label, value]) => (
+                                        <li key={label} className="flex items-start gap-2 text-[13px]">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 flex-shrink-0"></span>
+                                            <span className="text-slate-300"><span className="text-slate-400">{label}:</span> <span className="font-semibold text-slate-100">{value}</span></span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-xs text-slate-500 italic mb-3">Not yet available — regenerate report to populate.</p>
+                            )}
+                            {sp.finding && <p className="text-[13px] text-slate-400 leading-relaxed">{sp.finding}</p>}
+                            <SourcesFooter formula={sp.formula} sources={sp.sources} />
+                        </div>
+                        {chart && (chart.data?.length > 0 || chart.options?.length > 0 || chart.value != null || chart.rows?.length > 0 || chart.segments?.length > 0) && (
+                            <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg self-start">
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{chartTitle}</div>
+                                {chart.type === 'segment_share' && (
+                                    <SegmentShareChart segments={chart.segments} dark />
+                                )}
+                                {chart.type === 'donut' && (
+                                    <Donut data={chart.data.map(d => ({ label: d.label, value: d.pct }))} fmt={(v) => Number(v).toFixed(0)} dark
+                                        center={chartTop ? { value: `${Math.round(chartTop.pct)}%`, label: chartTop.label } : null} />
+                                )}
+                                {chart.type === 'bar' && (
+                                    <BarScore data={chart.data.map(d => ({ label: d.label, value: d.value }))} scaleMax={chart.scaleMax || 5} dark />
+                                )}
+                                {chart.type === 'spectrum' && (
+                                    <SpectrumChart options={chart.options} active={chart.active} dark />
+                                )}
+                                {chart.type === 'diverging' && (
+                                    <DivergingBar value={chart.value} range={chart.range || 20} label={chart.label} dark />
+                                )}
+                                {chart.type === 'trend' && (
+                                    <TrendChart rows={chart.rows} series={[{ key: 'value', label: chart.seriesLabel || 'Value', color: '#3b82f6' }]} fmt={(v) => `${Number(v).toFixed(1)}%`} height={140} smooth />
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
         const QualitativeTopics = ({ topics }) => {
             const list = Object.values(topics || {}).filter(t => t && t.subpoints && t.subpoints.length);
             if (!list.length) {
@@ -902,59 +1035,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     {list.map((t, ti) => (
                         <CollapsibleSection key={t.topic || ti} title={t.topic} defaultOpen={true}>
                             <div className="space-y-4">
-                                {t.subpoints.map((sp, i) => {
-                                    const chart = sp.chart;
-                                    const chartTop = chart?.type === 'donut' && chart.data?.length
-                                        ? [...chart.data].sort((a, b) => b.pct - a.pct)[0] : null;
-                                    const chartTitle = chart?.panelTitle || (chart?.type === 'donut' ? 'Mix' : chart?.type === 'bar' ? 'Rating breakdown' : chart?.type === 'spectrum' ? 'Category' : chart?.type === 'diverging' ? 'Growth vs industry' : null);
-                                    const facts = sp.facts || [];
-                                    return (
-                                    <div key={sp.key || i} className="border border-slate-800 rounded-lg overflow-hidden">
-                                        <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/60">
-                                            <h4 className="text-sm font-bold text-slate-100 uppercase tracking-wide">{sp.title}</h4>
-                                        </div>
-                                        <div className="p-4 grid grid-cols-1 md:grid-cols-[1.3fr_1fr] gap-4">
-                                            <div>
-                                                {facts.length > 0 ? (
-                                                    <ul className="space-y-2 mb-3">
-                                                        {facts.map(([label, value]) => (
-                                                            <li key={label} className="flex items-start gap-2 text-[13px]">
-                                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 flex-shrink-0"></span>
-                                                                <span className="text-slate-300"><span className="text-slate-400">{label}:</span> <span className="font-semibold text-slate-100">{value}</span></span>
-                                                            </li>
-                                                        ))}
-                                                    </ul>
-                                                ) : (
-                                                    <p className="text-xs text-slate-500 italic mb-3">Not yet available — regenerate report to populate.</p>
-                                                )}
-                                                {sp.finding && <p className="text-[13px] text-slate-400 leading-relaxed">{sp.finding}</p>}
-                                                <SourcesFooter formula={sp.formula} sources={sp.sources} />
-                                            </div>
-                                            {chart && (chart.data?.length > 0 || chart.options?.length > 0 || chart.value != null || chart.rows?.length > 0) && (
-                                                <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg self-start">
-                                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{chartTitle}</div>
-                                                    {chart.type === 'donut' && (
-                                                        <Donut data={chart.data.map(d => ({ label: d.label, value: d.pct }))} fmt={(v) => Number(v).toFixed(0)} dark
-                                                            center={chartTop ? { value: `${Math.round(chartTop.pct)}%`, label: chartTop.label } : null} />
-                                                    )}
-                                                    {chart.type === 'bar' && (
-                                                        <BarScore data={chart.data.map(d => ({ label: d.label, value: d.value }))} scaleMax={chart.scaleMax || 5} dark />
-                                                    )}
-                                                    {chart.type === 'spectrum' && (
-                                                        <SpectrumChart options={chart.options} active={chart.active} dark />
-                                                    )}
-                                                    {chart.type === 'diverging' && (
-                                                        <DivergingBar value={chart.value} range={chart.range || 20} label={chart.label} dark />
-                                                    )}
-                                                    {chart.type === 'trend' && (
-                                                        <TrendChart rows={chart.rows} series={[{ key: 'value', label: chart.seriesLabel || 'Value', color: '#3b82f6' }]} fmt={(v) => `${Number(v).toFixed(1)}%`} height={140} smooth />
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                    );
-                                })}
+                                {t.subpoints.map((sp, i) => (
+                                    <QualitativeSubpoint key={sp.key || i} sp={sp} />
+                                ))}
                             </div>
                         </CollapsibleSection>
                     ))}
