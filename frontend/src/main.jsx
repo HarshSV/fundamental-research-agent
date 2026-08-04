@@ -798,36 +798,32 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // --- SUBCOMPONENT: business-segment revenue share, one stacked block per
         // reported segment (real % of total revenue, from the Annual Report's own
-        // segment note), colored by that segment's recurring/mixed/cyclical read.
-        // Real data (bar width) is never something the LLM can change — only the
-        // color classification is a judgment call.
-        const SEGMENT_PATTERN_COLOR = {
-            recurring: { bg: 'rgb(45 212 191)', text: 'rgb(19 78 74)' },   // teal
-            mixed: { bg: 'rgb(250 204 21)', text: 'rgb(113 63 18)' },      // amber
-            cyclical: { bg: 'rgb(251 146 60)', text: 'rgb(124 45 18)' },   // coral/orange
-        };
+        // segment note). This chart is business-diversification only — it does NOT
+        // judge which segments are recurring vs cyclical (that's a separate,
+        // evidence-grounded analysis rendered by RevenueCharacteristicsCard below;
+        // a segment's name/label alone never implies its revenue pattern).
+        const SEGMENT_BAR_COLORS = ['rgb(59 130 246)', 'rgb(45 212 191)', 'rgb(168 85 247)', 'rgb(251 146 60)', 'rgb(236 72 153)', 'rgb(250 204 21)'];
         const SegmentShareChart = ({ segments, dark = false }) => {
             const segs = (segments || []).filter(s => s && s.label && s.pct > 0);
             if (!segs.length) return null;
             const total = segs.reduce((s, x) => s + x.pct, 0);
             const other = Math.max(0, 100 - total);
             const mutedColor = dark ? 'rgb(148 163 184)' : 'rgb(100 116 139)';
-            const patternsUsed = [...new Set(segs.map(s => s.revenue_pattern))];
             return (
                 <div>
                     <div className="text-[11px] mb-2" style={{ color: mutedColor }}>
                         Portfolio · {segs.length} reported segment{segs.length === 1 ? '' : 's'}
                     </div>
                     <div className="flex w-full h-10 rounded-md overflow-hidden">
-                        {segs.map((s) => {
-                            const c = SEGMENT_PATTERN_COLOR[s.revenue_pattern] || SEGMENT_PATTERN_COLOR.mixed;
+                        {segs.map((s, i) => {
+                            const bg = SEGMENT_BAR_COLORS[i % SEGMENT_BAR_COLORS.length];
                             return (
                                 <div key={s.label} className="flex flex-col items-center justify-center px-1 min-w-0"
-                                    style={{ width: `${s.pct}%`, background: c.bg }} title={`${s.label} — ${s.pct}%`}>
+                                    style={{ width: `${s.pct}%`, background: bg }} title={`${s.label} — ${s.pct}%`}>
                                     {s.pct >= 10 && (
                                         <>
-                                            <span className="text-[11px] font-bold truncate max-w-full" style={{ color: c.text }}>{s.label}</span>
-                                            <span className="text-[10px] font-semibold" style={{ color: c.text }}>{s.pct}%</span>
+                                            <span className="text-[11px] font-bold truncate max-w-full text-white">{s.label}</span>
+                                            <span className="text-[10px] font-semibold text-white/90">{s.pct}%</span>
                                         </>
                                     )}
                                 </div>
@@ -839,20 +835,151 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             </div>
                         )}
                     </div>
-                    <div className="flex items-center gap-4 mt-2 flex-wrap">
-                        {patternsUsed.map((p) => {
-                            const c = SEGMENT_PATTERN_COLOR[p] || SEGMENT_PATTERN_COLOR.mixed;
-                            return (
-                                <div key={p} className="flex items-center gap-1.5">
-                                    <span className="w-2.5 h-2.5 rounded-sm" style={{ background: c.bg }} />
-                                    <span className="text-[11px] capitalize" style={{ color: mutedColor }}>{p}</span>
-                                </div>
-                            );
-                        })}
-                    </div>
                     <p className="text-[11px] mt-2 leading-snug" style={{ color: mutedColor }}>
-                        Bar width = revenue share per segment · color = that segment's revenue pattern.
+                        Bar width = revenue share reported for each segment in the Annual Report.
                     </p>
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: Revenue Characteristics (recurring vs cyclical revenue).
+        // Two independent, beginner-first blocks: how predictable/repeatable
+        // revenue is, and how sensitive the business is to economic/industry
+        // cycles. Numbers only ever render when the backend marked them
+        // reported/calculated from real evidence — "not disclosed" / "unable to
+        // determine" are first-class states here, never displayed as 0%.
+        const CYCLICALITY_POSITION = { low: 0, moderate: 1, high: 2 };
+        const CYCLICALITY_COPY = {
+            low: 'Revenue is relatively less dependent on economic or industry conditions.',
+            moderate: 'Demand can change meaningfully with economic and industry conditions.',
+            high: 'Revenue is highly sensitive to economic or industry conditions.',
+            unable_to_determine: 'Not enough official information was found to assess cyclicality.',
+        };
+        const WhySourceDrawer = ({ label, bullets, sources, pdfUrl, fiscalYear }) => {
+            const [open, setOpen] = useState(false);
+            if (!bullets?.length && !sources?.length) return null;
+            return (
+                <div className="mt-2">
+                    <button onClick={() => setOpen(o => !o)}
+                        className="text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 transition">
+                        {label} {open ? '▴' : '▾'}
+                    </button>
+                    {open && (
+                        <div className="mt-2 space-y-2.5">
+                            {bullets?.length > 0 && (
+                                <ul className="space-y-1.5">
+                                    {bullets.map((b, i) => (
+                                        <li key={i} className="flex items-start gap-2 text-[11px] text-slate-300 leading-relaxed">
+                                            <span className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 bg-blue-500"></span>
+                                            <span>{b}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            {sources?.length > 0 && (
+                                <div className="space-y-1.5 border-t border-slate-800 pt-2">
+                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Source</p>
+                                    {sources.map((s, i) => (
+                                        <div key={i} className="text-[11px] text-slate-400 bg-slate-900/60 border border-slate-800 rounded p-2">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-slate-500">
+                                                    Annual Report{fiscalYear ? ` FY${fiscalYear}` : ''}{s.page ? `, page ${s.page}` : ''}
+                                                </span>
+                                                {pdfUrl && (
+                                                    <a href={`${pdfUrl}${s.page ? `#page=${s.page}` : ''}`} target="_blank" rel="noopener noreferrer"
+                                                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300 hover:underline whitespace-nowrap">
+                                                        VIEW SOURCE
+                                                    </a>
+                                                )}
+                                            </div>
+                                            <span className="italic block mt-1">"...{s.excerpt}..."</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+        const RevenueCharacteristicsCard = ({ recurring, cyclicality, pdfUrl, fiscalYear }) => {
+            const r = recurring || {};
+            const c = cyclicality || {};
+            const hasPct = r.pct != null && (r.status === 'reported' || r.status === 'calculated');
+            const badgeLabel = r.status === 'reported' ? 'REPORTED BY COMPANY' : r.status === 'calculated' ? 'CALCULATED BY NAVRIST' : null;
+            const pos = CYCLICALITY_POSITION[c.classification];
+            return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Recurring revenue block */}
+                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">How predictable is revenue?</p>
+                        {hasPct ? (
+                            <>
+                                <div className="flex items-baseline gap-2 mb-2">
+                                    <span className="text-3xl font-extrabold text-slate-100">{Math.round(r.pct)}%</span>
+                                    <span className="text-[11px] text-slate-400">recurring</span>
+                                </div>
+                                <div className="flex w-full h-3 rounded-full overflow-hidden bg-slate-800 mb-2">
+                                    <div className="h-full bg-teal-400" style={{ width: `${r.pct}%` }} />
+                                </div>
+                                <p className="text-[12px] text-slate-300 leading-relaxed">
+                                    About ₹{Math.round(r.pct)} out of every ₹100 of revenue comes from recurring sources.
+                                </p>
+                                {badgeLabel && (
+                                    <span className="inline-block mt-2 text-[9px] font-bold px-1.5 py-0.5 rounded border text-blue-200 bg-blue-950 border-blue-500/60">{badgeLabel}</span>
+                                )}
+                                {r.calc && (
+                                    <p className="text-[10px] text-slate-500 mt-1.5 italic">
+                                        {r.calc.numerator_label || 'Recurring revenue'} (₹{r.calc.numerator_cr} Cr) ÷ {r.calc.denominator_label || 'Total revenue'} (₹{r.calc.denominator_cr} Cr)
+                                    </p>
+                                )}
+                            </>
+                        ) : r.status === 'qualitative_only' ? (
+                            <>
+                                <p className="text-lg font-bold text-slate-200 mb-1">Recurring characteristics identified</p>
+                                <p className="text-[11px] text-slate-500 mb-2">Numeric share: <span className="font-semibold">Not disclosed</span></p>
+                                <p className="text-[12px] text-slate-400 leading-relaxed">The company describes recurring contracts, but does not disclose enough information to calculate their share of revenue.</p>
+                            </>
+                        ) : r.status === 'not_disclosed' ? (
+                            <>
+                                <p className="text-lg font-bold text-slate-200 mb-1">Not disclosed</p>
+                                <p className="text-[12px] text-slate-400 leading-relaxed">No relevant recurring-revenue disclosure was found in the Annual Report.</p>
+                            </>
+                        ) : (
+                            <>
+                                <p className="text-lg font-bold text-slate-200 mb-1">Unable to determine</p>
+                                <p className="text-[12px] text-slate-400 leading-relaxed">Not enough official information was found to reliably quantify recurring revenue.</p>
+                            </>
+                        )}
+                        <WhySourceDrawer label="Why?" bullets={r.bullets} sources={r.sources} pdfUrl={pdfUrl} fiscalYear={fiscalYear} />
+                    </div>
+
+                    {/* Cyclicality block */}
+                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">How sensitive is the business to economic/industry cycles?</p>
+                        {pos != null ? (
+                            <>
+                                <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                    <span>Low</span><span>Moderate</span><span>High</span>
+                                </div>
+                                <div className="relative h-2 rounded-full bg-slate-800 mb-3">
+                                    <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-teal-400 via-amber-400 to-orange-500" style={{ width: '100%' }} />
+                                    <div className="absolute -top-1.5 w-5 h-5 rounded-full bg-slate-100 border-2 border-slate-900 shadow"
+                                        style={{ left: `calc(${pos * 50}% - 10px)` }} title={c.classification} />
+                                </div>
+                                <p className="text-[12px] text-slate-300 leading-relaxed capitalize">
+                                    <span className="font-bold">{c.classification}.</span> {CYCLICALITY_COPY[c.classification]}
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <p className="text-lg font-bold text-slate-200 mb-1">Unable to determine</p>
+                                <p className="text-[12px] text-slate-400 leading-relaxed">{CYCLICALITY_COPY.unable_to_determine}</p>
+                            </>
+                        )}
+                        <WhySourceDrawer label={`Why ${c.classification && c.classification !== 'unable_to_determine' ? c.classification : ''} cyclicality?`}
+                            bullets={[...(c.drivers || []), ...(c.mitigants || [])]} sources={c.sources} pdfUrl={pdfUrl} fiscalYear={fiscalYear} />
+                    </div>
                 </div>
             );
         };
@@ -968,6 +1095,28 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 ? [...chart.data].sort((a, b) => b.pct - a.pct)[0] : null;
             const chartTitle = chart?.panelTitle || (chart?.type === 'donut' ? 'Mix' : chart?.type === 'bar' ? 'Rating breakdown' : chart?.type === 'spectrum' ? 'Category' : chart?.type === 'diverging' ? 'Growth vs industry' : null);
             const facts = sp.facts || [];
+            // Revenue Characteristics renders as its own full-width, two-block
+            // layout (recurring predictability + cyclicality) — the standard
+            // facts/chart two-column grid below doesn't fit its beginner-first
+            // "big number + plain English + Why?" design.
+            if (chart?.type === 'revenue_characteristics') {
+                return (
+                    <div className="border border-slate-800 rounded-lg overflow-hidden">
+                        <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-2">
+                            <h4 className="text-sm font-bold text-slate-100 uppercase tracking-wide">{sp.title}</h4>
+                            {sp.confidence_tag && (
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap flex-shrink-0 ${QUAL_CONFIDENCE_STYLE[sp.confidence_tag] || 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
+                                    title="Retrieval-quality tag — separate from the plain-English conclusion shown below.">
+                                    {sp.confidence_tag}
+                                </span>
+                            )}
+                        </div>
+                        <div className="p-4">
+                            <RevenueCharacteristicsCard recurring={chart.recurring} cyclicality={chart.cyclicality} pdfUrl={chart.pdf_url} fiscalYear={chart.fiscal_year} />
+                        </div>
+                    </div>
+                );
+            }
             return (
                 <div className="border border-slate-800 rounded-lg overflow-hidden">
                     <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-2">

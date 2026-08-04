@@ -19,6 +19,7 @@ using it here does not add extra Groq-key load beyond what every other feature
 already does.
 """
 
+import re
 import time
 
 from tools.qualitative_db import write_qualitative, read_qualitative
@@ -77,8 +78,9 @@ def _fetch_segment_revenue_context(sym, name):
 
 
 def compute_a1_business_model_clarity(symbol, name=None, description="", force=False):
-    """A.1 — Clarity of business model: single product vs portfolio; cyclical vs
-    recurring revenue.
+    """A.1.1 — Clarity of business model: single product vs portfolio (business
+    diversification). Cyclical vs recurring revenue is a SEPARATE analysis, see
+    `compute_a1_2_revenue_characteristics` below — the two must not be merged.
 
     Sourcing Sequence: AR-13 (MD&A narrative) -> AR-14 (revenue/segment note) ->
     AGG-01 (Screener.in, fallback/cross-check only).
@@ -97,7 +99,14 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
-        if cached is not None:
+        # A cached row written by the old methodology (which classified
+        # per-segment recurring/cyclical revenue from segment NAMES and
+        # carried 'revenue_pattern'/'recurring_revenue_pct') is stale schema —
+        # treat it as a cache miss so no invalid recurring-revenue conclusion
+        # can keep being served just because the TTL hasn't expired. Revenue
+        # recurringness/cyclicality now live entirely in
+        # compute_a1_2_revenue_characteristics.
+        if cached is not None and "revenue_pattern" not in cached and "recurring_revenue_pct" not in cached:
             try:
                 age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
                 if age <= CACHE_TTL:
@@ -152,40 +161,36 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
     if not ar13_checked:
         payload = {
             "subpoint_id": subpoint_id,
-            "title": "Clarity of business model: single product vs portfolio; cyclical vs recurring revenue",
+            "title": "Clarity of business model: single product vs portfolio (business diversification)",
             "available": False,
             "reason": "No business description or concall corpus available to ground AR-13.",
             "pathway_results": pathway_results,
-            "recurring_revenue_pct": None,
         }
         write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
         payload["confidence_tag"] = "NOT_FOUND"
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    segment_schema = (
-        '  "segment_patterns": [{"label": "<EXACT segment label from the REPORTED BUSINESS SEGMENTS list>", '
-        '"revenue_pattern": "recurring" | "cyclical" | "mixed"}],\n'
-        if segments_pct else ""
-    )
-    segment_instruction = (
-        "\nThe REPORTED BUSINESS SEGMENTS list above gives REAL, audited revenue shares. For EACH one, "
-        "classify its revenue_pattern using the same definitions as the overall business — label ONLY the "
-        "segments listed, using their exact label text, one entry per segment, in the same order.\n"
-        if segments_pct else ""
-    )
+    # NOTE: this function intentionally does NOT classify per-segment revenue
+    # as recurring/cyclical from segment names/descriptions — a segment's
+    # revenue composition (e.g. "Retail", "Services") does not establish
+    # whether that revenue is recurring. Recurring-vs-cyclical revenue
+    # characteristics are handled separately by
+    # `compute_a1_2_revenue_characteristics`, grounded in explicit Annual
+    # Report evidence (subscriptions, AMC/maintenance contracts, renewal
+    # rates, demand-cycle disclosures), never inferred from a business/
+    # product label.
     prompt = (
-        "You are an equity analyst assessing BUSINESS MODEL CLARITY for an Indian listed company, "
-        "using ONLY the grounded context below. Do not invent facts not supported by the context. "
-        "If the context does not clearly support a judgment, say so explicitly rather than guessing.\n"
-        f"{segment_instruction}\n"
+        "You are an equity analyst assessing BUSINESS MODEL CLARITY (single product vs diversified "
+        "portfolio) for an Indian listed company, using ONLY the grounded context below. Do not invent "
+        "facts not supported by the context. If the context does not clearly support a judgment, say so "
+        "explicitly rather than guessing. Do not comment on whether revenue is recurring or cyclical here "
+        "— that is assessed elsewhere from different evidence.\n"
         "Return ONLY JSON:\n"
         "{\n"
         '  "model_type": "single_product" | "portfolio" | "unclear",\n'
-        '  "revenue_pattern": "recurring" | "cyclical" | "mixed" | "unclear",\n'
         '  "rationale": "2-4 sentences citing what in the context supports this, or noting it is unclear",\n'
-        '  "segments_mentioned": ["short segment/product names mentioned in the context, if any"],\n'
-        f"{segment_schema}"
+        '  "segments_mentioned": ["short segment/product names mentioned in the context, if any"]\n'
         "}\n\n"
         f"=== CONTEXT ===\n{context}"
     )
@@ -206,33 +211,14 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
     model_type = str(data.get("model_type") or "unclear").strip().lower()
     if model_type not in ("single_product", "portfolio", "unclear"):
         model_type = "unclear"
-    revenue_pattern = str(data.get("revenue_pattern") or "unclear").strip().lower()
-    if revenue_pattern not in ("recurring", "cyclical", "mixed", "unclear"):
-        revenue_pattern = "unclear"
     rationale = str(data.get("rationale") or "").strip()
     segments = [str(s).strip() for s in (data.get("segments_mentioned") or []) if str(s).strip()][:10]
 
-    # Combine REAL revenue shares (segments_pct, deterministic from the AR)
-    # with the LLM's per-segment pattern judgment, matched by exact label —
-    # a segment's % is never something the LLM can alter, only its
-    # recurring/cyclical/mixed classification. A segment the LLM didn't
-    # classify (or classified inconsistently) defaults to "mixed" rather
-    # than being dropped, since the revenue share itself is still real data
-    # worth showing.
-    segment_shares = None
-    recurring_revenue_pct = None
-    if segments_pct:
-        pattern_by_label = {}
-        for sp in (data.get("segment_patterns") or []):
-            lbl = str(sp.get("label") or "").strip()
-            pat = str(sp.get("revenue_pattern") or "").strip().lower()
-            if lbl and pat in ("recurring", "cyclical", "mixed"):
-                pattern_by_label[lbl.lower()] = pat
-        segment_shares = [
-            {"label": s["label"], "pct": s["pct"], "revenue_pattern": pattern_by_label.get(s["label"].lower(), "mixed")}
-            for s in segments_pct
-        ]
-        recurring_revenue_pct = round(sum(s["pct"] for s in segment_shares if s["revenue_pattern"] == "recurring"), 1)
+    # Real revenue shares only (segments_pct, deterministic from the AR) —
+    # no recurring/cyclical classification is attached here; that dimension
+    # is computed separately (see module docstring above) from real evidence,
+    # never from a segment's name.
+    segment_shares = [{"label": s["label"], "pct": s["pct"]} for s in segments_pct] if segments_pct else None
 
     # Only one of the two Sourcing Sequence pathways (AR-13) was actually checked;
     # AR-14 is a recorded gap, not an independent second source — so this is
@@ -241,14 +227,321 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
 
     payload = {
         "subpoint_id": subpoint_id,
-        "title": "Clarity of business model: single product vs portfolio; cyclical vs recurring revenue",
+        "title": "Clarity of business model: single product vs portfolio (business diversification)",
         "available": True,
         "model_type": model_type,
-        "revenue_pattern": revenue_pattern,
         "rationale": rationale,
         "segments_mentioned": segments,
-        "segment_shares": segment_shares,  # [{label, pct, revenue_pattern}] from the real AR-14 segment note, or None
-        "recurring_revenue_pct": recurring_revenue_pct,
+        "segment_shares": segment_shares,  # [{label, pct}] from the real AR-14 segment note, or None
+        "pathway_results": pathway_results,
+        "grounded": bool(digest),
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_RECURRING_STATUS = ("reported", "calculated", "qualitative_only", "not_disclosed", "unable_to_determine")
+_CYCLICALITY_CLASS = ("low", "moderate", "high", "unable_to_determine")
+# Bump whenever the payload shape or classification rules change materially —
+# a cached row written by an older schema version is treated as a cache miss
+# and recomputed, so a methodology change (e.g. this one, which replaced the
+# old segment-name-based recurring % with evidence-gated extraction) can never
+# keep serving stale results just because the TTL hasn't expired yet.
+_A12_SCHEMA_VERSION = 2
+# A recurring-revenue conclusion requires an EXPLICIT repeat/renewal signal —
+# the mere presence of "contract asset(s)", "contract liabilit(y/ies)",
+# "customer contract(s)", "order book", "maintenance", "service(s)" or
+# "software" is NOT evidence of recurring revenue on its own (those are
+# accounting/business terms that appear in almost every annual report
+# regardless of revenue model). Only used as a secondary safety net on top of
+# the LLM prompt rules below — defense in depth, same pattern as never
+# trusting the LLM to do numerator/denominator division itself.
+_RECURRING_SIGNAL_RE = re.compile(
+    r"recurr|subscript|renew|annuity\b|\bamc\b|annual maintenance|repeat (purchase|custom)|"
+    r"long[- ]term contract|contracted revenue|repeat(ing)? revenue",
+    re.I,
+)
+
+
+def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
+    """A.1.2 — Revenue characteristics: how recurring/predictable is revenue, and
+    how sensitive is the business to economic/industry cycles. A SEPARATE
+    analysis from A.1.1 (business diversification) — see module note on
+    `compute_a1_business_model_clarity`. Two independent dimensions, never
+    forced onto one recurring<->cyclical spectrum: a business can have
+    recurring revenue while still operating in a cyclical industry.
+
+    Sourcing Sequence: AR-14b (Annual Report narrative evidence — revenue
+    recognition, subscription/AMC/contract/renewal language, demand-cycle
+    risk disclosures) -> AR-13 (MD&A/concall digest, secondary corroboration).
+
+    Hard rules (do not weaken without explicit approval):
+      - Revenue-pattern (recurring/cyclical) is NEVER inferred from a segment
+        or product NAME — only from explicit textual evidence about how that
+        revenue is earned (contracts, subscriptions, renewals, etc).
+      - A recurring-revenue PERCENTAGE is only ever populated when either (a)
+        the company explicitly states it (`status="reported"`), or (b) both a
+        numerator and a relevant-total denominator are explicitly disclosed in
+        the evidence text, in which case Navrist computes the ratio itself
+        deterministically (`status="calculated"`) — the LLM is never trusted
+        to do the division. Every other case leaves pct=None.
+      - Zero is a real, evidence-backed value, not a default: pct=0 can only
+        occur via the above two paths, never as a stand-in for missing data.
+      - `confidence_tag` (retrieval quality: SINGLE_SOURCE/SEARCH_INCONCLUSIVE/
+        NOT_FOUND) is a SEPARATE concept from `recurring.status`/
+        `cyclicality.classification` (business-evidence quality) — a
+        SEARCH_INCONCLUSIVE run must never render as a 0% result.
+      - Cyclicality is classified independently, never as `100 - recurring%`.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None and cached.get("schema_version") == _A12_SCHEMA_VERSION:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    pathway_results = []
+    company = name or sym
+
+    try:
+        from tools.annual_report_financials import fetch_revenue_characteristics_evidence
+        evidence = fetch_revenue_characteristics_evidence(sym, name)
+    except Exception as e:
+        print(f"[qualitative_engine] A.1.2 evidence fetch failed for {sym}: {e}")
+        evidence = {"error": str(e)}
+
+    if evidence.get("error"):
+        pathway_results.append({
+            "pathway_id": "AR-14b", "source": "Annual Report (revenue recognition / recurring / cyclicality text)",
+            "result": "NOT_DISCLOSED", "note": evidence["error"],
+        })
+        payload = {
+            "subpoint_id": subpoint_id,
+            "schema_version": _A12_SCHEMA_VERSION,
+            "available": False,
+            "reason": evidence["error"],
+            "recurring": {"status": "unable_to_determine", "pct": None, "calc": None, "evidence_bullets": [], "sources": []},
+            "cyclicality": {"classification": "unable_to_determine", "drivers": [], "mitigants": [], "sources": []},
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
+        payload["confidence_tag"] = "NOT_FOUND"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    recurring_excerpts = evidence.get("recurring_excerpts") or []
+    cyclicality_excerpts = evidence.get("cyclicality_excerpts") or []
+    pathway_results.append({
+        "pathway_id": "AR-14b", "source": "Annual Report (revenue recognition / recurring / cyclicality text)",
+        "result": "CHECKED" if (recurring_excerpts or cyclicality_excerpts) else "NOT_DISCLOSED",
+    })
+
+    digest = _concall_digest(sym, name)
+    if digest:
+        pathway_results.append({"pathway_id": "AR-13", "source": "Concall digest (secondary corroboration)", "result": "CHECKED"})
+    else:
+        pathway_results.append({"pathway_id": "AR-13", "source": "Concall digest (secondary corroboration)", "result": "NOT_DISCLOSED"})
+
+    if not recurring_excerpts and not cyclicality_excerpts:
+        payload = {
+            "subpoint_id": subpoint_id,
+            "schema_version": _A12_SCHEMA_VERSION,
+            "available": True,
+            "recurring": {"status": "not_disclosed", "pct": None, "calc": None, "evidence_bullets": [], "sources": []},
+            "cyclicality": {"classification": "unable_to_determine", "drivers": [], "mitigants": [], "sources": []},
+            "fiscal_year": evidence.get("fiscal_year"),
+            "pdf_url": evidence.get("pdf_url"),
+            "pathway_results": pathway_results,
+            "grounded": False,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    def _fmt_excerpts(items):
+        return "\n".join(f"[p.{e['page']}] ...{e['text']}..." for e in items) or "(none found)"
+
+    context = (
+        f"COMPANY: {company}\n\n"
+        f"=== ANNUAL REPORT EXCERPTS — RECURRING/CONTRACT/SUBSCRIPTION LANGUAGE ===\n{_fmt_excerpts(recurring_excerpts)}\n\n"
+        f"=== ANNUAL REPORT EXCERPTS — CYCLICALITY/DEMAND-SENSITIVITY LANGUAGE ===\n{_fmt_excerpts(cyclicality_excerpts)}\n"
+    )
+    if digest:
+        context += f"\n=== RECENT CONCALL HIGHLIGHTS (secondary) ===\n{digest[:2000]}\n"
+
+    prompt = (
+        "You are an equity analyst assessing REVENUE PREDICTABILITY and CYCLICALITY for an Indian listed "
+        "company, using ONLY the grounded Annual Report excerpts below. These are two SEPARATE dimensions — "
+        "a company can have recurring revenue while still operating in a cyclical industry; do not force one "
+        "into the other, and do not compute cyclicality as the inverse of recurring revenue.\n\n"
+        "STRICT RULES:\n"
+        "- Never infer a revenue-pattern from a product/segment NAME alone — only from explicit statements "
+        "about how revenue is earned.\n"
+        "- IMPORTANT FALSE-POSITIVE GUARD: the mere presence of the words/phrases \"contract asset(s)\", "
+        "\"contract liabilit(y/ies)\", \"customer contract(s)\", \"order book\", \"maintenance\", \"service(s)\", "
+        "or \"software\" does NOT by itself prove recurring revenue — these are routine accounting/business terms "
+        "that appear in almost every annual report regardless of revenue model. \"Contract liabilities\" is a "
+        "standard Ind AS 115 balance-sheet line (deferred revenue not yet earned) and does NOT mean that revenue "
+        "repeats/renews. \"Order book\" describes revenue VISIBILITY (future revenue already contracted/booked) — "
+        "a different concept from RECURRINGNESS (whether revenue repeats from the same customers over time); a "
+        "large order book alone is NOT recurring revenue. Only conclude a revenue stream is recurring when the "
+        "text explicitly indicates it REPEATS or RENEWS — e.g. subscriptions, annual maintenance contracts (AMC), "
+        "renewal rates, annuity income, repeat/recurring customer relationships, long-term recurring service "
+        "agreements. If all you have is contract-asset/liability, order-book, or generic maintenance/service/"
+        "software language WITHOUT an explicit repeat/renewal statement, do not use \"qualitative_only\" — use "
+        "\"not_disclosed\" instead.\n"
+        "- Only set recurring_status to \"reported\" if the excerpts contain an EXPLICIT company-stated "
+        "recurring-revenue percentage AND that percentage is semantically tied to recurring/subscription revenue "
+        "in the same sentence (e.g. \"recurring revenue represented 72% of revenue\", \"subscription revenue "
+        "accounted for 64% of total revenue\") — never a percentage that merely appears near recurring-revenue "
+        "language but describes something else (e.g. a margin, growth rate, or unrelated metric). Copy the exact "
+        "sentence into recurring_reported_quote.\n"
+        "- Only set recurring_status to \"calculated\" if the excerpts contain BOTH an explicit recurring-type "
+        "revenue rupee value (numerator, clearly described as recurring/subscription/AMC/renewal revenue) AND an "
+        "explicit total/relevant revenue rupee value (denominator) from the SAME reporting period and SAME "
+        "consolidated/standalone scope — extract both numbers exactly as stated (with units, e.g. crore) into "
+        "calc_numerator_cr/calc_denominator_cr and their source labels; do NOT do the division yourself, Navrist "
+        "will calculate it deterministically. If you are not confident the numerator and denominator are from the "
+        "same period/scope, or that the denominator is the relevant total revenue, do not use \"calculated\".\n"
+        "- If recurring characteristics are described with an explicit repeat/renewal signal but not quantifiable, "
+        "use \"qualitative_only\" and leave numeric fields null.\n"
+        "- If nothing relevant is disclosed, use \"not_disclosed\". If you genuinely cannot tell, use "
+        "\"unable_to_determine\". NEVER guess a percentage to fill a gap, and NEVER report 0% unless the "
+        "company explicitly states recurring revenue is zero/none.\n"
+        "- Classify cyclicality (low/moderate/high) ONLY from actual DESCRIBED sensitivity or impact on demand/"
+        "revenue — the mere presence of a word like \"commodity\", \"cycle\", or \"interest rate\" is NOT itself "
+        "evidence of high cyclicality; the text must describe how conditions actually affect the business. Weigh "
+        "mitigants (long-term contracts, regulated revenue, essential consumption, stable renewals) against "
+        "drivers. If the excerpts don't support a judgment, use \"unable_to_determine\".\n\n"
+        "Return ONLY JSON:\n"
+        "{\n"
+        '  "recurring_status": "reported" | "calculated" | "qualitative_only" | "not_disclosed" | "unable_to_determine",\n'
+        '  "recurring_reported_pct": <number or null>,\n'
+        '  "recurring_reported_quote": "<exact sentence containing the % or null>",\n'
+        '  "calc_numerator_cr": <number or null>,\n'
+        '  "calc_numerator_label": "<string or null>",\n'
+        '  "calc_denominator_cr": <number or null>,\n'
+        '  "calc_denominator_label": "<string or null>",\n'
+        '  "recurring_evidence_bullets": ["short, evidence-grounded statements, each traceable to the excerpts, each describing an explicit repeat/renewal signal"],\n'
+        '  "cyclicality_classification": "low" | "moderate" | "high" | "unable_to_determine",\n'
+        '  "cyclicality_drivers": ["short evidence-grounded statements explaining why"],\n'
+        '  "cyclicality_mitigants": ["short evidence-grounded statements, if any, that reduce cyclicality"]\n'
+        "}\n\n"
+        f"=== CONTEXT ===\n{context}"
+    )
+
+    try:
+        from tools.groq_client import groq_chat, parse_json_loose
+        raw = groq_chat(
+            messages=[
+                {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only. Never fabricate numbers."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=900, temperature=0.1,
+        )
+        data = parse_json_loose(raw) or {}
+    except Exception as e:
+        print(f"[qualitative_engine] A.1.2 LLM call failed for {sym}: {e}")
+        data = {}
+
+    recurring_status = str(data.get("recurring_status") or "unable_to_determine").strip().lower()
+    if recurring_status not in _RECURRING_STATUS:
+        recurring_status = "unable_to_determine"
+
+    recurring_pct = None
+    calc = None
+    if recurring_status == "reported":
+        quote = str(data.get("recurring_reported_quote") or "").strip()
+        try:
+            v = float(data.get("recurring_reported_pct"))
+        except (TypeError, ValueError):
+            v = None
+        # Safety net on top of the prompt rule: the claimed quote must (a)
+        # actually exist, (b) contain a real recurring/subscription/renewal
+        # signal word — not just sit near one — and (c) contain the same
+        # number being reported, so a nearby-but-unrelated % (e.g. an EBITDA
+        # margin mentioned in the same paragraph) can never be captured as
+        # the recurring-revenue figure.
+        num_in_quote = v is not None and (
+            re.search(re.escape(str(int(v))), quote) or re.search(re.escape(f"{v:.1f}"), quote)
+        )
+        if v is not None and 0 <= v <= 100 and quote and _RECURRING_SIGNAL_RE.search(quote) and num_in_quote:
+            recurring_pct = round(v, 1)
+        else:
+            recurring_status = "unable_to_determine"  # claimed reported but quote didn't substantiate it — don't trust it
+    elif recurring_status == "calculated":
+        num_label = str(data.get("calc_numerator_label") or "")
+        den_label = str(data.get("calc_denominator_label") or "")
+        try:
+            num = float(data.get("calc_numerator_cr"))
+            den = float(data.get("calc_denominator_cr"))
+        except (TypeError, ValueError):
+            num = den = None
+        # The numerator's own label must carry a real recurring signal —
+        # otherwise a contract-liability or order-book figure could slip in
+        # as if it were recurring revenue just because it's a number near the
+        # right keywords.
+        if num is not None and den is not None and num >= 0 and den > 0 and _RECURRING_SIGNAL_RE.search(num_label):
+            recurring_pct = round(max(0.0, min(100.0, num / den * 100)), 1)
+            calc = {
+                "numerator_cr": num, "numerator_label": num_label.strip(),
+                "denominator_cr": den, "denominator_label": den_label.strip(),
+            }
+        else:
+            recurring_status = "unable_to_determine"  # claimed calculable but didn't substantiate it — don't trust it
+    # qualitative_only / not_disclosed / unable_to_determine: pct stays None — never defaulted to 0.
+
+    recurring_bullets = [str(b).strip() for b in (data.get("recurring_evidence_bullets") or []) if str(b).strip()][:6]
+    if recurring_status == "qualitative_only":
+        # Second false-positive guard: qualitative_only requires at least one
+        # bullet to actually carry a repeat/renewal signal — a bullet that
+        # only mentions "contract liabilities"/"order book"/"maintenance"/
+        # "services"/"software" without a recur/subscribe/renew/annuity word
+        # is not evidence of recurring revenue, per the hard rule above.
+        if not any(_RECURRING_SIGNAL_RE.search(b) for b in recurring_bullets):
+            recurring_status = "not_disclosed"
+            recurring_bullets = []
+
+    cyclicality_class = str(data.get("cyclicality_classification") or "unable_to_determine").strip().lower()
+    if cyclicality_class not in _CYCLICALITY_CLASS:
+        cyclicality_class = "unable_to_determine"
+    cyclicality_drivers = [str(b).strip() for b in (data.get("cyclicality_drivers") or []) if str(b).strip()][:6]
+    cyclicality_mitigants = [str(b).strip() for b in (data.get("cyclicality_mitigants") or []) if str(b).strip()][:6]
+
+    recurring_sources = [{"page": e["page"], "anchor": e["anchor"], "excerpt": e["text"]} for e in recurring_excerpts[:4]]
+    cyclicality_sources = [{"page": e["page"], "anchor": e["anchor"], "excerpt": e["text"]} for e in cyclicality_excerpts[:4]]
+
+    has_real_judgment = bool(recurring_bullets or cyclicality_drivers or recurring_pct is not None)
+    confidence_tag = "SINGLE_SOURCE" if has_real_judgment else "SEARCH_INCONCLUSIVE"
+
+    payload = {
+        "subpoint_id": subpoint_id,
+        "schema_version": _A12_SCHEMA_VERSION,
+        "available": True,
+        "recurring": {
+            "status": recurring_status,
+            "pct": recurring_pct,
+            "calc": calc,
+            "evidence_bullets": recurring_bullets,
+            "sources": recurring_sources,
+        },
+        "cyclicality": {
+            "classification": cyclicality_class,
+            "drivers": cyclicality_drivers,
+            "mitigants": cyclicality_mitigants,
+            "sources": cyclicality_sources,
+        },
+        "fiscal_year": evidence.get("fiscal_year"),
+        "pdf_url": evidence.get("pdf_url"),
         "pathway_results": pathway_results,
         "grounded": bool(digest),
     }

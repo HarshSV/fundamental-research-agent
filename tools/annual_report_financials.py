@@ -2177,6 +2177,139 @@ def fetch_governance_text_sections(symbol, name):
         return {"error": f"Error: {e}"}
 
 
+# Revenue-characteristics evidence anchors (A.1.2 — recurring vs cyclical
+# revenue). Two independent evidence families: RECURRING (subscription/
+# contract/renewal language) and CYCLICALITY (demand/economic-sensitivity
+# language). Anchors are phrase families, not exact headings — different
+# filers word this differently, so this is deliberately broad; the caller
+# still has to interpret the surrounding text, this only locates candidates.
+_REVENUE_CHAR_SECTION_ANCHORS = {
+    "recurring": [
+        "recurring revenue", "subscription revenue", "annual maintenance contract",
+        "maintenance contract", "amc revenue", "long-term contract", "long term contract",
+        "contracted revenue", "annuity revenue", "annuity income", "renewal rate",
+        "renewal of contract", "repeat customer", "recurring in nature",
+        "revenue recognition", "contract liabilities", "contract assets",
+        "customer contracts", "order book",
+    ],
+    "cyclicality": [
+        "cyclical", "cyclicality", "demand cycle", "industry cycle", "economic cycle",
+        "economic sensitivity", "discretionary spending", "discretionary demand",
+        "commodity cycle", "interest rate sensitivity", "interest-rate sensitivity",
+        "capex cycle", "capital expenditure cycle", "seasonal demand", "seasonality",
+        "demand volatility", "credit cycle", "inventory cycle",
+    ],
+}
+
+
+def fetch_revenue_characteristics_evidence(symbol, name):
+    """Real, grounded text excerpts from the company's OWN latest Annual
+    Report PDF for A.1.2 (cyclical vs recurring revenue) — mirrors
+    `fetch_governance_text_sections`'s approach (scan every page, score
+    candidate windows by digit density, keep the best per anchor family),
+    but additionally preserves the PAGE NUMBER each excerpt came from so the
+    frontend can show real source traceability. Returns
+    {'pdf_url', 'fiscal_year', 'recurring_excerpts': [...], 'cyclicality_excerpts': [...]}
+    where each excerpt is {'text', 'page', 'anchor'}, or {'error': reason}.
+    Never raises. Reuses the same PDF-fetch plumbing as the ratio/governance
+    extractors (BSE/NSE lookup, retry, cache) — no new data source."""
+    try:
+        sym = symbol.strip().upper().replace(".NS", "")
+        years = list_annual_report_years(sym, name)
+        if not years:
+            return {"error": "No Annual Report found for this company."}
+        fiscal_year = years[0]
+        ckey = f"ar_revchar_text_v1_{sym}_{fiscal_year}"
+        cached = _read_cache(ckey)
+        if cached is not None:
+            return cached
+
+        pdf_url = _find_annual_report_pdf(sym, name, fiscal_year)
+        if not pdf_url:
+            out = {"error": "Annual Report PDF URL not found."}
+            _write_cache(ckey, out)
+            return out
+
+        is_nse_url = "nseindia.com" in pdf_url
+        content = None
+        for attempt in range(2):
+            try:
+                if is_nse_url:
+                    from tools.nse_annual_reports import download_nse_pdf_bytes
+                    content = download_nse_pdf_bytes(pdf_url)
+                    if content is None:
+                        raise RuntimeError("NSE download/zip-extract returned nothing")
+                else:
+                    content = _sess().get(pdf_url, timeout=90).content
+                break
+            except Exception as e:
+                print(f"[annual_report_financials] revenue-characteristics PDF download failed for {sym}: {e}")
+        if content is None or len(content) < 50000:
+            return {"error": "Could not download the Annual Report right now.", "source_url": pdf_url}
+
+        try:
+            import fitz
+        except Exception as e:
+            return {"error": f"pymupdf unavailable: {e}"}
+        try:
+            doc = fitz.open(stream=content, filetype="pdf")
+        except Exception as e:
+            return {"error": f"PDF read failed: {e}"}
+
+        # Keep the best few (not just one) candidate windows per family so
+        # the LLM interpretation step downstream has enough real evidence to
+        # distinguish a genuine numeric disclosure from a passing mention —
+        # e.g. "revenue recognition" appears in almost every AR's accounting
+        # policy note (low value) vs an actual AMC/subscription % disclosure
+        # elsewhere (high value); scoring by digit density favours the latter
+        # without hardcoding which anchor phrase matters most.
+        candidates = {"recurring": [], "cyclicality": []}
+        try:
+            for pgi, page in enumerate(doc):
+                try:
+                    t = _page_text(page)
+                except Exception:
+                    continue
+                tl = t.lower()
+                for family, anchors in _REVENUE_CHAR_SECTION_ANCHORS.items():
+                    for anchor in anchors:
+                        idx = tl.find(anchor)
+                        if idx == -1:
+                            continue
+                        window = t[max(0, idx - 200):idx + 900].strip()
+                        score = sum(c.isdigit() for c in window)
+                        candidates[family].append({
+                            "text": window, "page": pgi + 1, "anchor": anchor, "score": score,
+                        })
+        finally:
+            doc.close()
+
+        def _top(family, n=4):
+            seen_pages = set()
+            ranked = sorted(candidates[family], key=lambda c: -c["score"])
+            out = []
+            for c in ranked:
+                if c["page"] in seen_pages:
+                    continue
+                seen_pages.add(c["page"])
+                out.append({"text": c["text"], "page": c["page"], "anchor": c["anchor"]})
+                if len(out) >= n:
+                    break
+            return out
+
+        out = {
+            "pdf_url": pdf_url,
+            "fiscal_year": fiscal_year,
+            "recurring_excerpts": _top("recurring"),
+            "cyclicality_excerpts": _top("cyclicality"),
+        }
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] fetch_revenue_characteristics_evidence failed for {symbol}: {e}")
+        return {"error": f"Error: {e}"}
+
+
 def list_annual_report_years(symbol, name):
     """All fiscal years (as ints) an Annual Report exists for, newest first,
     deduplicated. Tries BSE first, then falls back to NSE for companies BSE

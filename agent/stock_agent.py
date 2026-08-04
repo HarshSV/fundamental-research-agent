@@ -1995,15 +1995,17 @@ def build_executive_summary(state: SystemState) -> dict:
     # f22-f25 here (rather than restructuring every downstream read) means the
     # existing facts/chart/finding wiring for subpoints 1-4 below picks this up
     # automatically. f22-f25 are not read anywhere else in this file.
-    _a1 = _a2 = _a3 = _a4 = _a5 = None
+    _a1 = _a1_2 = _a2 = _a3 = _a4 = _a5 = None
     try:
         from tools.qualitative_engine import (
-            compute_a1_business_model_clarity, compute_a2_competitive_moat,
+            compute_a1_business_model_clarity, compute_a1_2_revenue_characteristics,
+            compute_a2_competitive_moat,
             compute_a3_revenue_model_quality, compute_a4_product_lifecycle_stage,
             compute_a5_pricing_power,
         )
         _biz_desc_for_qual = (info.get('longBusinessSummary') or "").strip()
         _a1 = compute_a1_business_model_clarity(symbol, name, _biz_desc_for_qual)
+        _a1_2 = compute_a1_2_revenue_characteristics(symbol, name)
         _a2 = compute_a2_competitive_moat(symbol, name, _biz_desc_for_qual)
         _a3 = compute_a3_revenue_model_quality(symbol, name, _biz_desc_for_qual)
         _a4 = compute_a4_product_lifecycle_stage(symbol, name, _biz_desc_for_qual)
@@ -2012,19 +2014,40 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced A.1-A.5 engine failed, falling back to raw LLM fields: {e}")
 
     _MODEL_TYPE_MAP = {'single_product': 'Single product', 'portfolio': 'Portfolio (multiple products/segments)'}
-    _REV_PATTERN_MAP = {'recurring': 'Recurring', 'cyclical': 'Cyclical', 'mixed': 'Mixed'}
     _REV_MODEL_MAP = {'transactional': 'Transactional', 'recurring': 'Recurring subscription', 'annuity': 'Annuity', 'mixed': 'Mixed'}
     _LIFECYCLE_MAP = {'growth': 'Growth', 'maturity': 'Maturity', 'commoditisation': 'Commoditisation', 'decline_obsolescence': 'Decline / obsolescence risk', 'mixed': 'Maturity'}
 
     if _a1 and _a1.get('available'):
         f22 = {
             'business_model_type': _MODEL_TYPE_MAP.get(_a1.get('model_type')),
-            'revenue_pattern': _REV_PATTERN_MAP.get(_a1.get('revenue_pattern')),
-            'recurring_revenue_pct': _a1.get('recurring_revenue_pct'),
             'segment_shares': _a1.get('segment_shares'),
             'rationale': _a1.get('rationale'),
             'confidence_tag': _a1.get('confidence_tag'), 'retrieved_at': _a1.get('retrieved_at'),
             'pathway_results': _a1.get('pathway_results'),
+        }
+
+    # A.1.2 — revenue characteristics (recurring vs cyclical), kept fully
+    # separate from f22/A.1.1 above: different question, different evidence,
+    # never merged into one calculation. See tools/qualitative_engine.py's
+    # compute_a1_2_revenue_characteristics for the hard rules (no segment-name
+    # inference, zero requires evidence, cyclicality != 100 - recurring%).
+    f22b = {}
+    if _a1_2 and _a1_2.get('available'):
+        f22b = {
+            'recurring': _a1_2.get('recurring') or {},
+            'cyclicality': _a1_2.get('cyclicality') or {},
+            'fiscal_year': _a1_2.get('fiscal_year'),
+            'pdf_url': _a1_2.get('pdf_url'),
+            'confidence_tag': _a1_2.get('confidence_tag'), 'retrieved_at': _a1_2.get('retrieved_at'),
+            'pathway_results': _a1_2.get('pathway_results'),
+        }
+    else:
+        f22b = {
+            'recurring': {'status': 'unable_to_determine', 'pct': None, 'calc': None, 'evidence_bullets': [], 'sources': []},
+            'cyclicality': {'classification': 'unable_to_determine', 'drivers': [], 'mitigants': [], 'sources': []},
+            'confidence_tag': (_a1_2 or {}).get('confidence_tag') or 'SEARCH_INCONCLUSIVE',
+            'retrieved_at': (_a1_2 or {}).get('retrieved_at'),
+            'pathway_results': (_a1_2 or {}).get('pathway_results') or [],
         }
     if _a2 and _a2.get('available'):
         f23 = {
@@ -2276,7 +2299,6 @@ def build_executive_summary(state: SystemState) -> dict:
         }
 
     _biz_model_type = _enum(f22.get('business_model_type'), ['Single product', 'Portfolio (multiple products/segments)'])
-    _revenue_pattern = _enum(f22.get('revenue_pattern'), ['Recurring', 'Cyclical', 'Mixed'])
     _revenue_model_type = _enum(f24.get('revenue_model_type'), ['Transactional', 'Recurring subscription', 'Annuity', 'Long-term contract', 'Mixed'])
     _lifecycle_stage = _enum(f25.get('lifecycle_stage'), ['Growth', 'Maturity', 'Commoditisation', 'Decline / obsolescence risk'])
     _pricing_power_rating = _enum(f26.get('pricing_power_rating'), ['Strong', 'Moderate', 'Weak'])
@@ -2284,12 +2306,31 @@ def build_executive_summary(state: SystemState) -> dict:
     # overridden by the sourced A.6 engine (needs _margin_volatility/_ebitda_margin_series
     # computed first) — see the `_a6 = None` block below.
 
-    _recurring_pct = f22.get('recurring_revenue_pct')
-    try:
-        _recurring_pct = float(_recurring_pct)
-        _recurring_pct = max(0.0, min(100.0, _recurring_pct))
-    except (TypeError, ValueError):
-        _recurring_pct = None
+    # A.1.2 revenue-characteristics status/values — status is the business-
+    # evidence state (reported/calculated/qualitative_only/not_disclosed/
+    # unable_to_determine), completely separate from confidence_tag (retrieval
+    # quality). pct stays None unless status is reported/calculated — never
+    # coerced to 0, and SEARCH_INCONCLUSIVE never renders as a number.
+    _rev_char = f22b.get('recurring') or {}
+    _recurring_status = _enum(
+        _rev_char.get('status'),
+        ['reported', 'calculated', 'qualitative_only', 'not_disclosed', 'unable_to_determine'],
+    ) or 'unable_to_determine'
+    _recurring_pct = None
+    if _recurring_status in ('reported', 'calculated'):
+        try:
+            _recurring_pct = round(max(0.0, min(100.0, float(_rev_char.get('pct')))), 1)
+        except (TypeError, ValueError):
+            _recurring_pct = None
+    _recurring_calc = _rev_char.get('calc') if isinstance(_rev_char.get('calc'), dict) else None
+    _recurring_bullets = [v for v in (_rev_char.get('evidence_bullets') or []) if isinstance(v, str) and v.strip()][:6]
+    _recurring_sources = _rev_char.get('sources') or []
+
+    _cyc = f22b.get('cyclicality') or {}
+    _cyclicality_class = _enum(_cyc.get('classification'), ['low', 'moderate', 'high', 'unable_to_determine']) or 'unable_to_determine'
+    _cyclicality_drivers = [v for v in (_cyc.get('drivers') or []) if isinstance(v, str) and v.strip()][:6]
+    _cyclicality_mitigants = [v for v in (_cyc.get('mitigants') or []) if isinstance(v, str) and v.strip()][:6]
+    _cyclicality_sources = _cyc.get('sources') or []
 
     _renewal_pct = f24.get('contract_renewal_rate_pct')
     try:
@@ -2498,47 +2539,58 @@ def build_executive_summary(state: SystemState) -> dict:
             'subpoints': [
                 {
                     'key': 'clarity_of_business_model',
-                    'title': 'Clarity of business model: single product vs portfolio; cyclical vs recurring revenue',
+                    'title': 'Business diversification: single product vs portfolio',
                     'finding': f22.get('rationale') or None,
                     'facts': [f for f in [
                         (['Business model', _biz_model_type] if _biz_model_type else None),
-                        (['Revenue pattern', _revenue_pattern] if _revenue_pattern else None),
-                        (['Recurring revenue', f"~{round(_recurring_pct)}%"] if _recurring_pct is not None else None),
                     ] if f],
                     'chart': (
                         # Real AR-14 segment revenue shares (see
                         # tools/qualitative_engine.py's `_fetch_segment_revenue_context`)
                         # — a stacked bar, one block per reported segment, sized by its
-                        # real revenue share and colored by the LLM's per-segment
-                        # recurring/mixed/cyclical read. Preferred over the coarser
-                        # donut/spectrum fallbacks below whenever real segment data exists.
+                        # real revenue share. No revenue-pattern colouring here — that
+                        # judgment lives in the separate revenue_characteristics
+                        # subpoint below and must never be inferred from segment names.
                         {'type': 'segment_share',
                          'segments': f22.get('segment_shares'),
                          'panelTitle': 'Revenue by segment'}
-                        if f22.get('segment_shares') else (
-                            {
-                                'type': 'donut',
-                                'data': [
-                                    {'label': 'Recurring revenue', 'pct': round(_recurring_pct, 1)},
-                                    {'label': 'Non-recurring / cyclical revenue', 'pct': round(100 - _recurring_pct, 1)},
-                                ],
-                            } if _recurring_pct is not None else (
-                                # No disclosed recurring-revenue % (no reconciled AR-14
-                                # segment note found) — still show *something* visual:
-                                # where this business sits on the revenue-pattern
-                                # spectrum, same fallback convention as
-                                # revenue_model_quality below.
-                                {'type': 'spectrum',
-                                 'options': ['Recurring', 'Mixed', 'Cyclical'],
-                                 'active': _revenue_pattern}
-                                if _revenue_pattern else None
-                            )
-                        )
+                        if f22.get('segment_shares') else None
+                        # No disclosed/reconciled segment note — don't force a chart.
                     ),
-                    'formula': 'Recurring revenue % = Recurring revenue / Total revenue',
                     'sources': _ar_ip_screener_sources,
                     'confidence_tag': f22.get('confidence_tag'), 'retrieved_at': f22.get('retrieved_at'),
                     'pathway_results': f22.get('pathway_results'),
+                },
+                {
+                    # User-facing title only — no internal framework IDs
+                    # (A.1.2, subpoint_id, etc) ever surface in the frontend.
+                    'key': 'revenue_characteristics',
+                    'title': 'Revenue Characteristics',
+                    'finding': None,
+                    'facts': [],
+                    'chart': {
+                        'type': 'revenue_characteristics',
+                        'recurring': {
+                            'status': _recurring_status,
+                            'pct': _recurring_pct,
+                            'calc': _recurring_calc,
+                            'bullets': _recurring_bullets,
+                            'sources': _recurring_sources,
+                        },
+                        'cyclicality': {
+                            'classification': _cyclicality_class,
+                            'drivers': _cyclicality_drivers,
+                            'mitigants': _cyclicality_mitigants,
+                            'sources': _cyclicality_sources,
+                        },
+                        'fiscal_year': f22b.get('fiscal_year'),
+                        'pdf_url': f22b.get('pdf_url'),
+                    },
+                    'sources': {
+                        'primary': {'label': 'Company Annual Report', 'note': 'sourced via BSE/NSE filing'},
+                    },
+                    'confidence_tag': f22b.get('confidence_tag'), 'retrieved_at': f22b.get('retrieved_at'),
+                    'pathway_results': f22b.get('pathway_results'),
                 },
                 {
                     'key': 'competitive_advantage_moats',
