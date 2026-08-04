@@ -141,13 +141,17 @@ function buildShallowFallback(incomeStmt) {
   return { nodes, links, year };
 }
 
+// Two independent control-x points (1/3 and 2/3 across, rather than both
+// curves sharing one midpoint) give a longer, more organic S-bend — the
+// "flowing hair" look — instead of a flatter, more mechanical curve.
 function ribbonPath(x1, y1Top, y1Bot, x2, y2Top, y2Bot) {
-  const cx = (x1 + x2) / 2;
+  const cx1 = x1 + (x2 - x1) * 0.42;
+  const cx2 = x1 + (x2 - x1) * 0.58;
   return [
     `M${x1},${y1Top}`,
-    `C${cx},${y1Top} ${cx},${y2Top} ${x2},${y2Top}`,
+    `C${cx1},${y1Top} ${cx2},${y2Top} ${x2},${y2Top}`,
     `L${x2},${y2Bot}`,
-    `C${cx},${y2Bot} ${cx},${y1Bot} ${x1},${y1Bot}`,
+    `C${cx2},${y2Bot} ${cx1},${y1Bot} ${x1},${y1Bot}`,
     'Z',
   ].join(' ');
 }
