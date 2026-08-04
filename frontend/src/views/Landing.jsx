@@ -171,7 +171,7 @@ export default function Landing({ onSelect, onLogout }) {
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={onKey}
                 onFocus={() => matches.length && setOpen(true)}
-                placeholder="Search a company or ticker — Reliance, TCS, HDFC Bank…"
+                placeholder="Search a company or ticker"
                 className="flex-1 bg-transparent outline-none text-slate-100 placeholder:text-slate-500 text-[16px] min-w-0"
                 aria-label="Search companies"
               />

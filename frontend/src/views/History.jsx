@@ -37,7 +37,7 @@ export default function History({ onSearch }) {
     <div className="space-y-5">
       <div className="nv-card nv-elev p-4 md:p-5">
         <span className="nv-eyebrow text-blue-600 block mb-2.5">Search a company</span>
-        <StockSearch onSelect={onSearch} placeholder="Search a company or ticker — Reliance, TCS, HDFC Bank…" />
+        <StockSearch onSelect={onSearch} placeholder="Search a company or ticker" />
       </div>
 
       <div>
