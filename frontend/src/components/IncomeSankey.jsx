@@ -1,12 +1,16 @@
 import React from 'react';
-import { inrCrore, pct, isNum } from '../lib/format.js';
+import { inrCrore, isNum } from '../lib/format.js';
 import { fetchRatio } from '../lib/api.js';
 
 /*
- * Income-statement Sankey for the stock Overview page. Renders a nodes/links
- * graph (see `buildNodesFromFlow` / `buildShallowFallback`) as a generic,
- * variable-depth waterfall — never a fixed Apple-shaped schema. Node depth
- * and count adapt to whatever the source data actually discloses.
+ * Income-statement hierarchy tree for the stock Overview page. Renders a
+ * nodes/links graph (see `fromApiFlow` / `buildShallowFallback`) as an
+ * indented tree — replaces an earlier Sankey-ribbon rendering, which kept
+ * overflowing its card (min-width forcing horizontal scroll, labels running
+ * past the card edge) no matter how much the ribbon geometry was tuned. A
+ * tree is a strictly better fit here: it's a block layout, so it can never
+ * exceed the card's own width — rows wrap/truncate like normal text instead
+ * of a fixed-viewBox SVG canvas needing its own scroll area.
  *
  * Primary data source: /api/v1/income-statement-flow — built entirely from
  * the company's own Annual Report P&L (tools/annual_report_financials.py's
@@ -21,11 +25,6 @@ import { fetchRatio } from '../lib/api.js';
  * a simpler truthful chart beats a richer fabricated one.
  */
 
-// Solid node colors, theme-aware via the app's CSS variable tokens (so they
-// still invert correctly in dark mode). Ribbons reuse the SAME color at
-// higher opacity (0.38, up from 0.16) for the pastel-flow texture the
-// reference diagram has — the old low opacity made ribbons nearly invisible,
-// which is why the chart read as disconnected bars instead of a flow.
 const GREEN = 'rgb(var(--emerald-500))';
 const RED = 'rgb(var(--red-500))';
 const DARK_RED = 'rgb(var(--red-600, var(--red-500)))';
@@ -141,239 +140,87 @@ function buildShallowFallback(incomeStmt) {
   return { nodes, links, year };
 }
 
-// Two independent control-x points (1/3 and 2/3 across, rather than both
-// curves sharing one midpoint) give a longer, more organic S-bend — the
-// "flowing hair" look — instead of a flatter, more mechanical curve.
-function ribbonPath(x1, y1Top, y1Bot, x2, y2Top, y2Bot) {
-  const cx1 = x1 + (x2 - x1) * 0.42;
-  const cx2 = x1 + (x2 - x1) * 0.58;
-  return [
-    `M${x1},${y1Top}`,
-    `C${cx1},${y1Top} ${cx2},${y2Top} ${x2},${y2Top}`,
-    `L${x2},${y2Bot}`,
-    `C${cx2},${y2Bot} ${cx1},${y1Bot} ${x1},${y1Bot}`,
-    'Z',
-  ].join(' ');
+// One row of the tree: color dot, label (truncates, never overflows the
+// card — no fixed-width SVG canvas involved), a proportional weight bar,
+// and a fixed-width right-aligned value column so numbers line up.
+function TreeRow({ node, depth, parentAbsValue, isMergeSource }) {
+  const [expanded] = React.useState(true);
+  const pctOfParent = isNum(parentAbsValue) && parentAbsValue > 0
+    ? Math.min(100, (Math.abs(node.value) / parentAbsValue) * 100)
+    : 100;
+  const color = colorFor(node);
+  const title = node.note ? `${node.label} — ${node.note}` : node.label;
+
+  return (
+    <div
+      className="flex items-center gap-2 py-1.5 border-b border-slate-800/60 last:border-b-0"
+      style={{ paddingLeft: depth * 16 }}
+    >
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />
+      <span className="text-[12px] text-slate-300 truncate shrink min-w-0 max-w-[38%]" title={title}>
+        {node.label}{node.value < 0 ? ' (loss)' : ''}
+        {isMergeSource && <span className="text-slate-600"> ↳</span>}
+      </span>
+      <div className="flex-1 min-w-[24px] h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${pctOfParent}%`, background: color, opacity: 0.75 }} />
+      </div>
+      <span className="text-[11px] nv-num text-slate-400 shrink-0 w-[86px] text-right tabular-nums">
+        {inrCrore(node.value)}
+      </span>
+    </div>
+  );
 }
 
-// Lays out the one legitimate merge point in the graph: N segment sources
-// (business/geographic revenue segments) stacked in their own leftmost
-// column, each ribbon converging into the SAME target box (Revenue) at the
-// next column — the mirror image of layoutTree's one-to-many split, just
-// many-to-one. Segment bars get depth=-1 so the label-alignment logic below
-// treats them like a true leftmost column (label to the right).
-function layoutMergeSources(sources, nodesById, targetX, xStep, y0, y1, out) {
-  const mergeX = targetX - xStep.col;
-  const h = y1 - y0;
-  const totalVal = sources.reduce((s, n) => s + Math.abs(n.value), 0) || 1;
-  const gap = sources.length > 1 ? Math.min(22, h * 0.08) : 0;
-  const effectiveH = Math.max(h - gap * (sources.length - 1), 1);
-  let cursor = y0;
-  sources.forEach(({ id }) => {
-    const node = nodesById[id];
-    const frac = Math.min(Math.max(Math.abs(node.value) / totalVal, 0), 1);
-    const segH = effectiveH * frac;
-    const sy0 = cursor, sy1 = cursor + segH;
-    out.bars.push({ node, x: mergeX, y0: sy0, y1: sy1, depth: -1 });
-    out.ribbons.push({ x1: mergeX + xStep.barW, y1Top: sy0, y1Bot: sy1, x2: targetX, color: colorFor(node) });
-    cursor = sy1 + gap;
-  });
-}
-
-// Recursive proportional-partition layout: a node's [y0,y1] span is divided
-// among its children by each child link's share of the node's own value —
-// works for any depth/branching since every node in this graph has exactly
-// one parent (a tree, never a merge).
-function layoutTree(nodeId, nodesById, childrenOf, x0, xStep, y0, y1, depth, out) {
-  const node = nodesById[nodeId];
-  const h = Math.max(y1 - y0, 0);
-  out.bars.push({ node, x: x0, y0, y1, depth });
-
-  const rawKids = childrenOf[nodeId] || [];
-  if (!rawKids.length || h <= 0) return;
-  // Match the reference diagram's convention: the profit/continuing path is
-  // always the top band (a straight-ish "spine" running the full width of
-  // the chart), with cost/tax branches stacked below it at each stage —
-  // never determined by link insertion order, which happened to put Cost of
-  // Revenue above Gross Profit.
-  const rank = (childId) => (nodesById[childId].category === 'profit' ? 0 : nodesById[childId].category === 'other' ? 1 : 2);
-  const kids = [...rawKids].sort((a, b) => rank(a.childId) - rank(b.childId));
-  const parentVal = Math.abs(node.value) || kids.reduce((s, k) => s + Math.abs(k.link.value), 0) || 1;
-  // Reserve a visible gap BETWEEN sibling ribbons/nodes (never before the
-  // first or after the last) so separate flows read as distinct bands with
-  // negative space between them, like the reference diagram — without this,
-  // adjacent ribbons of different colors tile edge-to-edge into one solid
-  // two-tone block instead of looking like flowing, separated ribbons.
-  const gap = kids.length > 1 ? Math.min(22, h * 0.08) : 0;
-  const effectiveH = Math.max(h - gap * (kids.length - 1), 1);
-  let cursor = y0;
-  kids.forEach(({ link, childId }, i) => {
-    const frac = Math.min(Math.max(Math.abs(link.value) / parentVal, 0), 1);
-    const childH = effectiveH * frac;
-    const cy0 = cursor, cy1 = cursor + childH;
-    out.ribbons.push({ x1: x0 + xStep.barW, y1Top: cy0, y1Bot: cy1, x2: x0 + xStep.col, color: colorFor(nodesById[childId]) });
-    layoutTree(childId, nodesById, childrenOf, x0 + xStep.col, xStep, cy0, cy1, depth + 1, out);
-    if (i > 0) {
-      // Mark the gap itself with a faint divider — on a dark card, empty
-      // space and a 0.28-opacity ribbon fill can read as nearly the same
-      // shade, so the gap needs an explicit visual marker, not just geometry.
-      out.gapMarkers.push({ x1: x0 + xStep.barW, x2: x0 + xStep.col, y: cy0 - gap / 2 });
-    }
-    cursor = cy1 + gap;
-  });
-}
-
-// Minimum vertical gap (px) between two node labels stacked in the same
-// column, so a small sliver (e.g. Tax next to Net Profit on a low-margin
-// company) never collides with its neighbour's text — nudges the label
-// down and draws a short leader line back to the bar it belongs to instead.
-const MIN_LABEL_GAP = 30;
-
-function withLabelPositions(bars) {
-  const byCol = new Map();
-  bars.forEach((b) => {
-    const key = b.x;
-    if (!byCol.has(key)) byCol.set(key, []);
-    byCol.get(key).push(b);
-  });
-  byCol.forEach((col) => {
-    col.sort((a, b) => (a.y0 + a.y1) - (b.y0 + b.y1));
-    let prevLabelY = -Infinity;
-    col.forEach((b) => {
-      const center = (b.y0 + b.y1) / 2;
-      b.labelY = Math.max(center, prevLabelY + MIN_LABEL_GAP);
-      prevLabelY = b.labelY;
-    });
-  });
-  return bars;
-}
-
-function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 340, onHover }) {
+function IncomeTree({ nodes, links }) {
   const nodesById = {};
   nodes.forEach((n) => { nodesById[n.id] = n; });
   const childrenOf = {};
   const hasParent = new Set();
   links.forEach((l) => {
     if (!childrenOf[l.source]) childrenOf[l.source] = [];
-    childrenOf[l.source].push({ link: l, childId: l.target });
+    childrenOf[l.source].push(l.target);
     hasParent.add(l.target);
   });
-  // Everything after Revenue is a strict one-parent-per-node tree, but
-  // Revenue itself can have MULTIPLE sources merging into it (business/
-  // geographic segments) — the one legitimate merge point, only present
-  // when the backend found a segment note that reconciles. Detect it as
-  // "more than one node with no parent" rather than assuming a single root.
+
   const rootCandidates = nodes.filter((n) => !hasParent.has(n.id));
   if (!rootCandidates.length) return null;
+  // Business/geographic segments merging into Revenue (the one legitimate
+  // many-to-one case) render as a compact "Revenue sources" list above the
+  // tree, rather than forced into a strict parent/child indentation — a
+  // tree can't visually represent a merge, so this keeps it honest instead
+  // of picking one segment to "own" Revenue.
   const mergeSources = rootCandidates.length > 1 ? rootCandidates : [];
   const treeRootId = mergeSources.length
-    ? childrenOf[mergeSources[0].id]?.[0]?.childId
+    ? childrenOf[mergeSources[0].id]?.[0]
     : rootCandidates[0].id;
   if (!treeRootId) return null;
 
-  let maxDepth = 0;
-  (function findDepth(id, d) {
-    maxDepth = Math.max(maxDepth, d);
-    (childrenOf[id] || []).forEach(({ childId }) => findDepth(childId, d + 1));
-  })(treeRootId, 0);
-  const totalCols = maxDepth + (mergeSources.length ? 1 : 0);
+  const rows = [];
+  const rank = (id) => (nodesById[id].category === 'profit' ? 0 : nodesById[id].category === 'other' ? 1 : 2);
+  (function walk(id, depth, parentAbsValue) {
+    const node = nodesById[id];
+    rows.push({ node, depth, parentAbsValue });
+    const kids = [...(childrenOf[id] || [])].sort((a, b) => rank(a) - rank(b));
+    kids.forEach((cid) => walk(cid, depth + 1, Math.abs(node.value) || 1));
+  })(treeRootId, 0, null);
 
-  const pad = 24;
-  const barW = 10;
-  const usableW = width - pad * 2 - barW;
-  const col = totalCols > 0 ? usableW / totalCols : usableW;
-  const usableH = height - pad * 2;
-  const treeX0 = mergeSources.length ? pad + col : pad;
-
-  const out = { bars: [], ribbons: [], gapMarkers: [] };
-  if (mergeSources.length) {
-    layoutMergeSources(mergeSources, nodesById, treeX0, { barW, col }, pad, pad + usableH, out);
-  }
-  layoutTree(treeRootId, nodesById, childrenOf, treeX0, { barW, col }, pad, pad + usableH, 0, out);
-  withLabelPositions(out.bars);
+  const revenueAbs = Math.abs(nodesById[treeRootId]?.value) || 1;
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} className="min-w-[680px]">
-      {out.ribbons.map((r, i) => (
-        <path key={i} d={ribbonPath(r.x1, r.y1Top, r.y1Bot, r.x2, r.y1Top, r.y1Bot)} fill={r.color} opacity="0.42" />
-      ))}
-      {out.gapMarkers.map((g, i) => (
-        <line key={i} x1={g.x1} x2={g.x2} y1={g.y} y2={g.y} stroke="rgb(var(--slate-600))" strokeWidth="1" strokeDasharray="2 3" opacity="0.8" />
-      ))}
-      {out.bars.map(({ node, x, y0, y1, depth, labelY }, i) => {
-        const h = Math.max(y1 - y0, 1.5);
-        const centerY = (y0 + y1) / 2;
-        // The root node (depth 0) has nothing to its left — a 'left' label
-        // there draws backward from x=pad-10 and runs off the canvas edge
-        // (this is what was clipping "Revenue" to "...ue"/"...Cr").
-        const align = (depth === maxDepth || depth === -1 || (depth === 0 && !mergeSources.length)) ? 'right' : 'left';
-        const textX = align === 'left' ? x - 10 : x + barW + 10;
-        const anchor = align === 'left' ? 'end' : 'start';
-        const leaderNeeded = Math.abs(labelY - centerY) > 4;
-        return (
-          <g
-            key={node.id + i}
-            className="cursor-pointer"
-            onMouseEnter={(e) => onHover?.(node, revenue, e)}
-            onMouseMove={(e) => onHover?.(node, revenue, e)}
-            onMouseLeave={() => onHover?.(null)}
-          >
-            {leaderNeeded && (
-              <line
-                x1={align === 'left' ? x : x + barW}
-                y1={centerY}
-                x2={textX}
-                y2={labelY}
-                stroke="rgb(var(--slate-500))"
-                strokeWidth="0.75"
-                strokeDasharray="1.5 1.5"
-                opacity="0.5"
-              />
-            )}
-            <rect x={x} y={y0} width={barW} height={h} fill={colorFor(node)} rx="1" />
-            <text x={textX} y={labelY - 6} textAnchor={anchor} className="fill-slate-200 text-[11px] font-semibold">
-              {node.label}{node.value < 0 ? ' (loss)' : ''}
-            </text>
-            <text x={textX} y={labelY + 9} textAnchor={anchor} className="fill-slate-500 text-[10px] nv-num">
-              {inrCrore(node.value)}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-// Fixed to the viewport (not the scrollable chart container) and clamped
-// inside the window so it never gets clipped by the card's horizontal
-// scroll area or hidden behind the cursor near the card's edges — flips to
-// whichever side of the pointer actually has room.
-const TOOLTIP_W = 260;
-const TOOLTIP_H = 90;
-const CURSOR_GAP = 16;
-
-function FlowTooltip({ hover }) {
-  if (!hover || !hover.node) return null;
-  const { node, revenue, clientX, clientY } = hover;
-  const revPct = isNum(revenue) && revenue > 0 ? (Math.abs(node.value) / revenue) * 100 : null;
-
-  let left = clientX + CURSOR_GAP;
-  if (left + TOOLTIP_W > window.innerWidth - 8) left = clientX - CURSOR_GAP - TOOLTIP_W;
-  left = Math.max(8, left);
-
-  let top = clientY + CURSOR_GAP;
-  if (top + TOOLTIP_H > window.innerHeight - 8) top = clientY - CURSOR_GAP - TOOLTIP_H;
-  top = Math.max(8, top);
-
-  return (
-    <div
-      className="pointer-events-none fixed z-50 nv-card px-3 py-2 shadow-lg border border-slate-800"
-      style={{ left, top, width: TOOLTIP_W }}
-    >
-      <div className="text-[11px] font-semibold text-slate-200">{node.label}{node.value < 0 ? ' (loss)' : ''}</div>
-      <div className="text-[12px] font-bold nv-num text-slate-100 mt-0.5">{inrCrore(node.value)}</div>
-      {isNum(revPct) && <div className="text-[10px] text-slate-500 mt-0.5">{revPct.toFixed(1)}% of Revenue</div>}
-      {node.note && <div className="text-[10px] text-slate-500 mt-1 leading-snug">{node.note}</div>}
+    <div className="w-full min-w-0">
+      {mergeSources.length > 0 && (
+        <div className="mb-2 pb-2 border-b border-slate-700">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Revenue sources</div>
+          {mergeSources.map((n) => (
+            <TreeRow key={n.id} node={n} depth={0} parentAbsValue={revenueAbs} isMergeSource />
+          ))}
+        </div>
+      )}
+      <div className="w-full min-w-0">
+        {rows.map(({ node, depth, parentAbsValue }, i) => (
+          <TreeRow key={node.id + i} node={node} depth={depth} parentAbsValue={parentAbsValue} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -384,35 +231,24 @@ export default function IncomeSankey({ incomeStmt, symbol, companyName }) {
   const apiReady = flow && flow.applicable && Array.isArray(flow.nodes) && flow.nodes.length;
   const graph = apiReady ? fromApiFlow(flow) : buildShallowFallback(incomeStmt);
 
-  const [hover, setHover] = React.useState(null);
-  const handleHover = React.useCallback((node, revenue, evt) => {
-    if (!node) { setHover(null); return; }
-    setHover({ node, revenue, clientX: evt?.clientX ?? 0, clientY: evt?.clientY ?? 0 });
-  }, []);
-
   if (!graph) return null;
 
-  const revenueNode = graph.nodes.find((n) => n.id === 'revenue' || n.category === 'neutral');
-  const revenue = revenueNode ? revenueNode.value : null;
   const year = apiReady ? flow.fiscal_year : graph.year;
   const basisLabel = apiReady
     ? `${flow.basis === 'standalone' ? 'Standalone' : 'Consolidated'} · Annual Report`
     : 'Estimated · latest filed statements';
 
   return (
-    <div className="nv-card p-4">
+    <div className="nv-card p-4 h-full min-w-0 overflow-hidden">
       <div className="flex items-baseline justify-between mb-2 flex-wrap gap-1">
-        <h2 className="nv-h2 text-[15px] text-slate-200">
+        <h2 className="nv-h2 text-[15px] text-slate-200 truncate">
           {companyName ? `${companyName} ` : ''}Income Statement
         </h2>
-        <span className="text-[11px] text-slate-500">
-          Revenue → Profit &amp; Cost Flow{year ? ` · FY${year}` : ''} · {basisLabel}
+        <span className="text-[11px] text-slate-500 shrink-0">
+          {year ? `FY${year}` : ''} · {basisLabel}
         </span>
       </div>
-      <div className="relative w-full overflow-x-auto">
-        <IncomeFlowChart nodes={graph.nodes} links={graph.links} revenue={revenue} onHover={handleHover} />
-      </div>
-      <FlowTooltip hover={hover} />
+      <IncomeTree nodes={graph.nodes} links={graph.links} />
     </div>
   );
 }
