@@ -2227,6 +2227,94 @@ def _find_annual_report_pdf(symbol, name, year):
         return None
 
 
+_SEGMENT_CAPTION_RE = re.compile(r"segment\s+revenue", re.I)
+_SEGMENT_STOP_RE = re.compile(
+    r"segment\s+result|inter\s*-?\s*segment|unallocated|total\s+revenue|segment\s+assets|segment\s+liabilit",
+    re.I)
+_SEGMENT_ROW_RE = re.compile(
+    r"([A-Za-z][A-Za-z0-9 &/,'\.\-]{2,60}?)\s+((?:\([\d,]+(?:\.\d{1,2})?\)|-?[\d,]+(?:\.\d{1,2})?))(?:\s|$)")
+_SEGMENT_EXCLUDE_RE = re.compile(
+    r"^(total|sub\s*-?\s*total|inter\s*-?\s*segment|unallocated|eliminat|less\s*:|add\s*:|external|internal|"
+    r"segment\s+revenue|revenue\s+from\s+operations|external\s+revenue|net\s+revenue)|"
+    # Any label that IS or CONTAINS a subtotal/grand-total row (e.g. "FMCG -
+    # Total", "Segment Total", "Gross Revenue from sale of products and
+    # services") — these duplicate the sum of the real segment rows above
+    # them; including them alongside the individual segments triple-counts
+    # the same revenue instead of reconciling to it.
+    r"\btotal\b|gross\s+revenue|revenue\s+from\s+sale\s+of\s+products",
+    re.I)
+
+
+def _extract_segment_revenue(pdf_bytes, total_revenue_cr):
+    """Best-effort Ind AS 108 business/geographic segment revenue for the
+    CURRENT year — Apple-style Sankey reference diagrams show segments
+    merging into Revenue on the left; this is the only place in the
+    codebase that could legitimately supply that layer. Deliberately
+    conservative: a segment note bundles Revenue/Result/Assets/Liabilities
+    sub-tables on the same page(s), so a generic label+number row parser
+    WILL sometimes grab the wrong sub-table or a decoy page — rather than
+    building out the same iterative false-positive hardening the P&L/BS
+    parser has (a multi-day effort), this uses a self-validating gate: the
+    parsed segments' sum must reconcile to the P&L's own Revenue figure
+    within a tight tolerance, or the whole result is discarded as None. A
+    wrong parse essentially never coincidentally sums to the right total,
+    so this fails safe far more often than it fails open. Returns
+    [{'label', 'value_cr'}, ...] or None. Never raises."""
+    if not total_revenue_cr or total_revenue_cr <= 0:
+        return None
+    try:
+        import fitz
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return None
+
+    try:
+        for pgi, page in enumerate(doc):
+            try:
+                t = _page_text(page)
+            except Exception:
+                continue
+            m = _SEGMENT_CAPTION_RE.search(t)
+            if not m:
+                continue
+            # Bound the row-parsing window to just the Segment Revenue
+            # sub-table — stop at the next sub-table caption (Result/Assets/
+            # Liabilities) or reconciliation rows (inter-segment, unallocated).
+            window_start = m.end()
+            stop = _SEGMENT_STOP_RE.search(t, window_start + 1)
+            window = t[window_start:stop.start() if stop else window_start + 2000]
+            factor = _unit_factor(t)
+
+            segments = []
+            for row_m in _SEGMENT_ROW_RE.finditer(window):
+                label = row_m.group(1).strip(" :.-")
+                if len(label) < 3 or _SEGMENT_EXCLUDE_RE.search(label):
+                    continue
+                val = _parse_num(row_m.group(2))
+                if val is None:
+                    continue
+                segments.append((label, val * factor))
+
+            if len(segments) < 2:
+                continue
+            # A genuine per-segment external-revenue row is never larger than
+            # total company revenue; drop obvious non-candidates (e.g. a
+            # stray "Segment Assets" figure bleeding past the stop boundary).
+            segments = [(l, v) for l, v in segments if 0 < v <= total_revenue_cr * 1.05]
+            if len(segments) < 2:
+                continue
+            total = sum(v for _, v in segments)
+            if total <= 0:
+                continue
+            if abs(total - total_revenue_cr) / total_revenue_cr <= 0.06:
+                return [{"label": l, "value_cr": round(v, 2)} for l, v in segments]
+        return None
+    except Exception:
+        return None
+    finally:
+        doc.close()
+
+
 def _extract_from_pdf(pdf_bytes, consolidated=True):
     """Extract COGS components (current+prior year) and Inventories
     (current+prior year) from the Annual Report's own financial statements.
@@ -3242,7 +3330,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     cache after acquiring the lock (not just before), since another thread
     may have already finished the fetch while this one was waiting."""
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_extract_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v6_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3271,7 +3359,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # cached extractions had operating_cash_flow/capex_*/*_repayment/
     # net_fixed_assets all silently null and would otherwise keep being
     # served for the remainder of their 90-day TTL regardless of the fix.
-    ckey = f"ar_extract_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v6_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3340,6 +3428,18 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
             return out
         parsed["source_url"] = pdf_url
         parsed["basis_used"] = "consolidated" if consolidated else "standalone"
+        # Best-effort segment revenue (Ind AS 108 note) — self-validated: only
+        # kept if the segments actually reconcile to the P&L's own Revenue
+        # figure, so an imperfect page-find/row-parse fails safe (silently
+        # None) rather than ever surfacing a wrong breakdown. Never blocks
+        # the main P&L result if this fails.
+        try:
+            revenue_pair = parsed.get("revenue")
+            if revenue_pair:
+                parsed["segments"] = _extract_segment_revenue(content, revenue_pair[0])
+        except Exception as e:
+            print(f"[annual_report_financials] segment revenue scan skipped: {e}")
+            parsed["segments"] = None
         _write_cache(ckey, parsed)
         return parsed
     except Exception as e:
@@ -3700,7 +3800,7 @@ def fetch_income_statement_flow_from_annual_report(symbol, name, fiscal_year, co
     Cached 90 days via the shared extraction cache. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_incflow_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_incflow_v6_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3743,6 +3843,17 @@ def fetch_income_statement_flow_from_annual_report(symbol, name, fiscal_year, co
 
         add_node("revenue", "Revenue", rev_cur, "neutral")
         cursor_id, cursor_val = "revenue", rev_cur
+
+        # Business/geographic segments merging into Revenue (only present
+        # when `_extract_segment_revenue` found a note that reconciles) —
+        # the one place a MERGE (multiple sources -> one node) appears in
+        # this otherwise strictly one-parent-per-node tree.
+        segments = parsed.get("segments")
+        if segments and len(segments) >= 2:
+            for i, seg in enumerate(segments):
+                sid = f"segment_{i}"
+                add_node(sid, seg["label"], seg["value_cr"], "neutral")
+                add_link(sid, "revenue", seg["value_cr"])
 
         # --- Cost of Revenue / Gross Profit -----------------------------------
         components = parsed.get("components") or {}

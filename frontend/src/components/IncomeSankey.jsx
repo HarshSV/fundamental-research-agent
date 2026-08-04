@@ -152,6 +152,30 @@ function ribbonPath(x1, y1Top, y1Bot, x2, y2Top, y2Bot) {
   ].join(' ');
 }
 
+// Lays out the one legitimate merge point in the graph: N segment sources
+// (business/geographic revenue segments) stacked in their own leftmost
+// column, each ribbon converging into the SAME target box (Revenue) at the
+// next column — the mirror image of layoutTree's one-to-many split, just
+// many-to-one. Segment bars get depth=-1 so the label-alignment logic below
+// treats them like a true leftmost column (label to the right).
+function layoutMergeSources(sources, nodesById, targetX, xStep, y0, y1, out) {
+  const mergeX = targetX - xStep.col;
+  const h = y1 - y0;
+  const totalVal = sources.reduce((s, n) => s + Math.abs(n.value), 0) || 1;
+  const gap = sources.length > 1 ? Math.min(22, h * 0.08) : 0;
+  const effectiveH = Math.max(h - gap * (sources.length - 1), 1);
+  let cursor = y0;
+  sources.forEach(({ id }) => {
+    const node = nodesById[id];
+    const frac = Math.min(Math.max(Math.abs(node.value) / totalVal, 0), 1);
+    const segH = effectiveH * frac;
+    const sy0 = cursor, sy1 = cursor + segH;
+    out.bars.push({ node, x: mergeX, y0: sy0, y1: sy1, depth: -1 });
+    out.ribbons.push({ x1: mergeX + xStep.barW, y1Top: sy0, y1Bot: sy1, x2: targetX, color: colorFor(node) });
+    cursor = sy1 + gap;
+  });
+}
+
 // Recursive proportional-partition layout: a node's [y0,y1] span is divided
 // among its children by each child link's share of the node's own value —
 // works for any depth/branching since every node in this graph has exactly
@@ -230,23 +254,38 @@ function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 340, onH
     childrenOf[l.source].push({ link: l, childId: l.target });
     hasParent.add(l.target);
   });
-  const rootId = nodes.find((n) => !hasParent.has(n.id))?.id;
-  if (!rootId) return null;
+  // Everything after Revenue is a strict one-parent-per-node tree, but
+  // Revenue itself can have MULTIPLE sources merging into it (business/
+  // geographic segments) — the one legitimate merge point, only present
+  // when the backend found a segment note that reconciles. Detect it as
+  // "more than one node with no parent" rather than assuming a single root.
+  const rootCandidates = nodes.filter((n) => !hasParent.has(n.id));
+  if (!rootCandidates.length) return null;
+  const mergeSources = rootCandidates.length > 1 ? rootCandidates : [];
+  const treeRootId = mergeSources.length
+    ? childrenOf[mergeSources[0].id]?.[0]?.childId
+    : rootCandidates[0].id;
+  if (!treeRootId) return null;
 
   let maxDepth = 0;
   (function findDepth(id, d) {
     maxDepth = Math.max(maxDepth, d);
     (childrenOf[id] || []).forEach(({ childId }) => findDepth(childId, d + 1));
-  })(rootId, 0);
+  })(treeRootId, 0);
+  const totalCols = maxDepth + (mergeSources.length ? 1 : 0);
 
   const pad = 24;
   const barW = 10;
   const usableW = width - pad * 2 - barW;
-  const col = maxDepth > 0 ? usableW / maxDepth : usableW;
+  const col = totalCols > 0 ? usableW / totalCols : usableW;
   const usableH = height - pad * 2;
+  const treeX0 = mergeSources.length ? pad + col : pad;
 
   const out = { bars: [], ribbons: [], gapMarkers: [] };
-  layoutTree(rootId, nodesById, childrenOf, pad, { barW, col }, pad, pad + usableH, 0, out);
+  if (mergeSources.length) {
+    layoutMergeSources(mergeSources, nodesById, treeX0, { barW, col }, pad, pad + usableH, out);
+  }
+  layoutTree(treeRootId, nodesById, childrenOf, treeX0, { barW, col }, pad, pad + usableH, 0, out);
   withLabelPositions(out.bars);
 
   return (
@@ -263,7 +302,7 @@ function IncomeFlowChart({ nodes, links, revenue, width = 900, height = 340, onH
         // The root node (depth 0) has nothing to its left — a 'left' label
         // there draws backward from x=pad-10 and runs off the canvas edge
         // (this is what was clipping "Revenue" to "...ue"/"...Cr").
-        const align = (depth === maxDepth || depth === 0) ? 'right' : 'left';
+        const align = (depth === maxDepth || depth === -1 || (depth === 0 && !mergeSources.length)) ? 'right' : 'left';
         const textX = align === 'left' ? x - 10 : x + barW + 10;
         const anchor = align === 'left' ? 'end' : 'start';
         const leaderNeeded = Math.abs(labelY - centerY) > 4;
