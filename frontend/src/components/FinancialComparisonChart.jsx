@@ -200,10 +200,13 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
       <div className="flex-1 flex items-center justify-center min-h-[260px]">
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} className="max-w-[640px]" overflow="visible">
           <defs>
-            <marker id="fc-arrow-y" markerWidth="8" markerHeight="8" refX="4" refY="0.5" orient="auto">
-              <path d="M0,7 L4,0 L8,7 Z" fill="rgb(var(--slate-500))" />
-            </marker>
-            <marker id="fc-arrow-x" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+            {/* orient="auto" rotates this marker to match each line's own
+                direction, so ONE triangle — apex pointing along local +x —
+                works correctly for both the upward Y-axis and rightward
+                X-axis; the previous separate "fc-arrow-y" had its apex
+                pointing along local +y instead, which orient="auto" then
+                rotated a further 90° off, landing the arrowhead sideways. */}
+            <marker id="fc-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
               <path d="M0,0 L8,4 L0,8 Z" fill="rgb(var(--slate-500))" />
             </marker>
           </defs>
@@ -265,8 +268,8 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
           })}
 
           {/* explicit Y axis (up) and X axis (right, at the value-0 baseline) with arrowheads */}
-          <line x1={pad.l} y1={H - pad.b + 6} x2={pad.l} y2={pad.t - 8} stroke="rgb(var(--slate-500))" strokeWidth="1.25" markerEnd="url(#fc-arrow-y)" />
-          <line x1={pad.l} y1={baselineY} x2={W - pad.r + 8} y2={baselineY} stroke="rgb(var(--slate-500))" strokeWidth="1.25" markerEnd="url(#fc-arrow-x)" />
+          <line x1={pad.l} y1={H - pad.b + 6} x2={pad.l} y2={pad.t - 8} stroke="rgb(var(--slate-500))" strokeWidth="1.25" markerEnd="url(#fc-arrow)" />
+          <line x1={pad.l} y1={baselineY} x2={W - pad.r + 8} y2={baselineY} stroke="rgb(var(--slate-500))" strokeWidth="1.25" markerEnd="url(#fc-arrow)" />
         </svg>
       </div>
 
