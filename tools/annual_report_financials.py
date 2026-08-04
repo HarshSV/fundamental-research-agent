@@ -2245,6 +2245,125 @@ _SEGMENT_EXCLUDE_RE = re.compile(
     re.I)
 
 
+_SEGMENT_YEAR_ROW_RE = re.compile(r"^\d{4}\s*-\s*\d{2,4}$")
+
+
+def _extract_segment_revenue_matrix(page, caption_word_y, total_revenue_cr, factor):
+    """Fallback for a segment table laid out as a MATRIX — segment names as
+    column headers, one numeric row below (e.g. Reliance's "Primary Segment
+    Information" table) — rather than ITC-style repeated label-then-numbers
+    rows. Plain linear text order scrambles this layout (a header wrapped
+    across two PDF lines, or two column headers merged onto one line, both
+    seen on Reliance's actual filing), so this uses word BOUNDING BOXES
+    instead: the numeric row's word x-positions define the true column
+    centers, and every header word — regardless of which visual line it
+    printed on — is assigned to whichever numeric column it sits closest to
+    on the x-axis, then joined in reading order into that column's label.
+    Returns [(label, value)] or []. Never raises."""
+    try:
+        words = _page_words(page)
+        rows = _cluster_lines(words)
+
+        # The numbers row: some filers print a whole reconciliation waterfall
+        # under the same column headers (External Turnover -> Inter Segment
+        # Turnover -> Value of Sales and Services -> less: GST Recovered ->
+        # Revenue from Operations net of GST — all seen on Reliance's own
+        # filing, interleaved with an unrelated Borrowings note's numbers on
+        # the same page besides), so the FIRST numeric-heavy row isn't
+        # necessarily the right one. Scan every candidate row in a window
+        # below the caption and pick whichever sums CLOSEST to the company's
+        # actual reported Revenue — the row whose total doesn't reconcile is
+        # never the one we want, regardless of which row a caption happens
+        # to sit closest to.
+        num_row_idx, numeric_tokens, best_diff = None, None, None
+        for i, row in enumerate(rows):
+            row_y = (row[0][1] + row[0][3]) / 2
+            if row_y <= caption_word_y + 1 or row_y > caption_word_y + 400:
+                continue
+            toks = [w for w in row if _NUM_TOKEN_RE.match(w[4]) or _PERMISSIVE_NUM_TOKEN_RE.match(w[4]) or w[4] == "-"]
+            if len(toks) < 3:
+                continue
+            # A row's own "Total" column (one of its tokens, not the row's
+            # SUM — that column already equals the sum of every other
+            # column in the same row) should closely match the company's
+            # reported Revenue when this is the right row.
+            vals = [v for v in (_parse_num(t[4]) for t in toks) if v is not None]
+            if not vals:
+                continue
+            diff = min(abs(v - total_revenue_cr) for v in vals)
+            if best_diff is None or diff < best_diff:
+                num_row_idx, numeric_tokens, best_diff = i, toks, diff
+        if num_row_idx is None or len(numeric_tokens) < 3:
+            return []
+
+        # Header block: rows strictly between the most recent "20XX-XX"
+        # fiscal-year row above the caption and the numbers row itself —
+        # this is exactly the column-header band on Reliance's table, and
+        # generalizes to any filer using the same "(Rs Cr) / <year> / <col
+        # headers> / <section caption> / <data row>" block shape.
+        year_row_idx = None
+        for i in range(len(rows) - 1, -1, -1):
+            row_y = (rows[i][0][1] + rows[i][0][3]) / 2
+            if row_y >= caption_word_y:
+                continue
+            row_text = " ".join(w[4] for w in rows[i])
+            if re.search(r"\b\d{4}\s*-\s*\d{2,4}\b", row_text.strip()):
+                year_row_idx = i
+                break
+        header_start = year_row_idx + 1 if year_row_idx is not None else max(0, num_row_idx - 6)
+
+        header_words = []
+        for i in range(header_start, num_row_idx):
+            row_text_lower = " ".join(w[4] for w in rows[i]).strip().lower()
+            if row_text_lower in ("segment", "revenue", "segment revenue") or row_text_lower.isdigit():
+                continue
+            header_words.extend(rows[i])
+        if not header_words:
+            return []
+
+        # Assign each header word to its nearest numeric column by x-center,
+        # then join words per column in reading order (top-to-bottom, then
+        # left-to-right) to rebuild that column's full label.
+        col_centers = [((w[0] + w[2]) / 2) for w in numeric_tokens]
+        col_words = [[] for _ in col_centers]
+        for w in header_words:
+            wx = (w[0] + w[2]) / 2
+            nearest = min(range(len(col_centers)), key=lambda i: abs(col_centers[i] - wx))
+            col_words[nearest].append(w)
+
+        segments = []
+        for ci, ws in enumerate(col_words):
+            if not ws:
+                continue
+            label = " ".join(w[4] for w in sorted(ws, key=lambda w: (round(w[1]), w[0]))).strip(" *:.-")
+            # Strip stray junk that can leak into the leftmost column when the
+            # fiscal-year row wasn't cleanly detected: fiscal-year tokens,
+            # bare serial-number digits, and the "Segment Revenue" caption
+            # text itself, none of which are real segment names.
+            label = re.sub(r"\b\d{4}\s*-\s*\d{2,4}\b", "", label, flags=re.I)
+            label = re.sub(r"\bsegment\s+revenue\b", "", label, flags=re.I)
+            label = re.sub(r"(?<!\w)\d+(?!\w)", "", label)
+            label = re.sub(r"\s{2,}", " ", label).strip(" *:.-")
+            if len(label) < 3 or len(label) > 45 or _SEGMENT_EXCLUDE_RE.search(label):
+                continue
+            # A real segment name is a short label of words — if this column
+            # picked up text from an UNRELATED table interleaved on the same
+            # page (confirmed possible: e.g. a Borrowings note sharing rows
+            # with Reliance's actual segment table), the reassembled label
+            # reads as visibly garbled prose/numbers rather than a plausible
+            # segment name. Reject on any of those tells rather than ever
+            # show a label an analyst would immediately recognize as broken.
+            if re.search(r"\d", label) or label.count(",") >= 2 or len(label.split()) > 6:
+                continue
+            val = _parse_num(numeric_tokens[ci][4])
+            if val is None:
+                continue
+            segments.append((label, val * factor))
+        return segments
+    except Exception:
+        return []
+
+
 def _extract_segment_revenue(pdf_bytes, total_revenue_cr):
     """Best-effort Ind AS 108 business/geographic segment revenue for the
     CURRENT year — Apple-style Sankey reference diagrams show segments
@@ -2295,6 +2414,50 @@ def _extract_segment_revenue(pdf_bytes, total_revenue_cr):
                     continue
                 segments.append((label, val * factor))
 
+            if len(segments) < 2 and re.search(r"(primary\s+segment\s+information|segment\s+information|"
+                                                r"operating\s+segments?\b)", t, re.I):
+                # Row-list parsing found nothing usable — try the matrix-table
+                # layout instead (segment names as column headers, e.g.
+                # Reliance's "Primary Segment Information" table). Gated on
+                # an actual table-heading marker, not just a co-occurrence of
+                # "segment"/"revenue" words — those two words alone can
+                # false-positive on unrelated prose (e.g. a forex-hedging
+                # note that happens to mention both), which would otherwise
+                # feed the matrix parser a completely wrong page.
+                try:
+                    cap_rows = _cluster_lines(_page_words(page))
+                    # A genuine "Segment Revenue" sub-table caption prints as
+                    # either one short row ("Segment Revenue") or two
+                    # stacked single-word rows ("Segment" / "Revenue" on
+                    # consecutive lines — confirmed on Reliance's filing) —
+                    # never as part of a long prose sentence, which is what
+                    # filters out unrelated same-page mentions (seen on
+                    # Reliance: a forex-hedging note using both words too).
+                    def _row_text(r):
+                        return " ".join(w[4].lower() for w in r).strip(" :")
+                    caption_row = None
+                    for i, r in enumerate(cap_rows):
+                        rt = _row_text(r)
+                        words_lower = [w[4].lower() for w in r]
+                        if len(r) <= 4 and "segment" in rt and "revenue" in rt:
+                            caption_row = r
+                            break
+                        if rt == "revenue" and i > 0 and _row_text(cap_rows[i - 1]) == "segment":
+                            caption_row = r
+                            break
+                        # An interleaved page (a second, unrelated table's text
+                        # sharing the same visual row — seen on Reliance's
+                        # filing) can bury the caption at the END of an
+                        # otherwise contaminated row; catch "...Segment
+                        # Revenue" as the row's trailing two words specifically.
+                        if len(words_lower) >= 2 and words_lower[-2] == "segment" and words_lower[-1] == "revenue":
+                            caption_row = r
+                            break
+                    if caption_row:
+                        caption_y = (caption_row[0][1] + caption_row[0][3]) / 2
+                        segments = _extract_segment_revenue_matrix(page, caption_y, total_revenue_cr, factor)
+                except Exception:
+                    segments = []
             if len(segments) < 2:
                 continue
             # A genuine per-segment external-revenue row is never larger than
@@ -3330,7 +3493,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     cache after acquiring the lock (not just before), since another thread
     may have already finished the fetch while this one was waiting."""
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_extract_v6_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v7_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3359,7 +3522,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # cached extractions had operating_cash_flow/capex_*/*_repayment/
     # net_fixed_assets all silently null and would otherwise keep being
     # served for the remainder of their 90-day TTL regardless of the fix.
-    ckey = f"ar_extract_v6_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v7_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
