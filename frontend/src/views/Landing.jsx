@@ -19,7 +19,12 @@ const IconEdit = () => (<I s={14}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.
 const IconX = () => (<I s={12}><path d="M18 6 6 18M6 6l12 12" /></I>);
 const IconPlus = () => (<I s={14}><path d="M12 5v14M5 12h14" /></I>);
 
-const DEFAULT_WATCHLIST = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'LT', 'ITC', 'SBIN', 'BHARTIARTL', 'MARUTI'];
+// India's top 5 listed companies by market cap.
+const DEFAULT_WATCHLIST = ['RELIANCE', 'HDFCBANK', 'TCS', 'BHARTIARTL', 'ICICIBANK'];
+// The previous default (10 stocks) — anyone whose stored list still matches
+// this exactly never customized it, so switch them to the new 5-stock
+// default too rather than leave them stuck on the old list forever.
+const PRIOR_DEFAULT_WATCHLIST = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'LT', 'ITC', 'SBIN', 'BHARTIARTL', 'MARUTI'];
 const WATCHLIST_KEY = 'nv_watchlist';
 const WATCHLIST_MAX = 10;
 
@@ -28,7 +33,12 @@ function loadWatchlist() {
     const raw = localStorage.getItem(WATCHLIST_KEY);
     if (!raw) return DEFAULT_WATCHLIST;
     const arr = JSON.parse(raw);
-    if (Array.isArray(arr) && arr.length) return arr.slice(0, WATCHLIST_MAX);
+    if (Array.isArray(arr) && arr.length) {
+      if (arr.length === PRIOR_DEFAULT_WATCHLIST.length && arr.every((s, i) => s === PRIOR_DEFAULT_WATCHLIST[i])) {
+        return DEFAULT_WATCHLIST;
+      }
+      return arr.slice(0, WATCHLIST_MAX);
+    }
   } catch (e) { /* ignore */ }
   return DEFAULT_WATCHLIST;
 }
@@ -210,7 +220,7 @@ export default function Landing({ onSelect, onLogout }) {
         </div>
 
         {/* watchlist */}
-        <div className={`max-w-3xl mx-auto px-6 pb-16 transition-opacity duration-200 ${open && matches.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        <div ref={editRef} className={`max-w-3xl mx-auto px-6 pb-16 transition-opacity duration-200 ${open && matches.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
           <div className="flex items-center justify-center gap-2 mb-3">
             <span className="nv-eyebrow text-slate-500">Your watchlist</span>
             <button
@@ -245,7 +255,7 @@ export default function Landing({ onSelect, onLogout }) {
           </div>
 
           {editing && (
-            <div ref={editRef} className="nv-card p-3 max-w-sm mx-auto mt-4 text-left">
+            <div className="nv-card p-3 max-w-sm mx-auto mt-4 text-left">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-semibold text-slate-400">Add a stock ({watchlist.length}/{WATCHLIST_MAX})</span>
                 <button onClick={() => setEditing(false)} className="text-slate-500 hover:text-slate-300"><IconX /></button>
