@@ -805,13 +805,22 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Below it: a revenue-weighted Recurring<->Cyclical spectrum position
         // (computed in Python, never an LLM guess) and a deterministic
         // plain-English footer sentence.
-        const PATTERN_COLOR = {
-            recurring: { bg: 'rgb(45 212 191)', text: 'rgb(255 255 255)' },   // teal — stable/positive
-            mixed: { bg: 'rgb(250 204 21)', text: 'rgb(41 37 4)' },           // amber — intermediate
-            cyclical: { bg: 'rgb(251 113 60)', text: 'rgb(255 255 255)' },    // warm coral — caution
-            unclassified: { bg: 'rgb(100 116 139)', text: 'rgb(255 255 255)' }, // slate — insufficient evidence
-        };
         const PATTERN_LABEL = { recurring: 'Recurring', mixed: 'Mixed', cyclical: 'Cyclical', unclassified: 'Unclassified' };
+        const PATTERN_DOT_COLOR = {
+            recurring: 'rgb(45 212 191)',   // teal — stable/positive
+            mixed: 'rgb(250 204 21)',       // amber — intermediate
+            cyclical: 'rgb(251 113 60)',    // warm coral — caution
+            unclassified: 'rgb(148 163 184)', // slate — insufficient evidence
+        };
+        // Each SEGMENT gets its own distinct fill color (not just one of 4
+        // pattern colors) so a bar with several same-pattern segments (e.g.
+        // 4 "Recurring" FMCG segments) still reads as visually distinct
+        // blocks — the pattern itself is still shown via a small colored dot
+        // + label on every block, not lost.
+        const SEGMENT_FILL_PALETTE = [
+            'rgb(56 130 246)', 'rgb(45 212 191)', 'rgb(168 85 247)', 'rgb(251 146 60)',
+            'rgb(236 72 153)', 'rgb(250 204 21)', 'rgb(34 197 94)', 'rgb(96 165 250)',
+        ];
         const RESIDUAL_COLOR = { bg: 'rgb(30 41 59)', text: 'rgb(148 163 184)' };
         const WEIGHTED_SPECTRUM_LABEL = {
             recurring_leaning: 'Recurring-leaning', mixed: 'Mixed', cyclical_leaning: 'Cyclical-leaning',
@@ -825,7 +834,6 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [openWhy, setOpenWhy] = useState(false);
             if (!segs.length) return null;
 
-            const patternsUsed = [...new Set(segs.map(s => s.pattern))];
             const score = chart?.weightedPatternScore;
             const spectrumPct = score != null ? Math.max(0, Math.min(100, score * 100)) : null;
 
@@ -833,27 +841,28 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div>
                     <p className="text-[12px] text-slate-400 mb-2">{chart?.compositionNote}</p>
 
-                    {/* 100% stacked composition bar. Adjacent segments often share
-                        the same pattern color (e.g. several "Unclassified" segments
-                        in a row) — a 1.5px divider on every block keeps the split
-                        visible regardless of color, instead of blurring into one
-                        solid band. */}
+                    {/* 100% stacked composition bar — one distinct color per
+                        segment (never blurs into a same-color blob), a small
+                        pattern-colored dot on every block shows Recurring/Mixed/
+                        Cyclical/Unclassified even when the block is too narrow
+                        for the full label. */}
                     <div className="flex w-full h-11 rounded-md overflow-hidden">
                         {segs.map((s, i) => {
-                            const c = PATTERN_COLOR[s.pattern] || PATTERN_COLOR.unclassified;
-                            const title = `${s.name} — ₹${s.external_revenue_cr?.toLocaleString('en-IN')} Cr · ${s.share_pct}% · ${PATTERN_LABEL[s.pattern]}`
-                                + (s.pattern_reason ? ` — ${s.pattern_reason}` : '');
+                            const fill = SEGMENT_FILL_PALETTE[i % SEGMENT_FILL_PALETTE.length];
+                            const dot = PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified;
+                            const title = `${s.name} — ₹${s.external_revenue_cr?.toLocaleString('en-IN')} Cr · ${s.share_pct}% · ${PATTERN_LABEL[s.pattern]}`;
                             const isLast = i === segs.length - 1 && !hasResidual;
                             return (
-                                <div key={s.name + i} className="flex flex-col items-center justify-center px-1 min-w-0"
+                                <div key={s.name + i} className="flex flex-col items-center justify-center gap-0.5 px-1 min-w-0"
                                     style={{
-                                        width: `${s.share_pct}%`, background: c.bg,
+                                        width: `${s.share_pct}%`, background: fill,
                                         borderRight: isLast ? 'none' : '1.5px solid rgba(15, 23, 42, 0.5)',
                                     }} title={title}>
+                                    <span className="w-2 h-2 rounded-full flex-shrink-0 border border-white/40" style={{ background: dot }} />
                                     {s.share_pct >= 9 && (
                                         <>
-                                            <span className="text-[11px] font-bold truncate max-w-full" style={{ color: c.text }}>{s.name}</span>
-                                            <span className="text-[10px] font-semibold" style={{ color: c.text, opacity: 0.9 }}>{s.share_pct}%</span>
+                                            <span className="text-[11px] font-bold text-white truncate max-w-full">{s.name}</span>
+                                            <span className="text-[10px] font-semibold text-white/90">{s.share_pct}%</span>
                                         </>
                                     )}
                                 </div>
@@ -867,18 +876,22 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         )}
                     </div>
 
-                    {/* Legend */}
-                    <div className="flex items-center gap-4 mt-2.5 flex-wrap">
-                        {patternsUsed.map((p) => (
-                            <div key={p} className="flex items-center gap-1.5">
-                                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: (PATTERN_COLOR[p] || PATTERN_COLOR.unclassified).bg }} />
-                                <span className="text-[11px] text-slate-400">{PATTERN_LABEL[p] || p}</span>
+                    {/* Always-visible compact legend — every segment listed by
+                        name, no matter how small its block is (a block too
+                        narrow for inline text is never left unlabeled). */}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2.5">
+                        {segs.map((s, i) => (
+                            <div key={s.name + i} className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: SEGMENT_FILL_PALETTE[i % SEGMENT_FILL_PALETTE.length] }} />
+                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified }} />
+                                <span className="text-[11px] text-slate-300">{s.name}</span>
+                                <span className="text-[10px] text-slate-500">{s.share_pct}% · {PATTERN_LABEL[s.pattern] || s.pattern}</span>
                             </div>
                         ))}
                         {hasResidual && (
                             <div className="flex items-center gap-1.5">
                                 <span className="w-2.5 h-2.5 rounded-sm" style={{ background: RESIDUAL_COLOR.bg }} />
-                                <span className="text-[11px] text-slate-400">Unallocated</span>
+                                <span className="text-[11px] text-slate-400">Unallocated · {residualPct}%</span>
                             </div>
                         )}
                     </div>
@@ -909,14 +922,33 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             Why these classifications? {openWhy ? '▴' : '▾'}
                         </button>
                         {openWhy && (
-                            <div className="mt-2 space-y-1.5">
+                            <div className="mt-2 space-y-2">
                                 {segs.map((s, i) => (
-                                    <div key={s.name + i} className="text-[11px] text-slate-300 bg-slate-900/60 border border-slate-800 rounded p-2">
-                                        <span className="font-semibold">{s.name}</span>
-                                        <span className="text-slate-500"> — {PATTERN_LABEL[s.pattern] || s.pattern}.</span>{' '}
-                                        {s.pattern_reason
-                                            ? <span className="text-slate-400">{s.pattern_reason}</span>
-                                            : <span className="text-slate-600 italic">Not enough official disclosure to classify this segment's revenue pattern.</span>}
+                                    <div key={s.name + i} className="text-[11px] bg-slate-900/60 border border-slate-800 rounded p-2.5">
+                                        <div className="flex items-center gap-1.5 mb-1.5">
+                                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified }} />
+                                            <span className="font-semibold text-slate-200">{s.name}</span>
+                                            <span className="text-slate-500">— {PATTERN_LABEL[s.pattern] || s.pattern}</span>
+                                        </div>
+                                        {s.pattern_reason_points?.length > 0 ? (
+                                            <ul className="space-y-1 mb-2">
+                                                {s.pattern_reason_points.map((pt, pi) => (
+                                                    <li key={pi} className="flex items-start gap-1.5 text-slate-400">
+                                                        <span className="w-1 h-1 rounded-full bg-slate-600 mt-1.5 flex-shrink-0" />
+                                                        <span>{pt}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <p className="text-slate-600 italic mb-2">Not enough official disclosure to classify this segment's revenue pattern.</p>
+                                        )}
+                                        {s.example_brands?.length > 0 && (
+                                            <div className="flex flex-wrap gap-1.5 pt-1.5 border-t border-slate-800/70">
+                                                {s.example_brands.map((b, bi) => (
+                                                    <span key={bi} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">{b}</span>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                                 {pdfUrl && (

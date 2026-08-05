@@ -663,7 +663,7 @@ _GENERAL_RECURRING_REASONING_RE = re.compile(
     r"repeat custom|habitual|non-?discretionary|fmcg|daily use|routine (purchase|consumption)",
     re.I,
 )
-_BIZ_COMP_SCHEMA_VERSION = 6
+_BIZ_COMP_SCHEMA_VERSION = 7
 
 
 def compute_business_composition(symbol, name=None, description="", force=False):
@@ -818,9 +818,17 @@ def compute_business_composition(symbol, name=None, description="", force=False)
         "\"cyclical\" or \"unclassified\" instead, or pair it with real reasoning about repeat/renewal.\n\n"
         "Only use \"mixed\" when the segment demonstrably has BOTH meaningful recurring/stable AND cyclical/"
         "transactional characteristics, and you can state both reasons — never as a stand-in for uncertainty.\n\n"
+        "For EACH segment also provide:\n"
+        "- reason_points: 2-3 short bullet points (not a paragraph) explaining the classification — what the "
+        "segment's business actually does, and why that supports the pattern chosen.\n"
+        "- example_brands: 2-4 well-known, real brand/product names commonly associated with that segment for "
+        "this company, from general public knowledge (e.g. for an FMCG 'Beauty & Wellbeing' segment: real, "
+        "well-known personal-care brand names). ONLY include names you are confident are real and genuinely "
+        "associated with this company — leave the list empty rather than guessing or inventing a name.\n\n"
         "Return ONLY JSON:\n"
         '{ "segments": [ {"label": "<EXACT segment label from REPORTED SEGMENTS, one entry per segment, same order>", '
-        '"pattern": "recurring" | "mixed" | "cyclical" | "unclassified", "reason": "1 short sentence"} ] }\n\n'
+        '"pattern": "recurring" | "mixed" | "cyclical" | "unclassified", '
+        '"reason_points": ["point 1", "point 2"], "example_brands": ["Brand A", "Brand B"]} ] }\n\n'
         f"=== CONTEXT ===\n{context}"
     )
     try:
@@ -830,39 +838,47 @@ def compute_business_composition(symbol, name=None, description="", force=False)
                 {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only."},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=700, temperature=0.1,
+            max_tokens=1400, temperature=0.1,
         )
         data = parse_json_loose(raw) or {}
         for s in (data.get("segments") or []):
             lbl = str(s.get("label") or "").strip()
             pat = str(s.get("pattern") or "").strip().lower()
-            reason = str(s.get("reason") or "").strip()
             if not lbl or pat not in _SEGMENT_PATTERN:
                 continue
+            reason_points = [str(p).strip() for p in (s.get("reason_points") or []) if str(p).strip()][:4]
+            if not reason_points:
+                # Tolerate a model that ignores the list field and answers
+                # with the older free-form "reason" string instead.
+                fallback = str(s.get("reason") or "").strip()
+                reason_points = [fallback] if fallback else []
+            brands = [str(b).strip() for b in (s.get("example_brands") or []) if str(b).strip() and len(str(b).strip()) < 60][:4]
+            reason_text = " ".join(reason_points)
             # Broadened false-positive gate: a "recurring" claim must be
             # backed by either a literal repeat/renewal signal word OR
             # general, well-established business-model reasoning (consumer
             # staple, essential/everyday demand, membership, deposits/loans,
             # insurance premiums, maintenance/service contracts, warranty) —
-            # NOT trusted when the reason cites only order-book/contract-
+            # NOT trusted when the reasoning cites only order-book/contract-
             # asset/contract-liability language with nothing else, which is
             # revenue visibility, not recurringness.
-            if pat == "recurring" and not _RECURRING_SIGNAL_RE.search(reason) and not _GENERAL_RECURRING_REASONING_RE.search(reason):
-                pat, reason = "unclassified", None
-            patterns_by_label[lbl.lower()] = {"pattern": pat, "reason": reason}
+            if pat == "recurring" and not _RECURRING_SIGNAL_RE.search(reason_text) and not _GENERAL_RECURRING_REASONING_RE.search(reason_text):
+                pat, reason_points, brands = "unclassified", [], []
+            patterns_by_label[lbl.lower()] = {"pattern": pat, "reason_points": reason_points, "brands": brands}
     except Exception as e:
         print(f"[qualitative_engine] business_composition segment classification failed for {sym}: {e}")
 
     segments_out = []
     for s in segments_for_calc:
         pct = round(s["value_cr"] / consolidated_revenue * 100, 1) if consolidated_revenue else 0.0
-        cls = patterns_by_label.get(s["label"].lower()) or {"pattern": "unclassified", "reason": None}
+        cls = patterns_by_label.get(s["label"].lower()) or {"pattern": "unclassified", "reason_points": [], "brands": []}
         segments_out.append({
             "name": s["label"],
             "external_revenue_cr": round(s["value_cr"], 1),
             "share_pct": pct,
             "pattern": cls["pattern"],
-            "pattern_reason": cls["reason"],
+            "pattern_reason_points": cls.get("reason_points") or [],
+            "example_brands": cls.get("brands") or [],
         })
 
     # --- Step 10: business-model tag (deterministic) ------------------------
