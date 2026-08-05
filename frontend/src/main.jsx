@@ -878,6 +878,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // segment (including the first/last, near the edges) is hovered.
             const [hoverIdx, setHoverIdx] = useState(null);
             const [hoverLeft, setHoverLeft] = useState(0);
+            const [hoverBelow, setHoverBelow] = useState(false);
             const barWrapRef = useRef(null);
             if (!segs.length) return null;
 
@@ -885,6 +886,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const spectrumPct = score != null ? Math.max(0, Math.min(100, score * 100)) : null;
 
             const TOOLTIP_W = 256;
+            const TOOLTIP_H_ESTIMATE = 280; // generous estimate incl. reason bullets + brand chips
             const handleEnter = (i, e) => {
                 setHoverIdx(i);
                 const wrap = barWrapRef.current;
@@ -893,7 +895,20 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const segRect = e.currentTarget.getBoundingClientRect();
                 const centerX = segRect.left + segRect.width / 2 - wrapRect.left;
                 const half = TOOLTIP_W / 2 + 4;
-                setHoverLeft(Math.max(half, Math.min(centerX, wrapRect.width - half)));
+                // Clamp twice: once relative to the bar's own width (keeps it
+                // over the bar visually), then again against the actual
+                // viewport in absolute screen coordinates (keeps it on-screen
+                // even if the card itself sits close to the window edge).
+                let left = Math.max(half, Math.min(centerX, wrapRect.width - half));
+                const absLeft = wrapRect.left + left;
+                if (absLeft - half < 0) left += (half - absLeft);
+                else if (absLeft + half > window.innerWidth) left -= (absLeft + half - window.innerWidth);
+                setHoverLeft(left);
+                // Flip below the bar when there isn't enough room above it —
+                // otherwise the panel renders off the top of the viewport and
+                // gets clipped (confirmed: happens whenever the card sits near
+                // the top of the scrolled page).
+                setHoverBelow(wrapRect.top < TOOLTIP_H_ESTIMATE);
             };
             const handleLeave = () => setHoverIdx(null);
 
@@ -939,7 +954,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             )}
                         </div>
                         {hoverIdx != null && (
-                            <div className="absolute z-20 bottom-full mb-2 pointer-events-none transition-opacity duration-100"
+                            <div className={`absolute z-20 pointer-events-none transition-opacity duration-100 ${hoverBelow ? 'top-full mt-2' : 'bottom-full mb-2'}`}
                                 style={{ left: hoverLeft, transform: 'translateX(-50%)' }}>
                                 <SegmentHoverCard s={segs[hoverIdx]} />
                             </div>
