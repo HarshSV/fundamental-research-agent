@@ -651,7 +651,19 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
 
 _SEGMENT_PATTERN = ("recurring", "mixed", "cyclical", "unclassified")
 _PATTERN_SCORE = {"recurring": 0.0, "mixed": 0.5, "cyclical": 1.0}
-_BIZ_COMP_SCHEMA_VERSION = 5
+# Broader than _RECURRING_SIGNAL_RE — accepts general, well-established
+# business-model reasoning as valid grounds for a "recurring" classification
+# (per-segment classifier only), not just literal repeat/renewal language
+# quoted from a filing. Still excludes bare order-book/contract-asset/
+# contract-liability citations, which remain revenue visibility, not
+# recurringness.
+_GENERAL_RECURRING_REASONING_RE = re.compile(
+    r"consumer staple|everyday|essential (consumption|demand|product)|household consumption|repeat purchase|"
+    r"membership|deposits?\b|\bloans?\b|insurance premium|maintenance contract|service contract|warranty|"
+    r"repeat custom|habitual|non-?discretionary|fmcg|daily use|routine (purchase|consumption)",
+    re.I,
+)
+_BIZ_COMP_SCHEMA_VERSION = 6
 
 
 def compute_business_composition(symbol, name=None, description="", force=False):
@@ -772,69 +784,74 @@ def compute_business_composition(symbol, name=None, description="", force=False)
 
     seg_names = [s["label"] for s in segments_for_calc]
     patterns_by_label = {}
-    has_ar_evidence = not evidence.get("error") and (evidence.get("recurring_excerpts") or evidence.get("cyclicality_excerpts"))
-    if has_ar_evidence or digest:
-        context = (
-            f"COMPANY: {company}\n"
-            f"REPORTED SEGMENTS: {', '.join(seg_names)}\n\n"
-            f"=== ANNUAL REPORT EXCERPTS — RECURRING/CONTRACT/SUBSCRIPTION LANGUAGE ===\n{_fmt_excerpts(evidence.get('recurring_excerpts'))}\n\n"
-            f"=== ANNUAL REPORT EXCERPTS — CYCLICALITY/DEMAND-SENSITIVITY LANGUAGE ===\n{_fmt_excerpts(evidence.get('cyclicality_excerpts'))}\n"
-            + (f"\n=== RECENT CONCALL / MANAGEMENT COMMENTARY (secondary corroboration, newest first) ===\n{digest}\n" if digest else "")
+    # Always attempt classification — the classifier is explicitly allowed to
+    # reason from well-established business-model/sector knowledge (e.g.
+    # "FMCG household/personal-care products are repeat-purchase, driven by
+    # everyday consumer demand" or "auto manufacturing is capex/demand
+    # cyclical") even without a literal quote, not only when AR/concall text
+    # happened to contain matching language. Still grounded reasoning, not a
+    # blind guess — the order-book-only false-positive guard below still
+    # applies regardless of source.
+    context = (
+        f"COMPANY: {company}\n"
+        f"REPORTED SEGMENTS: {', '.join(seg_names)}\n\n"
+        f"=== ANNUAL REPORT EXCERPTS — RECURRING/CONTRACT/SUBSCRIPTION LANGUAGE ===\n{_fmt_excerpts(evidence.get('recurring_excerpts'))}\n\n"
+        f"=== ANNUAL REPORT EXCERPTS — CYCLICALITY/DEMAND-SENSITIVITY LANGUAGE ===\n{_fmt_excerpts(evidence.get('cyclicality_excerpts'))}\n"
+        + (f"\n=== RECENT CONCALL / MANAGEMENT COMMENTARY (secondary corroboration, newest first) ===\n{digest}\n" if digest else "")
+    )
+    prompt = (
+        "You are an equity analyst classifying the REVENUE PATTERN of each individually reported business "
+        "segment for an Indian listed company. The Annual Report excerpts are the PRIMARY evidence; the concall/"
+        "management commentary (if present) is SECONDARY corroboration. When neither source explicitly discusses a "
+        "segment, you MUST STILL classify it using well-established, general knowledge of how that kind of "
+        "business actually earns revenue — e.g. FMCG household/personal-care/food products are repeat-purchase, "
+        "driven by everyday consumer demand (typically Cyclical or Mixed, not purely discretionary); auto/"
+        "industrial manufacturing is capex- and demand-cycle sensitive (typically Cyclical); IT services delivery "
+        "is often Mixed (project-based plus renewing maintenance); banking/lending interest income and insurance "
+        "premiums are typically Recurring. Reserve \"unclassified\" for the rare case where you genuinely cannot "
+        "reason about the segment's business model at all — it should be UNUSUAL, not the default outcome.\n\n"
+        "FALSE-POSITIVE GUARD (still applies regardless of source): order book, contract assets, contract "
+        "liabilities, customer contracts, or the mere existence of a contract do NOT by themselves prove "
+        "recurring revenue — order book reflects revenue VISIBILITY (future revenue already booked), a DIFFERENT "
+        "concept from RECURRINGNESS (whether revenue repeats from the same customers over time). Never cite an "
+        "order book figure, alone, as your reason for \"recurring\" — if that is genuinely your only evidence, use "
+        "\"cyclical\" or \"unclassified\" instead, or pair it with real reasoning about repeat/renewal.\n\n"
+        "Only use \"mixed\" when the segment demonstrably has BOTH meaningful recurring/stable AND cyclical/"
+        "transactional characteristics, and you can state both reasons — never as a stand-in for uncertainty.\n\n"
+        "Return ONLY JSON:\n"
+        '{ "segments": [ {"label": "<EXACT segment label from REPORTED SEGMENTS, one entry per segment, same order>", '
+        '"pattern": "recurring" | "mixed" | "cyclical" | "unclassified", "reason": "1 short sentence"} ] }\n\n'
+        f"=== CONTEXT ===\n{context}"
+    )
+    try:
+        from tools.groq_client import groq_chat, parse_json_loose
+        raw = groq_chat(
+            messages=[
+                {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=700, temperature=0.1,
         )
-        prompt = (
-            "You are an equity analyst classifying the REVENUE PATTERN of each individually reported business "
-            "segment for an Indian listed company, using ONLY the excerpts below plus general knowledge of what "
-            "that specific business does. The Annual Report excerpts are the PRIMARY evidence; the concall/"
-            "management commentary (if present) is SECONDARY corroboration — real management statements about a "
-            "segment's contracts, renewals, or demand pattern are usable evidence, weighted below the Annual "
-            "Report but above pure inference. Do NOT classify from the segment's name/sector alone — you must be "
-            "able to point to real evidence (explicit repeat/renewal language for Recurring, explicit demand/"
-            "economic sensitivity for Cyclical) OR clearly reasoned characteristics of what that segment's "
-            "business actually does.\n\n"
-            "FALSE-POSITIVE GUARD (same rule as elsewhere in this analysis): order book, contract assets, contract "
-            "liabilities, customer contracts, or the mere existence of a contract do NOT by themselves prove "
-            "recurring revenue. Order book reflects revenue VISIBILITY (future revenue already booked), which is a "
-            "DIFFERENT concept from RECURRINGNESS (whether revenue repeats from the same customers over time) — "
-            "never cite an order book figure as your reason for \"recurring\". Only use \"recurring\" when you can "
-            "cite genuine repeat/renewal language (subscriptions, AMC/maintenance contracts, renewal rates, annuity "
-            "income, repeat-customer relationships) or well-established business-model knowledge (e.g. an IT "
-            "services company's application-maintenance/managed-services revenue genuinely renews per engagement).\n\n"
-            "If you are genuinely unsure, use \"unclassified\" — uncertainty is NEVER \"mixed\"; only use \"mixed\" "
-            "when the segment demonstrably has BOTH meaningful recurring/stable AND cyclical/transactional "
-            "characteristics, and you can state both reasons.\n\n"
-            "Return ONLY JSON:\n"
-            '{ "segments": [ {"label": "<EXACT segment label from REPORTED SEGMENTS, one entry per segment, same order>", '
-            '"pattern": "recurring" | "mixed" | "cyclical" | "unclassified", "reason": "1 short sentence"} ] }\n\n'
-            f"=== CONTEXT ===\n{context}"
-        )
-        try:
-            from tools.groq_client import groq_chat, parse_json_loose
-            raw = groq_chat(
-                messages=[
-                    {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only."},
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=700, temperature=0.1,
-            )
-            data = parse_json_loose(raw) or {}
-            for s in (data.get("segments") or []):
-                lbl = str(s.get("label") or "").strip()
-                pat = str(s.get("pattern") or "").strip().lower()
-                reason = str(s.get("reason") or "").strip()
-                if not lbl or pat not in _SEGMENT_PATTERN:
-                    continue
-                # Same code-side false-positive gate used for the company-wide
-                # recurring/cyclicality analysis (see compute_a1_2_revenue_
-                # characteristics): a "recurring" claim must be substantiated
-                # by an actual repeat/renewal signal WORD in its own stated
-                # reason, not just sit near one — order-book/contract-asset
-                # language alone (no recur/subscribe/renew/annuity word) gets
-                # downgraded to "unclassified" rather than trusted.
-                if pat == "recurring" and not _RECURRING_SIGNAL_RE.search(reason):
-                    pat, reason = "unclassified", None
-                patterns_by_label[lbl.lower()] = {"pattern": pat, "reason": reason}
-        except Exception as e:
-            print(f"[qualitative_engine] business_composition segment classification failed for {sym}: {e}")
+        data = parse_json_loose(raw) or {}
+        for s in (data.get("segments") or []):
+            lbl = str(s.get("label") or "").strip()
+            pat = str(s.get("pattern") or "").strip().lower()
+            reason = str(s.get("reason") or "").strip()
+            if not lbl or pat not in _SEGMENT_PATTERN:
+                continue
+            # Broadened false-positive gate: a "recurring" claim must be
+            # backed by either a literal repeat/renewal signal word OR
+            # general, well-established business-model reasoning (consumer
+            # staple, essential/everyday demand, membership, deposits/loans,
+            # insurance premiums, maintenance/service contracts, warranty) —
+            # NOT trusted when the reason cites only order-book/contract-
+            # asset/contract-liability language with nothing else, which is
+            # revenue visibility, not recurringness.
+            if pat == "recurring" and not _RECURRING_SIGNAL_RE.search(reason) and not _GENERAL_RECURRING_REASONING_RE.search(reason):
+                pat, reason = "unclassified", None
+            patterns_by_label[lbl.lower()] = {"pattern": pat, "reason": reason}
+    except Exception as e:
+        print(f"[qualitative_engine] business_composition segment classification failed for {sym}: {e}")
 
     segments_out = []
     for s in segments_for_calc:

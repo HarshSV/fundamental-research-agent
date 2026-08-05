@@ -833,15 +833,23 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div>
                     <p className="text-[12px] text-slate-400 mb-2">{chart?.compositionNote}</p>
 
-                    {/* 100% stacked composition bar */}
+                    {/* 100% stacked composition bar. Adjacent segments often share
+                        the same pattern color (e.g. several "Unclassified" segments
+                        in a row) — a 1.5px divider on every block keeps the split
+                        visible regardless of color, instead of blurring into one
+                        solid band. */}
                     <div className="flex w-full h-11 rounded-md overflow-hidden">
                         {segs.map((s, i) => {
                             const c = PATTERN_COLOR[s.pattern] || PATTERN_COLOR.unclassified;
                             const title = `${s.name} — ₹${s.external_revenue_cr?.toLocaleString('en-IN')} Cr · ${s.share_pct}% · ${PATTERN_LABEL[s.pattern]}`
                                 + (s.pattern_reason ? ` — ${s.pattern_reason}` : '');
+                            const isLast = i === segs.length - 1 && !hasResidual;
                             return (
                                 <div key={s.name + i} className="flex flex-col items-center justify-center px-1 min-w-0"
-                                    style={{ width: `${s.share_pct}%`, background: c.bg }} title={title}>
+                                    style={{
+                                        width: `${s.share_pct}%`, background: c.bg,
+                                        borderRight: isLast ? 'none' : '1.5px solid rgba(15, 23, 42, 0.5)',
+                                    }} title={title}>
                                     {s.share_pct >= 9 && (
                                         <>
                                             <span className="text-[11px] font-bold truncate max-w-full" style={{ color: c.text }}>{s.name}</span>
