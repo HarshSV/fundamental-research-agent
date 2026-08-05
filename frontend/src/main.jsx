@@ -829,10 +829,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Rich hover popover for one segment — native title="" tooltips can't
         // render bullet lists or brand chips, so this is a real floating panel
-        // shown on hover, with the same content as the "Why?" drawer.
+        // shown on hover, with the same content as the "Why?" drawer. Position
+        // is passed in (already clamped to the chart's own width) rather than
+        // self-centering, so it never overflows the card/viewport edge.
         const SegmentHoverCard = ({ s }) => (
-            <div className="absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 max-w-[80vw]
-                bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 pointer-events-none">
+            <div className="w-64 max-w-[80vw] bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3">
                 <div className="flex items-center gap-1.5 mb-1">
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified }} />
                     <span className="text-[12px] font-bold text-slate-100">{s.name}</span>
@@ -867,11 +868,34 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const residualPct = chart?.residualPct || 0;
             const hasResidual = residualPct > 0.5;
             const [openWhy, setOpenWhy] = useState(false);
+            // A SINGLE shared hover state, rendered as ONE tooltip instance
+            // (not one copy per segment div) — two separate hover surfaces
+            // (bar + legend) previously both rendered their own copy whenever
+            // hoverIdx matched, which is what produced two overlapping
+            // tooltips for the same segment. hoverLeft is measured on
+            // mouseEnter and clamped to the chart's own width, so the panel
+            // never spills past the card/viewport edge regardless of which
+            // segment (including the first/last, near the edges) is hovered.
             const [hoverIdx, setHoverIdx] = useState(null);
+            const [hoverLeft, setHoverLeft] = useState(0);
+            const barWrapRef = useRef(null);
             if (!segs.length) return null;
 
             const score = chart?.weightedPatternScore;
             const spectrumPct = score != null ? Math.max(0, Math.min(100, score * 100)) : null;
+
+            const TOOLTIP_W = 256;
+            const handleEnter = (i, e) => {
+                setHoverIdx(i);
+                const wrap = barWrapRef.current;
+                if (!wrap) return;
+                const wrapRect = wrap.getBoundingClientRect();
+                const segRect = e.currentTarget.getBoundingClientRect();
+                const centerX = segRect.left + segRect.width / 2 - wrapRect.left;
+                const half = TOOLTIP_W / 2 + 4;
+                setHoverLeft(Math.max(half, Math.min(centerX, wrapRect.width - half)));
+            };
+            const handleLeave = () => setHoverIdx(null);
 
             return (
                 <div>
@@ -883,47 +907,53 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         Cyclical/Unclassified even when the block is too narrow
                         for the full label. Hover any block for the full
                         breakdown (reasoning + brand examples). */}
-                    <div className="flex w-full h-11 rounded-md overflow-visible">
-                        {segs.map((s, i) => {
-                            const fill = SEGMENT_FILL_PALETTE[i % SEGMENT_FILL_PALETTE.length];
-                            const dot = PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified;
-                            const isLast = i === segs.length - 1 && !hasResidual;
-                            return (
-                                <div key={s.name + i} className="relative flex flex-col items-center justify-center gap-0.5 px-1 min-w-0 cursor-default"
-                                    style={{
-                                        width: `${s.share_pct}%`, background: fill,
-                                        borderRight: isLast ? 'none' : '1.5px solid rgba(15, 23, 42, 0.5)',
-                                        borderRadius: i === 0 ? '6px 0 0 6px' : isLast ? '0 6px 6px 0' : 0,
-                                    }}
-                                    onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}>
-                                    {hoverIdx === i && <SegmentHoverCard s={s} />}
-                                    <span className="w-2 h-2 rounded-full flex-shrink-0 border border-white/40" style={{ background: dot }} />
-                                    {s.share_pct >= 9 && (
-                                        <>
-                                            <span className="text-[11px] font-bold text-white truncate max-w-full">{s.name}</span>
-                                            <span className="text-[10px] font-semibold text-white/90">{s.share_pct}%</span>
-                                        </>
-                                    )}
+                    <div ref={barWrapRef} className="relative">
+                        <div className="flex w-full h-11 rounded-md overflow-visible">
+                            {segs.map((s, i) => {
+                                const fill = SEGMENT_FILL_PALETTE[i % SEGMENT_FILL_PALETTE.length];
+                                const dot = PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified;
+                                const isLast = i === segs.length - 1 && !hasResidual;
+                                return (
+                                    <div key={s.name + i} className="flex flex-col items-center justify-center gap-0.5 px-1 min-w-0 cursor-default"
+                                        style={{
+                                            width: `${s.share_pct}%`, background: fill,
+                                            borderRight: isLast ? 'none' : '1.5px solid rgba(15, 23, 42, 0.5)',
+                                            borderRadius: i === 0 ? '6px 0 0 6px' : isLast ? '0 6px 6px 0' : 0,
+                                        }}
+                                        onMouseEnter={(e) => handleEnter(i, e)} onMouseLeave={handleLeave}>
+                                        <span className="w-2 h-2 rounded-full flex-shrink-0 border border-white/40" style={{ background: dot }} />
+                                        {s.share_pct >= 9 && (
+                                            <>
+                                                <span className="text-[11px] font-bold text-white truncate max-w-full">{s.name}</span>
+                                                <span className="text-[10px] font-semibold text-white/90">{s.share_pct}%</span>
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {hasResidual && (
+                                <div className="flex items-center justify-center" style={{ width: `${residualPct}%`, background: RESIDUAL_COLOR.bg }}
+                                    title={`Unallocated / residual — ₹${chart?.residualCr?.toLocaleString('en-IN')} Cr · ${residualPct}%`}>
+                                    {residualPct >= 6 && <span className="text-[10px] font-semibold" style={{ color: RESIDUAL_COLOR.text }}>{Math.round(residualPct)}%</span>}
                                 </div>
-                            );
-                        })}
-                        {hasResidual && (
-                            <div className="flex items-center justify-center" style={{ width: `${residualPct}%`, background: RESIDUAL_COLOR.bg }}
-                                title={`Unallocated / residual — ₹${chart?.residualCr?.toLocaleString('en-IN')} Cr · ${residualPct}%`}>
-                                {residualPct >= 6 && <span className="text-[10px] font-semibold" style={{ color: RESIDUAL_COLOR.text }}>{Math.round(residualPct)}%</span>}
+                            )}
+                        </div>
+                        {hoverIdx != null && (
+                            <div className="absolute z-20 bottom-full mb-2 pointer-events-none transition-opacity duration-100"
+                                style={{ left: hoverLeft, transform: 'translateX(-50%)' }}>
+                                <SegmentHoverCard s={segs[hoverIdx]} />
                             </div>
                         )}
                     </div>
 
                     {/* Always-visible compact legend — every segment listed by
                         name, no matter how small its block is (a block too
-                        narrow for inline text is never left unlabeled). Hover a
-                        legend row for the same rich breakdown as the bar. */}
+                        narrow for inline text is never left unlabeled). Plain
+                        text only, no separate hover surface here — the bar
+                        above is the single hover source for the rich panel. */}
                     <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2.5">
                         {segs.map((s, i) => (
-                            <div key={s.name + i} className="relative flex items-center gap-1.5 cursor-default"
-                                onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}>
-                                {hoverIdx === i && <SegmentHoverCard s={s} />}
+                            <div key={s.name + i} className="flex items-center gap-1.5">
                                 <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: SEGMENT_FILL_PALETTE[i % SEGMENT_FILL_PALETTE.length] }} />
                                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified }} />
                                 <span className="text-[11px] text-slate-300">{s.name}</span>
