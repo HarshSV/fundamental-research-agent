@@ -651,7 +651,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
 
 _SEGMENT_PATTERN = ("recurring", "mixed", "cyclical", "unclassified")
 _PATTERN_SCORE = {"recurring": 0.0, "mixed": 0.5, "cyclical": 1.0}
-_BIZ_COMP_SCHEMA_VERSION = 3
+_BIZ_COMP_SCHEMA_VERSION = 4
 
 
 def compute_business_composition(symbol, name=None, description="", force=False):
@@ -761,22 +761,36 @@ def compute_business_composition(symbol, name=None, description="", force=False)
     def _fmt_excerpts(items):
         return "\n".join(f"[p.{e['page']}] ...{e['text']}..." for e in (items or [])) or "(none found)"
 
+    # Concall commentary is already an approved, existing Navrist source (same
+    # grounded corpus digest used by A.1's business-model-clarity judgment and
+    # elsewhere) — wiring it in here too gives the segment classifier real
+    # management commentary to work from (e.g. management describing a
+    # specific segment's contracts/demand pattern) in addition to the Annual
+    # Report excerpts, without adding any new external source. Generic across
+    # every company: `_concall_digest` is symbol-driven, no per-company logic.
+    digest = _concall_digest(sym, name)
+
     seg_names = [s["label"] for s in segments_for_calc]
     patterns_by_label = {}
-    if not evidence.get("error") and (evidence.get("recurring_excerpts") or evidence.get("cyclicality_excerpts")):
+    has_ar_evidence = not evidence.get("error") and (evidence.get("recurring_excerpts") or evidence.get("cyclicality_excerpts"))
+    if has_ar_evidence or digest:
         context = (
             f"COMPANY: {company}\n"
             f"REPORTED SEGMENTS: {', '.join(seg_names)}\n\n"
             f"=== ANNUAL REPORT EXCERPTS — RECURRING/CONTRACT/SUBSCRIPTION LANGUAGE ===\n{_fmt_excerpts(evidence.get('recurring_excerpts'))}\n\n"
             f"=== ANNUAL REPORT EXCERPTS — CYCLICALITY/DEMAND-SENSITIVITY LANGUAGE ===\n{_fmt_excerpts(evidence.get('cyclicality_excerpts'))}\n"
+            + (f"\n=== RECENT CONCALL / MANAGEMENT COMMENTARY (secondary corroboration, newest first) ===\n{digest}\n" if digest else "")
         )
         prompt = (
             "You are an equity analyst classifying the REVENUE PATTERN of each individually reported business "
             "segment for an Indian listed company, using ONLY the excerpts below plus general knowledge of what "
-            "that specific business does. Do NOT classify from the segment's name/sector alone — you must be able "
-            "to point to real evidence (explicit repeat/renewal language for Recurring, explicit demand/economic "
-            "sensitivity for Cyclical) OR clearly reasoned characteristics of what that segment's business "
-            "actually does.\n\n"
+            "that specific business does. The Annual Report excerpts are the PRIMARY evidence; the concall/"
+            "management commentary (if present) is SECONDARY corroboration — real management statements about a "
+            "segment's contracts, renewals, or demand pattern are usable evidence, weighted below the Annual "
+            "Report but above pure inference. Do NOT classify from the segment's name/sector alone — you must be "
+            "able to point to real evidence (explicit repeat/renewal language for Recurring, explicit demand/"
+            "economic sensitivity for Cyclical) OR clearly reasoned characteristics of what that segment's "
+            "business actually does.\n\n"
             "FALSE-POSITIVE GUARD (same rule as elsewhere in this analysis): order book, contract assets, contract "
             "liabilities, customer contracts, or the mere existence of a contract do NOT by themselves prove "
             "recurring revenue. Order book reflects revenue VISIBILITY (future revenue already booked), which is a "
