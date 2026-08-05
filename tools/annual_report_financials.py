@@ -2414,7 +2414,9 @@ _SEGMENT_STOP_RE = re.compile(
     r"segment\s+result|inter\s*-?\s*segment|unallocated|total\s+revenue|segment\s+assets|segment\s+liabilit",
     re.I)
 _SEGMENT_ROW_RE = re.compile(
-    r"([A-Za-z][A-Za-z0-9 &/,'\.\-]{2,60}?)\s+((?:\([\d,]+(?:\.\d{1,2})?\)|-?[\d,]+(?:\.\d{1,2})?))(?:\s|$)")
+    # Allow a parenthetical qualifier in the label (e.g. "Others (includes
+    # Exports)", "Beauty & Wellbeing*") — segment names commonly carry one.
+    r"([A-Za-z][A-Za-z0-9 &/,'\.\-\(\)]{2,60}?)\s+((?:\([\d,]+(?:\.\d{1,2})?\)|-?[\d,]+(?:\.\d{1,2})?))(?:\s|$)")
 _SEGMENT_EXCLUDE_RE = re.compile(
     r"^(total|sub\s*-?\s*total|inter\s*-?\s*segment|unallocated|eliminat|less\s*:|add\s*:|external|internal|"
     r"segment\s+revenue|revenue\s+from\s+operations|external\s+revenue|net\s+revenue)|"
@@ -2423,7 +2425,21 @@ _SEGMENT_EXCLUDE_RE = re.compile(
     # services") — these duplicate the sum of the real segment rows above
     # them; including them alongside the individual segments triple-counts
     # the same revenue instead of reconciling to it.
-    r"\btotal\b|gross\s+revenue|revenue\s+from\s+sale\s+of\s+products",
+    r"\btotal\b|gross\s+revenue|revenue\s+from\s+sale\s+of\s+products|"
+    # A fixed-length text window after the caption can bleed in an adjacent
+    # note's rows when a PDF's two-column layout gets flattened out of order
+    # by extraction (confirmed on HUL: a Key-Managerial-Personnel
+    # remuneration note's rows — "Post-employment benefits", "Share-based
+    # payments", "Dividend paid", "Commission paid" — appeared inside the
+    # segment-note window before the real segment table). None of these are
+    # ever genuine Ind AS 108 segment names, so they're safe to exclude
+    # generically rather than fixing the underlying text-ordering issue.
+    r"remuneration|employee.?s?\s+benefit|post-?\s*employment|share-?\s*based\s+payment|dividend\s+paid|"
+    r"commission\s+paid|non-?\s*executive|contribution|employer.?s\s+contribution|"
+    # PDF text-extraction artifacts from a date split across lines (e.g. "31st
+    # March, 2026" fragmenting into a stray "st March," label) — never a real
+    # segment name, always noise.
+    r"^\w{0,3}(st|nd|rd|th)\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)",
     re.I)
 
 
@@ -2583,7 +2599,7 @@ def _extract_segment_revenue(pdf_bytes, total_revenue_cr):
             # Liabilities) or reconciliation rows (inter-segment, unallocated).
             window_start = m.end()
             stop = _SEGMENT_STOP_RE.search(t, window_start + 1)
-            window = t[window_start:stop.start() if stop else window_start + 2000]
+            window = t[window_start:stop.start() if stop else window_start + 3500]
             factor = _unit_factor(t)
 
             segments = []
@@ -3700,7 +3716,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     cache after acquiring the lock (not just before), since another thread
     may have already finished the fetch while this one was waiting."""
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_extract_v10_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v11_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3729,7 +3745,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # cached extractions had operating_cash_flow/capex_*/*_repayment/
     # net_fixed_assets all silently null and would otherwise keep being
     # served for the remainder of their 90-day TTL regardless of the fix.
-    ckey = f"ar_extract_v10_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v11_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
