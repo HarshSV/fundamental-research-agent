@@ -827,11 +827,47 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             unclassified: 'Not enough evidence to position',
         };
 
+        // Rich hover popover for one segment — native title="" tooltips can't
+        // render bullet lists or brand chips, so this is a real floating panel
+        // shown on hover, with the same content as the "Why?" drawer.
+        const SegmentHoverCard = ({ s }) => (
+            <div className="absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 max-w-[80vw]
+                bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 pointer-events-none">
+                <div className="flex items-center gap-1.5 mb-1">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified }} />
+                    <span className="text-[12px] font-bold text-slate-100">{s.name}</span>
+                </div>
+                <p className="text-[10px] text-slate-500 mb-2">
+                    ₹{s.external_revenue_cr?.toLocaleString('en-IN')} Cr · {s.share_pct}% of revenue · {PATTERN_LABEL[s.pattern] || s.pattern}
+                </p>
+                {s.pattern_reason_points?.length > 0 ? (
+                    <ul className="space-y-1 mb-2">
+                        {s.pattern_reason_points.map((pt, pi) => (
+                            <li key={pi} className="flex items-start gap-1.5 text-[11px] text-slate-300">
+                                <span className="w-1 h-1 rounded-full bg-slate-600 mt-1.5 flex-shrink-0" />
+                                <span>{pt}</span>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="text-[11px] text-slate-600 italic mb-2">Not enough official disclosure to classify this segment.</p>
+                )}
+                {s.example_brands?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1.5 border-t border-slate-800">
+                        {s.example_brands.map((b, bi) => (
+                            <span key={bi} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">{b}</span>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+
         const BusinessCompositionChart = ({ chart, footerReadline, pdfUrl, fiscalYear, sources }) => {
             const segs = (chart?.segments || []).filter(s => s && s.name && s.share_pct > 0);
             const residualPct = chart?.residualPct || 0;
             const hasResidual = residualPct > 0.5;
             const [openWhy, setOpenWhy] = useState(false);
+            const [hoverIdx, setHoverIdx] = useState(null);
             if (!segs.length) return null;
 
             const score = chart?.weightedPatternScore;
@@ -845,19 +881,22 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         segment (never blurs into a same-color blob), a small
                         pattern-colored dot on every block shows Recurring/Mixed/
                         Cyclical/Unclassified even when the block is too narrow
-                        for the full label. */}
-                    <div className="flex w-full h-11 rounded-md overflow-hidden">
+                        for the full label. Hover any block for the full
+                        breakdown (reasoning + brand examples). */}
+                    <div className="flex w-full h-11 rounded-md overflow-visible">
                         {segs.map((s, i) => {
                             const fill = SEGMENT_FILL_PALETTE[i % SEGMENT_FILL_PALETTE.length];
                             const dot = PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified;
-                            const title = `${s.name} — ₹${s.external_revenue_cr?.toLocaleString('en-IN')} Cr · ${s.share_pct}% · ${PATTERN_LABEL[s.pattern]}`;
                             const isLast = i === segs.length - 1 && !hasResidual;
                             return (
-                                <div key={s.name + i} className="flex flex-col items-center justify-center gap-0.5 px-1 min-w-0"
+                                <div key={s.name + i} className="relative flex flex-col items-center justify-center gap-0.5 px-1 min-w-0 cursor-default"
                                     style={{
                                         width: `${s.share_pct}%`, background: fill,
                                         borderRight: isLast ? 'none' : '1.5px solid rgba(15, 23, 42, 0.5)',
-                                    }} title={title}>
+                                        borderRadius: i === 0 ? '6px 0 0 6px' : isLast ? '0 6px 6px 0' : 0,
+                                    }}
+                                    onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}>
+                                    {hoverIdx === i && <SegmentHoverCard s={s} />}
                                     <span className="w-2 h-2 rounded-full flex-shrink-0 border border-white/40" style={{ background: dot }} />
                                     {s.share_pct >= 9 && (
                                         <>
@@ -878,10 +917,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
                     {/* Always-visible compact legend — every segment listed by
                         name, no matter how small its block is (a block too
-                        narrow for inline text is never left unlabeled). */}
+                        narrow for inline text is never left unlabeled). Hover a
+                        legend row for the same rich breakdown as the bar. */}
                     <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2.5">
                         {segs.map((s, i) => (
-                            <div key={s.name + i} className="flex items-center gap-1.5">
+                            <div key={s.name + i} className="relative flex items-center gap-1.5 cursor-default"
+                                onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}>
+                                {hoverIdx === i && <SegmentHoverCard s={s} />}
                                 <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: SEGMENT_FILL_PALETTE[i % SEGMENT_FILL_PALETTE.length] }} />
                                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified }} />
                                 <span className="text-[11px] text-slate-300">{s.name}</span>
