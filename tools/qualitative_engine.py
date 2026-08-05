@@ -651,7 +651,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
 
 _SEGMENT_PATTERN = ("recurring", "mixed", "cyclical", "unclassified")
 _PATTERN_SCORE = {"recurring": 0.0, "mixed": 0.5, "cyclical": 1.0}
-_BIZ_COMP_SCHEMA_VERSION = 2
+_BIZ_COMP_SCHEMA_VERSION = 3
 
 
 def compute_business_composition(symbol, name=None, description="", force=False):
@@ -776,9 +776,18 @@ def compute_business_composition(symbol, name=None, description="", force=False)
             "that specific business does. Do NOT classify from the segment's name/sector alone — you must be able "
             "to point to real evidence (explicit repeat/renewal language for Recurring, explicit demand/economic "
             "sensitivity for Cyclical) OR clearly reasoned characteristics of what that segment's business "
-            "actually does. If you are genuinely unsure, use \"unclassified\" — uncertainty is NEVER \"mixed\"; "
-            "only use \"mixed\" when the segment demonstrably has BOTH meaningful recurring/stable AND cyclical/"
-            "transactional characteristics, and you can state both reasons.\n\n"
+            "actually does.\n\n"
+            "FALSE-POSITIVE GUARD (same rule as elsewhere in this analysis): order book, contract assets, contract "
+            "liabilities, customer contracts, or the mere existence of a contract do NOT by themselves prove "
+            "recurring revenue. Order book reflects revenue VISIBILITY (future revenue already booked), which is a "
+            "DIFFERENT concept from RECURRINGNESS (whether revenue repeats from the same customers over time) — "
+            "never cite an order book figure as your reason for \"recurring\". Only use \"recurring\" when you can "
+            "cite genuine repeat/renewal language (subscriptions, AMC/maintenance contracts, renewal rates, annuity "
+            "income, repeat-customer relationships) or well-established business-model knowledge (e.g. an IT "
+            "services company's application-maintenance/managed-services revenue genuinely renews per engagement).\n\n"
+            "If you are genuinely unsure, use \"unclassified\" — uncertainty is NEVER \"mixed\"; only use \"mixed\" "
+            "when the segment demonstrably has BOTH meaningful recurring/stable AND cyclical/transactional "
+            "characteristics, and you can state both reasons.\n\n"
             "Return ONLY JSON:\n"
             '{ "segments": [ {"label": "<EXACT segment label from REPORTED SEGMENTS, one entry per segment, same order>", '
             '"pattern": "recurring" | "mixed" | "cyclical" | "unclassified", "reason": "1 short sentence"} ] }\n\n'
@@ -797,8 +806,19 @@ def compute_business_composition(symbol, name=None, description="", force=False)
             for s in (data.get("segments") or []):
                 lbl = str(s.get("label") or "").strip()
                 pat = str(s.get("pattern") or "").strip().lower()
-                if lbl and pat in _SEGMENT_PATTERN:
-                    patterns_by_label[lbl.lower()] = {"pattern": pat, "reason": str(s.get("reason") or "").strip()}
+                reason = str(s.get("reason") or "").strip()
+                if not lbl or pat not in _SEGMENT_PATTERN:
+                    continue
+                # Same code-side false-positive gate used for the company-wide
+                # recurring/cyclicality analysis (see compute_a1_2_revenue_
+                # characteristics): a "recurring" claim must be substantiated
+                # by an actual repeat/renewal signal WORD in its own stated
+                # reason, not just sit near one — order-book/contract-asset
+                # language alone (no recur/subscribe/renew/annuity word) gets
+                # downgraded to "unclassified" rather than trusted.
+                if pat == "recurring" and not _RECURRING_SIGNAL_RE.search(reason):
+                    pat, reason = "unclassified", None
+                patterns_by_label[lbl.lower()] = {"pattern": pat, "reason": reason}
         except Exception as e:
             print(f"[qualitative_engine] business_composition segment classification failed for {sym}: {e}")
 
