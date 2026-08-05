@@ -249,7 +249,7 @@ _CYCLICALITY_CLASS = ("low", "moderate", "high", "unable_to_determine")
 # and recomputed, so a methodology change (e.g. this one, which replaced the
 # old segment-name-based recurring % with evidence-gated extraction) can never
 # keep serving stale results just because the TTL hasn't expired yet.
-_A12_SCHEMA_VERSION = 2
+_A12_SCHEMA_VERSION = 7
 # A recurring-revenue conclusion requires an EXPLICIT repeat/renewal signal —
 # the mere presence of "contract asset(s)", "contract liabilit(y/ies)",
 # "customer contract(s)", "order book", "maintenance", "service(s)" or
@@ -413,16 +413,27 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
         "will calculate it deterministically. If you are not confident the numerator and denominator are from the "
         "same period/scope, or that the denominator is the relevant total revenue, do not use \"calculated\".\n"
         "- If recurring characteristics are described with an explicit repeat/renewal signal but not quantifiable, "
-        "use \"qualitative_only\" and leave numeric fields null.\n"
+        "use \"qualitative_only\" and leave numeric fields null — actively look for this before giving up. Signals "
+        "include: renewal-based contracts, maintenance/AMC arrangements, annuity-style income, long-term recurring "
+        "service commitments, repeat-customer relationships, or management describing revenue as committed/steady/"
+        "predictable. If the excerpts contain ANY such signal, even a brief one, use \"qualitative_only\" rather "
+        "than \"not_disclosed\" — \"not_disclosed\" is for excerpts with NO repeat/renewal signal at all (pure "
+        "accounting boilerplate about contract assets/liabilities/order book with no repeat/renewal language).\n"
         "- If nothing relevant is disclosed, use \"not_disclosed\". If you genuinely cannot tell, use "
         "\"unable_to_determine\". NEVER guess a percentage to fill a gap, and NEVER report 0% unless the "
         "company explicitly states recurring revenue is zero/none.\n"
-        "- Classify cyclicality (low/moderate/high) ONLY from actual DESCRIBED sensitivity or impact on demand/"
-        "revenue — the mere presence of a word like \"commodity\", \"cycle\", or \"interest rate\" is NOT itself "
-        "evidence of high cyclicality; the text must describe how conditions actually affect the business. Weigh "
-        "mitigants (long-term contracts, regulated revenue, essential consumption, stable renewals) against "
-        "drivers. If the excerpts don't support a judgment, use \"unable_to_determine\".\n\n"
-        "Return ONLY JSON:\n"
+        "- Classify cyclicality (low/moderate/high) from actual DESCRIBED sensitivity, resilience, or impact on "
+        "demand/revenue — the mere presence of a word like \"commodity\", \"cycle\", or \"interest rate\" is NOT "
+        "itself evidence; the text must describe how conditions actually affect (or don't affect) the business. "
+        "This cuts both ways: a statement that the business has maintained stability/resilience through economic "
+        "cycles over many years IS real evidence supporting LOW cyclicality — don't discard it just because it's "
+        "phrased as reassurance rather than a warning. Weigh mitigants (long-term contracts, regulated revenue, "
+        "essential consumption, stable renewals, demonstrated multi-year resilience) against drivers (discretionary "
+        "demand, commodity/rate/credit sensitivity actually described as affecting results). USE \"unable_to_"
+        "determine\" ONLY when the excerpts contain no real discussion of economic/demand sensitivity or "
+        "resilience either way — if they discuss it at all, even briefly, commit to your best-supported "
+        "classification (low/moderate/high) rather than defaulting to unable_to_determine.\n\n"
+        "Return ONLY JSON with EXACTLY these field names (do not rename, nest, or omit any of them):\n"
         "{\n"
         '  "recurring_status": "reported" | "calculated" | "qualitative_only" | "not_disclosed" | "unable_to_determine",\n'
         '  "recurring_reported_pct": <number or null>,\n'
@@ -439,19 +450,72 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
         f"=== CONTEXT ===\n{context}"
     )
 
-    try:
+    def _call_llm(user_prompt, temperature):
         from tools.groq_client import groq_chat, parse_json_loose
         raw = groq_chat(
             messages=[
                 {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only. Never fabricate numbers."},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": user_prompt},
             ],
-            max_tokens=900, temperature=0.1,
+            max_tokens=900, temperature=temperature,
         )
-        data = parse_json_loose(raw) or {}
+        return parse_json_loose(raw) or {}
+
+    try:
+        data = _call_llm(prompt, 0.1)
     except Exception as e:
         print(f"[qualitative_engine] A.1.2 LLM call failed for {sym}: {e}")
         data = {}
+
+    def _recurring_punted(d):
+        rs = str(d.get("recurring_status") or "").strip().lower()
+        return rs in ("", "not_disclosed", "unable_to_determine")
+
+    def _cyclicality_punted(d):
+        cc = d.get("cyclicality_classification")
+        if cc is None and isinstance(d.get("cyclicality"), dict):
+            cc = d["cyclicality"].get("classification")
+        cc = str(cc or d.get("cyclicality") or "").strip().lower()
+        return cc in ("", "unable_to_determine")
+
+    # A rate-limited free-tier fallback model sometimes punts on a dimension
+    # ("not_disclosed"/"unable_to_determine") even when the retrieved
+    # excerpts genuinely contain repeat/renewal or cyclicality language —
+    # this is a model-quality gap, not evidence absence. Give it ONE more
+    # attempt with a more directive nudge before accepting the punt, but
+    # only for a dimension that actually has retrieved excerpts to re-read
+    # (never retries into fabricating something from nothing), and merge in
+    # only the retry's improvement for that specific dimension — a
+    # borderline recurring call on the first pass is not a license to let a
+    # second, higher-temperature pass silently overwrite a good cyclicality
+    # answer with a worse one.
+    retry_recurring = _recurring_punted(data) and bool(recurring_excerpts)
+    retry_cyclicality = _cyclicality_punted(data) and bool(cyclicality_excerpts)
+    if retry_recurring or retry_cyclicality:
+        try:
+            nudge = (
+                "\n\nIMPORTANT: your first attempt at this defaulted to not_disclosed/unable_to_determine. Before "
+                "doing that again, re-read the excerpts above carefully — real annual reports rarely say NOTHING "
+                "relevant. If there is ANY genuine repeat/renewal signal (however brief) or ANY genuine discussion "
+                "of economic/demand sensitivity or resilience (however brief), you MUST use it and commit to a "
+                "non-default classification for that dimension. Only keep not_disclosed/unable_to_determine if, "
+                "after this re-read, the excerpts truly contain nothing on-topic for that specific dimension."
+            )
+            retry_data = _call_llm(prompt + nudge, 0.3)
+            if retry_recurring and not _recurring_punted(retry_data):
+                for k in ("recurring_status", "recurring_reported_pct", "recurring_reported_quote",
+                          "calc_numerator_cr", "calc_numerator_label", "calc_denominator_cr",
+                          "calc_denominator_label", "recurring_evidence_bullets",
+                          "recurring_description", "recurring_evidence", "rationale"):
+                    if k in retry_data:
+                        data[k] = retry_data[k]
+            if retry_cyclicality and not _cyclicality_punted(retry_data):
+                for k in ("cyclicality_classification", "cyclicality_drivers", "cyclicality_mitigants", "cyclicality",
+                          "cyclicality_description", "cyclicality_rationale"):
+                    if k in retry_data:
+                        data[k] = retry_data[k]
+        except Exception as e:
+            print(f"[qualitative_engine] A.1.2 retry LLM call failed for {sym}: {e}")
 
     recurring_status = str(data.get("recurring_status") or "unable_to_determine").strip().lower()
     if recurring_status not in _RECURRING_STATUS:
@@ -500,7 +564,16 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
             recurring_status = "unable_to_determine"  # claimed calculable but didn't substantiate it — don't trust it
     # qualitative_only / not_disclosed / unable_to_determine: pct stays None — never defaulted to 0.
 
-    recurring_bullets = [str(b).strip() for b in (data.get("recurring_evidence_bullets") or []) if str(b).strip()][:6]
+    # Tolerate the weak fallback model dropping the exact list field and
+    # instead returning a free-form description string under a differently
+    # named key — wrap it as a single bullet rather than losing the evidence
+    # entirely (the false-positive signal-word gate right below still applies
+    # to whatever text ends up here, so this doesn't weaken that guard).
+    _rec_bullets_raw = data.get("recurring_evidence_bullets")
+    if not _rec_bullets_raw:
+        _fallback_desc = data.get("recurring_description") or data.get("recurring_evidence") or data.get("rationale")
+        _rec_bullets_raw = [_fallback_desc] if isinstance(_fallback_desc, str) and _fallback_desc.strip() else []
+    recurring_bullets = [str(b).strip() for b in (_rec_bullets_raw or []) if str(b).strip()][:6]
     if recurring_status == "qualitative_only":
         # Second false-positive guard: qualitative_only requires at least one
         # bullet to actually carry a repeat/renewal signal — a bullet that
@@ -511,11 +584,36 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
             recurring_status = "not_disclosed"
             recurring_bullets = []
 
-    cyclicality_class = str(data.get("cyclicality_classification") or "unable_to_determine").strip().lower()
+    # Weaker fallback models (the free-tier chain in groq_client can bottom
+    # out at a small model under heavy rate limiting) sometimes echo a
+    # differently-named or nested key instead of the exact schema field —
+    # e.g. a bare "cyclicality": "low" instead of "cyclicality_classification".
+    # Tolerate the common variants rather than silently discarding a real
+    # answer and falling back to "unable_to_determine".
+    _cyc_raw = data.get("cyclicality_classification")
+    if _cyc_raw is None:
+        _cyc_raw = data.get("cyclicality")
+    if isinstance(_cyc_raw, dict):
+        _cyc_raw = _cyc_raw.get("classification") or _cyc_raw.get("cyclicality_classification")
+    cyclicality_class = str(_cyc_raw or "unable_to_determine").strip().lower()
     if cyclicality_class not in _CYCLICALITY_CLASS:
         cyclicality_class = "unable_to_determine"
-    cyclicality_drivers = [str(b).strip() for b in (data.get("cyclicality_drivers") or []) if str(b).strip()][:6]
-    cyclicality_mitigants = [str(b).strip() for b in (data.get("cyclicality_mitigants") or []) if str(b).strip()][:6]
+    _cyc_dict = data.get("cyclicality") if isinstance(data.get("cyclicality"), dict) else {}
+    _drivers_raw = data.get("cyclicality_drivers") or _cyc_dict.get("drivers") or []
+    _mitigants_raw = data.get("cyclicality_mitigants") or _cyc_dict.get("mitigants") or []
+    # Same free-form-description tolerance as recurring_evidence_bullets
+    # above — a model that answers with "cyclicality_description": "..."
+    # instead of the drivers/mitigants list fields shouldn't lose its
+    # reasoning entirely; fold it in as a driver bullet.
+    if not _drivers_raw and not _mitigants_raw:
+        _fallback_cyc_desc = (
+            data.get("cyclicality_description") or data.get("cyclicality_rationale")
+            or _cyc_dict.get("description") or _cyc_dict.get("rationale")
+        )
+        if isinstance(_fallback_cyc_desc, str) and _fallback_cyc_desc.strip():
+            _drivers_raw = [_fallback_cyc_desc]
+    cyclicality_drivers = [str(b).strip() for b in _drivers_raw if str(b).strip()][:6]
+    cyclicality_mitigants = [str(b).strip() for b in _mitigants_raw if str(b).strip()][:6]
 
     recurring_sources = [{"page": e["page"], "anchor": e["anchor"], "excerpt": e["text"]} for e in recurring_excerpts[:4]]
     cyclicality_sources = [{"page": e["page"], "anchor": e["anchor"], "excerpt": e["text"]} for e in cyclicality_excerpts[:4]]

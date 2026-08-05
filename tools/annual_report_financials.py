@@ -2188,16 +2188,18 @@ _REVENUE_CHAR_SECTION_ANCHORS = {
         "recurring revenue", "subscription revenue", "annual maintenance contract",
         "maintenance contract", "amc revenue", "long-term contract", "long term contract",
         "contracted revenue", "annuity revenue", "annuity income", "renewal rate",
-        "renewal of contract", "repeat customer", "recurring in nature",
-        "revenue recognition", "contract liabilities", "contract assets",
-        "customer contracts", "order book",
+        "renewal of contract", "renewal of", "repeat customer", "repeat business",
+        "recurring in nature", "annual recurring revenue", "committed revenue",
+        "steady state revenue", "revenue recognition", "contract liabilities",
+        "contract assets", "customer contracts", "order book",
     ],
     "cyclicality": [
         "cyclical", "cyclicality", "demand cycle", "industry cycle", "economic cycle",
         "economic sensitivity", "discretionary spending", "discretionary demand",
         "commodity cycle", "interest rate sensitivity", "interest-rate sensitivity",
         "capex cycle", "capital expenditure cycle", "seasonal demand", "seasonality",
-        "demand volatility", "credit cycle", "inventory cycle",
+        "demand volatility", "credit cycle", "inventory cycle", "economic downturn",
+        "demand fluctuation", "market volatility", "resilience across", "business cycle",
     ],
 }
 
@@ -2219,7 +2221,7 @@ def fetch_revenue_characteristics_evidence(symbol, name):
         if not years:
             return {"error": "No Annual Report found for this company."}
         fiscal_year = years[0]
-        ckey = f"ar_revchar_text_v1_{sym}_{fiscal_year}"
+        ckey = f"ar_revchar_text_v5_{sym}_{fiscal_year}"
         cached = _read_cache(ckey)
         if cached is not None:
             return cached
@@ -2263,6 +2265,22 @@ def fetch_revenue_characteristics_evidence(symbol, name):
         # policy note (low value) vs an actual AMC/subscription % disclosure
         # elsewhere (high value); scoring by digit density favours the latter
         # without hardcoding which anchor phrase matters most.
+        #
+        # Digit density alone systematically loses to a different failure
+        # mode: real recurring/cyclicality NARRATIVE (MD&A prose describing
+        # subscriptions, renewals, annuity income, demand sensitivity) is
+        # usually digit-light, while generic accounting-note boilerplate
+        # (contract assets/liabilities balance tables) is digit-heavy but
+        # contains no actual repeat/renewal or cyclicality signal. A window
+        # that contains real signal language gets a large score bonus so it
+        # isn't buried under numeric tables that only matched on a weak
+        # anchor like "contract assets".
+        _signal_re = re.compile(
+            r"recurr|subscript|renew|annuity|\bamc\b|annual maintenance|repeat (purchase|custom|business)|"
+            r"steady state|committed revenue|cyclical|demand (fluctuat|volatil)|economic (cycle|downturn|"
+            r"sensitivit)|discretionary (spend|demand)|resilien|market volatilit",
+            re.I,
+        )
         candidates = {"recurring": [], "cyclicality": []}
         try:
             for pgi, page in enumerate(doc):
@@ -2276,15 +2294,38 @@ def fetch_revenue_characteristics_evidence(symbol, name):
                         idx = tl.find(anchor)
                         if idx == -1:
                             continue
-                        window = t[max(0, idx - 200):idx + 900].strip()
+                        # Snap both ends to a whitespace boundary rather than
+                        # cutting at a fixed character offset — otherwise the
+                        # window routinely starts/ends mid-word (e.g. "er
+                        # assets consist of..." instead of "Other assets
+                        # consist of..."), which looks broken in the
+                        # frontend's quoted source excerpt.
+                        start = max(0, idx - 200)
+                        if start > 0:
+                            # Look BACKWARD for the nearest whitespace at/before
+                            # `start` and begin right after it, so the first
+                            # word is kept whole rather than skipped entirely.
+                            sp = t.rfind(" ", 0, start + 1)
+                            if sp != -1:
+                                start = sp + 1
+                            else:
+                                start = 0
+                        end = idx + 900
+                        if end < len(t):
+                            sp = t.rfind(" ", idx, end)
+                            if sp > idx:
+                                end = sp
+                        window = t[start:end].strip()
                         score = sum(c.isdigit() for c in window)
+                        if _signal_re.search(window):
+                            score += 500
                         candidates[family].append({
                             "text": window, "page": pgi + 1, "anchor": anchor, "score": score,
                         })
         finally:
             doc.close()
 
-        def _top(family, n=4):
+        def _top(family, n=6):
             seen_pages = set()
             ranked = sorted(candidates[family], key=lambda c: -c["score"])
             out = []
