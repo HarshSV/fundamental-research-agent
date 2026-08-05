@@ -1995,17 +1995,15 @@ def build_executive_summary(state: SystemState) -> dict:
     # f22-f25 here (rather than restructuring every downstream read) means the
     # existing facts/chart/finding wiring for subpoints 1-4 below picks this up
     # automatically. f22-f25 are not read anywhere else in this file.
-    _a1 = _a1_2 = _a2 = _a3 = _a4 = _a5 = None
+    _biz_comp = _a2 = _a3 = _a4 = _a5 = None
     try:
         from tools.qualitative_engine import (
-            compute_a1_business_model_clarity, compute_a1_2_revenue_characteristics,
-            compute_a2_competitive_moat,
+            compute_business_composition, compute_a2_competitive_moat,
             compute_a3_revenue_model_quality, compute_a4_product_lifecycle_stage,
             compute_a5_pricing_power,
         )
         _biz_desc_for_qual = (info.get('longBusinessSummary') or "").strip()
-        _a1 = compute_a1_business_model_clarity(symbol, name, _biz_desc_for_qual)
-        _a1_2 = compute_a1_2_revenue_characteristics(symbol, name)
+        _biz_comp = compute_business_composition(symbol, name, _biz_desc_for_qual)
         _a2 = compute_a2_competitive_moat(symbol, name, _biz_desc_for_qual)
         _a3 = compute_a3_revenue_model_quality(symbol, name, _biz_desc_for_qual)
         _a4 = compute_a4_product_lifecycle_stage(symbol, name, _biz_desc_for_qual)
@@ -2013,42 +2011,25 @@ def build_executive_summary(state: SystemState) -> dict:
     except Exception as e:
         print(f"[qualitative_topics] sourced A.1-A.5 engine failed, falling back to raw LLM fields: {e}")
 
-    _MODEL_TYPE_MAP = {'single_product': 'Single product', 'portfolio': 'Portfolio (multiple products/segments)'}
+    # Graph 2 — Consolidated Income Statement Flow. Reuses the SAME
+    # AR-sourced, reconciliation-safe extraction already powering the
+    # Overview page's income tree (tools/annual_report_financials.py's
+    # fetch_income_statement_flow_from_annual_report, via tools/nse_xbrl.py's
+    # wrapper) — no second/duplicate P&L extraction pipeline. Sector-aware by
+    # construction: it already skips the COGS/opex split for banks/NBFCs/
+    # services companies where those lines don't apply, and returns
+    # {'applicable': False, ...} rather than a fabricated flow when even the
+    # shallow Revenue -> PBT -> Net Profit chain can't be built.
+    _income_flow = None
+    try:
+        from tools.nse_xbrl import fetch_income_statement_flow
+        _income_flow = fetch_income_statement_flow(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] income statement flow fetch failed: {e}")
+
     _REV_MODEL_MAP = {'transactional': 'Transactional', 'recurring': 'Recurring subscription', 'annuity': 'Annuity', 'mixed': 'Mixed'}
     _LIFECYCLE_MAP = {'growth': 'Growth', 'maturity': 'Maturity', 'commoditisation': 'Commoditisation', 'decline_obsolescence': 'Decline / obsolescence risk', 'mixed': 'Maturity'}
 
-    if _a1 and _a1.get('available'):
-        f22 = {
-            'business_model_type': _MODEL_TYPE_MAP.get(_a1.get('model_type')),
-            'segment_shares': _a1.get('segment_shares'),
-            'rationale': _a1.get('rationale'),
-            'confidence_tag': _a1.get('confidence_tag'), 'retrieved_at': _a1.get('retrieved_at'),
-            'pathway_results': _a1.get('pathway_results'),
-        }
-
-    # A.1.2 — revenue characteristics (recurring vs cyclical), kept fully
-    # separate from f22/A.1.1 above: different question, different evidence,
-    # never merged into one calculation. See tools/qualitative_engine.py's
-    # compute_a1_2_revenue_characteristics for the hard rules (no segment-name
-    # inference, zero requires evidence, cyclicality != 100 - recurring%).
-    f22b = {}
-    if _a1_2 and _a1_2.get('available'):
-        f22b = {
-            'recurring': _a1_2.get('recurring') or {},
-            'cyclicality': _a1_2.get('cyclicality') or {},
-            'fiscal_year': _a1_2.get('fiscal_year'),
-            'pdf_url': _a1_2.get('pdf_url'),
-            'confidence_tag': _a1_2.get('confidence_tag'), 'retrieved_at': _a1_2.get('retrieved_at'),
-            'pathway_results': _a1_2.get('pathway_results'),
-        }
-    else:
-        f22b = {
-            'recurring': {'status': 'unable_to_determine', 'pct': None, 'calc': None, 'evidence_bullets': [], 'sources': []},
-            'cyclicality': {'classification': 'unable_to_determine', 'drivers': [], 'mitigants': [], 'sources': []},
-            'confidence_tag': (_a1_2 or {}).get('confidence_tag') or 'SEARCH_INCONCLUSIVE',
-            'retrieved_at': (_a1_2 or {}).get('retrieved_at'),
-            'pathway_results': (_a1_2 or {}).get('pathway_results') or [],
-        }
     if _a2 and _a2.get('available'):
         f23 = {
             'overall_rating': _a2.get('moat_rating'),
@@ -2298,7 +2279,6 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
-    _biz_model_type = _enum(f22.get('business_model_type'), ['Single product', 'Portfolio (multiple products/segments)'])
     _revenue_model_type = _enum(f24.get('revenue_model_type'), ['Transactional', 'Recurring subscription', 'Annuity', 'Long-term contract', 'Mixed'])
     _lifecycle_stage = _enum(f25.get('lifecycle_stage'), ['Growth', 'Maturity', 'Commoditisation', 'Decline / obsolescence risk'])
     _pricing_power_rating = _enum(f26.get('pricing_power_rating'), ['Strong', 'Moderate', 'Weak'])
@@ -2306,31 +2286,15 @@ def build_executive_summary(state: SystemState) -> dict:
     # overridden by the sourced A.6 engine (needs _margin_volatility/_ebitda_margin_series
     # computed first) — see the `_a6 = None` block below.
 
-    # A.1.2 revenue-characteristics status/values — status is the business-
-    # evidence state (reported/calculated/qualitative_only/not_disclosed/
-    # unable_to_determine), completely separate from confidence_tag (retrieval
-    # quality). pct stays None unless status is reported/calculated — never
-    # coerced to 0, and SEARCH_INCONCLUSIVE never renders as a number.
-    _rev_char = f22b.get('recurring') or {}
-    _recurring_status = _enum(
-        _rev_char.get('status'),
-        ['reported', 'calculated', 'qualitative_only', 'not_disclosed', 'unable_to_determine'],
-    ) or 'unable_to_determine'
-    _recurring_pct = None
-    if _recurring_status in ('reported', 'calculated'):
-        try:
-            _recurring_pct = round(max(0.0, min(100.0, float(_rev_char.get('pct')))), 1)
-        except (TypeError, ValueError):
-            _recurring_pct = None
-    _recurring_calc = _rev_char.get('calc') if isinstance(_rev_char.get('calc'), dict) else None
-    _recurring_bullets = [v for v in (_rev_char.get('evidence_bullets') or []) if isinstance(v, str) and v.strip()][:6]
-    _recurring_sources = _rev_char.get('sources') or []
+    # Graph 1 payload — already fully normalized/deterministic from
+    # compute_business_composition (segment shares, pattern classification,
+    # residual, weighted spectrum, footer) — passed through as-is rather than
+    # re-deriving anything here. `available=False` (or the call failing
+    # entirely) becomes a clean missing-data state in the frontend.
+    _biz_comp_payload = _biz_comp if (_biz_comp and _biz_comp.get('available')) else None
 
-    _cyc = f22b.get('cyclicality') or {}
-    _cyclicality_class = _enum(_cyc.get('classification'), ['low', 'moderate', 'high', 'unable_to_determine']) or 'unable_to_determine'
-    _cyclicality_drivers = [v for v in (_cyc.get('drivers') or []) if isinstance(v, str) and v.strip()][:6]
-    _cyclicality_mitigants = [v for v in (_cyc.get('mitigants') or []) if isinstance(v, str) and v.strip()][:6]
-    _cyclicality_sources = _cyc.get('sources') or []
+    # Graph 2 payload — same treatment for the income-statement flow.
+    _income_flow_payload = _income_flow if (_income_flow and _income_flow.get('applicable')) else None
 
     _renewal_pct = f24.get('contract_renewal_rate_pct')
     try:
@@ -2538,59 +2502,57 @@ def build_executive_summary(state: SystemState) -> dict:
             'topic': 'A. Company strategy & business model',
             'subpoints': [
                 {
-                    'key': 'clarity_of_business_model',
-                    'title': 'Business diversification: single product vs portfolio',
-                    'finding': f22.get('rationale') or None,
-                    'facts': [f for f in [
-                        (['Business model', _biz_model_type] if _biz_model_type else None),
-                    ] if f],
-                    'chart': (
-                        # Real AR-14 segment revenue shares (see
-                        # tools/qualitative_engine.py's `_fetch_segment_revenue_context`)
-                        # — a stacked bar, one block per reported segment, sized by its
-                        # real revenue share. No revenue-pattern colouring here — that
-                        # judgment lives in the separate revenue_characteristics
-                        # subpoint below and must never be inferred from segment names.
-                        {'type': 'segment_share',
-                         'segments': f22.get('segment_shares'),
-                         'panelTitle': 'Revenue by segment'}
-                        if f22.get('segment_shares') else None
-                        # No disclosed/reconciled segment note — don't force a chart.
-                    ),
+                    # Graph 1 — Clarity of Business Model / Business Composition.
+                    # User-facing title/key only — no internal framework IDs
+                    # (A.1.3, subpoint_id, etc) ever surface in the frontend.
+                    'key': 'business_composition',
+                    'title': 'Clarity of Business Model',
+                    'finding': _biz_comp_payload.get('footer_readline') if _biz_comp_payload else None,
+                    'facts': [],
+                    'chart': {
+                        'type': 'business_composition',
+                        'compositionNote': (_biz_comp_payload or {}).get('composition_note'),
+                        'businessModelTag': (_biz_comp_payload or {}).get('business_model_tag'),
+                        'totalRevenueCr': (_biz_comp_payload or {}).get('total_revenue_cr'),
+                        'segments': (_biz_comp_payload or {}).get('segments') or [],
+                        'residualPct': (_biz_comp_payload or {}).get('residual_pct'),
+                        'residualCr': (_biz_comp_payload or {}).get('residual_cr'),
+                        'weightedPatternScore': (_biz_comp_payload or {}).get('weighted_pattern_score'),
+                        'weightedPatternLabel': (_biz_comp_payload or {}).get('weighted_pattern_label'),
+                        'fiscalYear': (_biz_comp_payload or {}).get('fiscal_year'),
+                        'pdfUrl': (_biz_comp_payload or {}).get('pdf_url'),
+                        'plPage': (_biz_comp_payload or {}).get('pl_page'),
+                    },
+                    'formula': 'Segment share % = External segment revenue / Consolidated Revenue from Operations × 100',
                     'sources': _ar_ip_screener_sources,
-                    'confidence_tag': f22.get('confidence_tag'), 'retrieved_at': f22.get('retrieved_at'),
-                    'pathway_results': f22.get('pathway_results'),
+                    'confidence_tag': (_biz_comp or {}).get('confidence_tag'),
+                    'retrieved_at': (_biz_comp or {}).get('retrieved_at'),
+                    'pathway_results': [],
                 },
                 {
-                    # User-facing title only — no internal framework IDs
-                    # (A.1.2, subpoint_id, etc) ever surface in the frontend.
-                    'key': 'revenue_characteristics',
-                    'title': 'Revenue Characteristics',
+                    # Graph 2 — Consolidated Income Statement Flow.
+                    'key': 'income_statement_flow',
+                    'title': 'Consolidated Income Statement Flow',
                     'finding': None,
                     'facts': [],
                     'chart': {
-                        'type': 'revenue_characteristics',
-                        'recurring': {
-                            'status': _recurring_status,
-                            'pct': _recurring_pct,
-                            'calc': _recurring_calc,
-                            'bullets': _recurring_bullets,
-                            'sources': _recurring_sources,
-                        },
-                        'cyclicality': {
-                            'classification': _cyclicality_class,
-                            'drivers': _cyclicality_drivers,
-                            'mitigants': _cyclicality_mitigants,
-                            'sources': _cyclicality_sources,
-                        },
-                        'fiscal_year': f22b.get('fiscal_year'),
-                        'pdf_url': f22b.get('pdf_url'),
+                        'type': 'income_statement_flow',
+                        'nodes': (_income_flow_payload or {}).get('nodes') or [],
+                        'links': (_income_flow_payload or {}).get('links') or [],
+                        'fiscalYear': (_income_flow_payload or {}).get('fiscal_year'),
+                        'basis': (_income_flow_payload or {}).get('basis'),
+                        'revenueCr': (_income_flow_payload or {}).get('revenue_cr'),
                     },
-                    'sources': {
-                        'primary': {'label': 'Company Annual Report', 'note': 'sourced via BSE/NSE filing'},
+                    'sources': (_income_flow_payload or {}).get('sources') or {
+                        'primary': {'label': 'Company Annual Report', 'note': 'Consolidated Statement of Profit and Loss'},
                     },
-                    'confidence_tag': f22b.get('confidence_tag'), 'retrieved_at': f22b.get('retrieved_at'),
-                    'pathway_results': f22b.get('pathway_results'),
+                    'confidence_tag': None, 'retrieved_at': None,
+                    'pathway_results': [],
+                    # Missing-data reason surfaced verbatim when the flow (or even its
+                    # shallow Revenue -> PBT -> Net Profit form) couldn't be built —
+                    # e.g. a bank/NBFC where EBITDA isn't an applicable measure, or a
+                    # P&L page that couldn't be parsed. Never fabricated.
+                    'unavailableReason': (_income_flow or {}).get('reason') if not _income_flow_payload else None,
                 },
                 {
                     'key': 'competitive_advantage_moats',

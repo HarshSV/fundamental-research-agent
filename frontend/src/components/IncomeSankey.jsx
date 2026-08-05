@@ -171,7 +171,7 @@ function TreeRow({ node, depth, parentAbsValue, isMergeSource }) {
   );
 }
 
-function IncomeTree({ nodes, links }) {
+export function IncomeTree({ nodes, links }) {
   const nodesById = {};
   nodes.forEach((n) => { nodesById[n.id] = n; });
   const childrenOf = {};

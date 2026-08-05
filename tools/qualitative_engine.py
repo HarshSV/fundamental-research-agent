@@ -649,6 +649,242 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
     return payload
 
 
+_SEGMENT_PATTERN = ("recurring", "mixed", "cyclical", "unclassified")
+_PATTERN_SCORE = {"recurring": 0.0, "mixed": 0.5, "cyclical": 1.0}
+_BIZ_COMP_SCHEMA_VERSION = 1
+
+
+def compute_business_composition(symbol, name=None, description="", force=False):
+    """Business-model composition (Graph 1): a 100%-stacked, revenue-weighted
+    view of the company's reported segments, each classified Recurring/Mixed/
+    Cyclical/Unclassified from real evidence — never from the segment's name
+    or the company's sector alone. Replaces the older split
+    business-diversification / revenue-characteristics presentation with one
+    unified, evidence-grounded composition view.
+
+    Everything except the per-segment pattern classification is deterministic:
+      - segment revenue shares: real, reconciled Ind AS 108 figures from
+        `_extract_segment_revenue` (see `tools/annual_report_financials.py`),
+        never LLM-estimated.
+      - business-model tag: single segment, or one segment >= 90% of revenue
+        -> Focused/Single Business; otherwise Portfolio/Diversified.
+      - residual/unallocated: consolidated revenue minus the sum of reported
+        segment revenue — shown neutrally, never assigned a pattern unless
+        explicit evidence exists for it.
+      - the portfolio-level Recurring<->Cyclical position is a revenue-
+        weighted average of the segment classifications (Recurring=0,
+        Mixed=0.5, Cyclical=1), computed in Python — the LLM never outputs
+        this position directly, only the per-segment classification + reason.
+    Only the per-segment classification is LLM-assisted, grounded in the same
+    Annual Report evidence extraction used for A.1.2 (recurring/cyclicality
+    narrative excerpts), and defaults to "unclassified" (not "mixed") when
+    evidence is insufficient — uncertainty is never mixed.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.1.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None and cached.get("schema_version") == _BIZ_COMP_SCHEMA_VERSION:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    company = name or sym
+
+    # --- Step 1-4: real segment + consolidated revenue, same FY/scope ------
+    try:
+        from tools.annual_report_financials import list_annual_report_years, _get_extracted_financials
+        years = list_annual_report_years(sym, name) or []
+        fiscal_year = years[0] if years else None
+        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated=True) if fiscal_year else {"error": "No Annual Report found."}
+    except Exception as e:
+        print(f"[qualitative_engine] business_composition financials fetch failed for {sym}: {e}")
+        parsed = {"error": str(e)}
+
+    if not parsed or "error" in parsed:
+        payload = {
+            "subpoint_id": subpoint_id, "schema_version": _BIZ_COMP_SCHEMA_VERSION,
+            "available": False, "reason": (parsed or {}).get("error", "Annual Report data unavailable."),
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
+        payload["confidence_tag"] = "NOT_FOUND"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    revenue_pair = parsed.get("revenue")
+    consolidated_revenue = revenue_pair[0] if revenue_pair else None
+    raw_segments = parsed.get("segments")  # [{'label','value_cr'}] or None, only when reconciled within 6%
+    pl_page = parsed.get("pl_page")
+    pdf_url = parsed.get("source_url")
+
+    if not consolidated_revenue:
+        payload = {
+            "subpoint_id": subpoint_id, "schema_version": _BIZ_COMP_SCHEMA_VERSION,
+            "available": False, "reason": "Could not find consolidated Revenue from Operations on the P&L page.",
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
+        payload["confidence_tag"] = "NOT_FOUND"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    # No reconciled multi-segment note -> treat the whole business as one
+    # reported block (still real data: total consolidated revenue), tagged
+    # via the existing business-model-clarity judgment (grounded in the
+    # business description/concall digest) as a graceful fallback rather
+    # than an empty graph. This is NOT the same as inventing segments.
+    if not raw_segments or len(raw_segments) < 2:
+        a1 = compute_a1_business_model_clarity(sym, name, description, force=force)
+        model_type = a1.get("model_type") if a1.get("available") else None
+        segments_for_calc = [{"label": company, "value_cr": consolidated_revenue}]
+    else:
+        model_type = None
+        segments_for_calc = raw_segments
+
+    # --- Step 5: deterministic revenue shares -------------------------------
+    segments_for_calc = sorted(segments_for_calc, key=lambda s: -s["value_cr"])  # largest -> smallest
+    reported_sum = sum(s["value_cr"] for s in segments_for_calc)
+    residual = consolidated_revenue - reported_sum
+    residual_pct = round(max(0.0, residual) / consolidated_revenue * 100, 1) if consolidated_revenue else 0.0
+
+    # --- Step 6-7: segment-specific pattern classification, evidence-grounded ---
+    try:
+        from tools.annual_report_financials import fetch_revenue_characteristics_evidence
+        evidence = fetch_revenue_characteristics_evidence(sym, name)
+    except Exception as e:
+        print(f"[qualitative_engine] business_composition evidence fetch failed for {sym}: {e}")
+        evidence = {"error": str(e)}
+
+    def _fmt_excerpts(items):
+        return "\n".join(f"[p.{e['page']}] ...{e['text']}..." for e in (items or [])) or "(none found)"
+
+    seg_names = [s["label"] for s in segments_for_calc]
+    patterns_by_label = {}
+    if not evidence.get("error") and (evidence.get("recurring_excerpts") or evidence.get("cyclicality_excerpts")):
+        context = (
+            f"COMPANY: {company}\n"
+            f"REPORTED SEGMENTS: {', '.join(seg_names)}\n\n"
+            f"=== ANNUAL REPORT EXCERPTS — RECURRING/CONTRACT/SUBSCRIPTION LANGUAGE ===\n{_fmt_excerpts(evidence.get('recurring_excerpts'))}\n\n"
+            f"=== ANNUAL REPORT EXCERPTS — CYCLICALITY/DEMAND-SENSITIVITY LANGUAGE ===\n{_fmt_excerpts(evidence.get('cyclicality_excerpts'))}\n"
+        )
+        prompt = (
+            "You are an equity analyst classifying the REVENUE PATTERN of each individually reported business "
+            "segment for an Indian listed company, using ONLY the excerpts below plus general knowledge of what "
+            "that specific business does. Do NOT classify from the segment's name/sector alone — you must be able "
+            "to point to real evidence (explicit repeat/renewal language for Recurring, explicit demand/economic "
+            "sensitivity for Cyclical) OR clearly reasoned characteristics of what that segment's business "
+            "actually does. If you are genuinely unsure, use \"unclassified\" — uncertainty is NEVER \"mixed\"; "
+            "only use \"mixed\" when the segment demonstrably has BOTH meaningful recurring/stable AND cyclical/"
+            "transactional characteristics, and you can state both reasons.\n\n"
+            "Return ONLY JSON:\n"
+            '{ "segments": [ {"label": "<EXACT segment label from REPORTED SEGMENTS, one entry per segment, same order>", '
+            '"pattern": "recurring" | "mixed" | "cyclical" | "unclassified", "reason": "1 short sentence"} ] }\n\n'
+            f"=== CONTEXT ===\n{context}"
+        )
+        try:
+            from tools.groq_client import groq_chat, parse_json_loose
+            raw = groq_chat(
+                messages=[
+                    {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=700, temperature=0.1,
+            )
+            data = parse_json_loose(raw) or {}
+            for s in (data.get("segments") or []):
+                lbl = str(s.get("label") or "").strip()
+                pat = str(s.get("pattern") or "").strip().lower()
+                if lbl and pat in _SEGMENT_PATTERN:
+                    patterns_by_label[lbl.lower()] = {"pattern": pat, "reason": str(s.get("reason") or "").strip()}
+        except Exception as e:
+            print(f"[qualitative_engine] business_composition segment classification failed for {sym}: {e}")
+
+    segments_out = []
+    for s in segments_for_calc:
+        pct = round(s["value_cr"] / consolidated_revenue * 100, 1) if consolidated_revenue else 0.0
+        cls = patterns_by_label.get(s["label"].lower()) or {"pattern": "unclassified", "reason": None}
+        segments_out.append({
+            "name": s["label"],
+            "external_revenue_cr": round(s["value_cr"], 1),
+            "share_pct": pct,
+            "pattern": cls["pattern"],
+            "pattern_reason": cls["reason"],
+        })
+
+    # --- Step 10: business-model tag (deterministic) ------------------------
+    segment_count = len(segments_out)
+    top_share = segments_out[0]["share_pct"] if segments_out else 0.0
+    if segment_count <= 1 or top_share >= 90.0:
+        business_model_tag = "focused_single_business"
+        tag_label = "Focused / Single Business"
+    else:
+        business_model_tag = "portfolio_diversified"
+        tag_label = "Portfolio / Diversified"
+    composition_note = (f"{tag_label} · {segment_count} reported segment{'s' if segment_count != 1 else ''}")
+
+    # --- Step 11: revenue-weighted portfolio pattern position ---------------
+    classified = [s for s in segments_out if s["pattern"] in _PATTERN_SCORE]
+    classified_share = sum(s["share_pct"] for s in classified)
+    if classified_share > 0:
+        weighted_pattern_score = round(
+            sum(s["share_pct"] * _PATTERN_SCORE[s["pattern"]] for s in classified) / classified_share, 3
+        )
+        if weighted_pattern_score < 0.33:
+            weighted_pattern_label = "recurring_leaning"
+        elif weighted_pattern_score > 0.67:
+            weighted_pattern_label = "cyclical_leaning"
+        else:
+            weighted_pattern_label = "mixed"
+    else:
+        weighted_pattern_score = None
+        weighted_pattern_label = "unclassified"
+
+    # --- Step 12: deterministic plain-English footer (no invented trend) ----
+    if model_type == "single_product" and segment_count <= 1:
+        biz_clause = "a focused, single business"
+    elif business_model_tag == "focused_single_business":
+        biz_clause = "a focused business"
+    else:
+        biz_clause = "a diversified portfolio"
+    if weighted_pattern_label == "recurring_leaning":
+        pattern_clause = "with revenue that is mostly recurring"
+    elif weighted_pattern_label == "cyclical_leaning":
+        pattern_clause = "with revenue that is mostly cyclical"
+    elif weighted_pattern_label == "mixed":
+        pattern_clause = "with a mix of recurring and cyclical revenue"
+    else:
+        pattern_clause = "though its revenue pattern could not be reliably classified from available disclosures"
+    footer_readline = f"{company} is {biz_clause}, {pattern_clause}."
+
+    confidence_tag = "SINGLE_SOURCE" if patterns_by_label else "SEARCH_INCONCLUSIVE"
+
+    payload = {
+        "subpoint_id": subpoint_id,
+        "schema_version": _BIZ_COMP_SCHEMA_VERSION,
+        "available": True,
+        "fiscal_year": fiscal_year,
+        "pdf_url": pdf_url,
+        "pl_page": pl_page,
+        "business_model_tag": business_model_tag,
+        "composition_note": composition_note,
+        "total_revenue_cr": round(consolidated_revenue, 1),
+        "segment_count": segment_count,
+        "segments": segments_out,
+        "residual_pct": residual_pct if residual_pct > 0.5 else 0.0,
+        "residual_cr": round(max(0.0, residual), 1) if residual > 0.5 else 0.0,
+        "weighted_pattern_score": weighted_pattern_score,
+        "weighted_pattern_label": weighted_pattern_label,
+        "footer_readline": footer_readline,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
 def compute_a2_competitive_moat(symbol, name=None, description="", force=False):
     """A.2 — Competitive advantage / moats: brand, distribution, cost leadership,
     network effects, switching costs. N/A formula — a qualitative 1-5 rating based

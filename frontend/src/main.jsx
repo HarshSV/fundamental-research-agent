@@ -10,6 +10,7 @@ import Overview from "./views/Overview.jsx";
 import Settings from "./views/Settings.jsx";
 import History from "./views/History.jsx";
 import AskNavrist from "./components/AskNavrist.jsx";
+import { IncomeTree } from "./components/IncomeSankey.jsx";
 import { addHistory } from "./lib/history.js";
 import { SECTIONS } from "./components/layout/sections.jsx";
 import { SECTORS, getRatiosForSector, getIndustrySpecificRatiosForSector,
@@ -796,65 +797,167 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: business-segment revenue share, one stacked block per
-        // reported segment (real % of total revenue, from the Annual Report's own
-        // segment note). This chart is business-diversification only — it does NOT
-        // judge which segments are recurring vs cyclical (that's a separate,
-        // evidence-grounded analysis rendered by RevenueCharacteristicsCard below;
-        // a segment's name/label alone never implies its revenue pattern).
-        const SEGMENT_BAR_COLORS = ['rgb(59 130 246)', 'rgb(45 212 191)', 'rgb(168 85 247)', 'rgb(251 146 60)', 'rgb(236 72 153)', 'rgb(250 204 21)'];
-        const SegmentShareChart = ({ segments, dark = false }) => {
-            const segs = (segments || []).filter(s => s && s.label && s.pct > 0);
+        // --- SUBCOMPONENT: Clarity of Business Model — Graph 1. One 100%-stacked
+        // horizontal bar: block width = real reported segment revenue share
+        // (deterministic, from the Annual Report's own segment note), block
+        // color = that segment's evidence-grounded revenue pattern (Recurring/
+        // Mixed/Cyclical/Unclassified — never inferred from the segment's name).
+        // Below it: a revenue-weighted Recurring<->Cyclical spectrum position
+        // (computed in Python, never an LLM guess) and a deterministic
+        // plain-English footer sentence.
+        const PATTERN_COLOR = {
+            recurring: { bg: 'rgb(45 212 191)', text: 'rgb(255 255 255)' },   // teal — stable/positive
+            mixed: { bg: 'rgb(250 204 21)', text: 'rgb(41 37 4)' },           // amber — intermediate
+            cyclical: { bg: 'rgb(251 113 60)', text: 'rgb(255 255 255)' },    // warm coral — caution
+            unclassified: { bg: 'rgb(100 116 139)', text: 'rgb(255 255 255)' }, // slate — insufficient evidence
+        };
+        const PATTERN_LABEL = { recurring: 'Recurring', mixed: 'Mixed', cyclical: 'Cyclical', unclassified: 'Unclassified' };
+        const RESIDUAL_COLOR = { bg: 'rgb(30 41 59)', text: 'rgb(148 163 184)' };
+        const WEIGHTED_SPECTRUM_LABEL = {
+            recurring_leaning: 'Recurring-leaning', mixed: 'Mixed', cyclical_leaning: 'Cyclical-leaning',
+            unclassified: 'Not enough evidence to position',
+        };
+
+        const BusinessCompositionChart = ({ chart, footerReadline, pdfUrl, fiscalYear, sources }) => {
+            const segs = (chart?.segments || []).filter(s => s && s.name && s.share_pct > 0);
+            const residualPct = chart?.residualPct || 0;
+            const hasResidual = residualPct > 0.5;
+            const [openWhy, setOpenWhy] = useState(false);
             if (!segs.length) return null;
-            const total = segs.reduce((s, x) => s + x.pct, 0);
-            const other = Math.max(0, 100 - total);
-            const mutedColor = dark ? 'rgb(148 163 184)' : 'rgb(100 116 139)';
+
+            const patternsUsed = [...new Set(segs.map(s => s.pattern))];
+            const score = chart?.weightedPatternScore;
+            const spectrumPct = score != null ? Math.max(0, Math.min(100, score * 100)) : null;
+
             return (
                 <div>
-                    <div className="text-[11px] mb-2" style={{ color: mutedColor }}>
-                        Portfolio · {segs.length} reported segment{segs.length === 1 ? '' : 's'}
-                    </div>
-                    <div className="flex w-full h-10 rounded-md overflow-hidden">
+                    <p className="text-[12px] text-slate-400 mb-2">{chart?.compositionNote}</p>
+
+                    {/* 100% stacked composition bar */}
+                    <div className="flex w-full h-11 rounded-md overflow-hidden">
                         {segs.map((s, i) => {
-                            const bg = SEGMENT_BAR_COLORS[i % SEGMENT_BAR_COLORS.length];
+                            const c = PATTERN_COLOR[s.pattern] || PATTERN_COLOR.unclassified;
+                            const title = `${s.name} — ₹${s.external_revenue_cr?.toLocaleString('en-IN')} Cr · ${s.share_pct}% · ${PATTERN_LABEL[s.pattern]}`
+                                + (s.pattern_reason ? ` — ${s.pattern_reason}` : '');
                             return (
-                                <div key={s.label} className="flex flex-col items-center justify-center px-1 min-w-0"
-                                    style={{ width: `${s.pct}%`, background: bg }} title={`${s.label} — ${s.pct}%`}>
-                                    {s.pct >= 10 && (
+                                <div key={s.name + i} className="flex flex-col items-center justify-center px-1 min-w-0"
+                                    style={{ width: `${s.share_pct}%`, background: c.bg }} title={title}>
+                                    {s.share_pct >= 9 && (
                                         <>
-                                            <span className="text-[11px] font-bold truncate max-w-full text-white">{s.label}</span>
-                                            <span className="text-[10px] font-semibold text-white/90">{s.pct}%</span>
+                                            <span className="text-[11px] font-bold truncate max-w-full" style={{ color: c.text }}>{s.name}</span>
+                                            <span className="text-[10px] font-semibold" style={{ color: c.text, opacity: 0.9 }}>{s.share_pct}%</span>
                                         </>
                                     )}
                                 </div>
                             );
                         })}
-                        {other > 0.5 && (
-                            <div className="flex items-center justify-center" style={{ width: `${other}%`, background: dark ? 'rgb(30 41 59)' : 'rgb(226 232 240)' }} title={`Other / unallocated — ${other.toFixed(0)}%`}>
-                                <span className="text-[10px] font-semibold" style={{ color: mutedColor }}>{other >= 6 ? `${Math.round(other)}%` : ''}</span>
+                        {hasResidual && (
+                            <div className="flex items-center justify-center" style={{ width: `${residualPct}%`, background: RESIDUAL_COLOR.bg }}
+                                title={`Unallocated / residual — ₹${chart?.residualCr?.toLocaleString('en-IN')} Cr · ${residualPct}%`}>
+                                {residualPct >= 6 && <span className="text-[10px] font-semibold" style={{ color: RESIDUAL_COLOR.text }}>{Math.round(residualPct)}%</span>}
                             </div>
                         )}
                     </div>
-                    <p className="text-[11px] mt-2 leading-snug" style={{ color: mutedColor }}>
-                        Bar width = revenue share reported for each segment in the Annual Report.
-                    </p>
+
+                    {/* Legend */}
+                    <div className="flex items-center gap-4 mt-2.5 flex-wrap">
+                        {patternsUsed.map((p) => (
+                            <div key={p} className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: (PATTERN_COLOR[p] || PATTERN_COLOR.unclassified).bg }} />
+                                <span className="text-[11px] text-slate-400">{PATTERN_LABEL[p] || p}</span>
+                            </div>
+                        ))}
+                        {hasResidual && (
+                            <div className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: RESIDUAL_COLOR.bg }} />
+                                <span className="text-[11px] text-slate-400">Unallocated</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Revenue-weighted Recurring <-> Cyclical spectrum */}
+                    <div className="mt-4">
+                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                            <span>Recurring</span><span>Mixed</span><span>Cyclical</span>
+                        </div>
+                        <div className="relative h-2 rounded-full bg-slate-800">
+                            <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-teal-400 via-amber-400 to-orange-500" style={{ width: '100%' }} />
+                            {spectrumPct != null && (
+                                <div className="absolute -top-1.5 w-5 h-5 rounded-full bg-slate-100 border-2 border-slate-900 shadow"
+                                    style={{ left: `calc(${spectrumPct}% - 10px)` }} title={WEIGHTED_SPECTRUM_LABEL[chart?.weightedPatternLabel]} />
+                            )}
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-1">{WEIGHTED_SPECTRUM_LABEL[chart?.weightedPatternLabel] || 'Not enough evidence to position'}</p>
+                    </div>
+
+                    {footerReadline && (
+                        <p className="text-[12px] text-slate-300 leading-relaxed mt-3 italic">"{footerReadline}"</p>
+                    )}
+
+                    {/* Why these classifications? / sources */}
+                    <div className="mt-2">
+                        <button onClick={() => setOpenWhy(o => !o)}
+                            className="text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 transition">
+                            Why these classifications? {openWhy ? '▴' : '▾'}
+                        </button>
+                        {openWhy && (
+                            <div className="mt-2 space-y-1.5">
+                                {segs.map((s, i) => (
+                                    <div key={s.name + i} className="text-[11px] text-slate-300 bg-slate-900/60 border border-slate-800 rounded p-2">
+                                        <span className="font-semibold">{s.name}</span>
+                                        <span className="text-slate-500"> — {PATTERN_LABEL[s.pattern] || s.pattern}.</span>{' '}
+                                        {s.pattern_reason
+                                            ? <span className="text-slate-400">{s.pattern_reason}</span>
+                                            : <span className="text-slate-600 italic">Not enough official disclosure to classify this segment's revenue pattern.</span>}
+                                    </div>
+                                ))}
+                                {pdfUrl && (
+                                    <a href={`${pdfUrl}${chart?.plPage ? `#page=${chart.plPage}` : ''}`} target="_blank" rel="noopener noreferrer"
+                                        className="inline-block text-[10px] font-bold text-blue-400 hover:text-blue-300 hover:underline mt-1">
+                                        VIEW SOURCE — Annual Report{fiscalYear ? ` FY${fiscalYear}` : ''}
+                                    </a>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
             );
         };
 
-        // --- SUBCOMPONENT: Revenue Characteristics (recurring vs cyclical revenue).
-        // Two independent, beginner-first blocks: how predictable/repeatable
-        // revenue is, and how sensitive the business is to economic/industry
-        // cycles. Numbers only ever render when the backend marked them
-        // reported/calculated from real evidence — "not disclosed" / "unable to
-        // determine" are first-class states here, never displayed as 0%.
-        const CYCLICALITY_POSITION = { low: 0, moderate: 1, high: 2 };
-        const CYCLICALITY_COPY = {
-            low: 'Revenue is relatively less dependent on economic or industry conditions.',
-            moderate: 'Demand can change meaningfully with economic and industry conditions.',
-            high: 'Revenue is highly sensitive to economic or industry conditions.',
-            unable_to_determine: 'Not enough official information was found to assess cyclicality.',
+        // --- SUBCOMPONENT: Consolidated Income Statement Flow — Graph 2. Reuses
+        // the SAME reconciliation-safe income tree already built for the
+        // Overview page (see components/IncomeSankey.jsx's IncomeTree) — no
+        // second rendering implementation for the same node/link shape.
+        const IncomeStatementFlowCard = ({ chart, unavailableReason }) => {
+            const nodes = chart?.nodes;
+            const links = chart?.links;
+            if (!nodes?.length || !links?.length) {
+                return (
+                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg text-center">
+                        <p className="text-[13px] font-semibold text-slate-300 mb-1">Not available for this company</p>
+                        <p className="text-[12px] text-slate-500">
+                            {unavailableReason || 'Not enough comparable financial data is available to build this flow reliably.'}
+                        </p>
+                    </div>
+                );
+            }
+            // Raw ₹Cr from the backend -> IncomeTree/inrCrore expect raw rupees
+            // (same convention as Overview's IncomeSankey, see fromApiFlow there).
+            const scaledNodes = nodes.map(n => ({ ...n, value: n.value * 1e7 }));
+            const scaledLinks = links.map(l => ({ ...l, value: l.value * 1e7 }));
+            return (
+                <div>
+                    <p className="text-[12px] text-slate-400 mb-2.5">
+                        See how the company's revenue turns into profit after operating costs, depreciation, interest and tax.
+                        {chart?.fiscalYear && (
+                            <span className="text-slate-600"> · FY{chart.fiscalYear} · {chart.basis === 'standalone' ? 'Standalone' : 'Consolidated'} · Annual Report</span>
+                        )}
+                    </p>
+                    <IncomeTree nodes={scaledNodes} links={scaledLinks} />
+                </div>
+            );
         };
+
         const WhySourceDrawer = ({ label, bullets, sources, pdfUrl, fiscalYear }) => {
             const [open, setOpen] = useState(false);
             if (!bullets?.length && !sources?.length) return null;
@@ -899,87 +1002,6 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             )}
                         </div>
                     )}
-                </div>
-            );
-        };
-        const RevenueCharacteristicsCard = ({ recurring, cyclicality, pdfUrl, fiscalYear }) => {
-            const r = recurring || {};
-            const c = cyclicality || {};
-            const hasPct = r.pct != null && (r.status === 'reported' || r.status === 'calculated');
-            const badgeLabel = r.status === 'reported' ? 'REPORTED BY COMPANY' : r.status === 'calculated' ? 'CALCULATED BY NAVRIST' : null;
-            const pos = CYCLICALITY_POSITION[c.classification];
-            return (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Recurring revenue block */}
-                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">How predictable is revenue?</p>
-                        {hasPct ? (
-                            <>
-                                <div className="flex items-baseline gap-2 mb-2">
-                                    <span className="text-3xl font-extrabold text-slate-100">{Math.round(r.pct)}%</span>
-                                    <span className="text-[11px] text-slate-400">recurring</span>
-                                </div>
-                                <div className="flex w-full h-3 rounded-full overflow-hidden bg-slate-800 mb-2">
-                                    <div className="h-full bg-teal-400" style={{ width: `${r.pct}%` }} />
-                                </div>
-                                <p className="text-[12px] text-slate-300 leading-relaxed">
-                                    About ₹{Math.round(r.pct)} out of every ₹100 of revenue comes from recurring sources.
-                                </p>
-                                {badgeLabel && (
-                                    <span className="inline-block mt-2 text-[9px] font-bold px-1.5 py-0.5 rounded border text-blue-200 bg-blue-950 border-blue-500/60">{badgeLabel}</span>
-                                )}
-                                {r.calc && (
-                                    <p className="text-[10px] text-slate-500 mt-1.5 italic">
-                                        {r.calc.numerator_label || 'Recurring revenue'} (₹{r.calc.numerator_cr} Cr) ÷ {r.calc.denominator_label || 'Total revenue'} (₹{r.calc.denominator_cr} Cr)
-                                    </p>
-                                )}
-                            </>
-                        ) : r.status === 'qualitative_only' ? (
-                            <>
-                                <p className="text-lg font-bold text-slate-200 mb-1">Recurring characteristics identified</p>
-                                <p className="text-[11px] text-slate-500 mb-2">Numeric share: <span className="font-semibold">Not disclosed</span></p>
-                                <p className="text-[12px] text-slate-400 leading-relaxed">The company describes recurring contracts, but does not disclose enough information to calculate their share of revenue.</p>
-                            </>
-                        ) : r.status === 'not_disclosed' ? (
-                            <>
-                                <p className="text-lg font-bold text-slate-200 mb-1">Not disclosed</p>
-                                <p className="text-[12px] text-slate-400 leading-relaxed">No relevant recurring-revenue disclosure was found in the Annual Report.</p>
-                            </>
-                        ) : (
-                            <>
-                                <p className="text-lg font-bold text-slate-200 mb-1">Unable to determine</p>
-                                <p className="text-[12px] text-slate-400 leading-relaxed">Not enough official information was found to reliably quantify recurring revenue.</p>
-                            </>
-                        )}
-                        <WhySourceDrawer label="Why?" bullets={r.bullets} sources={r.sources} pdfUrl={pdfUrl} fiscalYear={fiscalYear} />
-                    </div>
-
-                    {/* Cyclicality block */}
-                    <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">How sensitive is the business to economic/industry cycles?</p>
-                        {pos != null ? (
-                            <>
-                                <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                                    <span>Low</span><span>Moderate</span><span>High</span>
-                                </div>
-                                <div className="relative h-2 rounded-full bg-slate-800 mb-3">
-                                    <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-teal-400 via-amber-400 to-orange-500" style={{ width: '100%' }} />
-                                    <div className="absolute -top-1.5 w-5 h-5 rounded-full bg-slate-100 border-2 border-slate-900 shadow"
-                                        style={{ left: `calc(${pos * 50}% - 10px)` }} title={c.classification} />
-                                </div>
-                                <p className="text-[12px] text-slate-300 leading-relaxed capitalize">
-                                    <span className="font-bold">{c.classification}.</span> {CYCLICALITY_COPY[c.classification]}
-                                </p>
-                            </>
-                        ) : (
-                            <>
-                                <p className="text-lg font-bold text-slate-200 mb-1">Unable to determine</p>
-                                <p className="text-[12px] text-slate-400 leading-relaxed">{CYCLICALITY_COPY.unable_to_determine}</p>
-                            </>
-                        )}
-                        <WhySourceDrawer label={`Why ${c.classification && c.classification !== 'unable_to_determine' ? c.classification : ''} cyclicality?`}
-                            bullets={[...(c.drivers || []), ...(c.mitigants || [])]} sources={c.sources} pdfUrl={pdfUrl} fiscalYear={fiscalYear} />
-                    </div>
                 </div>
             );
         };
@@ -1095,24 +1117,38 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 ? [...chart.data].sort((a, b) => b.pct - a.pct)[0] : null;
             const chartTitle = chart?.panelTitle || (chart?.type === 'donut' ? 'Mix' : chart?.type === 'bar' ? 'Rating breakdown' : chart?.type === 'spectrum' ? 'Category' : chart?.type === 'diverging' ? 'Growth vs industry' : null);
             const facts = sp.facts || [];
-            // Revenue Characteristics renders as its own full-width, two-block
-            // layout (recurring predictability + cyclicality) — the standard
-            // facts/chart two-column grid below doesn't fit its beginner-first
-            // "big number + plain English + Why?" design.
-            if (chart?.type === 'revenue_characteristics') {
+            // Graph 1 (business composition) and Graph 2 (income statement flow)
+            // both render as their own full-width block — the standard facts/
+            // chart two-column grid below is built for smaller rating/donut
+            // charts and doesn't fit either of these.
+            if (chart?.type === 'business_composition' || chart?.type === 'income_statement_flow') {
+                const missing = chart?.type === 'business_composition'
+                    ? !chart?.segments?.length
+                    : !(chart?.nodes?.length && chart?.links?.length);
                 return (
                     <div className="border border-slate-800 rounded-lg overflow-hidden">
                         <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-2">
                             <h4 className="text-sm font-bold text-slate-100 uppercase tracking-wide">{sp.title}</h4>
                             {sp.confidence_tag && (
                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap flex-shrink-0 ${QUAL_CONFIDENCE_STYLE[sp.confidence_tag] || 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                    title="Retrieval-quality tag — separate from the plain-English conclusion shown below.">
+                                    title="Retrieval-quality tag.">
                                     {sp.confidence_tag}
                                 </span>
                             )}
                         </div>
                         <div className="p-4">
-                            <RevenueCharacteristicsCard recurring={chart.recurring} cyclicality={chart.cyclicality} pdfUrl={chart.pdf_url} fiscalYear={chart.fiscal_year} />
+                            {missing ? (
+                                <p className="text-xs text-slate-500 italic">
+                                    {chart?.type === 'income_statement_flow'
+                                        ? (sp.unavailableReason || 'Not enough comparable financial data is available to build this flow reliably.')
+                                        : 'Not enough segment disclosure is available to build this view.'}
+                                </p>
+                            ) : chart.type === 'business_composition' ? (
+                                <BusinessCompositionChart chart={chart} footerReadline={sp.finding} pdfUrl={chart.pdfUrl} fiscalYear={chart.fiscalYear} sources={sp.sources} />
+                            ) : (
+                                <IncomeStatementFlowCard chart={chart} unavailableReason={sp.unavailableReason} />
+                            )}
+                            <SourcesFooter formula={sp.formula} sources={sp.sources} />
                         </div>
                     </div>
                 );
@@ -1148,9 +1184,6 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         {chart && (chart.data?.length > 0 || chart.options?.length > 0 || chart.value != null || chart.rows?.length > 0 || chart.segments?.length > 0) && (
                             <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg self-start">
                                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{chartTitle}</div>
-                                {chart.type === 'segment_share' && (
-                                    <SegmentShareChart segments={chart.segments} dark />
-                                )}
                                 {chart.type === 'donut' && (
                                     <Donut data={chart.data.map(d => ({ label: d.label, value: d.pct }))} fmt={(v) => Number(v).toFixed(0)} dark
                                         center={chartTop ? { value: `${Math.round(chartTop.pct)}%`, label: chartTop.label } : null} />
