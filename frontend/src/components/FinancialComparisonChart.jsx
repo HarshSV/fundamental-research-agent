@@ -51,14 +51,17 @@ function buildMetrics(incomeStmt, ratios, peer) {
     {
       // Default/first view: Revenue, Cost and Net Profit grouped together per
       // year (one cluster of 3 bars per FY), rather than one metric at a
-      // time — each bar's color is sign-driven (green if >=0, red if
-      // negative), not a fixed per-series color, since a loss-making year's
-      // Net Profit bar must read as a loss at a glance, not just dip below
-      // the baseline. See `signColor` in the render below.
-      id: 'overview', label: 'Revenue vs Cost vs Profit', unit: 'inr', signColored: true, bars: [
+      // time. Revenue and Cost keep their own fixed identity color always
+      // (blue / red) — they're basically never negative in practice, and
+      // Cost in particular should always read as "cost" regardless of sign.
+      // Only the Profit bar is sign-driven (green if >=0, red if negative,
+      // via `signFlip: true`), since a loss-making year needs to read as a
+      // loss at a glance, not just dip below the baseline in its "normal"
+      // green.
+      id: 'overview', label: 'Revenue vs Cost vs Profit', unit: 'inr', bars: [
         { key: 'revenue', label: 'Revenue', color: RUPEE_COLOR, byDate: stmtSeries(incomeStmt, 'Total Revenue') },
         { key: 'cost', label: 'Cost', color: COST_COLOR, byDate: stmtSeries(incomeStmt, 'Total Expenses') },
-        { key: 'profit', label: 'Net Profit', color: PROFIT_COLOR, byDate: stmtSeries(incomeStmt, 'Net Income') },
+        { key: 'profit', label: 'Net Profit', color: PROFIT_COLOR, signFlip: true, byDate: stmtSeries(incomeStmt, 'Net Income') },
       ],
     },
     {
@@ -264,11 +267,11 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
                   const peerDiff = (bar.key === 'company' && metric.bars.some((b) => b.key === 'peer'))
                     ? raw - metric.bars.find((b) => b.key === 'peer').constant
                     : null;
-                  // Sign-driven color for the combined Revenue/Cost/Profit
-                  // view — a loss year's Net Profit bar must read red at a
-                  // glance, not just dip below the baseline in its "normal"
-                  // green. Every other metric keeps its fixed per-series color.
-                  const fillColor = metric.signColored ? (raw >= 0 ? PROFIT_COLOR : COST_COLOR) : bar.color;
+                  // Only a bar explicitly marked signFlip (the Profit series)
+                  // switches color by sign — Revenue/Cost keep their fixed
+                  // identity color regardless of value, same as every other
+                  // metric in this chart.
+                  const fillColor = bar.signFlip ? (raw >= 0 ? PROFIT_COLOR : COST_COLOR) : bar.color;
                   return (
                     <rect
                       key={bar.key}
@@ -296,34 +299,16 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
         </svg>
       </div>
 
-      {metric.signColored ? (
-        // Bar color here is sign-driven (green/red), not per-series identity —
-        // a fixed-color swatch per series (e.g. "Cost" always red) would
-        // contradict a Cost bar that's actually rendering green because it's
-        // a positive figure. Series are identified by their fixed left-to-
-        // right order within each year's cluster instead; the legend only
-        // needs to explain what the color itself means.
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 justify-center">
-          <span className="text-[10px] text-slate-500">{metric.bars.map((b) => b.label).join(' · ')} (left to right)</span>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-sm" style={{ background: PROFIT_COLOR }} />
-            <span className="text-[10px] text-slate-500">Positive</span>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 justify-center">
+        {metric.bars.map((b) => (
+          <div key={b.key} className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-sm" style={{ background: b.color }} />
+            <span className="text-[10px] text-slate-500">
+              {b.label}{b.signFlip && <span className="text-slate-600"> (red = loss)</span>}
+            </span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-sm" style={{ background: COST_COLOR }} />
-            <span className="text-[10px] text-slate-500">Negative</span>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 justify-center">
-          {metric.bars.map((b) => (
-            <div key={b.key} className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: b.color }} />
-              <span className="text-[10px] text-slate-500">{b.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
+        ))}
+      </div>
 
       <ComparisonTooltip hover={hover} />
     </div>
