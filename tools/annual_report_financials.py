@@ -2401,7 +2401,15 @@ def _find_annual_report_pdf(symbol, name, year):
         return None
 
 
-_SEGMENT_CAPTION_RE = re.compile(r"segment\s+revenue", re.I)
+_SEGMENT_CAPTION_RE = re.compile(
+    r"segment\s+revenue|"
+    # The Ind AS 108 note is far more commonly titled "Segment Information"
+    # (a numbered note, e.g. "19) Segment information") than "Segment
+    # Revenue" — without this, the whole note is skipped for any filer using
+    # the standard heading (confirmed missing TCS's real, reconciling
+    # 6-segment table, which sits under exactly this caption).
+    r"\bsegment\s+information\b|\boperating\s+segments?\b",
+    re.I)
 _SEGMENT_STOP_RE = re.compile(
     r"segment\s+result|inter\s*-?\s*segment|unallocated|total\s+revenue|segment\s+assets|segment\s+liabilit",
     re.I)
@@ -2598,8 +2606,10 @@ def _extract_segment_revenue(pdf_bytes, total_revenue_cr):
                 # false-positive on unrelated prose (e.g. a forex-hedging
                 # note that happens to mention both), which would otherwise
                 # feed the matrix parser a completely wrong page.
-                try:
-                    cap_rows = _cluster_lines(_page_words(page))
+                def _row_text(r):
+                    return " ".join(w[4].lower() for w in r).strip(" :")
+
+                def _find_caption_row(rows):
                     # A genuine "Segment Revenue" sub-table caption prints as
                     # either one short row ("Segment Revenue") or two
                     # stacked single-word rows ("Segment" / "Revenue" on
@@ -2607,29 +2617,52 @@ def _extract_segment_revenue(pdf_bytes, total_revenue_cr):
                     # never as part of a long prose sentence, which is what
                     # filters out unrelated same-page mentions (seen on
                     # Reliance: a forex-hedging note using both words too).
-                    def _row_text(r):
-                        return " ".join(w[4].lower() for w in r).strip(" :")
-                    caption_row = None
-                    for i, r in enumerate(cap_rows):
+                    for i, r in enumerate(rows):
                         rt = _row_text(r)
                         words_lower = [w[4].lower() for w in r]
                         if len(r) <= 4 and "segment" in rt and "revenue" in rt:
-                            caption_row = r
-                            break
-                        if rt == "revenue" and i > 0 and _row_text(cap_rows[i - 1]) == "segment":
-                            caption_row = r
-                            break
+                            return r, False
+                        if rt == "revenue" and i > 0 and _row_text(rows[i - 1]) == "segment":
+                            return r, False
                         # An interleaved page (a second, unrelated table's text
                         # sharing the same visual row — seen on Reliance's
                         # filing) can bury the caption at the END of an
                         # otherwise contaminated row; catch "...Segment
                         # Revenue" as the row's trailing two words specifically.
                         if len(words_lower) >= 2 and words_lower[-2] == "segment" and words_lower[-1] == "revenue":
-                            caption_row = r
-                            break
+                            return r, False
+                        # Some filers (e.g. TCS) print no "Segment Revenue"
+                        # caption at all — the reportable-segment names are
+                        # the table's own column headers, and "Revenue from
+                        # operations" IS the data row directly (label +
+                        # numbers on the same visual row), not a caption
+                        # above a separate numeric row. Flagged with
+                        # `is_data_row=True` so the matrix parser's window
+                        # start is nudged to include this row itself, not
+                        # only rows strictly below it.
+                        if rt.startswith("revenue from operations") or rt.startswith("external revenue"):
+                            return r, True
+                    return None, False
+
+                try:
+                    caption_row, is_data_row = _find_caption_row(_cluster_lines(_page_words(page)))
+                    match_page = page
+                    if not caption_row and pgi + 1 < len(doc):
+                        # The note's heading/definition text and its actual
+                        # segment table are frequently split across a page
+                        # break (confirmed on TCS: "19) Segment information"
+                        # heading on one page, the reconciling 6-segment
+                        # table on the next) — a same-page-only search misses
+                        # this entirely.
+                        next_page = doc[pgi + 1]
+                        caption_row, is_data_row = _find_caption_row(_cluster_lines(_page_words(next_page)))
+                        if caption_row:
+                            match_page = next_page
                     if caption_row:
                         caption_y = (caption_row[0][1] + caption_row[0][3]) / 2
-                        segments = _extract_segment_revenue_matrix(page, caption_y, total_revenue_cr, factor)
+                        if is_data_row:
+                            caption_y -= 3  # keep the data row itself inside the scan window below (row_y <= caption_word_y + 1 must be false for this exact row)
+                        segments = _extract_segment_revenue_matrix(match_page, caption_y, total_revenue_cr, factor)
                 except Exception:
                     segments = []
             if len(segments) < 2:
@@ -3667,7 +3700,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     cache after acquiring the lock (not just before), since another thread
     may have already finished the fetch while this one was waiting."""
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_extract_v7_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v10_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3696,7 +3729,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # cached extractions had operating_cash_flow/capex_*/*_repayment/
     # net_fixed_assets all silently null and would otherwise keep being
     # served for the remainder of their 90-day TTL regardless of the fix.
-    ckey = f"ar_extract_v7_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v10_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -4137,7 +4170,7 @@ def fetch_income_statement_flow_from_annual_report(symbol, name, fiscal_year, co
     Cached 90 days via the shared extraction cache. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_incflow_v6_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_incflow_v7_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached

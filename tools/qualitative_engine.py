@@ -651,7 +651,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
 
 _SEGMENT_PATTERN = ("recurring", "mixed", "cyclical", "unclassified")
 _PATTERN_SCORE = {"recurring": 0.0, "mixed": 0.5, "cyclical": 1.0}
-_BIZ_COMP_SCHEMA_VERSION = 1
+_BIZ_COMP_SCHEMA_VERSION = 2
 
 
 def compute_business_composition(symbol, name=None, description="", force=False):
