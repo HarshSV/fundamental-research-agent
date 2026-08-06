@@ -1234,7 +1234,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // is the only thing marking where one node ends and the next
             // segment's flow begins.
             const COL_W = 148, NODE_LINE_W = 3, HEADER_H = 34, BODY_H = 320, PAD_B = 6;
-            const totalW = (maxDepth + 1) * COL_W;
+            const MARGIN_W = 176; // reserved lane for leader-line labels on blocks too small to caption inline
+            const totalW = (maxDepth + 1) * COL_W + MARGIN_W;
             const totalH = HEADER_H + BODY_H + PAD_B;
             const yPix = (v) => HEADER_H + (v / layoutExtent) * BODY_H;
             const MIN_LABEL_H = 20;
@@ -1290,6 +1291,34 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 });
             });
 
+            // Precompute which edges are too small to caption inline, and
+            // where their leader line + label lands in the reserved right
+            // margin — greedily stacked top-to-bottom (by the edge's own
+            // vertical position) so labels never overlap each other even
+            // when several tiny blocks sit close together.
+            const LEADER_ROW_H = 14;
+            const overflowGeom = {}; // key -> { fromX, fromY, labelY }
+            {
+                const items = [];
+                edges.forEach((e) => {
+                    const isHeader = headerByDepth[e.bar.depth] === e.bar;
+                    if (isHeader) return;
+                    const ly0 = yPix(e.ly0), ly1 = yPix(e.ly1), ry0 = yPix(e.ry0), ry1 = yPix(e.ry1);
+                    const minH = Math.min(ly1 - ly0, ry1 - ry0);
+                    const canLabel = minH >= MIN_LABEL_H && (e.x2 - e.x1) >= 40;
+                    if (canLabel) return;
+                    items.push({ key: e.key, fromX: e.x2, fromY: (ry0 + ry1) / 2 });
+                });
+                items.sort((a, b) => a.fromY - b.fromY);
+                let cur = HEADER_H + LEADER_ROW_H / 2;
+                items.forEach((it) => {
+                    const labelY = Math.max(it.fromY, cur);
+                    overflowGeom[it.key] = { fromX: it.fromX, fromY: it.fromY, labelY };
+                    cur = labelY + LEADER_ROW_H;
+                });
+            }
+            const marginX = (maxDepth + 1) * COL_W + 14;
+
             return (
                 <div ref={wrapRef} className="w-full overflow-hidden">
                     <svg viewBox={`0 0 ${totalW} ${totalH}`} className="w-full h-auto" style={{ maxHeight: 420 }} preserveAspectRatio="xMidYMid meet">
@@ -1304,6 +1333,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             const maxChars = Math.floor((e.x2 - e.x1) / 6.2);
                             const label = e.bar.node.label.length > maxChars
                                 ? e.bar.node.label.slice(0, Math.max(3, maxChars - 1)) + '…' : e.bar.node.label;
+                            const leader = !isHeader && !canLabel ? overflowGeom[e.key] : null;
                             return (
                                 <g key={e.key} className="cursor-default"
                                     onMouseEnter={(ev) => showTip(e.bar, ev)} onMouseLeave={hideTip}>
@@ -1314,6 +1344,18 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                             className="select-none" fontSize="10.5" fontWeight="600" fill="white">
                                             {label}
                                         </text>
+                                    )}
+                                    {leader && (
+                                        <>
+                                            <polyline
+                                                points={`${leader.fromX},${leader.fromY} ${marginX - 8},${leader.labelY} ${marginX},${leader.labelY}`}
+                                                fill="none" stroke={ICICLE_STRIPE_COLOR[e.bar.node.category] || ICICLE_STRIPE_COLOR.neutral}
+                                                strokeWidth="1" opacity={0.75} />
+                                            <text x={marginX + 4} y={leader.labelY} dominantBaseline="middle"
+                                                className="select-none" fontSize="9.5" fontWeight="600" fill="rgb(203 213 225)">
+                                                {e.bar.node.label.length > 22 ? e.bar.node.label.slice(0, 21) + '…' : e.bar.node.label}
+                                            </text>
+                                        </>
                                     )}
                                 </g>
                             );
