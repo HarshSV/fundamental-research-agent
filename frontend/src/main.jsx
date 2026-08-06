@@ -1142,7 +1142,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 // flat, indistinguishable rectangle: the band has to bridge
                 // from its tight (gap-free) slice inside the parent to its
                 // own gapped slot, so it necessarily slants.
-                const GAP = rawRootTotal * 0.01;
+                const GAP = rawRootTotal * 0.028;
 
                 // Level 0
                 if (mergeSources.length) {
@@ -1233,7 +1233,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // pattern. A thin darker "stripe" at each node's own x-position
             // is the only thing marking where one node ends and the next
             // segment's flow begins.
-            const COL_W = 190, NODE_LINE_W = 4, HEADER_H = 34, BODY_H = 320, PAD_B = 6;
+            const COL_W = 148, NODE_LINE_W = 3, HEADER_H = 34, BODY_H = 320, PAD_B = 6;
             const totalW = (maxDepth + 1) * COL_W;
             const totalH = HEADER_H + BODY_H + PAD_B;
             const yPix = (v) => HEADER_H + (v / layoutExtent) * BODY_H;
