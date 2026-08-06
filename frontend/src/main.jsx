@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { createPortal } from "react-dom";
 import "./index.css";
 import ThemeToggle from "./theme/ThemeToggle.jsx";
 import Sidebar from "./components/layout/Sidebar.jsx";
@@ -887,28 +888,24 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             const TOOLTIP_W = 256;
             const TOOLTIP_H_ESTIMATE = 280; // generous estimate incl. reason bullets + brand chips
+            const [hoverTop, setHoverTop] = useState(0);
             const handleEnter = (i, e) => {
                 setHoverIdx(i);
-                const wrap = barWrapRef.current;
-                if (!wrap) return;
-                const wrapRect = wrap.getBoundingClientRect();
                 const segRect = e.currentTarget.getBoundingClientRect();
-                const centerX = segRect.left + segRect.width / 2 - wrapRect.left;
                 const half = TOOLTIP_W / 2 + 4;
-                // Clamp twice: once relative to the bar's own width (keeps it
-                // over the bar visually), then again against the actual
-                // viewport in absolute screen coordinates (keeps it on-screen
-                // even if the card itself sits close to the window edge).
-                let left = Math.max(half, Math.min(centerX, wrapRect.width - half));
-                const absLeft = wrapRect.left + left;
-                if (absLeft - half < 0) left += (half - absLeft);
-                else if (absLeft + half > window.innerWidth) left -= (absLeft + half - window.innerWidth);
+                // Position is computed in absolute VIEWPORT coordinates (not
+                // relative to the bar) because the tooltip is portaled to
+                // document.body with position:fixed — this is required so an
+                // ancestor's overflow-hidden (the card wrapper) can never clip
+                // it, which previously cut the popover off mid-content.
+                const centerX = segRect.left + segRect.width / 2;
+                let left = Math.max(half, Math.min(centerX, window.innerWidth - half));
                 setHoverLeft(left);
-                // Flip below the bar when there isn't enough room above it —
-                // otherwise the panel renders off the top of the viewport and
-                // gets clipped (confirmed: happens whenever the card sits near
-                // the top of the scrolled page).
-                setHoverBelow(wrapRect.top < TOOLTIP_H_ESTIMATE);
+                // Flip below the bar when there isn't enough room above it in
+                // the viewport, so the panel never renders off-screen.
+                const below = segRect.top < TOOLTIP_H_ESTIMATE;
+                setHoverBelow(below);
+                setHoverTop(below ? segRect.bottom + 8 : segRect.top - 8);
             };
             const handleLeave = () => setHoverIdx(null);
 
@@ -953,11 +950,15 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 </div>
                             )}
                         </div>
-                        {hoverIdx != null && (
-                            <div className={`absolute z-20 pointer-events-none transition-opacity duration-100 ${hoverBelow ? 'top-full mt-2' : 'bottom-full mb-2'}`}
-                                style={{ left: hoverLeft, transform: 'translateX(-50%)' }}>
+                        {hoverIdx != null && createPortal(
+                            <div className="fixed z-50 pointer-events-none transition-opacity duration-100"
+                                style={{
+                                    left: hoverLeft, top: hoverTop,
+                                    transform: `translate(-50%, ${hoverBelow ? '0' : '-100%'})`,
+                                }}>
                                 <SegmentHoverCard s={segs[hoverIdx]} />
-                            </div>
+                            </div>,
+                            document.body
                         )}
                     </div>
 
