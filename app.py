@@ -413,10 +413,16 @@ def read_root():
     from fastapi.responses import FileResponse
     built_index = os.path.join(_STATIC_DIR, "index.html")
     legacy_index = os.path.join(_BASE_DIR, "frontend-dashboard", "index.html")
+    # index.html must never be cached: it's the only file that maps to the
+    # build's content-hashed /assets/index-<hash>.js. A cached copy keeps
+    # pointing at a stale hash, so a rebuilt frontend appears unchanged in
+    # the browser no matter how many times it's rebuilt. The hashed assets
+    # themselves are immutable and stay cacheable.
+    _no_cache = {"Cache-Control": "no-cache, no-store, must-revalidate"}
     if os.path.exists(built_index):
-        return FileResponse(built_index)
+        return FileResponse(built_index, headers=_no_cache)
     if os.path.exists(legacy_index):
-        return FileResponse(legacy_index)
+        return FileResponse(legacy_index, headers=_no_cache)
     return {"status": "online", "description": "Dashboard file not found; API is running."}
 
 @app.get("/api/health")

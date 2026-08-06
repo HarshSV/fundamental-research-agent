@@ -112,7 +112,7 @@ export function IncomeIcicle({ nodes, links }) {
         // flat, indistinguishable rectangle: the band has to bridge
         // from its tight (gap-free) slice inside the parent to its
         // own gapped slot, so it necessarily slants.
-        const GAP = rawRootTotal * 0.026;
+        const GAP = rawRootTotal * 0.045;
 
         // Level 0
         if (mergeSources.length) {
@@ -196,7 +196,11 @@ export function IncomeIcicle({ nodes, links }) {
     if (!layout) return null;
     const { bars, mergeLinks, rootTotal, layoutExtent, maxDepth, hasMergeSources } = layout;
 
-    const COL_W = 180, NODE_LINE_W = 3, HEADER_H = 34, BODY_H = 320, PAD_B = 6;
+    // COL_W vs BODY_H set the block aspect ratio: narrower columns + a
+    // taller body keep blocks from rendering as wide, flat slabs (the SVG
+    // scales to the card's width, so a short viewBox is what stretches
+    // them horizontally).
+    const COL_W = 150, NODE_LINE_W = 3, HEADER_H = 34, BODY_H = 400, PAD_B = 6;
     const totalH = HEADER_H + BODY_H + PAD_B;
     const yPix = (v) => HEADER_H + (v / layoutExtent) * BODY_H;
     const MIN_LABEL_H = 20;
@@ -308,7 +312,7 @@ export function IncomeIcicle({ nodes, links }) {
 
     return (
         <div ref={wrapRef} className="w-full overflow-hidden">
-            <svg viewBox={`0 0 ${totalW} ${totalH}`} className="w-full h-auto" style={{ maxHeight: 420 }} preserveAspectRatio="xMidYMid meet">
+            <svg viewBox={`0 0 ${totalW} ${totalH}`} className="w-full h-auto" style={{ maxHeight: 480 }} preserveAspectRatio="xMidYMid meet">
                 {edges.map((e) => {
                     const fill = icicleColorFor({ ...e.bar.node, isSegment: e.bar.isSegment });
                     const ly0 = yPix(e.ly0), ly1 = yPix(e.ly1), ry0 = yPix(e.ry0), ry1 = yPix(e.ry1);
