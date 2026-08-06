@@ -360,18 +360,30 @@ export function IncomeIcicle({ nodes, links }) {
                         onMouseEnter={(e) => showTip(b, e)} onMouseLeave={hideTip} className="cursor-default" />
                 ))}
                 {/* column headers — always visible, never overlaps edge labels since it lives in the reserved header band */}
-                {Object.values(headerByDepth).map((b, i) => (
-                    <g key={`hdr-${i}`}>
-                        <text x={colX[b.depth] + NODE_LINE_W / 2} y={HEADER_H - 20} textAnchor="middle"
-                            fontSize="10.5" fontWeight="700" fill="rgb(226 232 240)">
-                            {b.node.label.length > 18 ? b.node.label.slice(0, 17) + '…' : b.node.label}
-                        </text>
-                        <text x={colX[b.depth] + NODE_LINE_W / 2} y={HEADER_H - 8} textAnchor="middle"
-                            fontSize="9.5" fill="rgb(148 163 184)">
-                            {inrCroreShort(b.node.value)}
-                        </text>
-                    </g>
-                ))}
+                {Object.values(headerByDepth).map((b, i) => {
+                    const labelText = b.node.label.length > 18 ? b.node.label.slice(0, 17) + '…' : b.node.label;
+                    const valueText = inrCroreShort(b.node.value);
+                    // A header sits centred over its own node stripe, but the
+                    // first column's stripe is at x=0 — centring there would
+                    // push half the text to negative x, where it's clipped by
+                    // the viewBox. Clamp the centre by the wider line's
+                    // half-width so the text always renders fully inside the
+                    // chart (same guard covers the last column's right edge).
+                    const halfW = Math.max(labelText.length * 5.8, valueText.length * 5.3) / 2;
+                    const cx = Math.max(halfW, Math.min(colX[b.depth] + NODE_LINE_W / 2, totalW - halfW));
+                    return (
+                        <g key={`hdr-${i}`}>
+                            <text x={cx} y={HEADER_H - 20} textAnchor="middle"
+                                fontSize="10.5" fontWeight="700" fill="rgb(226 232 240)">
+                                {labelText}
+                            </text>
+                            <text x={cx} y={HEADER_H - 8} textAnchor="middle"
+                                fontSize="9.5" fill="rgb(148 163 184)">
+                                {valueText}
+                            </text>
+                        </g>
+                    );
+                })}
             </svg>
             {hover && createPortal(
                 <div className="fixed z-50 pointer-events-none transition-opacity duration-100"
