@@ -1234,8 +1234,6 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // is the only thing marking where one node ends and the next
             // segment's flow begins.
             const COL_W = 148, NODE_LINE_W = 3, HEADER_H = 34, BODY_H = 320, PAD_B = 6;
-            const MARGIN_W = 176; // reserved lane for leader-line labels on blocks too small to caption inline
-            const totalW = (maxDepth + 1) * COL_W + MARGIN_W;
             const totalH = HEADER_H + BODY_H + PAD_B;
             const yPix = (v) => HEADER_H + (v / layoutExtent) * BODY_H;
             const MIN_LABEL_H = 20;
@@ -1268,6 +1266,37 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             };
             const hideTip = () => setHover(null);
 
+            // First pass, in VALUE-space only (no x yet): find which nodes
+            // are too small to caption inline, per depth — used next to
+            // decide which columns need a little extra room right after
+            // them for a leader-line label. This keeps every label close to
+            // the exact block/angle it belongs to instead of parking them
+            // all in one far-away margin.
+            const rawOverflowByDepth = {}; // depth -> [{ key, bar, fromY(value units) }]
+            const noteOverflow = (key, bar, ry0v, ry1v) => {
+                const isHeader = headerByDepth[bar.depth] === bar;
+                if (isHeader) return;
+                const ry0 = yPix(ry0v), ry1 = yPix(ry1v);
+                if (ry1 - ry0 >= MIN_LABEL_H) return;
+                (rawOverflowByDepth[bar.depth] ||= []).push({ key, bar, fromYv: (ry0v + ry1v) / 2 });
+            };
+            (mergeLinks || []).forEach((m) => noteOverflow(`merge-${m.fromBar.node.id}`, m.fromBar, m.toY0, m.toY1));
+            bars.forEach((b) => {
+                if (!b.parentId || b.srcY0 == null) return;
+                noteOverflow(`edge-${b.node.id}`, b, b.y0, b.y1);
+            });
+
+            // Column x-positions: every column is COL_W wide, plus a small
+            // extra lane right after any column that has overflow labels to
+            // place — so a label always lands immediately beside the block
+            // it describes, never far across the chart.
+            const LABEL_LANE_W = 118;
+            const colX = [0];
+            for (let d = 0; d <= maxDepth; d++) {
+                colX.push(colX[d] + COL_W + (rawOverflowByDepth[d]?.length ? LABEL_LANE_W : 0));
+            }
+            const totalW = colX[maxDepth + 1];
+
             // One unified edge list — a real parent->child link, or a
             // segment->Revenue merge link — each rendered as a single opaque
             // trapezoid running from just past the source node's stripe to
@@ -1276,7 +1305,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             (mergeLinks || []).forEach((m, i) => {
                 edges.push({
                     key: `merge-${i}`, bar: m.fromBar,
-                    x1: m.fromBar.depth * COL_W + NODE_LINE_W, x2: (m.fromBar.depth + 1) * COL_W,
+                    x1: colX[m.fromBar.depth] + NODE_LINE_W, x2: colX[m.fromBar.depth + 1],
                     ly0: m.fromBar.y0, ly1: m.fromBar.y1, ry0: m.toY0, ry1: m.toY1,
                 });
             });
@@ -1286,38 +1315,28 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 if (!parentBar) return;
                 edges.push({
                     key: `edge-${i}`, bar: b,
-                    x1: parentBar.depth * COL_W + NODE_LINE_W, x2: b.depth * COL_W,
+                    x1: colX[parentBar.depth] + NODE_LINE_W, x2: colX[b.depth],
                     ly0: b.srcY0, ly1: b.srcY1, ry0: b.y0, ry1: b.y1,
                 });
             });
 
-            // Precompute which edges are too small to caption inline, and
-            // where their leader line + label lands in the reserved right
-            // margin — greedily stacked top-to-bottom (by the edge's own
-            // vertical position) so labels never overlap each other even
-            // when several tiny blocks sit close together.
+            // Now place each overflow label within its OWN column's lane
+            // (right after that column's node stripe), stacked top-to-bottom
+            // so labels sharing a lane never overlap each other.
             const LEADER_ROW_H = 14;
-            const overflowGeom = {}; // key -> { fromX, fromY, labelY }
-            {
-                const items = [];
-                edges.forEach((e) => {
-                    const isHeader = headerByDepth[e.bar.depth] === e.bar;
-                    if (isHeader) return;
-                    const ly0 = yPix(e.ly0), ly1 = yPix(e.ly1), ry0 = yPix(e.ry0), ry1 = yPix(e.ry1);
-                    const minH = Math.min(ly1 - ly0, ry1 - ry0);
-                    const canLabel = minH >= MIN_LABEL_H && (e.x2 - e.x1) >= 40;
-                    if (canLabel) return;
-                    items.push({ key: e.key, fromX: e.x2, fromY: (ry0 + ry1) / 2 });
-                });
-                items.sort((a, b) => a.fromY - b.fromY);
+            const overflowGeom = {}; // key -> { fromX, fromY, labelX, labelY }
+            Object.entries(rawOverflowByDepth).forEach(([depthStr, items]) => {
+                const depth = Number(depthStr);
+                const laneX = colX[depth] + COL_W;
+                const sorted = [...items].sort((a, b) => a.fromYv - b.fromYv);
                 let cur = HEADER_H + LEADER_ROW_H / 2;
-                items.forEach((it) => {
-                    const labelY = Math.max(it.fromY, cur);
-                    overflowGeom[it.key] = { fromX: it.fromX, fromY: it.fromY, labelY };
+                sorted.forEach((it) => {
+                    const fromY = yPix(it.fromYv);
+                    const labelY = Math.max(fromY, cur);
+                    overflowGeom[it.key] = { fromX: colX[depth] + NODE_LINE_W, fromY, labelX: laneX, labelY };
                     cur = labelY + LEADER_ROW_H;
                 });
-            }
-            const marginX = (maxDepth + 1) * COL_W + 14;
+            });
 
             return (
                 <div ref={wrapRef} className="w-full overflow-hidden">
@@ -1348,12 +1367,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                     {leader && (
                                         <>
                                             <polyline
-                                                points={`${leader.fromX},${leader.fromY} ${marginX - 8},${leader.labelY} ${marginX},${leader.labelY}`}
+                                                points={`${leader.fromX},${leader.fromY} ${leader.labelX - 6},${leader.labelY} ${leader.labelX},${leader.labelY}`}
                                                 fill="none" stroke={ICICLE_STRIPE_COLOR[e.bar.node.category] || ICICLE_STRIPE_COLOR.neutral}
                                                 strokeWidth="1" opacity={0.75} />
-                                            <text x={marginX + 4} y={leader.labelY} dominantBaseline="middle"
+                                            <text x={leader.labelX + 4} y={leader.labelY} dominantBaseline="middle"
                                                 className="select-none" fontSize="9.5" fontWeight="600" fill="rgb(203 213 225)">
-                                                {e.bar.node.label.length > 22 ? e.bar.node.label.slice(0, 21) + '…' : e.bar.node.label}
+                                                {e.bar.node.label.length > 16 ? e.bar.node.label.slice(0, 15) + '…' : e.bar.node.label}
                                             </text>
                                         </>
                                     )}
@@ -1363,7 +1382,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         {/* thin accent stripe at every node's own x-position —
                             the only visual seam between one flow and the next */}
                         {bars.map((b, i) => (
-                            <rect key={`stripe-${i}`} x={b.depth * COL_W} y={yPix(b.y0)} width={NODE_LINE_W}
+                            <rect key={`stripe-${i}`} x={colX[b.depth]} y={yPix(b.y0)} width={NODE_LINE_W}
                                 height={Math.max(1, yPix(b.y1) - yPix(b.y0))}
                                 fill={ICICLE_STRIPE_COLOR[b.node.category] || ICICLE_STRIPE_COLOR.neutral}
                                 onMouseEnter={(e) => showTip(b, e)} onMouseLeave={hideTip} className="cursor-default" />
@@ -1371,11 +1390,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         {/* column headers — always visible, never overlaps edge labels since it lives in the reserved header band */}
                         {Object.values(headerByDepth).map((b, i) => (
                             <g key={`hdr-${i}`}>
-                                <text x={b.depth * COL_W + NODE_LINE_W / 2} y={HEADER_H - 20} textAnchor="middle"
+                                <text x={colX[b.depth] + NODE_LINE_W / 2} y={HEADER_H - 20} textAnchor="middle"
                                     fontSize="10.5" fontWeight="700" fill="rgb(226 232 240)">
                                     {b.node.label.length > 18 ? b.node.label.slice(0, 17) + '…' : b.node.label}
                                 </text>
-                                <text x={b.depth * COL_W + NODE_LINE_W / 2} y={HEADER_H - 8} textAnchor="middle"
+                                <text x={colX[b.depth] + NODE_LINE_W / 2} y={HEADER_H - 8} textAnchor="middle"
                                     fontSize="9.5" fill="rgb(148 163 184)">
                                     {inrCroreShort(b.node.value)}
                                 </text>
