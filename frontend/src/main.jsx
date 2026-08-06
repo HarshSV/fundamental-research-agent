@@ -1075,6 +1075,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (isFiniteNum(node.value) && node.value < 0) return 'rgb(239 68 68)';
             return ICICLE_COLOR[node.category] || ICICLE_COLOR.neutral;
         };
+        const ICICLE_STRIPE_COLOR = {
+            profit: 'rgb(21 128 61)',
+            cost: 'rgb(153 27 27)',
+            tax: 'rgb(127 29 29)',
+            other: 'rgb(37 99 235)',
+            neutral: 'rgb(51 65 85)',
+        };
         function isFiniteNum(v) { return typeof v === 'number' && Number.isFinite(v); }
 
         const IcicleHoverCard = ({ n }) => (
@@ -1219,11 +1226,18 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!layout) return null;
             const { bars, mergeLinks, rootTotal, layoutExtent, maxDepth, hasMergeSources } = layout;
 
-            const COL_W = 190, BAR_W = 96, HEADER_H = 34, BODY_H = 320, PAD_B = 6;
+            // Node and its outgoing flow are drawn as ONE continuous opaque
+            // shape (like a single cut of paper), not a solid block plus a
+            // separate faint band — that's what makes adjacent flows read as
+            // distinct, sharp-edged ribbons instead of a blocky, disjointed
+            // pattern. A thin darker "stripe" at each node's own x-position
+            // is the only thing marking where one node ends and the next
+            // segment's flow begins.
+            const COL_W = 190, NODE_LINE_W = 4, HEADER_H = 34, BODY_H = 320, PAD_B = 6;
             const totalW = (maxDepth + 1) * COL_W;
             const totalH = HEADER_H + BODY_H + PAD_B;
             const yPix = (v) => HEADER_H + (v / layoutExtent) * BODY_H;
-            const MIN_LABEL_H = 22;
+            const MIN_LABEL_H = 20;
 
             // Header per column = the topmost (y0 === 0) bar in that depth —
             // the continuous "spine" (Revenue -> Operating Profit -> PBT ->
@@ -1253,67 +1267,73 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             };
             const hideTip = () => setHover(null);
 
+            // One unified edge list — a real parent->child link, or a
+            // segment->Revenue merge link — each rendered as a single opaque
+            // trapezoid running from just past the source node's stripe to
+            // just before the target node's stripe.
+            const edges = [];
+            (mergeLinks || []).forEach((m, i) => {
+                edges.push({
+                    key: `merge-${i}`, bar: m.fromBar,
+                    x1: m.fromBar.depth * COL_W + NODE_LINE_W, x2: (m.fromBar.depth + 1) * COL_W,
+                    ly0: m.fromBar.y0, ly1: m.fromBar.y1, ry0: m.toY0, ry1: m.toY1,
+                });
+            });
+            bars.forEach((b, i) => {
+                if (!b.parentId || b.srcY0 == null) return;
+                const parentBar = bars.find(x => x.node.id === b.parentId);
+                if (!parentBar) return;
+                edges.push({
+                    key: `edge-${i}`, bar: b,
+                    x1: parentBar.depth * COL_W + NODE_LINE_W, x2: b.depth * COL_W,
+                    ly0: b.srcY0, ly1: b.srcY1, ry0: b.y0, ry1: b.y1,
+                });
+            });
+
             return (
                 <div ref={wrapRef} className="w-full overflow-hidden">
                     <svg viewBox={`0 0 ${totalW} ${totalH}`} className="w-full h-auto" style={{ maxHeight: 420 }} preserveAspectRatio="xMidYMid meet">
-                        {/* flow bands, drawn first so bars sit on top. Each
-                            band bridges the tight (gap-free) slice it
-                            occupies at its source to its own gapped slot at
-                            the target — that mismatch is what gives every
-                            band a real diagonal edge instead of a flat,
-                            indistinguishable rectangle. */}
-                        {mergeLinks?.map((m, i) => {
-                            const x1 = m.fromBar.depth * COL_W + BAR_W;
-                            const x2 = (m.fromBar.depth + 1) * COL_W;
-                            const fill = icicleColorFor(m.fromBar.node);
+                        {edges.map((e) => {
+                            const fill = icicleColorFor(e.bar.node);
+                            const ly0 = yPix(e.ly0), ly1 = yPix(e.ly1), ry0 = yPix(e.ry0), ry1 = yPix(e.ry1);
+                            const isHeader = headerByDepth[e.bar.depth] === e.bar;
+                            const minH = Math.min(ly1 - ly0, ry1 - ry0);
+                            const canLabel = !isHeader && minH >= MIN_LABEL_H && (e.x2 - e.x1) >= 40;
+                            const midX = (e.x1 + e.x2) / 2;
+                            const midY = ((ly0 + ly1) / 2 + (ry0 + ry1) / 2) / 2;
+                            const maxChars = Math.floor((e.x2 - e.x1) / 6.2);
+                            const label = e.bar.node.label.length > maxChars
+                                ? e.bar.node.label.slice(0, Math.max(3, maxChars - 1)) + '…' : e.bar.node.label;
                             return (
-                                <polygon key={`merge-${i}`}
-                                    points={`${x1},${yPix(m.fromBar.y0)} ${x1},${yPix(m.fromBar.y1)} ${x2},${yPix(m.toY1)} ${x2},${yPix(m.toY0)}`}
-                                    fill={fill} opacity={0.2} />
-                            );
-                        })}
-                        {bars.map((b, i) => {
-                            if (!b.parentId || b.srcY0 == null) return null;
-                            const parentBar = bars.find(x => x.node.id === b.parentId);
-                            if (!parentBar) return null;
-                            const x1 = parentBar.depth * COL_W + BAR_W;
-                            const x2 = b.depth * COL_W;
-                            const fill = icicleColorFor(b.node);
-                            return (
-                                <polygon key={`link-${i}`}
-                                    points={`${x1},${yPix(b.srcY0)} ${x1},${yPix(b.srcY1)} ${x2},${yPix(b.y1)} ${x2},${yPix(b.y0)}`}
-                                    fill={fill} opacity={0.2} />
-                            );
-                        })}
-                        {/* bars */}
-                        {bars.map((b, i) => {
-                            const x = b.depth * COL_W;
-                            const y = yPix(b.y0);
-                            const h = Math.max(1, yPix(b.y1) - yPix(b.y0));
-                            const fill = icicleColorFor(b.node);
-                            const isHeader = headerByDepth[b.depth] === b;
-                            const canLabel = h >= MIN_LABEL_H;
-                            return (
-                                <g key={`bar-${i}`} className="cursor-default"
-                                    onMouseEnter={(e) => showTip(b, e)} onMouseLeave={hideTip}>
-                                    <rect x={x} y={y} width={BAR_W} height={h} rx={3} fill={fill} opacity={0.85} />
-                                    {!isHeader && canLabel && (
-                                        <text x={x + BAR_W / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle"
+                                <g key={e.key} className="cursor-default"
+                                    onMouseEnter={(ev) => showTip(e.bar, ev)} onMouseLeave={hideTip}>
+                                    <polygon points={`${e.x1},${ly0} ${e.x1},${ly1} ${e.x2},${ry1} ${e.x2},${ry0}`}
+                                        fill={fill} opacity={0.82} />
+                                    {canLabel && (
+                                        <text x={midX} y={midY} textAnchor="middle" dominantBaseline="middle"
                                             className="select-none" fontSize="10.5" fontWeight="600" fill="white">
-                                            {b.node.label.length > 16 ? b.node.label.slice(0, 15) + '…' : b.node.label}
+                                            {label}
                                         </text>
                                     )}
                                 </g>
                             );
                         })}
-                        {/* column headers — always visible, never overlaps bar labels since it lives in the reserved header band */}
+                        {/* thin accent stripe at every node's own x-position —
+                            the only visual seam between one flow and the next */}
+                        {bars.map((b, i) => (
+                            <rect key={`stripe-${i}`} x={b.depth * COL_W} y={yPix(b.y0)} width={NODE_LINE_W}
+                                height={Math.max(1, yPix(b.y1) - yPix(b.y0))}
+                                fill={ICICLE_STRIPE_COLOR[b.node.category] || ICICLE_STRIPE_COLOR.neutral}
+                                onMouseEnter={(e) => showTip(b, e)} onMouseLeave={hideTip} className="cursor-default" />
+                        ))}
+                        {/* column headers — always visible, never overlaps edge labels since it lives in the reserved header band */}
                         {Object.values(headerByDepth).map((b, i) => (
                             <g key={`hdr-${i}`}>
-                                <text x={b.depth * COL_W + BAR_W / 2} y={HEADER_H - 20} textAnchor="middle"
+                                <text x={b.depth * COL_W + NODE_LINE_W / 2} y={HEADER_H - 20} textAnchor="middle"
                                     fontSize="10.5" fontWeight="700" fill="rgb(226 232 240)">
                                     {b.node.label.length > 18 ? b.node.label.slice(0, 17) + '…' : b.node.label}
                                 </text>
-                                <text x={b.depth * COL_W + BAR_W / 2} y={HEADER_H - 8} textAnchor="middle"
+                                <text x={b.depth * COL_W + NODE_LINE_W / 2} y={HEADER_H - 8} textAnchor="middle"
                                     fontSize="9.5" fill="rgb(148 163 184)">
                                     {inrCroreShort(b.node.value)}
                                 </text>
