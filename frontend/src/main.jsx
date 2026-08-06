@@ -1289,8 +1289,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // Column x-positions: every column is COL_W wide, plus a small
             // extra lane right after any column that has overflow labels to
             // place — so a label always lands immediately beside the block
-            // it describes, never far across the chart.
-            const LABEL_LANE_W = 118;
+            // it describes, never far across the chart. The lane is sized to
+            // fit the LONGEST overflow label in full (no truncation) rather
+            // than a fixed guess.
+            const maxOverflowLabelLen = Object.values(rawOverflowByDepth)
+                .flat().reduce((m, it) => Math.max(m, it.bar.node.label.length), 0);
+            const LABEL_LANE_W = Math.min(260, Math.max(70, maxOverflowLabelLen * 5.6 + 26));
             const colX = [0];
             for (let d = 0; d <= maxDepth; d++) {
                 colX.push(colX[d] + COL_W + (rawOverflowByDepth[d]?.length ? LABEL_LANE_W : 0));
@@ -1372,7 +1376,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                                 strokeWidth="1" opacity={0.75} />
                                             <text x={leader.labelX + 4} y={leader.labelY} dominantBaseline="middle"
                                                 className="select-none" fontSize="9.5" fontWeight="600" fill="rgb(203 213 225)">
-                                                {e.bar.node.label.length > 16 ? e.bar.node.label.slice(0, 15) + '…' : e.bar.node.label}
+                                                {e.bar.node.label}
                                             </text>
                                         </>
                                     )}
