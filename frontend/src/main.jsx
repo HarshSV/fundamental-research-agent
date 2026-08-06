@@ -1052,10 +1052,212 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: Consolidated Income Statement Flow — Graph 2. Reuses
-        // the SAME reconciliation-safe income tree already built for the
-        // Overview page (see components/IncomeSankey.jsx's IncomeTree) — no
-        // second rendering implementation for the same node/link shape.
+        // --- SUBCOMPONENT: Consolidated Income Statement Flow — Graph 2.
+        // Straight-edge icicle-style flow diagram: same nodes/links data and
+        // the same reconciliation-safe tree-building logic as Overview's
+        // IncomeTree (component/IncomeSankey.jsx) — this just lays the SAME
+        // tree out as proportional stacked columns connected by straight
+        // (non-curved) flow bands instead of indented rows. Column/bar
+        // geometry is computed entirely in percentage/viewBox units so it
+        // can never overflow the card regardless of how many levels or how
+        // long labels are. Labels are only drawn inline on a bar when there
+        // is room for them without overlapping a neighbor; every bar (labeled
+        // or not) exposes its full detail via hover, so no information is
+        // ever lost to a bar too small to caption.
+        const ICICLE_COLOR = {
+            profit: 'rgb(34 197 94)',
+            cost: 'rgb(239 68 68)',
+            tax: 'rgb(185 28 28)',
+            other: 'rgb(96 165 250)',
+            neutral: 'rgb(100 116 139)',
+        };
+        const icicleColorFor = (node) => {
+            if (isFiniteNum(node.value) && node.value < 0) return 'rgb(239 68 68)';
+            return ICICLE_COLOR[node.category] || ICICLE_COLOR.neutral;
+        };
+        function isFiniteNum(v) { return typeof v === 'number' && Number.isFinite(v); }
+
+        const IcicleHoverCard = ({ n }) => (
+            <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-xl px-3 py-2 max-w-[220px]">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: icicleColorFor(n) }} />
+                    <span className="text-[12px] font-bold text-slate-100">{n.label}</span>
+                </div>
+                <p className="text-[11px] text-slate-300 nv-num">{inrCroreShort(n.value)}</p>
+                {n.pctOfRoot != null && (
+                    <p className="text-[10px] text-slate-500 mt-0.5">{n.pctOfRoot.toFixed(1)}% of Revenue</p>
+                )}
+                {n.pctOfParent != null && n.parentLabel && (
+                    <p className="text-[10px] text-slate-500">{n.pctOfParent.toFixed(1)}% of {n.parentLabel}</p>
+                )}
+            </div>
+        );
+
+        const IncomeFlowIcicle = ({ nodes, links }) => {
+            const [hover, setHover] = useState(null); // { n, x, y }
+            const wrapRef = useRef(null);
+
+            const layout = React.useMemo(() => {
+                const nodesById = {};
+                nodes.forEach((n) => { nodesById[n.id] = n; });
+                const childrenOf = {};
+                const hasParent = new Set();
+                links.forEach((l) => {
+                    if (!childrenOf[l.source]) childrenOf[l.source] = [];
+                    childrenOf[l.source].push(l.target);
+                    hasParent.add(l.target);
+                });
+                const rootCandidates = nodes.filter((n) => !hasParent.has(n.id));
+                if (!rootCandidates.length) return null;
+                const mergeSources = rootCandidates.length > 1 ? rootCandidates : [];
+                const treeRootId = mergeSources.length ? childrenOf[mergeSources[0].id]?.[0] : rootCandidates[0].id;
+                if (!treeRootId || !nodesById[treeRootId]) return null;
+
+                const rank = (id) => (nodesById[id].category === 'profit' ? 0 : nodesById[id].category === 'other' ? 1 : 2);
+                const depthOffset = mergeSources.length ? 1 : 0;
+                const bars = []; // { node, depth, y0, y1, parentId, parentLabel }
+
+                let rootTotal;
+                if (mergeSources.length) {
+                    let cur = 0;
+                    const ordered = [...mergeSources];
+                    ordered.forEach((ms) => {
+                        const h = Math.abs(ms.value) || 0;
+                        bars.push({ node: ms, depth: 0, y0: cur, y1: cur + h, parentId: null, parentLabel: null });
+                        cur += h;
+                    });
+                    rootTotal = cur || 1;
+                } else {
+                    rootTotal = Math.abs(nodesById[treeRootId].value) || 1;
+                }
+                bars.push({ node: nodesById[treeRootId], depth: depthOffset, y0: 0, y1: rootTotal, parentId: null, parentLabel: null });
+
+                (function walk(id, depth, y0, y1, parentLabel) {
+                    const kids = [...(childrenOf[id] || [])].filter((cid) => nodesById[cid]).sort((a, b) => rank(a) - rank(b));
+                    const total = kids.reduce((s, cid) => s + (Math.abs(nodesById[cid].value) || 0), 0);
+                    let cur = y0;
+                    kids.forEach((cid) => {
+                        const share = total > 0 ? (Math.abs(nodesById[cid].value) || 0) / total : 0;
+                        const h = share * (y1 - y0);
+                        const cy0 = cur, cy1 = cur + h;
+                        bars.push({ node: nodesById[cid], depth: depth + 1, y0: cy0, y1: cy1, parentId: id, parentLabel });
+                        walk(cid, depth + 1, cy0, cy1, nodesById[cid].label);
+                        cur += h;
+                    });
+                })(treeRootId, depthOffset, 0, rootTotal, nodesById[treeRootId].label);
+
+                const maxDepth = bars.reduce((m, b) => Math.max(m, b.depth), 0);
+                return { bars, rootTotal, maxDepth, hasMergeSources: mergeSources.length > 0 };
+            }, [nodes, links]);
+
+            if (!layout) return null;
+            const { bars, rootTotal, maxDepth } = layout;
+
+            const COL_W = 190, BAR_W = 96, HEADER_H = 34, BODY_H = 320, PAD_B = 6;
+            const totalW = (maxDepth + 1) * COL_W;
+            const totalH = HEADER_H + BODY_H + PAD_B;
+            const yPix = (v) => HEADER_H + (v / rootTotal) * BODY_H;
+            const MIN_LABEL_H = 22;
+
+            // Header per column = the topmost (y0 === 0) bar in that depth —
+            // the continuous "spine" (Revenue -> Operating Profit -> PBT ->
+            // Net Profit) that every icicle chart anchors at the top edge.
+            const headerByDepth = {};
+            bars.forEach((b) => {
+                if (b.y0 <= 1e-9) {
+                    const existing = headerByDepth[b.depth];
+                    if (!existing || b.y1 - b.y0 > existing.y1 - existing.y0) headerByDepth[b.depth] = b;
+                }
+            });
+
+            const showTip = (b, e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const parentBar = bars.find(x => x.node.id === b.parentId);
+                const n = {
+                    ...b.node,
+                    pctOfRoot: (Math.abs(b.node.value) / rootTotal) * 100,
+                    pctOfParent: parentBar && (parentBar.y1 - parentBar.y0) > 0
+                        ? ((b.y1 - b.y0) / (parentBar.y1 - parentBar.y0)) * 100
+                        : null,
+                    parentLabel: b.parentLabel,
+                };
+                setHover({ n, x: rect.left + rect.width / 2, y: rect.top });
+            };
+            const hideTip = () => setHover(null);
+
+            return (
+                <div ref={wrapRef} className="w-full overflow-hidden">
+                    <svg viewBox={`0 0 ${totalW} ${totalH}`} className="w-full h-auto" style={{ maxHeight: 420 }} preserveAspectRatio="xMidYMid meet">
+                        {/* flow bands, drawn first so bars sit on top */}
+                        {bars.map((b, i) => {
+                            if (!b.parentId) return null;
+                            const parentBar = bars.find(x => x.node.id === b.parentId);
+                            if (!parentBar) return null;
+                            const x1 = parentBar.depth * COL_W + BAR_W;
+                            const x2 = b.depth * COL_W;
+                            const y1a = yPix(b.y0), y1b = yPix(b.y1);
+                            const fill = icicleColorFor(b.node);
+                            return (
+                                <polygon key={`link-${i}`}
+                                    points={`${x1},${y1a} ${x1},${y1b} ${x2},${y1b} ${x2},${y1a}`}
+                                    fill={fill} opacity={0.18} />
+                            );
+                        })}
+                        {/* bars */}
+                        {bars.map((b, i) => {
+                            const x = b.depth * COL_W;
+                            const y = yPix(b.y0);
+                            const h = Math.max(1, yPix(b.y1) - yPix(b.y0));
+                            const fill = icicleColorFor(b.node);
+                            const isHeader = headerByDepth[b.depth] === b;
+                            const canLabel = h >= MIN_LABEL_H;
+                            return (
+                                <g key={`bar-${i}`} className="cursor-default"
+                                    onMouseEnter={(e) => showTip(b, e)} onMouseLeave={hideTip}>
+                                    <rect x={x} y={y} width={BAR_W} height={h} rx={3} fill={fill} opacity={0.85} />
+                                    {!isHeader && canLabel && (
+                                        <text x={x + BAR_W / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle"
+                                            className="select-none" fontSize="10.5" fontWeight="600" fill="white">
+                                            {b.node.label.length > 16 ? b.node.label.slice(0, 15) + '…' : b.node.label}
+                                        </text>
+                                    )}
+                                </g>
+                            );
+                        })}
+                        {/* column headers — always visible, never overlaps bar labels since it lives in the reserved header band */}
+                        {Object.values(headerByDepth).map((b, i) => (
+                            <g key={`hdr-${i}`}>
+                                <text x={b.depth * COL_W + BAR_W / 2} y={HEADER_H - 20} textAnchor="middle"
+                                    fontSize="10.5" fontWeight="700" fill="rgb(226 232 240)">
+                                    {b.node.label.length > 18 ? b.node.label.slice(0, 17) + '…' : b.node.label}
+                                </text>
+                                <text x={b.depth * COL_W + BAR_W / 2} y={HEADER_H - 8} textAnchor="middle"
+                                    fontSize="9.5" fill="rgb(148 163 184)">
+                                    {inrCroreShort(b.node.value)}
+                                </text>
+                            </g>
+                        ))}
+                    </svg>
+                    {hover && createPortal(
+                        <div className="fixed z-50 pointer-events-none transition-opacity duration-100"
+                            style={{ left: hover.x, top: hover.y - 8, transform: 'translate(-50%, -100%)' }}>
+                            <IcicleHoverCard n={hover.n} />
+                        </div>,
+                        document.body
+                    )}
+                    <p className="text-[10px] text-slate-600 mt-1.5">Hover any block for its exact value and share.</p>
+                </div>
+            );
+        };
+
+        function inrCroreShort(v) {
+            const cr = v / 1e7; // v arrives in raw rupees, same convention as IncomeTree
+            const abs = Math.abs(cr);
+            if (abs >= 100000) return `₹${(cr / 100000).toFixed(2)}L Cr`;
+            if (abs >= 1000) return `₹${(cr / 1000).toFixed(2)}K Cr`;
+            return `₹${cr.toFixed(0)} Cr`;
+        }
+
         const IncomeStatementFlowCard = ({ chart, unavailableReason }) => {
             const nodes = chart?.nodes;
             const links = chart?.links;
@@ -1081,7 +1283,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             <span className="text-slate-600"> · FY{chart.fiscalYear} · {chart.basis === 'standalone' ? 'Standalone' : 'Consolidated'} · Annual Report</span>
                         )}
                     </p>
-                    <IncomeTree nodes={scaledNodes} links={scaledLinks} />
+                    <IncomeFlowIcicle nodes={scaledNodes} links={scaledLinks} />
                 </div>
             );
         };
