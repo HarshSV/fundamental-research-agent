@@ -1302,19 +1302,19 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // trapezoid running from just past the source node's stripe to
             // just before the target node's stripe.
             const edges = [];
-            (mergeLinks || []).forEach((m, i) => {
+            (mergeLinks || []).forEach((m) => {
                 edges.push({
-                    key: `merge-${i}`, bar: m.fromBar,
+                    key: `merge-${m.fromBar.node.id}`, bar: m.fromBar,
                     x1: colX[m.fromBar.depth] + NODE_LINE_W, x2: colX[m.fromBar.depth + 1],
                     ly0: m.fromBar.y0, ly1: m.fromBar.y1, ry0: m.toY0, ry1: m.toY1,
                 });
             });
-            bars.forEach((b, i) => {
+            bars.forEach((b) => {
                 if (!b.parentId || b.srcY0 == null) return;
                 const parentBar = bars.find(x => x.node.id === b.parentId);
                 if (!parentBar) return;
                 edges.push({
-                    key: `edge-${i}`, bar: b,
+                    key: `edge-${b.node.id}`, bar: b,
                     x1: colX[parentBar.depth] + NODE_LINE_W, x2: colX[b.depth],
                     ly0: b.srcY0, ly1: b.srcY1, ry0: b.y0, ry1: b.y1,
                 });
@@ -1408,7 +1408,6 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         </div>,
                         document.body
                     )}
-                    <p className="text-[10px] text-slate-600 mt-1.5">Hover any block for its exact value and share.</p>
                 </div>
             );
         };
