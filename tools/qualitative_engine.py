@@ -663,7 +663,13 @@ _GENERAL_RECURRING_REASONING_RE = re.compile(
     r"repeat custom|habitual|non-?discretionary|fmcg|daily use|routine (purchase|consumption)",
     re.I,
 )
-_BIZ_COMP_SCHEMA_VERSION = 7
+# v8: the Ind AS 108 segment parser was fixed (see
+# annual_report_financials._extract_segment_revenue_matrix), so companies that
+# previously fell back to the single-block "Focused / Single Business" view
+# purely because their segment note failed to parse — Reliance among them — now
+# resolve real reportable segments. Bumped so the 30-day cached single-segment
+# payloads are recomputed instead of being served for another month.
+_BIZ_COMP_SCHEMA_VERSION = 8
 
 
 def compute_business_composition(symbol, name=None, description="", force=False):

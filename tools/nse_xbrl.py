@@ -3451,7 +3451,7 @@ def fetch_income_statement_flow(symbol, name=None, to_date=None):
     Profit flow can't be built from the P&L page. Cached; never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"incflow_v8_{sym}_{to_date or 'latest'}"
+    ckey = f"incflow_v9_{sym}_{to_date or 'latest'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached

@@ -2442,7 +2442,19 @@ _SEGMENT_EXCLUDE_RE = re.compile(
     # PDF text-extraction artifacts from a date split across lines (e.g. "31st
     # March, 2026" fragmenting into a stray "st March," label) — never a real
     # segment name, always noise.
-    r"^\w{0,3}(st|nd|rd|th)\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)",
+    r"^\w{0,3}(st|nd|rd|th)\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|"
+    # Narrative/period text sitting inside the segment note. Numbers embedded
+    # in that prose ("March 31", "April 1", "Ind AS 115") otherwise parse as
+    # if they were segment figures: Infosys' note yielded 9 such phantom
+    # columns worth 31/1/115 Cr alongside its 4 real geographies, and the
+    # combined set still slipped under the reconciliation tolerance because
+    # the junk is tiny next to a 1,78,650 Cr revenue base. A reportable
+    # segment is a NAME, never a sentence fragment or a period caption.
+    r"\b(year|quarter|period|month)s?\s+end(ed|ing)\b|\bas\s+(at|of)\b|"
+    r"\b(for|during)\s+the\b|\bind\s*as\b|\bifrs\b|practical\s+expedient|"
+    r"unearned|\b(january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b|"
+    r"^(the|of|and|from|arising|applying|including)\b",
     re.I)
 
 
@@ -3846,7 +3858,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     cache after acquiring the lock (not just before), since another thread
     may have already finished the fetch while this one was waiting."""
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_extract_v12_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v13_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3875,7 +3887,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # cached extractions had operating_cash_flow/capex_*/*_repayment/
     # net_fixed_assets all silently null and would otherwise keep being
     # served for the remainder of their 90-day TTL regardless of the fix.
-    ckey = f"ar_extract_v12_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v13_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -4316,7 +4328,7 @@ def fetch_income_statement_flow_from_annual_report(symbol, name, fiscal_year, co
     Cached 90 days via the shared extraction cache. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_incflow_v8_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_incflow_v9_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
