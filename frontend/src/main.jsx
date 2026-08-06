@@ -867,7 +867,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const segs = (chart?.segments || []).filter(s => s && s.name && s.share_pct > 0);
             const residualPct = chart?.residualPct || 0;
             const hasResidual = residualPct > 0.5;
-            const [openWhy, setOpenWhy] = useState(false);
+            const [openWhy, setOpenWhy] = useState(true);
             // A SINGLE shared hover state, rendered as ONE tooltip instance
             // (not one copy per segment div) — two separate hover surfaces
             // (bar + legend) previously both rendered their own copy whenever
