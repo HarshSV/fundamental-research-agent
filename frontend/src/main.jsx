@@ -1115,55 +1115,125 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
                 const rank = (id) => (nodesById[id].category === 'profit' ? 0 : nodesById[id].category === 'other' ? 1 : 2);
                 const depthOffset = mergeSources.length ? 1 : 0;
-                const bars = []; // { node, depth, y0, y1, parentId, parentLabel }
+                // bars: { node, depth, y0, y1 (own rendered slot, WITH a gap
+                // before each non-first sibling), height, srcY0, srcY1
+                // (the tight, gap-free slice this flow occupies inside its
+                // PARENT's slot — used only for the link's parent-side edge),
+                // parentId, parentLabel }. mergeLinks handles the reverse,
+                // many-to-one case (several segments merging into one
+                // Revenue bar) separately since a single "srcY" pair on the
+                // child can't represent multiple distinct parents.
+                const bars = [];
+                const mergeLinks = []; // { fromBar, toY0, toY1 } — segment's own (gapped) slot -> its tight slice inside Revenue
 
-                let rootTotal;
+                let rawRootTotal;
+                if (mergeSources.length) rawRootTotal = mergeSources.reduce((s, m) => s + (Math.abs(m.value) || 0), 0) || 1;
+                else rawRootTotal = Math.abs(nodesById[treeRootId].value) || 1;
+                // A small gap between sibling blocks — same convention the
+                // reference "straight-edge" icicle uses — is what makes a
+                // flow band read as a distinct diagonal ribbon rather than a
+                // flat, indistinguishable rectangle: the band has to bridge
+                // from its tight (gap-free) slice inside the parent to its
+                // own gapped slot, so it necessarily slants.
+                const GAP = rawRootTotal * 0.01;
+
+                // Level 0
                 if (mergeSources.length) {
                     let cur = 0;
-                    const ordered = [...mergeSources];
-                    ordered.forEach((ms) => {
+                    mergeSources.forEach((ms) => {
                         const h = Math.abs(ms.value) || 0;
-                        bars.push({ node: ms, depth: 0, y0: cur, y1: cur + h, parentId: null, parentLabel: null });
-                        cur += h;
+                        bars.push({ node: ms, depth: 0, y0: cur, y1: cur + h, height: h, srcY0: null, srcY1: null, parentId: null, parentLabel: null });
+                        cur += h + GAP;
                     });
-                    rootTotal = cur || 1;
+                    // Revenue itself: one bar, no internal gap (it's a single
+                    // node), fed by every segment above. Each segment's link
+                    // targets a tight, contiguous slice of Revenue matching
+                    // segment order — that contiguous-vs-gapped mismatch is
+                    // what makes the segment->Revenue bands slant too.
+                    bars.push({ node: nodesById[treeRootId], depth: depthOffset, y0: 0, y1: rawRootTotal, height: rawRootTotal, srcY0: null, srcY1: null, parentId: null, parentLabel: null });
+                    let slice = 0;
+                    mergeSources.forEach((ms) => {
+                        const h = Math.abs(ms.value) || 0;
+                        const fromBar = bars.find((b) => b.node.id === ms.id);
+                        mergeLinks.push({ fromBar, toY0: slice, toY1: slice + h });
+                        slice += h;
+                    });
                 } else {
-                    rootTotal = Math.abs(nodesById[treeRootId].value) || 1;
+                    bars.push({ node: nodesById[treeRootId], depth: depthOffset, y0: 0, y1: rawRootTotal, height: rawRootTotal, srcY0: null, srcY1: null, parentId: null, parentLabel: null });
                 }
-                bars.push({ node: nodesById[treeRootId], depth: depthOffset, y0: 0, y1: rootTotal, parentId: null, parentLabel: null });
 
-                (function walk(id, depth, y0, y1, parentLabel) {
-                    const kids = [...(childrenOf[id] || [])].filter((cid) => nodesById[cid]).sort((a, b) => rank(a) - rank(b));
-                    const total = kids.reduce((s, cid) => s + (Math.abs(nodesById[cid].value) || 0), 0);
-                    let cur = y0;
-                    kids.forEach((cid) => {
-                        const share = total > 0 ? (Math.abs(nodesById[cid].value) || 0) / total : 0;
-                        const h = share * (y1 - y0);
-                        const cy0 = cur, cy1 = cur + h;
-                        bars.push({ node: nodesById[cid], depth: depth + 1, y0: cy0, y1: cy1, parentId: id, parentLabel });
-                        walk(cid, depth + 1, cy0, cy1, nodesById[cid].label);
-                        cur += h;
+                // Walk level by level (not a single DFS) so every sibling's
+                // gapped position at depth d is finalized before its own
+                // children's positions (depth d+1) are computed from it.
+                let frontier = bars.filter((b) => b.depth === depthOffset);
+                let depth = depthOffset;
+                while (frontier.length) {
+                    // Collect this level's children first (tight, gap-free
+                    // slice inside each parent — this is the link's true
+                    // source-side edge), grouped in parent-frontier order.
+                    const nextRaw = [];
+                    frontier.forEach((parentBar) => {
+                        const kids = [...(childrenOf[parentBar.node.id] || [])].filter((cid) => nodesById[cid]).sort((a, b) => rank(a) - rank(b));
+                        const total = kids.reduce((s, cid) => s + (Math.abs(nodesById[cid].value) || 0), 0);
+                        let cur = parentBar.y0;
+                        kids.forEach((cid) => {
+                            const share = total > 0 ? (Math.abs(nodesById[cid].value) || 0) / total : 0;
+                            const h = share * (parentBar.y1 - parentBar.y0);
+                            nextRaw.push({
+                                node: nodesById[cid], depth: depth + 1, height: h,
+                                srcY0: cur, srcY1: cur + h,
+                                parentId: parentBar.node.id, parentLabel: parentBar.node.label,
+                            });
+                            cur += h;
+                        });
                     });
-                })(treeRootId, depthOffset, 0, rootTotal, nodesById[treeRootId].label);
+                    // Now place them top-down in their own column WITH a gap
+                    // between each — this is what shifts them away from
+                    // their tight source slice and produces the diagonal.
+                    let cur = 0;
+                    nextRaw.forEach((b) => {
+                        b.y0 = cur; b.y1 = cur + b.height;
+                        cur += b.height + GAP;
+                    });
+                    bars.push(...nextRaw);
+                    frontier = nextRaw;
+                    depth += 1;
+                }
 
+                // The whole chart's vertical scale must use ONE consistent
+                // pixel-per-value ratio across every column (that's what
+                // makes narrowing/widening between columns meaningful), so
+                // find the tallest column's total gapped extent and scale
+                // everything to fit that — columns with fewer/larger gaps
+                // just don't use the full height, they don't get stretched.
                 const maxDepth = bars.reduce((m, b) => Math.max(m, b.depth), 0);
-                return { bars, rootTotal, maxDepth, hasMergeSources: mergeSources.length > 0 };
+                let layoutExtent = rawRootTotal;
+                for (let d = 0; d <= maxDepth; d++) {
+                    const colMax = bars.filter((b) => b.depth === d).reduce((m, b) => Math.max(m, b.y1), 0);
+                    layoutExtent = Math.max(layoutExtent, colMax);
+                }
+
+                return { bars, mergeLinks, rootTotal: rawRootTotal, layoutExtent, maxDepth, hasMergeSources: mergeSources.length > 0 };
             }, [nodes, links]);
 
             if (!layout) return null;
-            const { bars, rootTotal, maxDepth } = layout;
+            const { bars, mergeLinks, rootTotal, layoutExtent, maxDepth, hasMergeSources } = layout;
 
             const COL_W = 190, BAR_W = 96, HEADER_H = 34, BODY_H = 320, PAD_B = 6;
             const totalW = (maxDepth + 1) * COL_W;
             const totalH = HEADER_H + BODY_H + PAD_B;
-            const yPix = (v) => HEADER_H + (v / rootTotal) * BODY_H;
+            const yPix = (v) => HEADER_H + (v / layoutExtent) * BODY_H;
             const MIN_LABEL_H = 22;
 
             // Header per column = the topmost (y0 === 0) bar in that depth —
             // the continuous "spine" (Revenue -> Operating Profit -> PBT ->
             // Net Profit) that every icicle chart anchors at the top edge.
+            // Skipped for the leftmost segments column (if any) since those
+            // are parallel siblings, not a spine — each already gets its own
+            // inline label, same as the reference chart.
             const headerByDepth = {};
             bars.forEach((b) => {
+                if (hasMergeSources && b.depth === 0) return;
                 if (b.y0 <= 1e-9) {
                     const existing = headerByDepth[b.depth];
                     if (!existing || b.y1 - b.y0 > existing.y1 - existing.y0) headerByDepth[b.depth] = b;
@@ -1176,9 +1246,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const n = {
                     ...b.node,
                     pctOfRoot: (Math.abs(b.node.value) / rootTotal) * 100,
-                    pctOfParent: parentBar && (parentBar.y1 - parentBar.y0) > 0
-                        ? ((b.y1 - b.y0) / (parentBar.y1 - parentBar.y0)) * 100
-                        : null,
+                    pctOfParent: parentBar && parentBar.height > 0 ? (b.height / parentBar.height) * 100 : null,
                     parentLabel: b.parentLabel,
                 };
                 setHover({ n, x: rect.left + rect.width / 2, y: rect.top });
@@ -1188,19 +1256,33 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             return (
                 <div ref={wrapRef} className="w-full overflow-hidden">
                     <svg viewBox={`0 0 ${totalW} ${totalH}`} className="w-full h-auto" style={{ maxHeight: 420 }} preserveAspectRatio="xMidYMid meet">
-                        {/* flow bands, drawn first so bars sit on top */}
+                        {/* flow bands, drawn first so bars sit on top. Each
+                            band bridges the tight (gap-free) slice it
+                            occupies at its source to its own gapped slot at
+                            the target — that mismatch is what gives every
+                            band a real diagonal edge instead of a flat,
+                            indistinguishable rectangle. */}
+                        {mergeLinks?.map((m, i) => {
+                            const x1 = m.fromBar.depth * COL_W + BAR_W;
+                            const x2 = (m.fromBar.depth + 1) * COL_W;
+                            const fill = icicleColorFor(m.fromBar.node);
+                            return (
+                                <polygon key={`merge-${i}`}
+                                    points={`${x1},${yPix(m.fromBar.y0)} ${x1},${yPix(m.fromBar.y1)} ${x2},${yPix(m.toY1)} ${x2},${yPix(m.toY0)}`}
+                                    fill={fill} opacity={0.2} />
+                            );
+                        })}
                         {bars.map((b, i) => {
-                            if (!b.parentId) return null;
+                            if (!b.parentId || b.srcY0 == null) return null;
                             const parentBar = bars.find(x => x.node.id === b.parentId);
                             if (!parentBar) return null;
                             const x1 = parentBar.depth * COL_W + BAR_W;
                             const x2 = b.depth * COL_W;
-                            const y1a = yPix(b.y0), y1b = yPix(b.y1);
                             const fill = icicleColorFor(b.node);
                             return (
                                 <polygon key={`link-${i}`}
-                                    points={`${x1},${y1a} ${x1},${y1b} ${x2},${y1b} ${x2},${y1a}`}
-                                    fill={fill} opacity={0.18} />
+                                    points={`${x1},${yPix(b.srcY0)} ${x1},${yPix(b.srcY1)} ${x2},${yPix(b.y1)} ${x2},${yPix(b.y0)}`}
+                                    fill={fill} opacity={0.2} />
                             );
                         })}
                         {/* bars */}
