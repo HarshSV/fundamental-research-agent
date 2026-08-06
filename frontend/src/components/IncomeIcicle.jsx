@@ -32,6 +32,7 @@ const ICICLE_COLOR = {
     neutral: 'rgb(100 116 139)',
 };
 const icicleColorFor = (node) => {
+    if (node.isSegment) return ICICLE_COLOR.neutral; // revenue-composition segments (O2C, Retail, ...) are always neutral grey, never colored by category
     if (isFiniteNum(node.value) && node.value < 0) return 'rgb(239 68 68)';
     return ICICLE_COLOR[node.category] || ICICLE_COLOR.neutral;
 };
@@ -42,6 +43,7 @@ const ICICLE_STRIPE_COLOR = {
     other: 'rgb(37 99 235)',
     neutral: 'rgb(51 65 85)',
 };
+const stripeColorFor = (bar) => (bar.isSegment ? ICICLE_STRIPE_COLOR.neutral : (ICICLE_STRIPE_COLOR[bar.node.category] || ICICLE_STRIPE_COLOR.neutral));
 function isFiniteNum(v) { return typeof v === 'number' && Number.isFinite(v); }
 
 export function inrCroreShort(v) {
@@ -110,14 +112,14 @@ export function IncomeIcicle({ nodes, links }) {
         // flat, indistinguishable rectangle: the band has to bridge
         // from its tight (gap-free) slice inside the parent to its
         // own gapped slot, so it necessarily slants.
-        const GAP = rawRootTotal * 0.012;
+        const GAP = rawRootTotal * 0.026;
 
         // Level 0
         if (mergeSources.length) {
             let cur = 0;
             mergeSources.forEach((ms) => {
                 const h = Math.abs(ms.value) || 0;
-                bars.push({ node: ms, depth: 0, y0: cur, y1: cur + h, height: h, srcY0: null, srcY1: null, parentId: null, parentLabel: null });
+                bars.push({ node: ms, depth: 0, y0: cur, y1: cur + h, height: h, srcY0: null, srcY1: null, parentId: null, parentLabel: null, isSegment: true });
                 cur += h + GAP;
             });
             // Revenue itself: one bar, no internal gap (it's a single
@@ -219,6 +221,7 @@ export function IncomeIcicle({ nodes, links }) {
         const parentBar = bars.find(x => x.node.id === b.parentId);
         const n = {
             ...b.node,
+            isSegment: b.isSegment,
             pctOfRoot: (Math.abs(b.node.value) / rootTotal) * 100,
             pctOfParent: parentBar && parentBar.height > 0 ? (b.height / parentBar.height) * 100 : null,
             parentLabel: b.parentLabel,
@@ -307,7 +310,7 @@ export function IncomeIcicle({ nodes, links }) {
         <div ref={wrapRef} className="w-full overflow-hidden">
             <svg viewBox={`0 0 ${totalW} ${totalH}`} className="w-full h-auto" style={{ maxHeight: 420 }} preserveAspectRatio="xMidYMid meet">
                 {edges.map((e) => {
-                    const fill = icicleColorFor(e.bar.node);
+                    const fill = icicleColorFor({ ...e.bar.node, isSegment: e.bar.isSegment });
                     const ly0 = yPix(e.ly0), ly1 = yPix(e.ly1), ry0 = yPix(e.ry0), ry1 = yPix(e.ry1);
                     const isHeader = headerByDepth[e.bar.depth] === e.bar;
                     const minH = Math.min(ly1 - ly0, ry1 - ry0);
@@ -333,7 +336,7 @@ export function IncomeIcicle({ nodes, links }) {
                                 <>
                                     <polyline
                                         points={`${leader.fromX},${leader.fromY} ${leader.labelX - 6},${leader.labelY} ${leader.labelX},${leader.labelY}`}
-                                        fill="none" stroke={ICICLE_STRIPE_COLOR[e.bar.node.category] || ICICLE_STRIPE_COLOR.neutral}
+                                        fill="none" stroke={stripeColorFor(e.bar)}
                                         strokeWidth="1" opacity={0.75} />
                                     <text x={leader.labelX + 4} y={leader.labelY} dominantBaseline="middle"
                                         className="select-none" fontSize="9.5" fontWeight="600" fill="rgb(203 213 225)">
@@ -349,7 +352,7 @@ export function IncomeIcicle({ nodes, links }) {
                 {bars.map((b, i) => (
                     <rect key={`stripe-${i}`} x={colX[b.depth]} y={yPix(b.y0)} width={NODE_LINE_W}
                         height={Math.max(1, yPix(b.y1) - yPix(b.y0))}
-                        fill={ICICLE_STRIPE_COLOR[b.node.category] || ICICLE_STRIPE_COLOR.neutral}
+                        fill={stripeColorFor(b)}
                         onMouseEnter={(e) => showTip(b, e)} onMouseLeave={hideTip} className="cursor-default" />
                 ))}
                 {/* column headers — always visible, never overlaps edge labels since it lives in the reserved header band */}
