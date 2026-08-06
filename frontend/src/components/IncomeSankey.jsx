@@ -1,16 +1,16 @@
 import React from 'react';
 import { inrCrore, isNum } from '../lib/format.js';
 import { fetchRatio } from '../lib/api.js';
+import { IncomeIcicle } from './IncomeIcicle.jsx';
 
 /*
- * Income-statement hierarchy tree for the stock Overview page. Renders a
- * nodes/links graph (see `fromApiFlow` / `buildShallowFallback`) as an
- * indented tree — replaces an earlier Sankey-ribbon rendering, which kept
- * overflowing its card (min-width forcing horizontal scroll, labels running
- * past the card edge) no matter how much the ribbon geometry was tuned. A
- * tree is a strictly better fit here: it's a block layout, so it can never
- * exceed the card's own width — rows wrap/truncate like normal text instead
- * of a fixed-viewBox SVG canvas needing its own scroll area.
+ * Income-statement flow for the stock Overview page. Builds a nodes/links
+ * graph (see `fromApiFlow` / `buildShallowFallback`) and renders it with
+ * IncomeIcicle (./IncomeIcicle.jsx) — the same straight-edge icicle chart
+ * used on the Qualitative Analysis page's "Consolidated Income Statement
+ * Flow" card, so both pages show the identical chart for the identical
+ * tree. `IncomeTree` (below) is kept as the plain indented-row rendering
+ * this graph also supports, in case a non-SVG fallback is ever needed.
  *
  * Primary data source: /api/v1/income-statement-flow — built entirely from
  * the company's own Annual Report P&L (tools/annual_report_financials.py's
@@ -248,7 +248,7 @@ export default function IncomeSankey({ incomeStmt, symbol, companyName }) {
           {year ? `FY${year}` : ''} · {basisLabel}
         </span>
       </div>
-      <IncomeTree nodes={graph.nodes} links={graph.links} />
+      <IncomeIcicle nodes={graph.nodes} links={graph.links} />
     </div>
   );
 }
