@@ -2418,7 +2418,10 @@ _SEGMENT_ROW_RE = re.compile(
     # Exports)", "Beauty & Wellbeing*") — segment names commonly carry one.
     r"([A-Za-z][A-Za-z0-9 &/,'\.\-\(\)]{2,60}?)\s+((?:\([\d,]+(?:\.\d{1,2})?\)|-?[\d,]+(?:\.\d{1,2})?))(?:\s|$)")
 _SEGMENT_EXCLUDE_RE = re.compile(
-    r"^(total|sub\s*-?\s*total|inter\s*-?\s*segment|unallocated|eliminat|less\s*:|add\s*:|external|internal|"
+    # "unalloc\w*" rather than a literal "unallocated": filers spell this
+    # column "Unallocable" just as often, and that spelling was slipping
+    # through as if it were a real reportable segment.
+    r"^(total|sub\s*-?\s*total|inter\s*-?\s*segment|unalloc\w*|eliminat|less\s*:|add\s*:|external|internal|"
     r"segment\s+revenue|revenue\s+from\s+operations|external\s+revenue|net\s+revenue)|"
     # Any label that IS or CONTAINS a subtotal/grand-total row (e.g. "FMCG -
     # Total", "Segment Total", "Gross Revenue from sale of products and
@@ -2494,11 +2497,34 @@ def _extract_segment_revenue_matrix(page, caption_word_y, total_revenue_cr, fact
         if num_row_idx is None or len(numeric_tokens) < 3:
             return []
 
-        # Header block: rows strictly between the most recent "20XX-XX"
-        # fiscal-year row above the caption and the numbers row itself —
-        # this is exactly the column-header band on Reliance's table, and
-        # generalizes to any filer using the same "(Rs Cr) / <year> / <col
-        # headers> / <section caption> / <data row>" block shape.
+        # The data row's own tokens define the true column geometry. Every
+        # later x-based decision is bounded by this span, which is what keeps
+        # a SECOND, unrelated table printed alongside on the same visual rows
+        # from contaminating the parse (confirmed on Reliance: a Cash Flow
+        # Hedge note occupies x~150-470 while the segment table sits at
+        # x~860-1140, and PDF extraction flattens both onto shared lines).
+        col_centers = [((w[0] + w[2]) / 2) for w in numeric_tokens]
+        spacings = [b - a for a, b in zip(col_centers, col_centers[1:])] or [40.0]
+        col_pitch = min(spacings)
+        x_lo, x_hi = col_centers[0] - col_pitch, col_centers[-1] + col_pitch
+
+        def _in_table(w):
+            wx = (w[0] + w[2]) / 2
+            return x_lo <= wx <= x_hi
+
+        def _numeric_tokens_in_table(row):
+            return [w for w in row
+                    if _in_table(w)
+                    and (_NUM_TOKEN_RE.match(w[4]) or _PERMISSIVE_NUM_TOKEN_RE.match(w[4]) or w[4] == "-")]
+
+        # Header block: the fiscal-year row and the wrapped header lines
+        # around it, down to (not including) the numbers row. The year row
+        # must be INCLUDED, not skipped: filers commonly print the year in
+        # the table's stub column on the SAME line as the segment names
+        # (Reliance: "2023-24  O2C  Oil and Gas  Retail  ...  Total"), so
+        # starting below it discarded every segment name and left nothing to
+        # label the columns with. The stray year token itself is stripped
+        # from the rebuilt label further down.
         year_row_idx = None
         for i in range(len(rows) - 1, -1, -1):
             row_y = (rows[i][0][1] + rows[i][0][3]) / 2
@@ -2508,28 +2534,46 @@ def _extract_segment_revenue_matrix(page, caption_word_y, total_revenue_cr, fact
             if re.search(r"\b\d{4}\s*-\s*\d{2,4}\b", row_text.strip()):
                 year_row_idx = i
                 break
-        header_start = year_row_idx + 1 if year_row_idx is not None else max(0, num_row_idx - 6)
+        if year_row_idx is not None:
+            # A header can wrap onto the line(s) ABOVE the year row too
+            # (Reliance splits "Digital Services" across the rows either side
+            # of it), so reach a little further up rather than starting
+            # exactly at the year row.
+            year_row_y = (rows[year_row_idx][0][1] + rows[year_row_idx][0][3]) / 2
+            header_start = year_row_idx
+            while header_start > 0:
+                prev_y = (rows[header_start - 1][0][1] + rows[header_start - 1][0][3]) / 2
+                if year_row_y - prev_y > 30:
+                    break
+                header_start -= 1
+        else:
+            header_start = max(0, num_row_idx - 6)
 
         header_words = []
         for i in range(header_start, num_row_idx):
             row_text_lower = " ".join(w[4] for w in rows[i]).strip().lower()
             if row_text_lower in ("segment", "revenue", "segment revenue") or row_text_lower.isdigit():
                 continue
-            header_words.extend(rows[i])
+            # Other DATA rows of the same table sit between the header band
+            # and the chosen numbers row (Reliance prints External Turnover /
+            # Inter Segment Turnover / Value of Sales / GST above it). Their
+            # figures are not header text, so never fold them into labels.
+            if len(_numeric_tokens_in_table(rows[i])) >= 3:
+                continue
+            header_words.extend(w for w in rows[i] if _in_table(w))
         if not header_words:
             return []
 
         # Assign each header word to its nearest numeric column by x-center,
         # then join words per column in reading order (top-to-bottom, then
         # left-to-right) to rebuild that column's full label.
-        col_centers = [((w[0] + w[2]) / 2) for w in numeric_tokens]
         col_words = [[] for _ in col_centers]
         for w in header_words:
             wx = (w[0] + w[2]) / 2
             nearest = min(range(len(col_centers)), key=lambda i: abs(col_centers[i] - wx))
             col_words[nearest].append(w)
 
-        segments = []
+        seg_cols = []  # [(column index, cleaned label)] for real segment columns only
         for ci, ws in enumerate(col_words):
             if not ws:
                 continue
@@ -2551,13 +2595,99 @@ def _extract_segment_revenue_matrix(page, caption_word_y, total_revenue_cr, fact
             # reads as visibly garbled prose/numbers rather than a plausible
             # segment name. Reject on any of those tells rather than ever
             # show a label an analyst would immediately recognize as broken.
-            if re.search(r"\d", label) or label.count(",") >= 2 or len(label.split()) > 6:
+            # Reject a label carrying a NUMERIC token (a stray figure that
+            # drifted in from a neighbouring column) rather than any digit at
+            # all — real segment names do contain digits ("O2C" is Reliance's
+            # largest segment, and a blanket digit test silently dropped it).
+            if (any(re.fullmatch(r"[\d,.()\-]+", tok) for tok in label.split())
+                    or label.count(",") >= 2 or len(label.split()) > 6):
                 continue
-            val = _parse_num(numeric_tokens[ci][4])
-            if val is None:
+            seg_cols.append((ci, label))
+        if len(seg_cols) < 2:
+            return []
+
+        # Align EVERY data row of this table to the column geometry above, so
+        # the right revenue row can be chosen by whether it reconciles rather
+        # than by which one happened to sit nearest the caption. A segment
+        # note stacks several rows under one set of headers (Reliance prints
+        # External Turnover / Inter Segment Turnover / Value of Sales and
+        # Services / less: GST Recovered / Revenue from Operations), and only
+        # some of them are on the same basis as the P&L's revenue line.
+        def _row_vector(row):
+            vec = {}
+            for w in _numeric_tokens_in_table(row):
+                wx = (w[0] + w[2]) / 2
+                nearest = min(range(len(col_centers)), key=lambda i: abs(col_centers[i] - wx))
+                # A token must actually sit in its column, not merely be
+                # nearest to one — this rejects the neighbouring table's
+                # figures instead of folding them into the first/last column.
+                if abs(col_centers[nearest] - wx) > col_pitch / 2:
+                    continue
+                val = _parse_num(w[4])
+                if val is not None:
+                    vec[nearest] = val * factor
+            return vec
+
+        candidates = []  # (row_text_lower, vector)
+        for i, row in enumerate(rows):
+            row_y = (row[0][1] + row[0][3]) / 2
+            if row_y <= caption_word_y + 1 or row_y > caption_word_y + 400:
                 continue
-            segments.append((label, val * factor))
-        return segments
+            vec = _row_vector(row)
+            if len(vec) >= max(2, len(seg_cols) - 1):
+                candidates.append((" ".join(w[4] for w in row).lower(), vec))
+        if not candidates:
+            return []
+
+        def _reconciles(vec, tol):
+            # Every labelled segment column must be present: a row missing one
+            # sums low and could otherwise sneak under the tolerance while
+            # silently dropping a whole segment from the breakdown.
+            if any(ci not in vec for ci, _ in seg_cols):
+                return None
+            segs = [(lbl, vec[ci]) for ci, lbl in seg_cols]
+            if len(segs) < 2 or any(v <= 0 for _, v in segs):
+                return None
+            total = sum(v for _, v in segs)
+            if total > 0 and abs(total - total_revenue_cr) / total_revenue_cr <= tol:
+                return segs
+            return None
+
+        # 1) A row that already reconciles on its own is always preferred.
+        for _, vec in candidates:
+            hit = _reconciles(vec, 0.06)
+            if hit:
+                return hit
+
+        # 2) Otherwise the disclosed per-segment revenue is gross of
+        #    inter-segment sales, which the consolidated P&L eliminates — so
+        #    it legitimately sums ABOVE the company's revenue (Reliance FY24:
+        #    segment rows total 10,23,840 vs revenue 9,14,472). Subtracting
+        #    the note's own "Inter Segment" row, column by column, is a
+        #    deterministic subtraction of two reported figures.
+        #
+        #    This path is held to a much tighter tolerance than the direct one
+        #    and restricted to revenue-basis rows. A segment note stacks
+        #    Assets / Liabilities / Capital Expenditure / Result rows under
+        #    the SAME column headers, and those are large enough that
+        #    subtracting inter-segment turnover from one can land within a
+        #    loose band of revenue by coincidence (confirmed: Segment Assets
+        #    minus Inter Segment came within 2.2% of Reliance's revenue and
+        #    would have been published as the revenue split). A genuine
+        #    elimination reconciles essentially exactly, so requiring that
+        #    costs nothing real and rejects the coincidences.
+        inter_vecs = [v for txt, v in candidates if re.search(r"inter\s*-?\s*segment", txt)]
+        for txt, vec in candidates:
+            if not re.search(r"turnover|revenue|sales|income", txt):
+                continue
+            if re.search(r"asset|liabilit|expenditure|depreciation|amorti|result|capital|"
+                         r"profit|tax|interest", txt):
+                continue
+            for iv in inter_vecs:
+                hit = _reconciles({ci: vec[ci] - iv.get(ci, 0.0) for ci in vec}, 0.005)
+                if hit:
+                    return hit
+        return []
     except Exception:
         return []
 
@@ -3716,7 +3846,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     cache after acquiring the lock (not just before), since another thread
     may have already finished the fetch while this one was waiting."""
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_extract_v11_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v12_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3745,7 +3875,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # cached extractions had operating_cash_flow/capex_*/*_repayment/
     # net_fixed_assets all silently null and would otherwise keep being
     # served for the remainder of their 90-day TTL regardless of the fix.
-    ckey = f"ar_extract_v11_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v12_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -4186,7 +4316,7 @@ def fetch_income_statement_flow_from_annual_report(symbol, name, fiscal_year, co
     Cached 90 days via the shared extraction cache. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_incflow_v7_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_incflow_v8_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
