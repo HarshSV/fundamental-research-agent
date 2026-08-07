@@ -837,6 +837,10 @@ def compute_business_composition(symbol, name=None, description="", force=False)
         '"reason_points": ["point 1", "point 2"], "example_brands": ["Brand A", "Brand B"]} ] }\n\n'
         f"=== CONTEXT ===\n{context}"
     )
+    # Distinguishes "the classifier ran and genuinely could not classify" from
+    # "the classifier never ran" (rate limit / network). Only the first is a
+    # real finding; the second must not be persisted as one.
+    classification_error = None
     try:
         from tools.groq_client import groq_chat, parse_json_loose
         raw = groq_chat(
@@ -872,6 +876,7 @@ def compute_business_composition(symbol, name=None, description="", force=False)
                 pat, reason_points, brands = "unclassified", [], []
             patterns_by_label[lbl.lower()] = {"pattern": pat, "reason_points": reason_points, "brands": brands}
     except Exception as e:
+        classification_error = e
         print(f"[qualitative_engine] business_composition segment classification failed for {sym}: {e}")
 
     segments_out = []
@@ -928,6 +933,8 @@ def compute_business_composition(symbol, name=None, description="", force=False)
         pattern_clause = "with revenue that is mostly cyclical"
     elif weighted_pattern_label == "mixed":
         pattern_clause = "with a mix of recurring and cyclical revenue"
+    elif classification_error:
+        pattern_clause = "though its revenue pattern could not be classified on this run"
     else:
         pattern_clause = "though its revenue pattern could not be reliably classified from available disclosures"
     footer_readline = f"{company} is {biz_clause}, {pattern_clause}."
@@ -951,8 +958,22 @@ def compute_business_composition(symbol, name=None, description="", force=False)
         "weighted_pattern_score": weighted_pattern_score,
         "weighted_pattern_label": weighted_pattern_label,
         "footer_readline": footer_readline,
+        # True only when the classifier could not be reached at all. Lets the
+        # UI say "couldn't be classified this run" instead of asserting the
+        # company failed to disclose something, which would be a claim we have
+        # no evidence for.
+        "pattern_classification_failed": bool(classification_error),
     }
-    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    # A transient LLM failure (rate limit, network) leaves every segment
+    # "unclassified" — persisting that would bake a non-finding into a
+    # 30-day cache and render it as though the filings lacked the disclosure.
+    # Same convention as _get_extracted_financials_impl, which deliberately
+    # does not cache transient download failures.
+    if not classification_error:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] business_composition NOT cached for {sym} — "
+              f"segment classification did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload

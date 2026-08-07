@@ -833,7 +833,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // shown on hover, with the same content as the "Why?" drawer. Position
         // is passed in (already clamped to the chart's own width) rather than
         // self-centering, so it never overflows the card/viewport edge.
-        const SegmentHoverCard = ({ s }) => (
+        // Never assert the company failed to disclose something when the real
+        // reason is that our own classifier didn't run (rate limit / network).
+        const patternUnavailableText = (failed) => failed
+            ? "Revenue pattern couldn't be classified on this run — reload to try again."
+            : 'Not enough official disclosure to classify this segment’s revenue pattern.';
+
+        const SegmentHoverCard = ({ s, classificationFailed }) => (
             <div className="w-64 max-w-[80vw] bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3">
                 <div className="flex items-center gap-1.5 mb-1">
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified }} />
@@ -852,7 +858,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         ))}
                     </ul>
                 ) : (
-                    <p className="text-[11px] text-slate-600 italic mb-2">Not enough official disclosure to classify this segment.</p>
+                    <p className="text-[11px] text-slate-600 italic mb-2">{patternUnavailableText(classificationFailed)}</p>
                 )}
                 {s.example_brands?.length > 0 && (
                     <div className="flex flex-wrap gap-1 pt-1.5 border-t border-slate-800">
@@ -956,7 +962,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                     left: hoverLeft, top: hoverTop,
                                     transform: `translate(-50%, ${hoverBelow ? '0' : '-100%'})`,
                                 }}>
-                                <SegmentHoverCard s={segs[hoverIdx]} />
+                                <SegmentHoverCard s={segs[hoverIdx]} classificationFailed={chart?.patternClassificationFailed} />
                             </div>,
                             document.body
                         )}
@@ -1028,7 +1034,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                                 ))}
                                             </ul>
                                         ) : (
-                                            <p className="text-slate-600 italic mb-2">Not enough official disclosure to classify this segment's revenue pattern.</p>
+                                            <p className="text-slate-600 italic mb-2">{patternUnavailableText(chart?.patternClassificationFailed)}</p>
                                         )}
                                         {s.example_brands?.length > 0 && (
                                             <div className="flex flex-wrap gap-1.5 pt-1.5 border-t border-slate-800/70">

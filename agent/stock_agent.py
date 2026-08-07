@@ -2519,6 +2519,9 @@ def build_executive_summary(state: SystemState) -> dict:
                         'residualCr': (_biz_comp_payload or {}).get('residual_cr'),
                         'weightedPatternScore': (_biz_comp_payload or {}).get('weighted_pattern_score'),
                         'weightedPatternLabel': (_biz_comp_payload or {}).get('weighted_pattern_label'),
+                        # Lets the UI distinguish "the company didn't disclose" from
+                        # "our classifier couldn't be reached this run".
+                        'patternClassificationFailed': (_biz_comp_payload or {}).get('pattern_classification_failed'),
                         'fiscalYear': (_biz_comp_payload or {}).get('fiscal_year'),
                         'pdfUrl': (_biz_comp_payload or {}).get('pdf_url'),
                         'plPage': (_biz_comp_payload or {}).get('pl_page'),
