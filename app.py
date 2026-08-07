@@ -1952,6 +1952,43 @@ async def cash_and_equivalents_endpoint(request: dict, _: dict = Depends(auth.re
         return {"applicable": False, "reason": "Something went wrong computing this ratio — please try again."}
 
 
+@app.get("/api/v1/all-symbols")
+async def all_symbols_endpoint(_: dict = Depends(auth.require_session)):
+    """Full NSE registry (same list the autocomplete searches), sorted
+    alphabetically by symbol — for an external batch/audit tool (e.g. an
+    n8n workflow) that needs to iterate every known company, not just
+    search for one. Waits for the background scrip-master fetch the same
+    way /api/search-symbols does, so an early call doesn't return only the
+    ~100-company curated seed list."""
+    _REGISTRY_READY.wait(timeout=15)
+    return sorted(STOCK_REGISTRY, key=lambda item: item["symbol"])
+
+
+@app.get("/api/v1/ratio-audit/{symbol}")
+async def ratio_audit_endpoint(symbol: str, _: dict = Depends(auth.require_session)):
+    """Runs EVERY Annual-Report/NSE-sourced ratio for one company in a
+    single call and returns a uniform verdict per ratio (successful yes/no
+    + reason if not) — built for an external audit automation that would
+    otherwise need 54+ separate HTTP calls per stock, one per ratio, each
+    with its own ad-hoc "did this work" logic. See tools/ratio_audit.py
+    for exactly which endpoints this covers and why each row is identified
+    by its endpoint slug rather than a numbered Sr No (two different,
+    disagreeing Sr-No specs exist elsewhere in this codebase — documented
+    there, not repeated here). Runs off the event loop since this can
+    involve several PDF downloads+parses for a not-yet-precomputed company."""
+    sym = resolve_symbol_from_registry(symbol or "")
+    if not sym:
+        return {"symbol": symbol, "ratios": [], "error": "Symbol not found in registry."}
+    name = next((c["name"] for c in STOCK_REGISTRY if c["symbol"] == sym), sym)
+    try:
+        from tools.ratio_audit import audit_one
+        ratios = await asyncio.to_thread(audit_one, sym, name)
+        return {"symbol": sym, "name": name, "ratios": ratios}
+    except Exception as e:
+        print(f"[HTTP ERROR] Ratio audit failed for {sym}: {e}")
+        return {"symbol": sym, "name": name, "ratios": [], "error": "Something went wrong running the audit — please try again."}
+
+
 @app.post("/test-flow")
 @app.post("/api/v1/test-flow")
 async def test_flow_endpoint(request: ReportRequest, _: dict = Depends(auth.require_session)):
