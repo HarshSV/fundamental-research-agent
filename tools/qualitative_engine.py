@@ -27,6 +27,44 @@ from tools.qualitative_db import write_qualitative, read_qualitative
 CACHE_TTL = 30 * 24 * 3600  # business-model classification changes slowly
 
 
+def _llm_json(sym, label, system_msg, user_prompt, max_tokens, temperature):
+    """Shared LLM-call-then-parse step for every A/B sub-point below. Returns
+    (data, failed) where `failed=True` means the classifier genuinely never
+    produced a usable answer — either groq_chat raised (network/rate limit),
+    or it returned something that isn't a JSON object.
+
+    This distinction matters because every caller feeds `data` straight into
+    a payload it then hands to `write_qualitative` for a 30-day cache. Before
+    this helper existed, every one of these ~12 sub-points called
+    `parse_json_loose(raw) or {}` and cached the result unconditionally —
+    confirmed on A.1.3 (business composition): a transient failure produced
+    an all-"unclassified"/empty payload that got cached for a month and
+    rendered as "the company didn't disclose this", which is a claim about
+    the filings we had no evidence for; the real story was our own call
+    never landing. `failed=True` tells the caller to skip the cache write and
+    let the next request retry, instead of freezing a non-answer into a
+    month of wrong output. `failed=False` with an empty-ish `data` (e.g. the
+    model validly answered "unclear"/"not disclosed") is a REAL finding and
+    should still be cached — this only guards against the call never having
+    produced a usable answer at all.
+    """
+    try:
+        from tools.groq_client import groq_chat, parse_json_loose
+        raw = groq_chat(
+            messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": user_prompt}],
+            max_tokens=max_tokens, temperature=temperature,
+        )
+        data = parse_json_loose(raw)
+        if not isinstance(data, dict):
+            print(f"[qualitative_engine] {label} LLM reply for {sym} had no usable JSON object "
+                  f"(raw[:200]={(raw or '')[:200]!r})")
+            return {}, True
+        return data, False
+    except Exception as e:
+        print(f"[qualitative_engine] {label} LLM call failed for {sym}: {e}")
+        return {}, True
+
+
 def _concall_digest(symbol, name):
     """Proxy for the AR-13 (MD&A) narrative pathway — reuses the same grounded
     concall corpus digest business_evolution.py builds from, since MD&A and concall
@@ -194,19 +232,10 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
         "}\n\n"
         f"=== CONTEXT ===\n{context}"
     )
-    try:
-        from tools.groq_client import groq_chat, parse_json_loose
-        raw = groq_chat(
-            messages=[
-                {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only. Never fabricate."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=700, temperature=0.1,
-        )
-        data = parse_json_loose(raw) or {}
-    except Exception as e:
-        print(f"[qualitative_engine] A.1 LLM call failed for {sym}: {e}")
-        data = {}
+    data, llm_failed = _llm_json(
+        sym, "A.1", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
+        prompt, max_tokens=700, temperature=0.1,
+    )
 
     model_type = str(data.get("model_type") or "unclear").strip().lower()
     if model_type not in ("single_product", "portfolio", "unclear"):
@@ -236,7 +265,10 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
         "pathway_results": pathway_results,
         "grounded": bool(digest),
     }
-    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    if not llm_failed:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] A.1 NOT cached for {sym} — LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -249,7 +281,13 @@ _CYCLICALITY_CLASS = ("low", "moderate", "high", "unable_to_determine")
 # and recomputed, so a methodology change (e.g. this one, which replaced the
 # old segment-name-based recurring % with evidence-gated extraction) can never
 # keep serving stale results just because the TTL hasn't expired yet.
-_A12_SCHEMA_VERSION = 7
+# v8: a transient LLM failure (rate limit/network) no longer gets cached as a
+# real "unable_to_determine"/"not_disclosed" finding — same class of bug fixed
+# for A.1.3's business-composition classifier, confirmed to affect this
+# sub-point too since it shares the identical `parse_json_loose(raw) or {}`
+# pattern. Bumped to invalidate any stale all-punted payload already cached
+# under v7.
+_A12_SCHEMA_VERSION = 8
 # A recurring-revenue conclusion requires an EXPLICIT repeat/renewal signal —
 # the mere presence of "contract asset(s)", "contract liabilit(y/ies)",
 # "customer contract(s)", "order book", "maintenance", "service(s)" or
@@ -459,13 +497,21 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
             ],
             max_tokens=900, temperature=temperature,
         )
-        return parse_json_loose(raw) or {}
+        data = parse_json_loose(raw)
+        if not isinstance(data, dict):
+            raise ValueError(f"no usable JSON object (raw[:200]={(raw or '')[:200]!r})")
+        return data
 
+    # Tracks the FIRST call only — the retry below is a best-effort attempt
+    # to improve a punted answer, not the thing that determines whether this
+    # sub-point produced a real result worth caching.
     try:
         data = _call_llm(prompt, 0.1)
+        llm_failed = False
     except Exception as e:
         print(f"[qualitative_engine] A.1.2 LLM call failed for {sym}: {e}")
         data = {}
+        llm_failed = True
 
     def _recurring_punted(d):
         rs = str(d.get("recurring_status") or "").strip().lower()
@@ -643,7 +689,10 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
         "pathway_results": pathway_results,
         "grounded": bool(digest),
     }
-    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    if not llm_failed:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] A.1.2 NOT cached for {sym} — LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -1181,19 +1230,10 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
         "}\n\n"
         f"=== CONTEXT ===\n{context}"
     )
-    try:
-        from tools.groq_client import groq_chat, parse_json_loose
-        raw = groq_chat(
-            messages=[
-                {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only. Never fabricate."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=600, temperature=0.1,
-        )
-        data = parse_json_loose(raw) or {}
-    except Exception as e:
-        print(f"[qualitative_engine] A.4 LLM call failed for {sym}: {e}")
-        data = {}
+    data, llm_failed = _llm_json(
+        sym, "A.4", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
+        prompt, max_tokens=600, temperature=0.1,
+    )
 
     lifecycle_stage = str(data.get("lifecycle_stage") or "unclear").strip().lower()
     if lifecycle_stage not in ("growth", "maturity", "commoditisation", "decline_obsolescence", "mixed", "unclear"):
@@ -1216,7 +1256,10 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
         "pathway_results": pathway_results,
         "grounded": bool(digest),
     }
-    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    if not llm_failed:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] A.4 NOT cached for {sym} — LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -1313,19 +1356,10 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
         "}\n\n"
         f"=== CONTEXT ===\n{context}"
     )
-    try:
-        from tools.groq_client import groq_chat, parse_json_loose
-        raw = groq_chat(
-            messages=[
-                {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only. Never fabricate."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=600, temperature=0.1,
-        )
-        data = parse_json_loose(raw) or {}
-    except Exception as e:
-        print(f"[qualitative_engine] A.5 LLM call failed for {sym}: {e}")
-        data = {}
+    data, llm_failed = _llm_json(
+        sym, "A.5", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
+        prompt, max_tokens=600, temperature=0.1,
+    )
 
     pricing_power_rating = str(data.get("pricing_power_rating") or "unclear").strip()
     if pricing_power_rating.lower() not in ("strong", "moderate", "weak"):
@@ -1346,7 +1380,10 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
         "pathway_results": pathway_results,
         "grounded": bool(digest),
     }
-    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    if not llm_failed:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] A.5 NOT cached for {sym} — LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -1459,19 +1496,10 @@ def compute_a6_margin_sustainability(symbol, name=None, description="", force=Fa
         "}\n\n"
         f"=== CONTEXT ===\n{context}"
     )
-    try:
-        from tools.groq_client import groq_chat, parse_json_loose
-        raw = groq_chat(
-            messages=[
-                {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only. Never fabricate."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=700, temperature=0.1,
-        )
-        data = parse_json_loose(raw) or {}
-    except Exception as e:
-        print(f"[qualitative_engine] A.6 LLM call failed for {sym}: {e}")
-        data = {}
+    data, llm_failed = _llm_json(
+        sym, "A.6", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
+        prompt, max_tokens=700, temperature=0.1,
+    )
 
     structural_defensibility = str(data.get("structural_defensibility") or "unclear").strip()
     if structural_defensibility not in ("Structurally defensible", "Partially temporary tailwinds", "Largely temporary tailwinds"):
@@ -1493,7 +1521,10 @@ def compute_a6_margin_sustainability(symbol, name=None, description="", force=Fa
         "pathway_results": pathway_results,
         "grounded": bool(digest),
     }
-    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    if not llm_failed:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] A.6 NOT cached for {sym} — LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -1589,19 +1620,10 @@ def compute_b1_founder_ceo_track_record(symbol, name=None, description="", force
         "}\n\n"
         f"=== CONTEXT ===\nCOMPANY: {name or sym}\n\nBUSINESS DESCRIPTION:\n{description[:2500]}\n"
     )
-    try:
-        from tools.groq_client import groq_chat, parse_json_loose
-        raw = groq_chat(
-            messages=[
-                {"role": "system", "content": "You are a precise extraction assistant. Reply with strict JSON only. Never infer or invent a name."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=300, temperature=0.0,
-        )
-        data = parse_json_loose(raw) or {}
-    except Exception as e:
-        print(f"[qualitative_engine] B.1 LLM call failed for {sym}: {e}")
-        data = {}
+    data, llm_failed = _llm_json(
+        sym, "B.1", "You are a precise extraction assistant. Reply with strict JSON only. Never infer or invent a name.",
+        prompt, max_tokens=300, temperature=0.0,
+    )
 
     ceo_name = str(data.get("ceo_name") or "").strip() or None
     ceo_title = str(data.get("ceo_title") or "").strip() or None
@@ -1626,7 +1648,10 @@ def compute_b1_founder_ceo_track_record(symbol, name=None, description="", force
         "pathway_results": pathway_results,
     }
     confidence_tag = "SEARCH_INCONCLUSIVE"
-    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    if not llm_failed:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] B.1 NOT cached for {sym} — LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -1731,19 +1756,10 @@ def compute_b2_management_incentives(symbol, name=None, force=False):
         "}\n\n"
         f"=== CONTEXT ===\n{context}"
     )
-    try:
-        from tools.groq_client import groq_chat, parse_json_loose
-        raw = groq_chat(
-            messages=[
-                {"role": "system", "content": "You are a precise extraction assistant. Reply with strict JSON only. Never infer or invent a number not explicitly in the text."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=600, temperature=0.0,
-        )
-        data = parse_json_loose(raw) or {}
-    except Exception as e:
-        print(f"[qualitative_engine] B.2 LLM call failed for {sym}: {e}")
-        data = {}
+    data, llm_failed = _llm_json(
+        sym, "B.2", "You are a precise extraction assistant. Reply with strict JSON only. Never infer or invent a number not explicitly in the text.",
+        prompt, max_tokens=600, temperature=0.0,
+    )
 
     fixed_variable_pay_ratio = data.get("fixed_variable_pay_ratio") or None
     esop_pct_of_kmp_comp = data.get("esop_pct_of_kmp_comp")
@@ -1766,7 +1782,10 @@ def compute_b2_management_incentives(symbol, name=None, force=False):
         "source_pdf_url": pdf_url,
     }
     confidence_tag = "SINGLE_SOURCE"
-    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    if not llm_failed:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] B.2 NOT cached for {sym} — LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -1866,25 +1885,26 @@ def compute_b3_management_bench_depth(symbol, name=None, force=False):
         "}\n\n"
         f"=== EXCERPT ===\n{kmp_text}"
     )
-    try:
-        from tools.groq_client import groq_chat, parse_json_loose
-        raw = groq_chat(
-            messages=[
-                {"role": "system", "content": "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never force-fit unrelated text into the requested category."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=400, temperature=0.0,
-        )
-        data = parse_json_loose(raw) or {}
-    except Exception as e:
-        print(f"[qualitative_engine] B.3 LLM call failed for {sym}: {e}")
-        data = {}
+    data, llm_failed = _llm_json(
+        sym, "B.3", "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never force-fit unrelated text into the requested category.",
+        prompt, max_tokens=400, temperature=0.0,
+    )
 
     is_relevant = bool(data.get("is_kmp_changes_content"))
     kmp_change_facts = [str(x).strip() for x in (data.get("kmp_change_facts") or []) if str(x).strip()][:3] if is_relevant else []
     summary = str(data.get("summary") or "").strip()
 
     if not is_relevant:
+        # llm_failed produces the exact same data shape as a genuine "this
+        # excerpt isn't about KMP changes" verdict (is_relevant=False from an
+        # empty {}) — without the guard below, a rate-limited call would get
+        # cached as "the model read this and it does not describe KMP
+        # changes", asserting a judgment that was never actually made.
+        rationale = (
+            "A \"Key Managerial Personnel\" mention was found in the Annual Report, but it does not "
+            "describe KMP appointments/resignations/attrition (" + (summary or "different context") +
+            ") — no genuine bench-depth information was located this run."
+        ) if not llm_failed else "Could not be classified on this run — reload to try again."
         payload = {
             "subpoint_id": subpoint_id,
             "title": "Depth of management bench: ability to replace key execs without disruption",
@@ -1892,15 +1912,14 @@ def compute_b3_management_bench_depth(symbol, name=None, force=False):
             "bench_depth_rating": None,
             "kmp_attrition_rate_pct": None,
             "kmp_change_facts": [],
-            "rationale": (
-                "A \"Key Managerial Personnel\" mention was found in the Annual Report, but it does not "
-                "describe KMP appointments/resignations/attrition (" + (summary or "different context") +
-                ") — no genuine bench-depth information was located this run."
-            ),
+            "rationale": rationale,
             "pathway_results": pathway_results,
             "source_pdf_url": pdf_url,
         }
-        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        if not llm_failed:
+            write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        else:
+            print(f"[qualitative_engine] B.3 NOT cached for {sym} — LLM call did not run; will retry next request.")
         payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
@@ -1998,19 +2017,10 @@ def compute_b4_communication_quality(symbol, name=None, force=False):
         "}\n\n"
         f"=== CONTEXT ===\n{context}"
     )
-    try:
-        from tools.groq_client import groq_chat, parse_json_loose
-        raw = groq_chat(
-            messages=[
-                {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only. Never fabricate."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=500, temperature=0.1,
-        )
-        data = parse_json_loose(raw) or {}
-    except Exception as e:
-        print(f"[qualitative_engine] B.4 LLM call failed for {sym}: {e}")
-        data = {}
+    data, llm_failed = _llm_json(
+        sym, "B.4", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
+        prompt, max_tokens=500, temperature=0.1,
+    )
 
     communication_quality_rating = str(data.get("communication_quality_rating") or "unclear").strip()
     if communication_quality_rating.lower() not in ("strong", "moderate", "weak"):
@@ -2030,7 +2040,10 @@ def compute_b4_communication_quality(symbol, name=None, force=False):
         "pathway_results": pathway_results,
         "grounded": True,
     }
-    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    if not llm_failed:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] B.4 NOT cached for {sym} — LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -2117,19 +2130,10 @@ def compute_b5_execution_credibility(symbol, name=None, force=False):
         "}\n\n"
         f"=== CONTEXT ===\n{context}"
     )
-    try:
-        from tools.groq_client import groq_chat, parse_json_loose
-        raw = groq_chat(
-            messages=[
-                {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only. Never fabricate."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=600, temperature=0.1,
-        )
-        data = parse_json_loose(raw) or {}
-    except Exception as e:
-        print(f"[qualitative_engine] B.5 LLM call failed for {sym}: {e}")
-        data = {}
+    data, llm_failed = _llm_json(
+        sym, "B.5", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
+        prompt, max_tokens=600, temperature=0.1,
+    )
 
     execution_credibility_rating = str(data.get("execution_credibility_rating") or "unclear").strip()
     if execution_credibility_rating.lower() not in ("strong", "mixed", "weak"):
@@ -2152,7 +2156,10 @@ def compute_b5_execution_credibility(symbol, name=None, force=False):
         "pathway_results": pathway_results,
         "grounded": True,
     }
-    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    if not llm_failed:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] B.5 NOT cached for {sym} — LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -2909,19 +2916,10 @@ def compute_a3_revenue_model_quality(symbol, name=None, description="", force=Fa
         "}\n\n"
         f"=== CONTEXT ===\n{context}"
     )
-    try:
-        from tools.groq_client import groq_chat, parse_json_loose
-        raw = groq_chat(
-            messages=[
-                {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only. Never fabricate."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=600, temperature=0.1,
-        )
-        data = parse_json_loose(raw) or {}
-    except Exception as e:
-        print(f"[qualitative_engine] A.3 LLM call failed for {sym}: {e}")
-        data = {}
+    data, llm_failed = _llm_json(
+        sym, "A.3", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
+        prompt, max_tokens=600, temperature=0.1,
+    )
 
     revenue_model = str(data.get("revenue_model") or "unclear").strip().lower()
     if revenue_model not in ("transactional", "recurring", "annuity", "mixed", "unclear"):
@@ -2942,7 +2940,10 @@ def compute_a3_revenue_model_quality(symbol, name=None, description="", force=Fa
         "pathway_results": pathway_results,
         "grounded": bool(digest),
     }
-    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    if not llm_failed:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] A.3 NOT cached for {sym} — LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
