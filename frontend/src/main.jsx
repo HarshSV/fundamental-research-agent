@@ -892,6 +892,20 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const score = chart?.weightedPatternScore;
             const spectrumPct = score != null ? Math.max(0, Math.min(100, score * 100)) : null;
 
+            // Actual revenue-share breakdown by pattern — not just where the
+            // single weighted dot lands, but literally how many % of revenue
+            // each bucket represents. Computed straight from this company's
+            // own classified segments, so it's identical logic for every
+            // stock, never company-specific.
+            const patternShare = { recurring: 0, mixed: 0, cyclical: 0, unclassified: 0 };
+            segs.forEach((s) => {
+                const key = PATTERN_LABEL[s.pattern] ? s.pattern : 'unclassified';
+                patternShare[key] += Number(s.share_pct) || 0;
+            });
+            const patternShareParts = ['recurring', 'mixed', 'cyclical', 'unclassified']
+                .filter((k) => patternShare[k] > 0.05)
+                .map((k) => ({ key: k, pct: Math.round(patternShare[k] * 10) / 10 }));
+
             const TOOLTIP_W = 256;
             const TOOLTIP_H_ESTIMATE = 280; // generous estimate incl. reason bullets + brand chips
             const [hoverTop, setHoverTop] = useState(0);
@@ -1002,7 +1016,24 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                     style={{ left: `calc(${spectrumPct}% - 10px)` }} title={WEIGHTED_SPECTRUM_LABEL[chart?.weightedPatternLabel]} />
                             )}
                         </div>
-                        <p className="text-[10px] text-slate-500 mt-1">{WEIGHTED_SPECTRUM_LABEL[chart?.weightedPatternLabel] || 'Not enough evidence to position'}</p>
+                        <p className="text-[10px] text-slate-500 mt-1">
+                            {WEIGHTED_SPECTRUM_LABEL[chart?.weightedPatternLabel] || 'Not enough evidence to position'}
+                            {spectrumPct != null && ` — ${spectrumPct.toFixed(0)}/100 toward Cyclical`}
+                        </p>
+                        {/* Literal revenue-share breakdown by pattern — the
+                            dot above shows one weighted position, this shows
+                            exactly how many % of revenue sits in each bucket. */}
+                        {patternShareParts.length > 0 && (
+                            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+                                {patternShareParts.map(({ key, pct }) => (
+                                    <span key={key} className="inline-flex items-center gap-1 text-[11px] text-slate-300">
+                                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: PATTERN_DOT_COLOR[key] }} />
+                                        <span className="font-mono">{pct}%</span>
+                                        <span className="text-slate-500">{PATTERN_LABEL[key]}</span>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {footerReadline && (
