@@ -874,7 +874,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const segs = (chart?.segments || []).filter(s => s && s.name && s.share_pct > 0);
             const residualPct = chart?.residualPct || 0;
             const hasResidual = residualPct > 0.5;
-            const [openWhy, setOpenWhy] = useState(true);
+            const [openWhy, setOpenWhy] = useState(false);
             // A SINGLE shared hover state, rendered as ONE tooltip instance
             // (not one copy per segment div) — two separate hover surfaces
             // (bar + legend) previously both rendered their own copy whenever
@@ -886,6 +886,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [hoverIdx, setHoverIdx] = useState(null);
             const [hoverLeft, setHoverLeft] = useState(0);
             const [hoverBelow, setHoverBelow] = useState(false);
+            const [spectrumHover, setSpectrumHover] = useState(null); // { x, y } for the weighted-position dot's explanation popover
             const barWrapRef = useRef(null);
             if (!segs.length) return null;
 
@@ -938,7 +939,33 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         pattern-colored dot on every block shows Recurring/Mixed/
                         Cyclical/Unclassified even when the block is too narrow
                         for the full label. Hover any block for the full
-                        breakdown (reasoning + brand examples). */}
+                        breakdown (reasoning + brand examples). Blocks too
+                        narrow for an inline name+% get a leader-line label
+                        above the bar instead of being left blank — the legend
+                        below repeats the same info in list form, but a reader
+                        scanning the bar itself shouldn't have to look away to
+                        find out what a given sliver is. */}
+                    {(() => {
+                        let cum = 0;
+                        const narrowLabels = segs.map((s, i) => {
+                            const left = cum + s.share_pct / 2;
+                            cum += s.share_pct;
+                            return s.share_pct < 9 ? { s, i, left } : null;
+                        }).filter(Boolean);
+                        return narrowLabels.length > 0 ? (
+                            <div className="relative h-5 mb-0.5">
+                                {narrowLabels.map(({ s, i, left }, li) => (
+                                    <div key={s.name + i} className="absolute bottom-0 flex flex-col items-center"
+                                        style={{ left: `${left}%`, transform: 'translateX(-50%)', bottom: (li % 2) * 16 }}>
+                                        <span className="text-[9px] font-semibold whitespace-nowrap text-slate-300 leading-none mb-0.5">
+                                            {s.name} · {s.share_pct}%
+                                        </span>
+                                        <span className="w-px bg-slate-600" style={{ height: 4 + (li % 2) * 16 }} />
+                                    </div>
+                                ))}
+                            </div>
+                        ) : null;
+                    })()}
                     <div ref={barWrapRef} className="relative">
                         <div className="flex w-full h-11 rounded-md overflow-visible">
                             {segs.map((s, i) => {
@@ -1012,13 +1039,34 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <div className="relative h-2 rounded-full bg-slate-800">
                             <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-teal-400 via-amber-400 to-orange-500" style={{ width: '100%' }} />
                             {spectrumPct != null && (
-                                <div className="absolute -top-1.5 w-5 h-5 rounded-full bg-slate-100 border-2 border-slate-900 shadow"
-                                    style={{ left: `calc(${spectrumPct}% - 10px)` }} title={WEIGHTED_SPECTRUM_LABEL[chart?.weightedPatternLabel]} />
+                                <div className="absolute -top-1.5 w-5 h-5 rounded-full bg-slate-100 border-2 border-slate-900 shadow cursor-help"
+                                    onMouseEnter={(e) => {
+                                        const r = e.currentTarget.getBoundingClientRect();
+                                        setSpectrumHover({ x: r.left + r.width / 2, y: r.top });
+                                    }}
+                                    onMouseLeave={() => setSpectrumHover(null)}
+                                    style={{ left: `calc(${spectrumPct}% - 10px)` }} />
                             )}
                         </div>
+                        {spectrumHover && spectrumPct != null && createPortal(
+                            <div className="fixed z-50 pointer-events-none transition-opacity duration-100 w-64"
+                                style={{ left: spectrumHover.x, top: spectrumHover.y - 8, transform: 'translate(-50%, -100%)' }}>
+                                <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-2.5">
+                                    <p className="text-[12px] font-bold text-slate-100">{spectrumPct.toFixed(0)}/100 toward Cyclical</p>
+                                    <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                        Revenue-weighted average of each classified segment's pattern
+                                        (Recurring = 0, Mixed = 50, Cyclical = 100), weighted by that
+                                        segment's share of revenue. Unclassified segments (
+                                        {(patternShareParts.find(p => p.key === 'unclassified')?.pct) ?? 0}% here)
+                                        are excluded from this average, not counted as either side.
+                                    </p>
+                                </div>
+                            </div>,
+                            document.body
+                        )}
                         <p className="text-[10px] text-slate-500 mt-1">
                             {WEIGHTED_SPECTRUM_LABEL[chart?.weightedPatternLabel] || 'Not enough evidence to position'}
-                            {spectrumPct != null && ` — ${spectrumPct.toFixed(0)}/100 toward Cyclical`}
+                            {spectrumPct != null && ` — ${spectrumPct.toFixed(0)}/100 toward Cyclical (hover the dot for how this is calculated)`}
                         </p>
                         {/* Literal revenue-share breakdown by pattern — the
                             dot above shows one weighted position, this shows
