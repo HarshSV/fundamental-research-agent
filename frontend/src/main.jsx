@@ -818,10 +818,25 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // 4 "Recurring" FMCG segments) still reads as visually distinct
         // blocks — the pattern itself is still shown via a small colored dot
         // + label on every block, not lost.
-        const SEGMENT_FILL_PALETTE = [
-            'rgb(56 130 246)', 'rgb(45 212 191)', 'rgb(168 85 247)', 'rgb(251 146 60)',
-            'rgb(236 72 153)', 'rgb(250 204 21)', 'rgb(34 197 94)', 'rgb(96 165 250)',
+        //
+        // The 10 standard brand-identity colors (blue/red/green/yellow/
+        // orange/purple/black/white/pink/brown), each paired with the text
+        // color that stays readable on it — yellow and white need dark
+        // text, everything else needs light text.
+        const SEGMENT_FILL_PALETTE_ENTRIES = [
+            { bg: 'rgb(37 99 235)', text: 'white' },     // Blue
+            { bg: 'rgb(220 38 38)', text: 'white' },     // Red
+            { bg: 'rgb(22 163 74)', text: 'white' },     // Green
+            { bg: 'rgb(250 204 21)', text: 'rgb(30 27 8)' },   // Yellow
+            { bg: 'rgb(249 115 22)', text: 'white' },    // Orange
+            { bg: 'rgb(147 51 234)', text: 'white' },    // Purple
+            { bg: 'rgb(38 38 38)', text: 'white' },      // Black
+            { bg: 'rgb(244 244 245)', text: 'rgb(24 24 27)' }, // White
+            { bg: 'rgb(236 72 153)', text: 'white' },    // Pink
+            { bg: 'rgb(120 72 40)', text: 'white' },     // Brown
         ];
+        const SEGMENT_FILL_PALETTE = SEGMENT_FILL_PALETTE_ENTRIES.map((e) => e.bg);
+        const segmentTextColor = (i) => SEGMENT_FILL_PALETTE_ENTRIES[i % SEGMENT_FILL_PALETTE_ENTRIES.length].text;
         const RESIDUAL_COLOR = { bg: 'rgb(30 41 59)', text: 'rgb(148 163 184)' };
         const WEIGHTED_SPECTRUM_LABEL = {
             recurring_leaning: 'Recurring-leaning', mixed: 'Mixed', cyclical_leaning: 'Cyclical-leaning',
@@ -970,6 +985,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <div className="flex w-full h-11 rounded-md overflow-visible">
                             {segs.map((s, i) => {
                                 const fill = SEGMENT_FILL_PALETTE[i % SEGMENT_FILL_PALETTE.length];
+                                const txt = segmentTextColor(i);
                                 const dot = PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified;
                                 const isLast = i === segs.length - 1 && !hasResidual;
                                 return (
@@ -983,8 +999,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                         <span className="w-2 h-2 rounded-full flex-shrink-0 border border-white/40" style={{ background: dot }} />
                                         {s.share_pct >= 9 && (
                                             <>
-                                                <span className="text-[11px] font-bold text-white truncate max-w-full">{s.name}</span>
-                                                <span className="text-[10px] font-semibold text-white/90">{s.share_pct}%</span>
+                                                <span className="text-[11px] font-bold truncate max-w-full" style={{ color: txt }}>{s.name}</span>
+                                                <span className="text-[10px] font-semibold opacity-90" style={{ color: txt }}>{s.share_pct}%</span>
                                             </>
                                         )}
                                     </div>
