@@ -667,9 +667,14 @@ _GENERAL_RECURRING_REASONING_RE = re.compile(
 # annual_report_financials._extract_segment_revenue_matrix), so companies that
 # previously fell back to the single-block "Focused / Single Business" view
 # purely because their segment note failed to parse — Reliance among them — now
-# resolve real reportable segments. Bumped so the 30-day cached single-segment
-# payloads are recomputed instead of being served for another month.
-_BIZ_COMP_SCHEMA_VERSION = 8
+# resolve real reportable segments.
+# v9: a classifier reply that fails to parse as usable JSON (no exception, just
+# an empty/malformed structure) is now treated as a failed run rather than
+# silently cached as "every segment unclassified" — confirmed on ITC, which
+# had exactly that result cached with no error ever recorded. Bumped so that
+# stale all-unclassified payload (and any sibling from the same silent gap)
+# gets recomputed instead of being served for another month.
+_BIZ_COMP_SCHEMA_VERSION = 9
 
 
 def compute_business_composition(symbol, name=None, description="", force=False):
@@ -850,7 +855,21 @@ def compute_business_composition(symbol, name=None, description="", force=False)
             ],
             max_tokens=1400, temperature=0.1,
         )
-        data = parse_json_loose(raw) or {}
+        data = parse_json_loose(raw)
+        # A model can return a reply that fails to parse as JSON at all (or
+        # parses but without a "segments" list) without groq_chat itself
+        # raising — that's structurally the same "the classifier didn't
+        # actually run" case as a network/rate-limit exception (confirmed:
+        # ITC's cache held all-"unclassified" from exactly this, with no
+        # exception ever thrown), so it must be treated the same way rather
+        # than silently defaulting to {} and letting every segment fall
+        # through as "unclassified" for real judgment reasons it never gave.
+        # A genuine "the model classified every segment as unclassified" is
+        # NOT this case — that's a valid segments list where each entry's
+        # own pattern value happens to be "unclassified", handled normally
+        # below.
+        if data is None or not isinstance(data.get("segments"), list):
+            raise ValueError(f"Classifier reply had no usable 'segments' array (raw[:200]={(raw or '')[:200]!r})")
         for s in (data.get("segments") or []):
             lbl = str(s.get("label") or "").strip()
             pat = str(s.get("pattern") or "").strip().lower()
