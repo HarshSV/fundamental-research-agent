@@ -2522,6 +2522,11 @@ def build_executive_summary(state: SystemState) -> dict:
                         # Lets the UI distinguish "the company didn't disclose" from
                         # "our classifier couldn't be reached this run".
                         'patternClassificationFailed': (_biz_comp_payload or {}).get('pattern_classification_failed'),
+                        # The actual AR excerpts (+ whether concall commentary
+                        # was also used) the classifier read before assigning
+                        # each segment's pattern — real source trail, not the
+                        # model's own paraphrase of it.
+                        'patternSources': (_biz_comp_payload or {}).get('pattern_sources'),
                         'fiscalYear': (_biz_comp_payload or {}).get('fiscal_year'),
                         'pdfUrl': (_biz_comp_payload or {}).get('pdf_url'),
                         'plPage': (_biz_comp_payload or {}).get('pl_page'),

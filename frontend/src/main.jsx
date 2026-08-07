@@ -1140,12 +1140,64 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                         )}
                                     </div>
                                 ))}
-                                {pdfUrl && (
-                                    <a href={`${pdfUrl}${chart?.plPage ? `#page=${chart.plPage}` : ''}`} target="_blank" rel="noopener noreferrer"
-                                        className="inline-block text-[10px] font-bold text-blue-400 hover:text-blue-300 hover:underline mt-1">
-                                        VIEW SOURCE — Annual Report{fiscalYear ? ` FY${fiscalYear}` : ''}
-                                    </a>
-                                )}
+                                {/* Sources — the actual excerpts the classifier read before
+                                    assigning every segment's pattern above, shared across all
+                                    segments (the classifier reads them together, not one
+                                    excerpt per segment) rather than duplicated per block. When
+                                    a segment's reasoning cites no matching excerpt, that's
+                                    because it was reasoned from general business-model/sector
+                                    knowledge instead — said explicitly here rather than left
+                                    for the reader to guess. */}
+                                {(() => {
+                                    const src = chart?.patternSources;
+                                    const recurExc = src?.recurring_excerpts || [];
+                                    const cycExc = src?.cyclicality_excerpts || [];
+                                    const hasExcerpts = recurExc.length > 0 || cycExc.length > 0;
+                                    return (
+                                        <div className="space-y-1.5 border-t border-slate-800 pt-2">
+                                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sources</p>
+                                            {hasExcerpts ? (
+                                                <>
+                                                    {[...recurExc, ...cycExc].map((e, i) => (
+                                                        <div key={i} className="text-[11px] text-slate-400 bg-slate-900/60 border border-slate-800 rounded p-2">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <span className="text-slate-500">
+                                                                    Annual Report{fiscalYear ? ` FY${fiscalYear}` : ''}{e.page ? `, page ${e.page}` : ''}
+                                                                </span>
+                                                                {pdfUrl && (
+                                                                    <a href={`${pdfUrl}${e.page ? `#page=${e.page}` : ''}`} target="_blank" rel="noopener noreferrer"
+                                                                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300 hover:underline whitespace-nowrap">
+                                                                        VIEW SOURCE
+                                                                    </a>
+                                                                )}
+                                                            </div>
+                                                            <span className="italic block mt-1">"...{e.excerpt}..."</span>
+                                                        </div>
+                                                    ))}
+                                                    {src?.used_concall && (
+                                                        <p className="text-[10px] text-slate-500 italic">
+                                                            Recent earnings-call commentary was also used as secondary corroboration.
+                                                        </p>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <p className="text-[11px] text-slate-500 italic">
+                                                    No Annual Report excerpt explicitly discussed recurring/cyclical revenue for
+                                                    this company — segment patterns above were reasoned from general,
+                                                    well-established business-model knowledge for that kind of business
+                                                    instead (e.g. FMCG household products are repeat-purchase but not
+                                                    contractual, so not "recurring" in the strict sense used here).
+                                                </p>
+                                            )}
+                                            {pdfUrl && (
+                                                <a href={`${pdfUrl}${chart?.plPage ? `#page=${chart.plPage}` : ''}`} target="_blank" rel="noopener noreferrer"
+                                                    className="inline-block text-[10px] font-bold text-blue-400 hover:text-blue-300 hover:underline">
+                                                    VIEW SOURCE — Annual Report{fiscalYear ? ` FY${fiscalYear}` : ''} P&amp;L / segment note
+                                                </a>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         )}
                     </div>

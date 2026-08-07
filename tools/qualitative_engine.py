@@ -723,7 +723,12 @@ _GENERAL_RECURRING_REASONING_RE = re.compile(
 # had exactly that result cached with no error ever recorded. Bumped so that
 # stale all-unclassified payload (and any sibling from the same silent gap)
 # gets recomputed instead of being served for another month.
-_BIZ_COMP_SCHEMA_VERSION = 9
+# v10: added `pattern_sources` (the actual AR excerpts + concall-used flag
+# fed to the classifier) so the UI can show a real source trail under each
+# segment's classification instead of just the model's prose reasoning.
+# Bumped so every cached payload picks up the new field rather than the UI
+# silently having nothing to show for stocks generated before this.
+_BIZ_COMP_SCHEMA_VERSION = 10
 
 
 def compute_business_composition(symbol, name=None, description="", force=False):
@@ -1031,6 +1036,25 @@ def compute_business_composition(symbol, name=None, description="", force=False)
         # company failed to disclose something, which would be a claim we have
         # no evidence for.
         "pattern_classification_failed": bool(classification_error),
+        # The actual evidence the pattern classifier read — same excerpts fed
+        # into the prompt above, not re-fetched or paraphrased. These are
+        # shared context across every segment (the classifier reads all of
+        # them together, not one excerpt per segment), so the UI shows them
+        # once per sub-point rather than duplicated under each segment.
+        # `used_concall` tells the UI whether management commentary was part
+        # of the grounding too, since a segment's own reason_points can cite
+        # either source without saying which.
+        "pattern_sources": {
+            "recurring_excerpts": [
+                {"page": e["page"], "anchor": e.get("anchor"), "excerpt": e["text"]}
+                for e in (evidence.get("recurring_excerpts") or [])[:4]
+            ],
+            "cyclicality_excerpts": [
+                {"page": e["page"], "anchor": e.get("anchor"), "excerpt": e["text"]}
+                for e in (evidence.get("cyclicality_excerpts") or [])[:4]
+            ],
+            "used_concall": bool(digest),
+        },
     }
     # A transient LLM failure (rate limit, network) leaves every segment
     # "unclassified" — persisting that would bake a non-finding into a
