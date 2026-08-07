@@ -2032,7 +2032,27 @@ def _find_subtotal_before(text, stop_label, after=None, window=150):
     Liabilities subtotal as a BARE (current, prior) number pair with no
     label of its own — it just sits on the line directly above 'TOTAL
     ASSETS' / 'TOTAL EQUITY AND LIABILITIES'. Grabs the last two numbers
-    found in a short window immediately before `stop_label`."""
+    found in a short window immediately before `stop_label`.
+
+    A different filing shape (confirmed on ITC's Consolidated Balance
+    Sheet) prints the LAST line item's own value together with the
+    (also unlabelled) subtotal on the same visual row for BOTH the
+    current and prior year, e.g.:
+        "...Other current assets  1783.61  50708.41  1365.78  43893.28  TOTAL ASSETS"
+                                   item_cur subtotal_cur item_prior subtotal_prior
+    A blind "last two numbers" grab picks (item_prior, subtotal_prior) =
+    (1365.78, 43893.28) — the prior year's single line-item value
+    masquerading as the prior-year subtotal, alongside a completely
+    unrelated number for the current year. This produced a
+    ~30x-too-small Total Current Assets on ITC, which cascaded into a
+    negative Quick Ratio (-14.03) and a 15x Operating Cash Flow Ratio.
+    When 4+ numbers are found, a genuine subtotal is virtually always
+    >= the single line item immediately preceding it in the SAME column
+    (it's a cumulative sum) — use that to prefer the (subtotal_cur,
+    subtotal_prior) pair over the raw last two tokens. Falls back to the
+    original last-two-numbers behavior whenever that condition doesn't
+    clearly hold, so the Asian Paints-style clean 2-number case (and any
+    ambiguous case) is unaffected."""
     search_text = text
     if after:
         m = re.search(after, text, re.I)
@@ -2043,11 +2063,14 @@ def _find_subtotal_before(text, stop_label, after=None, window=150):
         return None
     win = search_text[max(0, m.start() - window):m.start()]
     nums = re.findall(_NUM_RE, win)
-    if len(nums) < 2:
+    vals = [v for v in (_parse_num(n) for n in nums) if v is not None]
+    if len(vals) < 2:
         return None
-    a, b = _parse_num(nums[-2]), _parse_num(nums[-1])
-    if a is None or b is None:
-        return None
+    a, b = vals[-2], vals[-1]
+    if len(vals) >= 4:
+        item_cur, subtotal_cur, item_prior, subtotal_prior = vals[-4], vals[-3], vals[-2], vals[-1]
+        if subtotal_cur >= item_cur and subtotal_prior >= item_prior:
+            a, b = subtotal_cur, subtotal_prior
     return (a, b)
 
 
@@ -3858,7 +3881,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     cache after acquiring the lock (not just before), since another thread
     may have already finished the fetch while this one was waiting."""
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_extract_v13_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v14_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3887,7 +3910,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # cached extractions had operating_cash_flow/capex_*/*_repayment/
     # net_fixed_assets all silently null and would otherwise keep being
     # served for the remainder of their 90-day TTL regardless of the fix.
-    ckey = f"ar_extract_v13_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v14_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -4755,7 +4778,7 @@ def fetch_return_on_capital_employed_from_annual_report(symbol, name, fiscal_yea
     extra download. Cached 90 days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_roce_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_roce_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -6535,7 +6558,7 @@ def fetch_current_ratio_from_annual_report(symbol, name, fiscal_year, consolidat
     Cached 90 days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_currentratio_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_currentratio_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -6607,7 +6630,7 @@ def fetch_quick_ratio_from_annual_report(symbol, name, fiscal_year, consolidated
     extraction — no extra download. Cached 90 days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_quickratio_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_quickratio_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -6719,7 +6742,7 @@ def fetch_cash_ratio_from_annual_report(symbol, name, fiscal_year, consolidated=
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_cashratio_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_cashratio_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -6845,7 +6868,7 @@ def fetch_days_working_capital_from_annual_report(symbol, name, fiscal_year, con
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_dwc_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_dwc_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -7756,7 +7779,7 @@ def fetch_operating_cash_flow_ratio_from_annual_report(symbol, name, fiscal_year
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_ocfr_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_ocfr_v4_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -7944,7 +7967,7 @@ def fetch_working_capital_turnover_from_annual_report(symbol, name, fiscal_year,
     raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_wcturn_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_wcturn_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -8891,7 +8914,7 @@ def fetch_altman_z_score_components_from_annual_report(symbol, name, fiscal_year
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_zscore_comp_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_zscore_comp_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -9058,7 +9081,7 @@ def fetch_piotroski_f_score_from_annual_report(symbol, name, fiscal_year, consol
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_fscore_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_fscore_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -9301,7 +9324,7 @@ def fetch_beneish_m_score_from_annual_report(symbol, name, fiscal_year, consolid
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_mscore_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_mscore_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
