@@ -1071,25 +1071,21 @@ def compute_business_composition(symbol, name=None, description="", force=False)
     return payload
 
 
-def compute_a2_competitive_moat(symbol, name=None, description="", force=False):
+def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr=None, force=False):
     """A.2 — Competitive advantage / moats: brand, distribution, cost leadership,
-    network effects, switching costs. N/A formula — a qualitative 1-5 rating based
-    on an evidence checklist, per the spec.
+    network effects, switching costs. Composite Moat Rating Breakdown per spec:
+    8 peer-quintile-ranked quant pillars (a-h) + a required qualitative-evidence
+    score (i) sourced from CRISIL's rating rationale + management commentary.
 
-    Sourcing Sequence: PORTAL-07 (rating-agency rationale, e.g. CRISIL/ICRA) ->
-    AGG-01 (Screener.in / Tijori peer-moat comparison, fallback/cross-check only).
+    Sourcing Sequence: PORTAL-07 (CRISIL rating rationale — tools/crisil_scraper.py,
+    verified live) -> AGG-01 (Screener.in fundamentals — fallback/cross-check only,
+    also the same-source basis for the peer-quintile pillars).
 
-    PORTAL-07 has no fetcher built in this codebase (no CRISIL/ICRA rationale
-    scraper) — recorded as NOT_DISCLOSED. AGG-01 (Screener.in) IS wired: this
-    reuses tools/moat_engine.py's existing data-driven moat scorer, which turns
-    Screener.in's published fundamentals (ROCE level+consistency, operating-margin
-    level+stability, ROE track record, balance-sheet leverage, working-capital
-    efficiency, growth durability) into a transparent, threshold-based 0-100 score
-    — every pillar traceable to a real number, never an LLM guess. Since only ONE
-    of the two Sourcing Sequence pathways was checked, this is SINGLE_SOURCE at
-    best, never VERIFIED (cross-verification rule) — and if the Screener scrape
-    itself fails or returns too few inputs, this falls back to SEARCH_INCONCLUSIVE
-    rather than show a low-confidence number as if it were solid.
+    HARD RULE (per spec): if the qualitative-evidence score (i) cannot be sourced,
+    no composite is shown — the whole rating is flagged QUANT_PROXY_ONLY rather
+    than presented as a full moat assessment. Peers are drawn ONLY from the fixed,
+    auditable universe in tools/peer_universe.py (NSE sector map + market-cap-band
+    widening) — never an open search or free-text "similar companies" guess.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "A.2"
@@ -1104,65 +1100,81 @@ def compute_a2_competitive_moat(symbol, name=None, description="", force=False):
             except Exception:
                 return cached
 
-    pathway_results = [
-        {
-            "pathway_id": "PORTAL-07",
-            "source": "Rating Agency Rationale (CRISIL/ICRA/CARE)",
-            "result": "NOT_DISCLOSED",
-            "note": "No rating-agency rationale fetcher is wired into this codebase yet — cannot confirm UNRATED vs. a rationale simply not being fetched.",
-        },
-    ]
+    from tools.crisil_scraper import fetch_crisil_rationale
+    from tools.moat_peer_scoring import build_moat_rating_breakdown
 
-    moat_result = None
-    try:
-        from tools.screener_scraper import fetch_screener_moat_data
-        from tools.moat_engine import compute_moat
-        screener_data = fetch_screener_moat_data(sym, name) or {}
-        moat_result = compute_moat(screener_data, name or sym)
-    except Exception as e:
-        print(f"[qualitative_engine] A.2 Screener moat fetch failed for {sym}: {e}")
+    crisil_result = fetch_crisil_rationale(name or sym, symbol=sym)
+    digest = _concall_digest(sym, name)
 
-    n_pillars = len(moat_result.get("pillars") or []) if moat_result else 0
-    if not moat_result or n_pillars < 3 or moat_result.get("moat_strength") == "Unrated":
+    breakdown = build_moat_rating_breakdown(
+        sym, name=name, market_cap_cr=market_cap_cr,
+        crisil_result=crisil_result, concall_digest=digest,
+    )
+
+    pathway_results = list(breakdown["qualitative_evidence"].get("pathway_results") or [])
+    peer_status = breakdown.get("peer_set_status")
+    if peer_status == "OK":
+        peers = breakdown["peer_set"]["peers"]
         pathway_results.append({
             "pathway_id": "AGG-01",
-            "source": "Screener.in — data-driven moat scorer (tools/moat_engine.py)",
-            "result": "NOT_DISCLOSED",
-            "note": "Screener.in scrape failed or returned too few inputs (<3 of 8 pillars) to score reliably.",
+            "source": "Screener.in fundamentals — peer-quintile scoring (tools/moat_peer_scoring.py)",
+            "result": "CHECKED",
+            "note": f"Scored against {len(peers)} peers in sector '{breakdown['peer_set']['sector']}' "
+                    f"(fixed NSE-universe, market-cap band {breakdown['peer_set']['band']}).",
         })
+    else:
+        pathway_results.append({
+            "pathway_id": "AGG-01",
+            "source": "Screener.in fundamentals — peer-quintile scoring (tools/moat_peer_scoring.py)",
+            "result": "NOT_DISCLOSED",
+            "note": (breakdown.get("peer_set") or {}).get("reason", "Peer set could not be built."),
+        })
+
+    if peer_status != "OK" and breakdown["qualitative_evidence"].get("score") is None:
         payload = {
             "subpoint_id": subpoint_id,
             "title": "Competitive advantage / moats: brand, distribution, cost leadership, network effects, switching costs",
             "available": True,
-            "moat_rating": None,
-            "moat_pillars_bar": [],
-            "rationale": "Rating not computed — PORTAL-07 not wired, and the AGG-01 (Screener.in) scrape returned too few inputs this run.",
+            "quant_proxy_only": True,
+            "composite_score": None,
+            "pillars": breakdown["pillars"],
+            "peer_set": breakdown.get("peer_set"),
+            "qualitative_evidence": breakdown["qualitative_evidence"],
+            "rationale": "Neither the peer-quintile quant pillars nor the qualitative evidence score "
+                         "could be sourced this run — see peer_set/qualitative_evidence for the specific reason.",
             "pathway_results": pathway_results,
         }
         confidence_tag = "SEARCH_INCONCLUSIVE"
     else:
-        pathway_results.append({
-            "pathway_id": "AGG-01",
-            "source": "Screener.in — data-driven moat scorer (tools/moat_engine.py)",
-            "result": "CHECKED",
-            "note": f"{n_pillars} pillars scored from real Screener.in fundamentals (ROCE, OPM, ROE, leverage, working capital, growth) — see breakdown below.",
-        })
-        moat_rating = round(moat_result["moat_score"] / 100 * 5, 1)
-        pillars_bar = [
-            {"label": p["label"], "value": round((p["score"] / p["max"]) * 5, 1) if p.get("max") else 0}
-            for p in moat_result.get("pillars") or [] if p.get("max")
-        ]
         payload = {
             "subpoint_id": subpoint_id,
             "title": "Competitive advantage / moats: brand, distribution, cost leadership, network effects, switching costs",
             "available": True,
-            "moat_rating": moat_rating,
-            "moat_strength": moat_result.get("moat_strength"),
-            "moat_pillars_bar": pillars_bar,
-            "rationale": moat_result.get("memo_text") or "",
+            "quant_proxy_only": breakdown["quant_proxy_only"],
+            "composite_score": breakdown["composite_score"],
+            "pillars": breakdown["pillars"],
+            "peer_set": breakdown.get("peer_set"),
+            "qualitative_evidence": breakdown["qualitative_evidence"],
+            "rationale": (
+                "QUANT_PROXY_ONLY — the qualitative-evidence score could not be sourced from CRISIL/ICRA "
+                "or management commentary this run, so per the hard rule no composite moat rating is shown, "
+                "only the peer-relative quant pillars."
+                if breakdown["quant_proxy_only"] else
+                f"Composite Moat Score {breakdown['composite_score']}/5, combining {len(breakdown['pillars']) - 1} "
+                f"peer-quintile quant pillars with a qualitative-evidence score of "
+                f"{breakdown['qualitative_evidence'].get('score')}/5 "
+                f"({breakdown['qualitative_evidence'].get('source')})."
+            ),
             "pathway_results": pathway_results,
         }
-        confidence_tag = "SINGLE_SOURCE"
+        # PORTAL-07 (qualitative evidence) and AGG-01 (quant peer score) feed
+        # DIFFERENT parts of the composite, not the same fact — so even when
+        # both succeed this is never VERIFIED (VERIFIED requires 2+ pathways
+        # corroborating the SAME value, per the cross-verification rule).
+        # SINGLE_SOURCE whenever at least one produced usable data.
+        crisil_ok = crisil_result.get("result") == "CHECKED"
+        agg_ok = peer_status == "OK"
+        confidence_tag = "SINGLE_SOURCE" if (crisil_ok or agg_ok) else "SEARCH_INCONCLUSIVE"
 
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag

@@ -706,6 +706,7 @@ def fetch_screener_moat_data(symbol, name=None):
             "roe_latest": top.get("roe"),
             "pe": top.get("stock p/e") or top.get("p/e"),
             "dividend_yield": top.get("dividend yield"),
+            "debt_to_equity": top.get("debt to equity"),
             "roce_history": roce_hist,
             "opm_history": opm_hist,
             "cash_conversion_cycle": ccc[-1] if ccc else None,

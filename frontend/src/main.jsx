@@ -695,23 +695,29 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [hi, setHi] = useState(null);
             const items = (data || []).filter(d => d.value != null && !isNaN(d.value));
             if (!items.length) return <div className="text-center p-4 text-[11px] text-slate-500">No data to chart.</div>;
-            const color = 'rgb(var(--blue-500))';
+            const defaultColor = 'rgb(var(--blue-500))';
             const labelColor = 'rgb(var(--slate-200))';
             const trackColor = 'rgb(var(--slate-800))';
             const valueColor = 'rgb(var(--slate-500))';
             return (
                 <div className="space-y-2.5">
-                    {items.map((d, i) => (
+                    {items.map((d, i) => {
+                        // Optional per-row color override (e.g. the composite score bar,
+                        // or the required qualitative-evidence bar — must be visually
+                        // distinct from the peer-quintile quant pillars per the A.2 spec).
+                        const color = d.color || defaultColor;
+                        return (
                         <div key={d.label} onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)} className="cursor-crosshair">
                             <div className="flex items-center justify-between text-[12px] mb-1">
-                                <span style={{ color: labelColor }} className="font-semibold">{d.label}</span>
+                                <span style={{ color: labelColor }} className={d.emphasize ? "font-bold" : "font-semibold"}>{d.label}</span>
                                 <span style={{ color: hi === i ? color : valueColor }} className="font-mono font-bold">{d.value.toFixed(1)} / {scaleMax}</span>
                             </div>
-                            <div className="h-2 rounded-full overflow-hidden" style={{ background: trackColor }}>
+                            <div className={`rounded-full overflow-hidden ${d.emphasize ? 'h-3' : 'h-2'}`} style={{ background: trackColor }}>
                                 <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (d.value / scaleMax) * 100)}%`, background: color, opacity: hi == null || hi === i ? 1 : 0.5 }}></div>
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
             );
         };

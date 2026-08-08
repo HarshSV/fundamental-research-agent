@@ -2003,8 +2003,9 @@ def build_executive_summary(state: SystemState) -> dict:
             compute_a5_pricing_power,
         )
         _biz_desc_for_qual = (info.get('longBusinessSummary') or "").strip()
+        _mcap_cr = (info.get('marketCap') / 1e7) if info.get('marketCap') else None
         _biz_comp = compute_business_composition(symbol, name, _biz_desc_for_qual)
-        _a2 = compute_a2_competitive_moat(symbol, name, _biz_desc_for_qual)
+        _a2 = compute_a2_competitive_moat(symbol, name, _biz_desc_for_qual, market_cap_cr=_mcap_cr)
         _a3 = compute_a3_revenue_model_quality(symbol, name, _biz_desc_for_qual)
         _a4 = compute_a4_product_lifecycle_stage(symbol, name, _biz_desc_for_qual)
         _a5 = compute_a5_pricing_power(symbol, name, _biz_desc_for_qual)
@@ -2032,10 +2033,12 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _a2 and _a2.get('available'):
         f23 = {
-            'overall_rating': _a2.get('moat_rating'),
-            'moat_types': {},
-            'moat_pillars_bar': _a2.get('moat_pillars_bar') or [],
-            'rationale': _a2.get('rationale') or 'Not computed — neither sourcing pathway (PORTAL-07 rating-agency rationale, AGG-01 Screener/Tijori) is wired yet.',
+            'composite_score': _a2.get('composite_score'),
+            'quant_proxy_only': _a2.get('quant_proxy_only'),
+            'pillars': _a2.get('pillars') or [],
+            'peer_set': _a2.get('peer_set'),
+            'qualitative_evidence': _a2.get('qualitative_evidence'),
+            'rationale': _a2.get('rationale'),
             'confidence_tag': _a2.get('confidence_tag'), 'retrieved_at': _a2.get('retrieved_at'),
             'pathway_results': _a2.get('pathway_results'),
         }
@@ -2359,35 +2362,27 @@ def build_executive_summary(state: SystemState) -> dict:
         'tertiary': {'label': 'Screener.in – Documents/Financials tab', 'url': 'https://www.screener.in'},
     }
 
-    # F-23 moat sub-scores (1-5 scale) — a labelled bar chart, same idea as the
-    # recurring-revenue donut but for a rating rather than a percentage.
-    _moat_label = {'brand': 'Brand', 'distribution': 'Distribution', 'cost_leadership': 'Cost leadership',
-                   'network_effects': 'Network effects', 'switching_costs': 'Switching costs'}
-    _moat_types = f23.get('moat_types') or {}
+    # F-23 Moat Rating Breakdown: composite score bar (only when NOT
+    # QUANT_PROXY_ONLY) + one bar per peer-quintile quant pillar (a)-(h) +
+    # the required qualitative-evidence bar (i), rendered in a distinct
+    # color per the spec ("shown in a distinct color at the bottom").
     _moat_bars = []
-    # Sourced A.2 (tools/qualitative_engine.py) supplies real Screener.in-derived
-    # pillar scores directly — prefer those over the old fixed brand/distribution/
-    # cost-leadership/network-effects/switching-costs labels, which were never
-    # actually measured, just LLM-guessed.
-    if f23.get('moat_pillars_bar'):
-        for _pb in f23['moat_pillars_bar']:
-            try:
-                _moat_bars.append({'label': _pb['label'], 'value': round(max(0.0, min(5.0, float(_pb['value']))), 1)})
-            except (TypeError, ValueError, KeyError):
+    _moat_overall = f23.get('composite_score')
+    if _moat_overall is not None and not f23.get('quant_proxy_only'):
+        _moat_bars.append({'label': 'Composite Moat Score', 'value': round(max(0.0, min(5.0, float(_moat_overall))), 1),
+                            'color': '#8b5cf6', 'emphasize': True})
+    for _pb in (f23.get('pillars') or []):
+        try:
+            _val = _pb.get('score_0_5')
+            if _val is None:
                 continue
-    else:
-        for _mk, _mlabel in _moat_label.items():
-            _mv = _moat_types.get(_mk)
-            try:
-                _mv = max(0.0, min(5.0, float(_mv)))
-            except (TypeError, ValueError):
-                continue
-            _moat_bars.append({'label': _mlabel, 'value': round(_mv, 1)})
-    _moat_overall = f23.get('overall_rating')
-    try:
-        _moat_overall = round(max(0.0, min(5.0, float(_moat_overall))), 1)
-    except (TypeError, ValueError):
-        _moat_overall = None
+            _moat_bars.append({
+                'label': _pb['label'],
+                'value': round(max(0.0, min(5.0, float(_val))), 1),
+                'color': '#f59e0b' if _pb.get('is_qualitative') else None,
+            })
+        except (TypeError, ValueError, KeyError):
+            continue
 
     _track_record_rating = _enum(f28.get('track_record_rating'), ['Strong', 'Mixed', 'Weak'])
     _ceo_tenure = f28.get('ceo_tenure_years')
@@ -2566,14 +2561,23 @@ def build_executive_summary(state: SystemState) -> dict:
                     'key': 'competitive_advantage_moats',
                     'title': 'Competitive advantage / moats: brand, distribution, cost leadership, network effects, switching costs',
                     'finding': f23.get('rationale') or None,
-                    'facts': ([['Overall moat rating', f"{_moat_overall} / 5"]] if _moat_overall is not None else []),
+                    'facts': [f for f in [
+                        (['Composite Moat Score', f"{_moat_overall} / 5"] if (_moat_overall is not None and not f23.get('quant_proxy_only')) else None),
+                        (['QUANT_PROXY_ONLY', 'Yes — no qualitative evidence sourced this run'] if f23.get('quant_proxy_only') else None),
+                        (['Peer set', f"{(f23.get('peer_set') or {}).get('sector')} — {len((f23.get('peer_set') or {}).get('peers') or [])} peers"] if (f23.get('peer_set') or {}).get('peers') else None),
+                        (['Qualitative evidence source', (f23.get('qualitative_evidence') or {}).get('source')] if (f23.get('qualitative_evidence') or {}).get('score') is not None else None),
+                    ] if f],
                     'chart': ({'type': 'bar', 'data': _moat_bars, 'scaleMax': 5} if _moat_bars else None),
-                    'formula': 'N/A — qualitative rating (1-5 scale) based on evidence checklist',
+                    'formula': 'Composite Moat Score = mean of 8 peer-quintile-ranked quant pillars (0-5) + '
+                               'qualitative-evidence score (0-5, from CRISIL/ICRA + management commentary). '
+                               'Never shown without the qualitative-evidence input (QUANT_PROXY_ONLY otherwise).',
                     'sources': {
-                        'primary': {'label': 'CRISIL Ratings/Research', 'url': 'https://www.crisilratings.com'},
+                        'primary': {'label': 'CRISIL Ratings/Research', 'url': (f23.get('qualitative_evidence') or {}).get('url') or 'https://www.crisilratings.com'},
                         'secondary': {'label': 'ICRA Research', 'url': 'https://www.icra.in'},
-                        'tertiary': {'label': 'Screener.in – peer/moat comparison, incl. Tijori Finance', 'url': 'https://www.screener.in'},
+                        'tertiary': {'label': 'Screener.in – peer-quintile fundamentals', 'url': 'https://www.screener.in'},
                     },
+                    'peerSetAudit': (f23.get('peer_set') or {}).get('audit'),
+                    'evidenceQuote': (f23.get('qualitative_evidence') or {}).get('evidence_quote'),
                     'confidence_tag': f23.get('confidence_tag'), 'retrieved_at': f23.get('retrieved_at'),
                     'pathway_results': f23.get('pathway_results'),
                 },
