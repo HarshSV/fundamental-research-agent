@@ -231,16 +231,24 @@ export function SunburstChart({ chart }) {
 
     const renderRing = (items, rIn, rOut, leaderLaneR) => items.map((it) => {
         const midDeg = (it.startDeg + it.endDeg) / 2;
-        const canLabel = !it.floored && (it.endDeg - it.startDeg) >= 14;
+        // Single-line label only, sized to the wedge — a stacked name+% label
+        // easily overflows a thin ring's radial band at angles far from 12/6
+        // o'clock (the text is screen-vertical, not angle-rotated), bleeding
+        // into the neighboring ring. Full value/% detail lives in the side
+        // legend and the hover card instead, so nothing is lost.
+        const canLabel = !it.floored && (it.endDeg - it.startDeg) >= 16;
         const [lx, ly] = polar(cx, cy, (rIn + rOut) / 2, midDeg);
-        const short = it.label && it.label.length > 14 ? `${it.label.slice(0, 13)}…` : it.label;
+        const maxChars = Math.max(4, Math.floor((it.endDeg - it.startDeg) / 4.2));
+        const short = it.label && it.label.length > maxChars ? `${it.label.slice(0, Math.max(3, maxChars - 1))}…` : it.label;
+        const pctText = it.pct != null ? `${it.pct.toFixed(1)}%` : null;
         return (
             <g key={it.key} onMouseMove={(e) => showTip(it, e)} onMouseLeave={hideTip} className="cursor-default">
-                <path d={wedgePath(cx, cy, rIn, rOut, it.startDeg, it.endDeg)} fill={it.color} opacity={0.88}
-                    stroke="#0f172a" strokeWidth="1" />
+                <path d={wedgePath(cx, cy, rIn, rOut, it.startDeg, it.endDeg)} fill={it.color} opacity={0.9}
+                    stroke="#0f172a" strokeWidth="1.4" />
                 {canLabel && (
                     <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
-                        fontSize="8.5" fontWeight="700" fill="white" className="select-none pointer-events-none">
+                        fontSize="9.5" fontWeight="800" fill="#ffffff" stroke="#0f172a" strokeWidth="2.75"
+                        paintOrder="stroke" className="select-none pointer-events-none">
                         {short}
                     </text>
                 )}
@@ -249,10 +257,10 @@ export function SunburstChart({ chart }) {
                     const [tx, ty] = polar(cx, cy, leaderLaneR, midDeg);
                     return (
                         <g className="pointer-events-none">
-                            <line x1={fx} y1={fy} x2={tx} y2={ty} stroke="#64748b" strokeWidth="1" opacity="0.7" />
+                            <line x1={fx} y1={fy} x2={tx} y2={ty} stroke="#94a3b8" strokeWidth="1.2" opacity="0.85" />
                             <text x={tx} y={ty} textAnchor={tx > cx ? 'start' : 'end'} dx={tx > cx ? 3 : -3}
-                                dominantBaseline="middle" fontSize="8" fill="#cbd5e1" className="select-none">
-                                {short}
+                                dominantBaseline="middle" fontSize="9" fontWeight="700" fill="#f1f5f9" className="select-none">
+                                {short}{pctText ? ` · ${pctText}` : ''}
                             </text>
                         </g>
                     );
@@ -263,33 +271,72 @@ export function SunburstChart({ chart }) {
 
     const leaderLaneR = maxR + 4;
 
+    // Side data table — every wedge's exact value + %, grouped the same way
+    // the rings are, so a reader who doesn't want to hover/decode the chart
+    // can just read the numbers straight off the list next to it.
+    const legendSections = [
+        hasRing1 ? { title: 'Business Segments (Revenue)', items: ring1Items } : null,
+        hasFlow ? { title: 'Income Statement Flow', items: outerRings.flatMap((r) => r.items) } : null,
+    ].filter(Boolean);
+
     return (
-        <div className="w-full">
-            <svg viewBox={`0 0 ${VB} ${VB}`} className="w-full h-auto mx-auto" style={{ maxWidth: 460, maxHeight: 460 }}>
-                {hasRing1 && renderRing(ring1Items, R0_IN, R0_IN + RING_W, leaderLaneR)}
-                {outerRings.map((r, i) => renderRing(r.items, r.rIn, r.rOut, leaderLaneR))}
-                <text x={cx} y={cy - 6} textAnchor="middle" fontSize="12" fontWeight="700" fill="#e2e8f0">
-                    {inrCroreShort(totalRevenueCr)}
-                </text>
-                <text x={cx} y={cy + 10} textAnchor="middle" fontSize="8.5" fill="#94a3b8">
-                    Total Revenue
-                </text>
-            </svg>
-            {hasRing1 && (
-                <div className="flex flex-wrap items-center justify-center gap-3 mt-2">
-                    {['recurring', 'mixed', 'cyclical'].map((p) => (
-                        <div key={p} className="flex items-center gap-1.5">
-                            <span className="w-2.5 h-2.5 rounded-full" style={{ background: PATTERN_COLOR[p] }} />
-                            <span className="text-[10px] text-slate-400">{PATTERN_LABEL[p]}</span>
+        <div className="w-full flex flex-col lg:flex-row gap-4 items-start">
+            <div className="flex-shrink-0 w-full lg:w-auto mx-auto" style={{ maxWidth: 460 }}>
+                <svg viewBox={`0 0 ${VB} ${VB}`} className="w-full h-auto mx-auto block" style={{ maxWidth: 460, maxHeight: 460 }}>
+                    {hasRing1 && renderRing(ring1Items, R0_IN, R0_IN + RING_W, leaderLaneR)}
+                    {outerRings.map((r, i) => renderRing(r.items, r.rIn, r.rOut, leaderLaneR))}
+                    <text x={cx} y={cy - 6} textAnchor="middle" fontSize="12" fontWeight="700" fill="#e2e8f0">
+                        {inrCroreShort(totalRevenueCr)}
+                    </text>
+                    <text x={cx} y={cy + 10} textAnchor="middle" fontSize="8.5" fill="#94a3b8">
+                        Total Revenue
+                    </text>
+                </svg>
+                {hasRing1 && (
+                    <div className="flex flex-wrap items-center justify-center gap-3 mt-2">
+                        {['recurring', 'mixed', 'cyclical'].map((p) => (
+                            <div key={p} className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ background: PATTERN_COLOR[p] }} />
+                                <span className="text-[10px] text-slate-400">{PATTERN_LABEL[p]}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {!hasFlow && (
+                    <p className="text-[10px] text-slate-500 italic text-center mt-2">
+                        {chart?.flowUnavailableReason || 'Income statement flow not available for this company/period.'}
+                    </p>
+                )}
+            </div>
+
+            {legendSections.length > 0 && (
+                <div className="flex-1 min-w-0 w-full space-y-4">
+                    {legendSections.map((sec) => (
+                        <div key={sec.title}>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">{sec.title}</div>
+                            <div className="space-y-0.5">
+                                {sec.items.map((it) => (
+                                    <div key={it.key}
+                                        onMouseEnter={(e) => showTip(it, e)} onMouseMove={(e) => showTip(it, e)} onMouseLeave={hideTip}
+                                        className="flex items-center justify-between gap-2 px-2 py-1 rounded hover:bg-slate-800/60 cursor-default">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: it.color }} />
+                                            <span className="text-[12px] font-semibold text-slate-200 truncate">{it.label}</span>
+                                        </div>
+                                        <div className="flex items-baseline gap-2 flex-shrink-0">
+                                            <span className="text-[12px] font-bold text-slate-100 nv-num">{inrCroreShort(it.value)}</span>
+                                            <span className="text-[11px] font-semibold text-slate-400 w-12 text-right">
+                                                {it.pct != null ? `${it.pct.toFixed(1)}%` : '—'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     ))}
                 </div>
             )}
-            {!hasFlow && (
-                <p className="text-[10px] text-slate-500 italic text-center mt-2">
-                    {chart?.flowUnavailableReason || 'Income statement flow not available for this company/period.'}
-                </p>
-            )}
+
             {hover && (
                 <div className="fixed z-50 pointer-events-none" style={{ left: hover.x + 12, top: hover.y - 8 }}>
                     <HoverCard item={hover.item} />
