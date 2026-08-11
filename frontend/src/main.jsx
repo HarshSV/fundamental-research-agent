@@ -12,6 +12,7 @@ import Settings from "./views/Settings.jsx";
 import History from "./views/History.jsx";
 import AskNavrist from "./components/AskNavrist.jsx";
 import { IncomeIcicle } from "./components/IncomeIcicle.jsx";
+import { SunburstChart } from "./components/SunburstChart.jsx";
 import { addHistory } from "./lib/history.js";
 import { SECTIONS } from "./components/layout/sections.jsx";
 import { SECTORS, getRatiosForSector, getIndustrySpecificRatiosForSector,
@@ -1404,10 +1405,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // both render as their own full-width block — the standard facts/
             // chart two-column grid below is built for smaller rating/donut
             // charts and doesn't fit either of these.
-            if (chart?.type === 'business_composition' || chart?.type === 'income_statement_flow') {
-                const missing = chart?.type === 'business_composition'
-                    ? !chart?.segments?.length
-                    : !(chart?.nodes?.length && chart?.links?.length);
+            if (chart?.type === 'business_composition' || chart?.type === 'income_statement_flow' || chart?.type === 'sunburst_combined') {
+                const missing = chart?.type === 'business_composition' ? !chart?.segments?.length
+                    : chart?.type === 'income_statement_flow' ? !(chart?.nodes?.length && chart?.links?.length)
+                    : !(chart?.segments?.length || (chart?.nodes?.length && chart?.links?.length));
                 return (
                     <div className="border border-slate-800 rounded-lg overflow-hidden">
                         <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-2">
@@ -1428,6 +1429,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 </p>
                             ) : chart.type === 'business_composition' ? (
                                 <BusinessCompositionChart chart={chart} footerReadline={sp.finding} pdfUrl={chart.pdfUrl} fiscalYear={chart.fiscalYear} sources={sp.sources} />
+                            ) : chart.type === 'sunburst_combined' ? (
+                                <>
+                                    {chart.compositionNote && (
+                                        <div className="text-[11px] font-bold text-slate-300 uppercase tracking-wide text-center mb-2">{chart.compositionNote}</div>
+                                    )}
+                                    <SunburstChart chart={chart} />
+                                </>
                             ) : (
                                 <IncomeStatementFlowCard chart={chart} unavailableReason={sp.unavailableReason} />
                             )}

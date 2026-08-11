@@ -115,6 +115,15 @@ def _fetch_segment_revenue_context(sym, name):
         return None, None
 
 
+# Bumped whenever the payload shape or sourcing methodology changes — same
+# cache-invalidation pattern as _A12_SCHEMA_VERSION/_BIZ_COMP_SCHEMA_VERSION
+# below. A.1 previously had no explicit version, relying only on the
+# old-field-name heuristic a few lines down; that heuristic still runs for
+# rows written before this constant existed, but every methodology change
+# from here on bumps this instead.
+_A1_SCHEMA_VERSION = 1
+
+
 def compute_a1_business_model_clarity(symbol, name=None, description="", force=False):
     """A.1.1 — Clarity of business model: single product vs portfolio (business
     diversification). Cyclical vs recurring revenue is a SEPARATE analysis, see
@@ -144,7 +153,8 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
         # can keep being served just because the TTL hasn't expired. Revenue
         # recurringness/cyclicality now live entirely in
         # compute_a1_2_revenue_characteristics.
-        if cached is not None and "revenue_pattern" not in cached and "recurring_revenue_pct" not in cached:
+        if (cached is not None and "revenue_pattern" not in cached and "recurring_revenue_pct" not in cached
+                and cached.get("schema_version") == _A1_SCHEMA_VERSION):
             try:
                 age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
                 if age <= CACHE_TTL:
@@ -199,6 +209,7 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
     if not ar13_checked:
         payload = {
             "subpoint_id": subpoint_id,
+            "schema_version": _A1_SCHEMA_VERSION,
             "title": "Clarity of business model: single product vs portfolio (business diversification)",
             "available": False,
             "reason": "No business description or concall corpus available to ground AR-13.",
@@ -256,6 +267,7 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
 
     payload = {
         "subpoint_id": subpoint_id,
+        "schema_version": _A1_SCHEMA_VERSION,
         "title": "Clarity of business model: single product vs portfolio (business diversification)",
         "available": True,
         "model_type": model_type,
@@ -1071,7 +1083,7 @@ def compute_business_composition(symbol, name=None, description="", force=False)
     return payload
 
 
-def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr=None, force=False):
+def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr=None, force=False, skip_llm=False):
     """A.2 — Competitive advantage / moats: brand, distribution, cost leadership,
     network effects, switching costs. Composite Moat Rating Breakdown per spec:
     8 peer-quintile-ranked quant pillars (a-h) + a required qualitative-evidence
@@ -1086,6 +1098,13 @@ def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr
     than presented as a full moat assessment. Peers are drawn ONLY from the fixed,
     auditable universe in tools/peer_universe.py (NSE sector map + market-cap-band
     widening) — never an open search or free-text "similar companies" guess.
+
+    skip_llm=True: never calls any LLM API (Groq direct key or OpenRouter) — for
+    bulk runs where the shared LLM quota must not be touched. This skips BOTH the
+    qualitative-evidence classifier AND `_concall_digest` (which itself calls
+    groq_chat to summarize concalls) — result is always QUANT_PROXY_ONLY with the
+    8 quant pillars + CRISIL rating rationale text populated, ready for a later
+    LLM-enabled pass to score without re-scraping.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "A.2"
@@ -1104,11 +1123,11 @@ def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr
     from tools.moat_peer_scoring import build_moat_rating_breakdown
 
     crisil_result = fetch_crisil_rationale(name or sym, symbol=sym)
-    digest = _concall_digest(sym, name)
+    digest = "" if skip_llm else _concall_digest(sym, name)
 
     breakdown = build_moat_rating_breakdown(
         sym, name=name, market_cap_cr=market_cap_cr,
-        crisil_result=crisil_result, concall_digest=digest,
+        crisil_result=crisil_result, concall_digest=digest, skip_llm=skip_llm,
     )
 
     pathway_results = list(breakdown["qualitative_evidence"].get("pathway_results") or [])
@@ -1175,6 +1194,89 @@ def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr
         crisil_ok = crisil_result.get("result") == "CHECKED"
         agg_ok = peer_status == "OK"
         confidence_tag = "SINGLE_SOURCE" if (crisil_ok or agg_ok) else "SEARCH_INCONCLUSIVE"
+
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
+    """A.2.A ("2A" in the sheet) — Brand moat: 0-5 score based on pricing
+    power, customer preference, premium positioning, repeat business, and
+    market-share evidence.
+
+    Sources: CRISIL/ICRA rating rationale (PORTAL-07, tools/crisil_scraper.py),
+    Annual Report MD&A (approximated here via the company's business
+    description, same AR-13 proxy used by A.1/A.4/A.5), Earnings call —
+    NOT_CHECKED this run (see below).
+
+    Deliberately deterministic (tools/moat_brand_scoring.py) rather than
+    LLM-scored: every score traces to a literal matched sentence, fully
+    reproducible, and avoids the shared Groq/OpenRouter quota entirely —
+    chosen for the 2,409-company bulk pass. The earnings-call pathway is
+    marked NOT_CHECKED (deliberately not attempted), not NOT_DISCLOSED,
+    because this codebase's only earnings-call digest
+    (tools/concall_intelligence.py) itself calls an LLM to summarize —
+    using it here would defeat the point of avoiding LLM calls.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.2.A"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.crisil_scraper import fetch_crisil_rationale
+    from tools.moat_brand_scoring import score_brand_moat
+
+    crisil_result = fetch_crisil_rationale(name or sym, symbol=sym)
+    crisil_text = crisil_result.get("key_rating_drivers", "") if crisil_result.get("result") == "CHECKED" else ""
+
+    scored = score_brand_moat(crisil_text=crisil_text, business_description=description or "")
+
+    pathway_results = [
+        {
+            "pathway_id": "PORTAL-07", "source": "CRISIL/ICRA Rating Rationale",
+            "result": "CHECKED" if crisil_text else crisil_result.get("result", "NOT_DISCLOSED"),
+            "note": crisil_result.get("note") if crisil_result.get("result") != "CHECKED" else
+                    f"Rated {crisil_result.get('rating')}, {crisil_result.get('rationale_date')}.",
+        },
+        {
+            "pathway_id": "AR-13", "source": "Annual Report MD&A (business description proxy)",
+            "result": "CHECKED" if description else "NOT_DISCLOSED",
+        },
+        {
+            "pathway_id": "QUAL-01", "source": "Earnings call commentary",
+            "result": "NOT_CHECKED",
+            "note": "Deliberately skipped — this codebase's earnings-call digest itself requires an "
+                    "LLM call, which this deterministic sub-point avoids by design.",
+        },
+    ]
+
+    payload = {
+        "subpoint_id": subpoint_id,
+        "title": "Brand",
+        "available": True,
+        "score": scored["score"],
+        "categories_covered": scored["categories_covered"],
+        "numeric_anchor": scored["numeric_anchor"],
+        "evidence_quote": scored["evidence_quote"],
+        "evidence_source": scored["source"],
+        "rationale": scored["reasoning"],
+        "pathway_results": pathway_results,
+    }
+
+    # Only one pathway ever feeds the actual score (CRISIL OR company description,
+    # never both corroborating) — SINGLE_SOURCE whenever a score exists, per the
+    # cross-verification rule; SEARCH_INCONCLUSIVE when nothing was found at all.
+    confidence_tag = "SEARCH_INCONCLUSIVE" if scored["score"] is None else "SINGLE_SOURCE"
 
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag

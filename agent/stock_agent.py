@@ -1995,10 +1995,10 @@ def build_executive_summary(state: SystemState) -> dict:
     # f22-f25 here (rather than restructuring every downstream read) means the
     # existing facts/chart/finding wiring for subpoints 1-4 below picks this up
     # automatically. f22-f25 are not read anywhere else in this file.
-    _biz_comp = _a2 = _a3 = _a4 = _a5 = None
+    _biz_comp = _a2 = _a2a = _a3 = _a4 = _a5 = None
     try:
         from tools.qualitative_engine import (
-            compute_business_composition, compute_a2_competitive_moat,
+            compute_business_composition, compute_a2_competitive_moat, compute_a2a_brand_moat,
             compute_a3_revenue_model_quality, compute_a4_product_lifecycle_stage,
             compute_a5_pricing_power,
         )
@@ -2006,6 +2006,7 @@ def build_executive_summary(state: SystemState) -> dict:
         _mcap_cr = (info.get('marketCap') / 1e7) if info.get('marketCap') else None
         _biz_comp = compute_business_composition(symbol, name, _biz_desc_for_qual)
         _a2 = compute_a2_competitive_moat(symbol, name, _biz_desc_for_qual, market_cap_cr=_mcap_cr)
+        _a2a = compute_a2a_brand_moat(symbol, name, _biz_desc_for_qual)
         _a3 = compute_a3_revenue_model_quality(symbol, name, _biz_desc_for_qual)
         _a4 = compute_a4_product_lifecycle_stage(symbol, name, _biz_desc_for_qual)
         _a5 = compute_a5_pricing_power(symbol, name, _biz_desc_for_qual)
@@ -2497,15 +2498,23 @@ def build_executive_summary(state: SystemState) -> dict:
             'topic': 'A. Company strategy & business model',
             'subpoints': [
                 {
-                    # Graph 1 — Clarity of Business Model / Business Composition.
-                    # User-facing title/key only — no internal framework IDs
-                    # (A.1.3, subpoint_id, etc) ever surface in the frontend.
-                    'key': 'business_composition',
+                    # A.1 — Clarity of Business Model, rendered as ONE combined
+                    # 4-ring sunburst: Ring 1 is the segment-share/pattern view
+                    # (formerly a standalone "business_composition" chart), Rings
+                    # 2-4 are the Revenue -> EBITDA/OpCosts -> D&A/Finance/PBT ->
+                    # Tax/Net Profit waterfall (formerly a standalone
+                    # "income_statement_flow" chart) — same two underlying,
+                    # already-reconciled data sources, just presented as one
+                    # chart instead of two. User-facing title/key only — no
+                    # internal framework IDs (A.1.3, subpoint_id, etc) ever
+                    # surface in the frontend.
+                    'key': 'a1_sunburst',
                     'title': 'Clarity of Business Model',
                     'finding': _biz_comp_payload.get('footer_readline') if _biz_comp_payload else None,
                     'facts': [],
                     'chart': {
-                        'type': 'business_composition',
+                        'type': 'sunburst_combined',
+                        # Ring 1 — segment shares + pattern classification.
                         'compositionNote': (_biz_comp_payload or {}).get('composition_note'),
                         'businessModelTag': (_biz_comp_payload or {}).get('business_model_tag'),
                         'totalRevenueCr': (_biz_comp_payload or {}).get('total_revenue_cr'),
@@ -2525,37 +2534,27 @@ def build_executive_summary(state: SystemState) -> dict:
                         'fiscalYear': (_biz_comp_payload or {}).get('fiscal_year'),
                         'pdfUrl': (_biz_comp_payload or {}).get('pdf_url'),
                         'plPage': (_biz_comp_payload or {}).get('pl_page'),
+                        # Rings 2-4 — reconciled P&L waterfall (Revenue is shared
+                        # with Ring 1's total; nodes/links already balance or the
+                        # extractor returns nothing rather than fabricate a flow).
+                        'nodes': (_income_flow_payload or {}).get('nodes') or [],
+                        'links': (_income_flow_payload or {}).get('links') or [],
+                        'flowFiscalYear': (_income_flow_payload or {}).get('fiscal_year'),
+                        'flowBasis': (_income_flow_payload or {}).get('basis'),
+                        'flowRevenueCr': (_income_flow_payload or {}).get('revenue_cr'),
+                        # Missing-data reason for rings 2-4 specifically, surfaced
+                        # verbatim when the flow couldn't be built (e.g. a bank/
+                        # NBFC where EBITDA isn't an applicable measure) — Ring 1
+                        # still renders on its own in that case. Never fabricated.
+                        'flowUnavailableReason': (_income_flow or {}).get('reason') if not _income_flow_payload else None,
                     },
-                    'formula': 'Segment share % = External segment revenue / Consolidated Revenue from Operations × 100',
+                    'formula': 'Segment share % = External segment revenue / Consolidated Revenue from Operations × 100. '
+                               'P&L waterfall reconciles Revenue = EBITDA + Operating & Other Costs, '
+                               'EBITDA = Depreciation + Finance Costs + PBT, PBT = Tax + Net Profit.',
                     'sources': _ar_ip_screener_sources,
                     'confidence_tag': (_biz_comp or {}).get('confidence_tag'),
                     'retrieved_at': (_biz_comp or {}).get('retrieved_at'),
-                    'pathway_results': [],
-                },
-                {
-                    # Graph 2 — Consolidated Income Statement Flow.
-                    'key': 'income_statement_flow',
-                    'title': 'Consolidated Income Statement Flow',
-                    'finding': None,
-                    'facts': [],
-                    'chart': {
-                        'type': 'income_statement_flow',
-                        'nodes': (_income_flow_payload or {}).get('nodes') or [],
-                        'links': (_income_flow_payload or {}).get('links') or [],
-                        'fiscalYear': (_income_flow_payload or {}).get('fiscal_year'),
-                        'basis': (_income_flow_payload or {}).get('basis'),
-                        'revenueCr': (_income_flow_payload or {}).get('revenue_cr'),
-                    },
-                    'sources': (_income_flow_payload or {}).get('sources') or {
-                        'primary': {'label': 'Company Annual Report', 'note': 'Consolidated Statement of Profit and Loss'},
-                    },
-                    'confidence_tag': None, 'retrieved_at': None,
-                    'pathway_results': [],
-                    # Missing-data reason surfaced verbatim when the flow (or even its
-                    # shallow Revenue -> PBT -> Net Profit form) couldn't be built —
-                    # e.g. a bank/NBFC where EBITDA isn't an applicable measure, or a
-                    # P&L page that couldn't be parsed. Never fabricated.
-                    'unavailableReason': (_income_flow or {}).get('reason') if not _income_flow_payload else None,
+                    'pathway_results': (_biz_comp or {}).get('pathway_results') or [],
                 },
                 {
                     'key': 'competitive_advantage_moats',
@@ -2580,6 +2579,33 @@ def build_executive_summary(state: SystemState) -> dict:
                     'evidenceQuote': (f23.get('qualitative_evidence') or {}).get('evidence_quote'),
                     'confidence_tag': f23.get('confidence_tag'), 'retrieved_at': f23.get('retrieved_at'),
                     'pathway_results': f23.get('pathway_results'),
+                },
+                {
+                    # 2A — Brand moat sub-point (deterministic, no-LLM evidence
+                    # scorer — see tools/moat_brand_scoring.py). 2B-2E (distribution,
+                    # cost leadership, network effects, switching costs) are not
+                    # built yet — this section only appears once 2A has data.
+                    'key': 'brand_moat',
+                    'title': 'Brand',
+                    'finding': (_a2a or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Brand strength', f"{(_a2a or {}).get('score')} / 5"] if (_a2a or {}).get('score') is not None else None),
+                        (['Evidence categories', ', '.join((_a2a or {}).get('categories_covered') or [])] if (_a2a or {}).get('categories_covered') else None),
+                        (['Evidence source', (_a2a or {}).get('evidence_source')] if (_a2a or {}).get('evidence_source') else None),
+                    ] if f],
+                    'chart': ({'type': 'bar', 'data': [{'label': 'Brand strength', 'value': (_a2a or {}).get('score')}], 'scaleMax': 5}
+                              if (_a2a or {}).get('score') is not None else None),
+                    'formula': '0-5 deterministic evidence score: 5 = specific + numeric/named anchor in CRISIL/ICRA text, '
+                               '4 = specific across 2+ evidence categories in CRISIL/ICRA text, 3 = one category only, '
+                               '2 = evidence only in the company’s own description (no third-party corroboration), '
+                               '1 = generic boilerplate only, blank = no brand evidence found in any source.',
+                    'sources': {
+                        'primary': {'label': 'CRISIL/ICRA Rating Rationale', 'url': 'https://www.crisilratings.com'},
+                        'secondary': {'label': 'Annual Report MD&A', 'note': 'company business description'},
+                    },
+                    'evidenceQuote': (_a2a or {}).get('evidence_quote'),
+                    'confidence_tag': (_a2a or {}).get('confidence_tag'), 'retrieved_at': (_a2a or {}).get('retrieved_at'),
+                    'pathway_results': (_a2a or {}).get('pathway_results'),
                 },
                 {
                     'key': 'revenue_model_quality',
