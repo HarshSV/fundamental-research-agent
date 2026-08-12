@@ -75,7 +75,14 @@ _GENERIC_BOILERPLATE = re.compile(
 def _sentences(text):
     if not text:
         return []
-    return [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", text) if s.strip()]
+    # PDF-extracted text routinely line-wraps MID-PHRASE (table/form layouts
+    # splitting a two-word term across lines — confirmed on HDFCLIFE's
+    # "Persistency"/"ratio") — splitting on every newline the way a
+    # prose-sentence splitter would broke those phrases apart entirely, so
+    # newlines are normalized to spaces first and only real sentence-ending
+    # punctuation is treated as a boundary.
+    normalized = re.sub(r"\s+", " ", text.replace("\n", " "))
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", normalized) if s.strip()]
 
 
 def _matches_in(text):

@@ -1455,7 +1455,7 @@ def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr
 # biography text (confirmed false-positive on HGINFRA, whose only match was
 # an Independent Director's civil-service career bio, not a company brand
 # claim) and dropped the overly-generic "leadership position" anchor.
-_A2A_SCHEMA_VERSION = 3
+_A2A_SCHEMA_VERSION = 4  # v4: fixed _sentences() splitting mid-phrase terms across PDF line-wraps
 
 
 def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
@@ -1558,7 +1558,7 @@ def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
     return payload
 
 
-_A2B_SCHEMA_VERSION = 1
+_A2B_SCHEMA_VERSION = 2  # v2: fixed _sentences() splitting mid-phrase terms across PDF line-wraps
 
 
 def compute_a2b_distribution_moat(symbol, name=None, description="", force=False):
@@ -1661,7 +1661,7 @@ def compute_a2b_distribution_moat(symbol, name=None, description="", force=False
     return payload
 
 
-_A2C_SCHEMA_VERSION = 1
+_A2C_SCHEMA_VERSION = 2  # v2: fixed _sentences() splitting mid-phrase terms across PDF line-wraps
 
 
 def compute_a2c_cost_leadership_moat(symbol, name=None, description="", market_cap_cr=None, force=False):
@@ -1804,7 +1804,7 @@ def compute_a2c_cost_leadership_moat(symbol, name=None, description="", market_c
 # S/4HANA Enterprise platform") with zero marketplace meaning, making
 # nearly every non-platform company incorrectly "applicable". Bumped so
 # every already-cached company re-evaluates under the tightened gate.
-_A2D_SCHEMA_VERSION = 3
+_A2D_SCHEMA_VERSION = 4  # v4: fixed _sentences() splitting mid-phrase terms across PDF line-wraps
 
 
 def compute_a2d_network_effects_moat(symbol, name=None, description="", force=False):
@@ -1901,6 +1901,116 @@ def compute_a2d_network_effects_moat(symbol, name=None, description="", force=Fa
         confidence_tag = "SEARCH_INCONCLUSIVE"
     else:
         confidence_tag = "SINGLE_SOURCE"
+
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+# v2: added "persistency ratio" (the insurance-sector term of art for a
+# renewal rate) — confirmed HDFCLIFE had real, disclosed renewal-equivalent
+# data that "renewal rate" alone missed entirely. Bumped so cached
+# insurers reclassify under the corrected anchors.
+_A2E_SCHEMA_VERSION = 2
+
+
+def compute_a2e_switching_costs_moat(symbol, name=None, description="", force=False):
+    """A.2.E ("2E" in the sheet) — Switching costs moat: 0-5 score based on
+    contract lock-in term length, renewal rate, and regulatory/certification
+    switching barriers (see tools/moat_switching_costs_scoring.py). The 5/5
+    tier specifically requires BOTH a contract-term length AND a
+    renewal-rate percentage cited together — either alone caps at 4.
+
+    Sources: CRISIL/ICRA rationale (PORTAL-07) and Annual Report MD&A
+    (AR-13) are BOTH PRIMARY per spec — whichever has the stronger evidence
+    wins, neither is ordered ahead of the other. SECONDARY is the Ind AS 115
+    revenue-recognition note's contract-balance/performance-obligation
+    disclosures (CONTRACT-01), approximated by scanning the same AR text for
+    its characteristic phrasing rather than parsing the note's structured
+    table — consistent with every other A.2.x factor's text-anchor approach.
+    Earnings call — NOT_CHECKED, same reason as A.2.A-D (the only digest
+    tool requires an LLM call).
+
+    Deliberately deterministic (no LLM), same rationale as the other A.2.x
+    factors.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.2.E"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None and cached.get("schema_version") == _A2E_SCHEMA_VERSION:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.crisil_scraper import fetch_crisil_rationale
+    from tools.moat_switching_costs_scoring import score_switching_costs_moat
+    from tools.annual_report_financials import fetch_switching_costs_evidence_from_annual_report
+
+    crisil_result = fetch_crisil_rationale(name or sym, symbol=sym)
+    crisil_text = crisil_result.get("key_rating_drivers", "") if crisil_result.get("result") == "CHECKED" else ""
+
+    try:
+        ar_evidence = fetch_switching_costs_evidence_from_annual_report(sym, name)
+    except Exception as e:
+        print(f"[qualitative_engine] A.2.E AR switching-costs evidence fetch failed for {sym}: {e}")
+        ar_evidence = {"error": str(e)}
+    ar_excerpts = ar_evidence.get("excerpts") or []
+    ar_mdna_text = "\n".join(e["text"] for e in ar_excerpts)
+
+    scored = score_switching_costs_moat(ar_mdna_text=ar_mdna_text, crisil_text=crisil_text, business_description=description or "")
+
+    if ar_excerpts:
+        ar13_result, ar13_note = "CHECKED", None
+    elif "error" in ar_evidence:
+        ar13_result, ar13_note = "NOT_DISCLOSED", ar_evidence["error"]
+    else:
+        ar13_result, ar13_note = "NOT_DISCLOSED", "Annual Report fetched but no contract-term/renewal/switching-cost language located in its MD&A/Business Overview text."
+
+    pathway_results = [
+        {
+            "pathway_id": "AR-13", "source": "Annual Report MD&A — PRIMARY",
+            "result": ar13_result, "note": ar13_note,
+        },
+        {
+            "pathway_id": "PORTAL-07", "source": "CRISIL/ICRA Rating Rationale — PRIMARY",
+            "result": "CHECKED" if crisil_text else crisil_result.get("result", "NOT_DISCLOSED"),
+            "note": crisil_result.get("note") if crisil_result.get("result") != "CHECKED" else
+                    f"Rated {crisil_result.get('rating')}, {crisil_result.get('rationale_date')}.",
+        },
+        {
+            "pathway_id": "CONTRACT-01", "source": "Ind AS 115 revenue-recognition note — SECONDARY",
+            "result": "CHECKED" if ar_excerpts else "NOT_DISCLOSED",
+            "note": None if ar_excerpts else "Approximated via the same AR MD&A text scan (no dedicated note-table parser); nothing located.",
+        },
+        {
+            "pathway_id": "QUAL-01", "source": "Earnings call commentary",
+            "result": "NOT_CHECKED",
+            "note": "Deliberately skipped — this codebase's earnings-call digest itself requires an "
+                    "LLM call, which this deterministic sub-point avoids by design.",
+        },
+    ]
+
+    payload = {
+        "subpoint_id": subpoint_id,
+        "schema_version": _A2E_SCHEMA_VERSION,
+        "title": "Switching Costs",
+        "available": True,
+        "score": scored["score"],
+        "categories_covered": scored["categories_covered"],
+        "numeric_anchor": scored["numeric_anchor"],
+        "evidence_quote": scored["evidence_quote"],
+        "evidence_source": scored["source"],
+        "rationale": scored["reasoning"],
+        "pathway_results": pathway_results,
+    }
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if scored["score"] is None else "SINGLE_SOURCE"
 
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag

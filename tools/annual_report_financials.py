@@ -2493,6 +2493,39 @@ def fetch_network_effects_evidence_from_annual_report(symbol, name, fiscal_year=
     )
 
 
+# Switching-costs evidence anchors (A.2.E / row 2E) — contract lock-in term
+# length, renewal rate, and regulatory/certification switching barriers.
+# SECONDARY source per spec is the Ind AS 115 revenue-recognition note
+# (contract-balance/performance-obligation disclosures) — approximated here
+# by scanning the same AR text for its characteristic phrasing
+# ("remaining performance obligations", "average contract term") rather
+# than parsing the note's structured table, consistent with every other
+# A.2.x factor's text-anchor approach (never a dedicated table parser).
+_SWITCHING_COSTS_EVIDENCE_ANCHORS = [
+    "contract term", "average contract term", "contract lock-in", "lock-in period",
+    "renewal rate", "customer retention rate", "contract renewal", "long-term contract",
+    "long term contract", "take-or-pay", "take or pay", "remaining performance obligations",
+    "unsatisfied performance obligations", "sticky customer", "long-standing relationship",
+    "long standing relationship", "vendor qualification", "customer qualification",
+    "switching cost", "regulatory approval requirement", "certification requirement",
+    # Insurance-sector-specific renewal terminology — confirmed (HDFCLIFE)
+    # that "renewal rate" alone missed real, disclosed renewal-equivalent
+    # data because insurers use this term of art instead.
+    "persistency ratio",
+]
+
+
+def fetch_switching_costs_evidence_from_annual_report(symbol, name, fiscal_year=None):
+    """Real, grounded text excerpts from the company's OWN Annual Report PDF
+    (Business Overview / MD&A + Ind AS 115 revenue-recognition note text) for
+    A.2.E (Switching costs moat) — contract lock-in terms, renewal rates,
+    and regulatory/certification switching barriers."""
+    return _fetch_ar_evidence_excerpts(
+        symbol, name, _SWITCHING_COSTS_EVIDENCE_ANCHORS, "ar_switchevid_text_v2",  # v2: added "persistency ratio" (insurance-sector renewal term)
+        fiscal_year=fiscal_year, bio_filter=True, fetch_label="switching-costs-evidence",
+    )
+
+
 def fetch_revenue_characteristics_evidence(symbol, name, fiscal_year=None):
     """Real, grounded text excerpts from the company's OWN Annual Report PDF
     for A.1.2 (cyclical vs recurring revenue) — mirrors
