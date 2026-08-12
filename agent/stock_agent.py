@@ -1995,21 +1995,24 @@ def build_executive_summary(state: SystemState) -> dict:
     # f22-f25 here (rather than restructuring every downstream read) means the
     # existing facts/chart/finding wiring for subpoints 1-4 below picks this up
     # automatically. f22-f25 are not read anywhere else in this file.
-    _biz_comp = _a2 = _a2a = _a3 = _a4 = _a5 = None
+    _biz_comp = _a2 = _a2a = _a2b = _a3 = _a4 = _a5 = _a12_trend = None
     try:
         from tools.qualitative_engine import (
             compute_business_composition, compute_a2_competitive_moat, compute_a2a_brand_moat,
+            compute_a2b_distribution_moat,
             compute_a3_revenue_model_quality, compute_a4_product_lifecycle_stage,
-            compute_a5_pricing_power,
+            compute_a5_pricing_power, compute_a1_2_pattern_trend,
         )
         _biz_desc_for_qual = (info.get('longBusinessSummary') or "").strip()
         _mcap_cr = (info.get('marketCap') / 1e7) if info.get('marketCap') else None
         _biz_comp = compute_business_composition(symbol, name, _biz_desc_for_qual)
         _a2 = compute_a2_competitive_moat(symbol, name, _biz_desc_for_qual, market_cap_cr=_mcap_cr)
         _a2a = compute_a2a_brand_moat(symbol, name, _biz_desc_for_qual)
+        _a2b = compute_a2b_distribution_moat(symbol, name, _biz_desc_for_qual)
         _a3 = compute_a3_revenue_model_quality(symbol, name, _biz_desc_for_qual)
         _a4 = compute_a4_product_lifecycle_stage(symbol, name, _biz_desc_for_qual)
         _a5 = compute_a5_pricing_power(symbol, name, _biz_desc_for_qual)
+        _a12_trend = compute_a1_2_pattern_trend(symbol, name, _biz_desc_for_qual)
     except Exception as e:
         print(f"[qualitative_topics] sourced A.1-A.5 engine failed, falling back to raw LLM fields: {e}")
 
@@ -2557,6 +2560,32 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': (_biz_comp or {}).get('pathway_results') or [],
                 },
                 {
+                    # 1B — Recurring vs Cyclical revenue pattern, current-year
+                    # mix + real multi-year trend (up to 5 Annual Reports),
+                    # revenue-weighted across segments via the SAME classifier
+                    # as the A.1 sunburst's Ring 1 (compute_a1_2_pattern_trend
+                    # reuses _classify_segments_pattern per historical filing
+                    # — never a single company-wide guess, and a year with no
+                    # reconciled segment note is skipped, not estimated).
+                    'key': 'recurring_cyclical_trend',
+                    'title': 'Cyclical vs Recurring Revenue Pattern',
+                    'finding': None,
+                    'facts': [],
+                    'chart': {
+                        'type': 'recurring_cyclical_trend',
+                        'currentYearMix': (_a12_trend or {}).get('current_year_mix'),
+                        'trend': (_a12_trend or {}).get('trend') or [],
+                    },
+                    'formula': 'Revenue-weighted blend = Σ(segment revenue × segment pattern position) / '
+                               'Σ(classified segment revenue), per year. Mixed segments split 50/50 between '
+                               'Recurring and Cyclical; Unclassified segment revenue is excluded from the base.',
+                    'sources': _ar_ip_screener_sources,
+                    'confidence_tag': (_a12_trend or {}).get('confidence_tag'),
+                    'retrieved_at': (_a12_trend or {}).get('retrieved_at'),
+                    'pathway_results': [],
+                    'unavailableReason': (_a12_trend or {}).get('reason') if not (_a12_trend or {}).get('available') else None,
+                },
+                {
                     'key': 'competitive_advantage_moats',
                     'title': 'Competitive advantage / moats: brand, distribution, cost leadership, network effects, switching costs',
                     'finding': f23.get('rationale') or None,
@@ -2582,9 +2611,10 @@ def build_executive_summary(state: SystemState) -> dict:
                 },
                 {
                     # 2A — Brand moat sub-point (deterministic, no-LLM evidence
-                    # scorer — see tools/moat_brand_scoring.py). 2B-2E (distribution,
-                    # cost leadership, network effects, switching costs) are not
-                    # built yet — this section only appears once 2A has data.
+                    # scorer — see tools/moat_brand_scoring.py). 2C-2E (cost
+                    # leadership, network effects, switching costs) are not
+                    # built yet — each 2X section only appears once its own
+                    # engine has run.
                     'key': 'brand_moat',
                     'title': 'Brand',
                     'finding': (_a2a or {}).get('rationale') or None,
@@ -2595,9 +2625,9 @@ def build_executive_summary(state: SystemState) -> dict:
                     ] if f],
                     'chart': ({'type': 'bar', 'data': [{'label': 'Brand strength', 'value': (_a2a or {}).get('score')}], 'scaleMax': 5}
                               if (_a2a or {}).get('score') is not None else None),
-                    'formula': '0-5 deterministic evidence score: 5 = specific + numeric/named anchor in CRISIL/ICRA text, '
-                               '4 = specific across 2+ evidence categories in CRISIL/ICRA text, 3 = one category only, '
-                               '2 = evidence only in the company’s own description (no third-party corroboration), '
+                    'formula': '0-5 deterministic evidence score: 5 = specific + numeric/named anchor in CRISIL/ICRA text or AR MD&A, '
+                               '4 = specific across 2+ evidence categories, 3 = one category only, '
+                               '2 = evidence only in the company’s own description (no third-party corroboration, MANAGEMENT_CLAIM), '
                                '1 = generic boilerplate only, blank = no brand evidence found in any source.',
                     'sources': {
                         'primary': {'label': 'CRISIL/ICRA Rating Rationale', 'url': 'https://www.crisilratings.com'},
@@ -2606,6 +2636,38 @@ def build_executive_summary(state: SystemState) -> dict:
                     'evidenceQuote': (_a2a or {}).get('evidence_quote'),
                     'confidence_tag': (_a2a or {}).get('confidence_tag'), 'retrieved_at': (_a2a or {}).get('retrieved_at'),
                     'pathway_results': (_a2a or {}).get('pathway_results'),
+                },
+                {
+                    # 2B — Distribution moat sub-point (deterministic, no-LLM
+                    # evidence scorer — see tools/moat_distribution_scoring.py).
+                    # Source hierarchy is PRIMARY=AR MD&A/investor presentation,
+                    # SECONDARY=CRISIL — the reverse of 2A's CRISIL-primary
+                    # ordering — because a specific+numeric AR distribution
+                    # claim (dealer/outlet/state counts) is verifiable fact from
+                    # a regulated filing, not marketing prose, so it isn't
+                    # capped at MANAGEMENT_CLAIM the way Brand's own-words
+                    # evidence is.
+                    'key': 'distribution_moat',
+                    'title': 'Distribution',
+                    'finding': (_a2b or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Distribution strength', f"{(_a2b or {}).get('score')} / 5"] if (_a2b or {}).get('score') is not None else None),
+                        (['Evidence categories', ', '.join((_a2b or {}).get('categories_covered') or [])] if (_a2b or {}).get('categories_covered') else None),
+                        (['Evidence source', (_a2b or {}).get('evidence_source')] if (_a2b or {}).get('evidence_source') else None),
+                    ] if f],
+                    'chart': ({'type': 'bar', 'data': [{'label': 'Distribution strength', 'value': (_a2b or {}).get('score')}], 'scaleMax': 5}
+                              if (_a2b or {}).get('score') is not None else None),
+                    'formula': '0-5 deterministic evidence score: 5 = specific + numeric/dated anchor (dealer/outlet/state count, '
+                               'exclusivity term) in AR MD&A or CRISIL/ICRA text, 4 = specific across 2+ evidence categories, '
+                               '3 = one category only, 2 = only unquantified company language (no count/date, MANAGEMENT_CLAIM), '
+                               '1 = generic boilerplate only, blank = no distribution evidence found in any source.',
+                    'sources': {
+                        'primary': {'label': 'Annual Report MD&A', 'note': 'distribution network stats'},
+                        'secondary': {'label': 'CRISIL/ICRA Rating Rationale', 'url': 'https://www.crisilratings.com'},
+                    },
+                    'evidenceQuote': (_a2b or {}).get('evidence_quote'),
+                    'confidence_tag': (_a2b or {}).get('confidence_tag'), 'retrieved_at': (_a2b or {}).get('retrieved_at'),
+                    'pathway_results': (_a2b or {}).get('pathway_results'),
                 },
                 {
                     'key': 'revenue_model_quality',

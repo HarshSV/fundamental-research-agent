@@ -2261,19 +2261,22 @@ _BIO_CONTEXT_RE = re.compile(
 )
 
 
-def fetch_brand_evidence_from_annual_report(symbol, name, fiscal_year=None):
-    """Real, grounded text excerpts from the company's OWN Annual Report PDF
-    (Business Overview / MD&A) for A.2.A (Brand moat) — same scan-every-page,
-    score-by-signal-density approach as `fetch_revenue_characteristics_evidence`
-    just above, reused rather than duplicated logic-wise. This is the ACTUAL
-    MD&A narrative, not the thin yfinance company-blurb proxy previously used —
-    that blurb is a dry factual description and structurally almost never
-    contains brand-marketing language, which was causing near-universal
-    "Missing" brand scores even for companies with real, citable brand
-    evidence in their own Annual Report.
+def _fetch_ar_evidence_excerpts(symbol, name, anchors, cache_prefix, fiscal_year=None,
+                                 bio_filter=False, max_excerpts=8, fetch_label="evidence"):
+    """Shared scan-every-page-for-anchor-phrases engine behind every A.2.x
+    moat-factor evidence fetcher (Brand, Distribution, and — as they're
+    built — Cost Leadership/Network Effects/Switching Costs). Extracted out
+    of the original `fetch_brand_evidence_from_annual_report` so each new
+    factor only has to supply its own anchor phrase list and cache prefix,
+    not re-implement PDF download/scan/score/cache plumbing.
+
+    `bio_filter=True` rejects any candidate window that reads as a director/
+    KMP biography rather than a claim about the company itself (see the
+    HGINFRA false-positive this guards against — a director's career bio
+    matched "leading position").
 
     Returns {'pdf_url', 'fiscal_year', 'excerpts': [{'text','page','anchor'}]}
-    or {'error': reason}. Never raises. Cached 90 days like its siblings.
+    or {'error': reason}. Never raises. Cached 90 days.
     """
     try:
         sym = symbol.strip().upper().replace(".NS", "")
@@ -2281,7 +2284,7 @@ def fetch_brand_evidence_from_annual_report(symbol, name, fiscal_year=None):
         if not years:
             return {"error": _no_annual_report_message(sym)}
         fy = fiscal_year or years[0]
-        ckey = f"ar_brandevid_text_v2_{sym}_{fy}"  # v2: added director-bio false-positive filter
+        ckey = f"{cache_prefix}_{sym}_{fy}"
         cached = _read_cache(ckey)
         if cached is not None:
             return cached
@@ -2305,7 +2308,7 @@ def fetch_brand_evidence_from_annual_report(symbol, name, fiscal_year=None):
                     content = _sess().get(pdf_url, timeout=90).content
                 break
             except Exception as e:
-                print(f"[annual_report_financials] brand-evidence PDF download failed for {sym}: {e}")
+                print(f"[annual_report_financials] {fetch_label} PDF download failed for {sym}: {e}")
         if content is None or len(content) < 50000:
             return {"error": "Could not download the Annual Report right now.", "source_url": pdf_url}
 
@@ -2326,7 +2329,7 @@ def fetch_brand_evidence_from_annual_report(symbol, name, fiscal_year=None):
                 except Exception:
                     continue
                 tl = t.lower()
-                for anchor in _BRAND_EVIDENCE_ANCHORS:
+                for anchor in anchors:
                     idx = tl.find(anchor)
                     if idx == -1:
                         continue
@@ -2340,15 +2343,12 @@ def fetch_brand_evidence_from_annual_report(symbol, name, fiscal_year=None):
                         if sp > idx:
                             end = sp
                     window = t[start:end].strip()
-                    # Reject a window that reads as a director/KMP biography
-                    # rather than a claim about the COMPANY — see the
-                    # HGINFRA false-positive this guards against, above.
-                    if _BIO_CONTEXT_RE.search(window):
+                    if bio_filter and _BIO_CONTEXT_RE.search(window):
                         continue
                     # Digits/%/named years make a window more likely to carry
-                    # the kind of concrete anchor (market-share %, "since
-                    # <year>", ranking) the 5/5 tier needs — same scoring
-                    # heuristic as fetch_revenue_characteristics_evidence.
+                    # the kind of concrete anchor (a count, a date, a
+                    # ranking) the 5/5 tier needs — same scoring heuristic
+                    # as fetch_revenue_characteristics_evidence.
                     score = sum(c.isdigit() for c in window)
                     candidates.append({"text": window, "page": pgi + 1, "anchor": anchor, "score": score})
         finally:
@@ -2361,15 +2361,57 @@ def fetch_brand_evidence_from_annual_report(symbol, name, fiscal_year=None):
                 continue
             seen_pages.add(c["page"])
             excerpts.append({"text": c["text"], "page": c["page"], "anchor": c["anchor"]})
-            if len(excerpts) >= 8:
+            if len(excerpts) >= max_excerpts:
                 break
 
         out = {"pdf_url": pdf_url, "fiscal_year": fy, "excerpts": excerpts}
         _write_cache(ckey, out)
         return out
     except Exception as e:
-        print(f"[annual_report_financials] fetch_brand_evidence_from_annual_report failed for {symbol}: {e}")
+        print(f"[annual_report_financials] {fetch_label} fetch failed for {symbol}: {e}")
         return {"error": f"Error: {e}"}
+
+
+def fetch_brand_evidence_from_annual_report(symbol, name, fiscal_year=None):
+    """Real, grounded text excerpts from the company's OWN Annual Report PDF
+    (Business Overview / MD&A) for A.2.A (Brand moat). This is the ACTUAL
+    MD&A narrative, not the thin yfinance company-blurb proxy previously
+    used — that blurb is a dry factual description and structurally almost
+    never contains brand-marketing language, which was causing
+    near-universal "Missing" brand scores even for companies with real,
+    citable brand evidence in their own Annual Report.
+    """
+    return _fetch_ar_evidence_excerpts(
+        symbol, name, _BRAND_EVIDENCE_ANCHORS, "ar_brandevid_text_v2",
+        fiscal_year=fiscal_year, bio_filter=True, fetch_label="brand-evidence",
+    )
+
+
+# Distribution-evidence anchors (A.2.B / row 2B) — network reach, exclusivity,
+# and channel-depth language. Unlike Brand, a specific numeric/dated AR claim
+# here (dealer counts, state coverage, exclusivity terms) is PRIMARY evidence
+# in its own right per the spec — not capped at MANAGEMENT_CLAIM — since
+# operational distribution stats disclosed in a regulated Annual Report are
+# treated as verifiable facts, not marketing prose. Generic, unquantified
+# claims ("pan-India presence", "wide network") stay capped, same as Brand.
+_DISTRIBUTION_EVIDENCE_ANCHORS = [
+    "distribution network", "dealer network", "dealers across", "distributor network",
+    "distributors across", "retail outlets", "sales outlets", "franchise network",
+    "exclusive distribution", "exclusive distributor", "exclusive dealer",
+    "channel partners", "sales network", "pan-india presence", "pan india presence",
+    "states and union territories", "touchpoints", "retail touchpoints",
+    "distribution reach", "network of dealers", "network of distributors",
+]
+
+
+def fetch_distribution_evidence_from_annual_report(symbol, name, fiscal_year=None):
+    """Real, grounded text excerpts from the company's OWN Annual Report PDF
+    (Business Overview / MD&A) for A.2.B (Distribution moat) — dealer/
+    distributor network reach, exclusivity agreements, channel depth."""
+    return _fetch_ar_evidence_excerpts(
+        symbol, name, _DISTRIBUTION_EVIDENCE_ANCHORS, "ar_distevid_text_v1",
+        fiscal_year=fiscal_year, bio_filter=True, fetch_label="distribution-evidence",
+    )
 
 
 def fetch_revenue_characteristics_evidence(symbol, name, fiscal_year=None):
