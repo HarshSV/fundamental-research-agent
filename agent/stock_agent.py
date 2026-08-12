@@ -2036,7 +2036,6 @@ def build_executive_summary(state: SystemState) -> dict:
     except Exception as e:
         print(f"[qualitative_topics] income statement flow fetch failed: {e}")
 
-    _REV_MODEL_MAP = {'transactional': 'Transactional', 'recurring': 'Recurring subscription', 'annuity': 'Annuity', 'mixed': 'Mixed'}
     _LIFECYCLE_MAP = {'growth': 'Growth', 'maturity': 'Maturity', 'commoditisation': 'Commoditisation', 'decline_obsolescence': 'Decline / obsolescence risk', 'mixed': 'Maturity'}
 
     if _a2 and _a2.get('available'):
@@ -2052,10 +2051,14 @@ def build_executive_summary(state: SystemState) -> dict:
         }
     if _a3 and _a3.get('available'):
         f24 = {
-            'revenue_model_type': _REV_MODEL_MAP.get(_a3.get('revenue_model')),
-            'contract_length': None,
+            'contract_type_label': _a3.get('contract_type_label'),
+            'blend_position': _a3.get('blend_position'),
             'contract_renewal_rate_pct': _a3.get('contract_renewal_rate_pct'),
             'rationale': _a3.get('rationale'),
+            'evidence_quote': _a3.get('evidence_quote'),
+            'evidence_source': _a3.get('evidence_source'),
+            'segments': _a3.get('segments'),
+            'segment_classification_note': _a3.get('segment_classification_note'),
             'confidence_tag': _a3.get('confidence_tag'), 'retrieved_at': _a3.get('retrieved_at'),
             'pathway_results': _a3.get('pathway_results'),
         }
@@ -2290,7 +2293,12 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
-    _revenue_model_type = _enum(f24.get('revenue_model_type'), ['Transactional', 'Recurring subscription', 'Annuity', 'Long-term contract', 'Mixed'])
+    _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
+    _blend_position = f24.get('blend_position')
+    try:
+        _blend_position = float(_blend_position)
+    except (TypeError, ValueError):
+        _blend_position = None
     _lifecycle_stage = _enum(f25.get('lifecycle_stage'), ['Growth', 'Maturity', 'Commoditisation', 'Decline / obsolescence risk'])
     _pricing_power_rating = _enum(f26.get('pricing_power_rating'), ['Strong', 'Moderate', 'Weak'])
     # _structural_defensibility is computed further down, AFTER f27 is potentially
@@ -2769,35 +2777,35 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': (_a2e or {}).get('pathway_results'),
                 },
                 {
+                    # A.3 — deterministic, evidence-grounded classification (see
+                    # tools/revenue_model_scoring.py + compute_a3_revenue_model_quality).
+                    # A SPECTRUM_BAR marker positioned by a revenue-weighted blend of
+                    # segment contract types (never eyeballed) — see the payload's
+                    # 'segment_classification_note' for the documented no-per-segment-
+                    # extractor limitation when 2+ segments are reported.
                     'key': 'revenue_model_quality',
                     'title': 'Revenue model quality: transactional, recurring, annuity, contract length & renewal dynamics',
                     'finding': f24.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Revenue model', _revenue_model_type] if _revenue_model_type else None),
-                        (['Contract length', f24.get('contract_length')] if f24.get('contract_length') else None),
-                        (['Contract renewal rate', f"~{round(_renewal_pct)}%"] if _renewal_pct is not None else None),
+                        (['Contract type', _contract_type_label] if _contract_type_label else None),
+                        (['Contract renewal rate', f"~{round(f24.get('contract_renewal_rate_pct'))}%"]
+                         if f24.get('contract_renewal_rate_pct') is not None else None),
+                        (['Evidence source', f24.get('evidence_source')] if f24.get('evidence_source') else None),
+                        (['Segment basis', f24.get('segment_classification_note')] if f24.get('segment_classification_note') else None),
                     ] if f],
                     'chart': ({
-                        'type': 'donut',
-                        'data': [
-                            {'label': 'Renewed', 'pct': round(_renewal_pct, 1)},
-                            {'label': 'Not renewed / lapsed', 'pct': round(100 - _renewal_pct, 1)},
-                        ],
-                    } if _renewal_pct is not None else (
-                        # No disclosed renewal rate (the common case) — still show
-                        # *something* visual: where this business sits on the
-                        # revenue-model spectrum, rather than a bare text label.
-                        {'type': 'spectrum',
-                         'options': ['Transactional', 'Recurring subscription', 'Annuity', 'Long-term contract', 'Mixed'],
-                         'active': _revenue_model_type}
-                        if _revenue_model_type else None
-                    )),
+                        'type': 'spectrum_bar',
+                        'options': ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'],
+                        'position': _blend_position,
+                        'active_label': _contract_type_label,
+                    } if _blend_position is not None else None),
                     'formula': 'Contract renewal rate = Contracts renewed / Contracts up for renewal',
                     'sources': {
-                        'primary': {'label': 'Company Annual Report', 'note': 'Notes to Accounts – Revenue Recognition, sourced via BSE announcement / company IR page'},
+                        'primary': {'label': 'Company Annual Report', 'note': 'Notes to Accounts – Revenue Recognition, Ind AS 115'},
                         'secondary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page'},
                         'tertiary': {'label': 'Screener.in – Documents/Financials tab', 'url': 'https://www.screener.in'},
                     },
+                    'evidenceQuote': f24.get('evidence_quote'),
                     'confidence_tag': f24.get('confidence_tag'), 'retrieved_at': f24.get('retrieved_at'),
                     'pathway_results': f24.get('pathway_results'),
                 },

@@ -2262,7 +2262,7 @@ _BIO_CONTEXT_RE = re.compile(
 
 
 def _fetch_ar_evidence_excerpts(symbol, name, anchors, cache_prefix, fiscal_year=None,
-                                 bio_filter=False, max_excerpts=8, fetch_label="evidence"):
+                                 bio_filter=False, max_excerpts=8, max_per_page=1, fetch_label="evidence"):
     """Shared scan-every-page-for-anchor-phrases engine behind every A.2.x
     moat-factor evidence fetcher (Brand, Distribution, and — as they're
     built — Cost Leadership/Network Effects/Switching Costs). Extracted out
@@ -2328,6 +2328,26 @@ def _fetch_ar_evidence_excerpts(symbol, name, anchors, cache_prefix, fiscal_year
                     t = _page_text(page)
                 except Exception:
                     continue
+                # Collapse all whitespace runs (including line-wrap
+                # newlines) to a single space before anchor search — a raw
+                # multi-word anchor's literal substring otherwise silently
+                # fails to match whenever a PDF wraps mid-phrase (confirmed
+                # on MARUTI's actual revenue-recognition note: "...at a
+                # point in \ntime when products..." — the line break between
+                # "in" and "time" meant "point in time" never matched even
+                # though the real clause was right there). Every downstream
+                # excerpt consumer already normalizes newlines the same way
+                # in its own sentence-splitting step, so operating on the
+                # normalized text here (consistently, for both the search
+                # AND the returned window) is safe and doesn't change what's
+                # ultimately shown, only what can be FOUND.
+                t = re.sub(r"\s+", " ", t)
+                # Some PDFs encode bullet/list markers as raw control bytes
+                # (e.g. \x07) rather than a visible glyph — confirmed on
+                # MARUTI's AR, where a bullet-point BEL character leaked
+                # straight into a returned evidence quote. Strip them so a
+                # citation reads as clean prose, not garbled control chars.
+                t = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", t)
                 tl = t.lower()
                 for anchor in anchors:
                     idx = tl.find(anchor)
@@ -2350,19 +2370,69 @@ def _fetch_ar_evidence_excerpts(symbol, name, anchors, cache_prefix, fiscal_year
                     # ranking) the 5/5 tier needs — same scoring heuristic
                     # as fetch_revenue_characteristics_evidence.
                     score = sum(c.isdigit() for c in window)
-                    candidates.append({"text": window, "page": pgi + 1, "anchor": anchor, "score": score})
+                    candidates.append({"text": window, "page": pgi + 1, "anchor": anchor, "score": score,
+                                        "start": start, "end": end})
         finally:
             doc.close()
 
-        seen_pages = set()
+        # Default max_per_page=1 preserves every existing caller's behaviour
+        # exactly (one best-scoring window per page). A.3's revenue-model
+        # fetcher opts into a higher max_per_page — confirmed on MARUTI, a
+        # single AR page carried BOTH the primary point-in-time "Sale of
+        # products" clause AND the ancillary over-time "Income from
+        # services" clause, and capping at one-per-page silently discarded
+        # the primary clause in favour of whichever had a higher digit
+        # score, producing a wrong classification even though the correct
+        # evidence was on the very same scanned page.
+        # Several anchor phrases are substrings of one another (e.g. "over a
+        # period of time" is contained in "satisfied over a period of
+        # time") and so legitimately match the SAME sentence at nearly the
+        # SAME character position — without deduping, those near-duplicate
+        # windows would consume the whole max_per_page budget for one page,
+        # crowding out a genuinely distinct clause elsewhere on that same
+        # page (confirmed on MARUTI: 3 near-duplicate "...satisfied over a
+        # period of time" windows over the ancillary services clause filled
+        # all 3 per-page slots, silently excluding the page's separate,
+        # primary "point in time" vehicle-sale clause). A candidate is
+        # treated as a duplicate of an already-accepted one on the same page
+        # when their character ranges overlap by more than half of the
+        # shorter window.
+        per_page_ranges = {}
+        per_page_counts = {}
         excerpts = []
         for c in sorted(candidates, key=lambda c: -c["score"]):
-            if c["page"] in seen_pages:
+            page = c["page"]
+            if per_page_counts.get(page, 0) >= max_per_page:
                 continue
-            seen_pages.add(c["page"])
-            excerpts.append({"text": c["text"], "page": c["page"], "anchor": c["anchor"]})
+            ranges = per_page_ranges.setdefault(page, [])
+            overlap_len = max(
+                (min(c["end"], r_end) - max(c["start"], r_start) for r_start, r_end in ranges),
+                default=0,
+            )
+            if overlap_len > 0.5 * (c["end"] - c["start"]):
+                continue
+            ranges.append((c["start"], c["end"]))
+            per_page_counts[page] = per_page_counts.get(page, 0) + 1
+            excerpts.append({"text": c["text"], "page": page, "anchor": c["anchor"], "start": c["start"]})
             if len(excerpts) >= max_excerpts:
                 break
+
+        # Candidates above are picked by digit-density SCORE (best evidence
+        # first), but the final list is re-ordered by (PAGE, position on
+        # page) — callers that join excerpt text in order (e.g. A.3's
+        # classify_contract_type, which treats the first recognition-timing
+        # sentence found as the company's PRIMARY disclosure, matching how
+        # Notes to Accounts are actually laid out) need real document
+        # order, not score order. Sorting by page alone isn't enough:
+        # confirmed on MARUTI, where the "point in time" vehicle-sale clause
+        # sits ABOVE the "over a period of time" services clause on the very
+        # same page, but the higher-digit-score services window kept
+        # sorting first under page-only ordering. Every other existing
+        # caller pools all excerpt text without relying on ordering, so
+        # this is safe to apply unconditionally.
+        excerpts.sort(key=lambda e: (e["page"], e["start"]))
+        for e in excerpts:
+            del e["start"]
 
         out = {"pdf_url": pdf_url, "fiscal_year": fy, "excerpts": excerpts}
         _write_cache(ckey, out)
@@ -2523,6 +2593,82 @@ def fetch_switching_costs_evidence_from_annual_report(symbol, name, fiscal_year=
     return _fetch_ar_evidence_excerpts(
         symbol, name, _SWITCHING_COSTS_EVIDENCE_ANCHORS, "ar_switchevid_text_v2",  # v2: added "persistency ratio" (insurance-sector renewal term)
         fiscal_year=fiscal_year, bio_filter=True, fetch_label="switching-costs-evidence",
+    )
+
+
+# Revenue-model evidence anchors (A.3 / row 3) — Ind AS 115 revenue-
+# recognition TIMING language (point-in-time vs over-time, the deciding
+# factor for Transactional vs Recurring/Annuity), AMC/O&M contract-tenure
+# phrasing (the Annuity signal — a DEFINED term length), subscription/
+# recurring-revenue phrasing, and separately renewal-rate/persistency
+# anchors for the 3D contract-renewal-dynamics sub-row. Deliberately a
+# DIFFERENT anchor list from _SWITCHING_COSTS_EVIDENCE_ANCHORS even though
+# both scan AR MD&A/notes text — that list looks for lock-in/switching
+# FRICTION, this one looks for revenue-recognition TIMING/contract-type
+# language; a few renewal-rate anchors are intentionally shared since
+# renewal dynamics are evidence for both switching costs and A.3's 3D.
+_REVENUE_MODEL_EVIDENCE_ANCHORS = [
+    "recognised at a point in time", "recognized at a point in time",
+    "point in time when control", "point in time at which control",
+    # v2: bare "point in time"/"over a period of time" added — confirmed on
+    # MARUTI, whose real "Sale of products" policy note read "recognises
+    # the revenue at a point in time when products are dispatched", a
+    # phrasing the rigid substrings above never match. False-positive risk
+    # is contained downstream: tools/revenue_model_scoring.py's
+    # classify_contract_type only accepts a "point in time"/"over time" hit
+    # when a revenue/control/performance-obligation word co-occurs nearby in
+    # the SAME sentence, so a stray unrelated "at some point in time" phrase
+    # elsewhere in the AR still gets rejected as None, not fabricated.
+    "point in time",
+    "recognised over time", "recognized over time",
+    "over a period of time",
+    "performance obligation is satisfied over time",
+    "performance obligations satisfied over time",
+    "performance obligations that are satisfied over a period of time",
+    "satisfied over time", "satisfied over a period of time", "satisfied at a point in time",
+    "annual maintenance contract", "annual maintenance contracts",
+    # NOTE: deliberately NOT scanning bare "amc" as an anchor — confirmed
+    # false positive on HDFCBANK, where "amc" matched "HDFC AMC" (Asset
+    # Management Company, a subsidiary name), not Annual Maintenance
+    # Contract. "annual maintenance contract(s)" (the full phrase) is kept.
+    "operation and maintenance contract", "operation and maintenance agreement",
+    "o&m contract", "o&m agreement",
+    "subscription revenue", "subscription-based revenue", "recurring revenue",
+    "one-time sale", "one time sale",
+    "revenue recognition policy", "revenue from contracts with customers",
+    "renewal rate", "contracts renewed", "persistency ratio",
+    # v8: "transferred to the customer" — confirmed missing on VIP
+    # Industries, whose real policy note ("...control of the products is
+    # said to have been transferred to the customer when the products are
+    # delivered to the customer...") was never even fetched because none
+    # of the anchors above happened to land near it on that page (it only
+    # got picked up incidentally for other companies via a coincidentally
+    # nearby different anchor). This is the standard Ind AS 115 control-
+    # transfer phrase used generically across virtually every goods-sale
+    # revenue note, not company-specific.
+    "transferred to the customer",
+]
+
+
+def fetch_revenue_model_evidence_from_annual_report(symbol, name, fiscal_year=None):
+    """Real, grounded text excerpts from the company's OWN Annual Report PDF
+    (Ind AS 115 revenue-recognition note text, MD&A/Business Overview) for
+    A.3 (Revenue model quality) — recognition-timing language (point-in-time
+    vs over-time), AMC/O&M contract-tenure phrasing, subscription/recurring
+    phrasing, and renewal-rate/persistency-ratio disclosures. Own cache-key
+    prefix and anchor list — deliberately NOT reusing
+    _SWITCHING_COSTS_EVIDENCE_ANCHORS, which targets lock-in FRICTION
+    language rather than recognition-timing/contract-type language."""
+    return _fetch_ar_evidence_excerpts(
+        symbol, name, _REVENUE_MODEL_EVIDENCE_ANCHORS, "ar_revmodelevid_text_v8",  # v8: added "transferred to the customer" anchor (see comment above)
+        # v3: max_per_page=3 — confirmed on MARUTI, whose primary
+        # point-in-time "Sale of products" clause AND ancillary over-time
+        # "Income from services" clause both live on the SAME AR page; the
+        # shared helper's default one-window-per-page cap was silently
+        # discarding the primary clause. max_excerpts raised to match so
+        # the extra per-page windows aren't immediately squeezed back out.
+        fiscal_year=fiscal_year, bio_filter=True, max_per_page=3, max_excerpts=16,
+        fetch_label="revenue-model-evidence",
     )
 
 

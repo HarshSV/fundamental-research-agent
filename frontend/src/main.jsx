@@ -806,6 +806,46 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
+        // --- SUBCOMPONENT: A.3 Revenue model quality — SPECTRUM_BAR. Five
+        // FIXED zones in fixed left-to-right order (Transactional, Recurring,
+        // Annuity, Long-term Contract, Mixed), with a single marker placed by
+        // the backend-computed 0-100 revenue-weighted blend position (never
+        // eyeballed here) — see compute_a3_revenue_model_quality. Styling
+        // mirrors SpectrumChart's dark-mode CSS-variable conventions above.
+        const SpectrumBarChart = ({ options, position, activeLabel, dark = false }) => {
+            const opts = (options || []).filter(Boolean);
+            if (!opts.length || position == null) return null;
+            const clamped = Math.max(0, Math.min(100, Number(position)));
+            const trackColor = 'rgb(var(--slate-800))';
+            const activeColor = 'rgb(var(--blue-500))';
+            const labelColor = 'rgb(var(--slate-200))';
+            const mutedColor = 'rgb(var(--slate-500))';
+            return (
+                <div className="w-full">
+                    <div className="relative h-2 rounded-full mb-2" style={{ background: trackColor }}>
+                        <div
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2"
+                            style={{ left: `${clamped}%`, background: activeColor, borderColor: 'rgb(var(--slate-950))' }}
+                            title={activeLabel ? `${activeLabel} (${clamped}/100)` : `${clamped}/100`}
+                        />
+                    </div>
+                    <div className="flex items-stretch gap-1">
+                        {opts.map((o) => {
+                            const isActive = activeLabel && o.toLowerCase() === activeLabel.toLowerCase();
+                            return (
+                                <div key={o} className="flex-1 min-w-0">
+                                    <div className="text-[11px] font-semibold text-center leading-tight truncate"
+                                        style={{ color: isActive ? activeColor : mutedColor }} title={o}>
+                                        {o}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        };
+
         // --- SUBCOMPONENT: Clarity of Business Model — Graph 1. One 100%-stacked
         // horizontal bar: block width = real reported segment revenue share
         // (deterministic, from the Annual Report's own segment note), block
@@ -1482,7 +1522,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             {sp.finding && <p className="text-[13px] text-slate-400 leading-relaxed">{sp.finding}</p>}
                             <SourcesFooter formula={sp.formula} sources={sp.sources} />
                         </div>
-                        {chart && (chart.data?.length > 0 || chart.options?.length > 0 || chart.value != null || chart.rows?.length > 0 || chart.segments?.length > 0) && (
+                        {chart && (chart.data?.length > 0 || chart.options?.length > 0 || chart.value != null || chart.rows?.length > 0 || chart.segments?.length > 0 || chart.position != null) && (
                             <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg self-start">
                                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{chartTitle}</div>
                                 {chart.type === 'donut' && (
@@ -1494,6 +1534,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 )}
                                 {chart.type === 'spectrum' && (
                                     <SpectrumChart options={chart.options} active={chart.active} dark />
+                                )}
+                                {chart.type === 'spectrum_bar' && (
+                                    <SpectrumBarChart options={chart.options} position={chart.position} activeLabel={chart.active_label} dark />
                                 )}
                                 {chart.type === 'diverging' && (
                                     <DivergingBar value={chart.value} range={chart.range || 20} label={chart.label} dark />

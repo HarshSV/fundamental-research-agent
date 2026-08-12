@@ -3710,29 +3710,105 @@ def compute_c8_minority_shareholder_treatment(symbol, name=None, force=False):
     return payload
 
 
+# Fixed 0-100 scale positions per the spec's SPECTRUM_BAR output (e), same
+# order/zones for every company — never company-specific. Mixed is a
+# CALCULATED outcome of the blend formula, never assigned directly, so it
+# has no fixed anchor position of its own.
+_CONTRACT_TYPE_POSITION = {
+    "transactional": 0, "recurring": 25, "annuity": 50, "long_term_contract": 75,
+}
+_CONTRACT_TYPE_LABEL = {
+    "transactional": "Transactional", "recurring": "Recurring", "annuity": "Annuity",
+    "long_term_contract": "Long-term Contract",
+}
+
+# v1: full deterministic rewrite of A.3 (previously an ungrounded LLM
+# classification with no schema_version at all) — old cached LLM-based
+# payloads (revenue_model/contract_dynamics fields, no
+# contract_type_label/blend_position) must never be served as if they were
+# the new evidence-grounded shape. Same bump-guard pattern as
+# _A2E_SCHEMA_VERSION.
+# v2: classify_contract_type rewritten to classify off the first matching
+# sentence in real document order instead of a fixed Annuity>Recurring>
+# Transactional category priority, several anchor/pattern recall fixes
+# (paraphrase-robust point-in-time/over-time matching), and the Annuity
+# AMC/O&M patterns now require a same-sentence "revenue" co-occurrence to
+# reject narrative/case-study mentions — confirmed on MARUTI (previously
+# missed its real point-in-time policy entirely) and L&T (previously
+# misclassified Annuity off an ESG case-study O&M mention). Old v1 payloads
+# reflect the pre-fix logic and must not be served as current.
+# v3: excludes the generic Ind AS 115 "satisfied at a point in time OR over
+# a period of time" framework/judgement sentence every company's policy
+# note includes — confirmed false positive on TCS, which matched that
+# boilerplate framework sentence as a definitive Transactional
+# classification even though TCS's real revenue is predominantly recognised
+# over time. See _GENERIC_FRAMEWORK_RE.
+# v4: adds the "recognised when control ... transferred to the customer"
+# point-in-time pattern family — confirmed ITC, SUNPHARMA and RELIANCE were
+# all returning SEARCH_INCONCLUSIVE even though their real Notes to
+# Accounts revenue-recognition text was already being fetched correctly;
+# the classifier simply didn't recognize this (extremely common) IFRS
+# 15/Ind AS 115 default point-in-time phrasing, which never says "point in
+# time" or "over time" literally.
+# v5: drops the "control" requirement from the delivery-anchored
+# point-in-time pattern — confirmed on ITC, whose real evidence clause had
+# "control" clipped off by the AR-scan window boundary, leaving only
+# "...is transferred to the customer, which is mainly upon delivery",
+# which is unambiguous on its own.
+# v6: strips a "<Company Name> Limited/Ltd" page-footer fragment glued onto
+# a quote's prefix by the newline-collapse merge — cosmetic-only fix,
+# confirmed on ITC ("...2026 ITC Limited same is transferred...").
+# v7: when the AR discloses an EXPLICIT Ind AS 115 revenue-timing
+# disaggregation table (point-in-time vs over-time, in rupee amounts), that
+# numeric split now wins outright instead of falling into the generic
+# per-sentence anchor scan — confirmed on CAMS, whose AR literally states
+# ~99.3% of revenue is point-in-time, but the old per-sentence scan
+# returned Recurring purely because the over-time PHRASE happened to
+# co-occur in the same table-derived text, without ever reading the
+# figures. See _extract_disaggregation_split.
+# v8: adds "transferred to the customer" fetcher anchor + "when...
+# delivered/dispatched/shipped" classifier pattern — confirmed on VIP
+# Industries (small-cap), whose real point-in-time policy note was never
+# even fetched because no existing anchor happened to land near it, and
+# used a verb-form phrasing ("...transferred to the customer when the
+# products are delivered...") the noun-form "upon delivery" pattern missed.
+_A3_SCHEMA_VERSION = 8
+
+
 def compute_a3_revenue_model_quality(symbol, name=None, description="", force=False):
     """A.3 — Revenue model quality: transactional, recurring, annuity, contract
     length & renewal dynamics. Formula: Contract renewal rate = Contracts renewed /
     Contracts up for renewal.
 
-    Sourcing Sequence: AR-14 (revenue/segment note -> specifically "Revenue from
-    Contracts with Customers" / revenue recognition policy) -> AGG-01 (fallback/
-    cross-check only).
+    Sourcing Sequence: AR-14 (revenue/segment note, reusing the SAME segment
+    weights already pulled for A.1 via `_fetch_segment_revenue_context`, plus
+    the Ind AS 115 revenue-recognition note text scanned for recognition-
+    timing/contract-type language) -> AGG-01 (Screener.in, fallback/
+    cross-check only, NOT_CHECKED — same convention as every other A.2.x/A.3
+    sub-point that never actually invokes the cross-check pathway).
 
-    Same gap as A.1: no structured extractor exists for the Notes-to-Accounts
-    revenue-recognition policy note or a disclosed contract renewal rate — those
-    are numeric/structured AR-14 sub-items this codebase doesn't parse yet. As a
-    best-effort proxy (same approach as A.1's AR-13), the business description +
-    grounded concall digest are used for a narrative revenue-MODEL classification
-    only; the contract renewal rate itself is left NOT_DISCLOSED rather than
-    guessed. SINGLE_SOURCE at most (never VERIFIED — AGG-01 fallback not invoked).
+    Deliberately deterministic (no LLM), same rationale as the A.2.x moat
+    factors — reproducible, auditable, avoids the shared Groq/OpenRouter
+    quota. See tools/revenue_model_scoring.py for the 3A/3B/3C classifier.
+
+    IMPORTANT DOCUMENTED GAP (same as A.1's AR-13 proxy and A.2.E's
+    switching-costs approximation): this codebase has NO structured
+    per-segment revenue-recognition-note text extractor. When a company
+    reports 2+ segments (via `_fetch_segment_revenue_context`), the SAME
+    company-wide AR text-anchor classification is applied to every segment
+    — this is a documented best-effort limitation, not genuine per-segment
+    differentiation, and is surfaced explicitly in the payload
+    (`segment_classification_note`) rather than silently implied. Segments
+    are used only for their REVENUE WEIGHTS in the blend formula, never for
+    a segment-specific contract-type claim this codebase cannot actually
+    substantiate.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "A.3"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
-        if cached is not None:
+        if cached is not None and cached.get("schema_version") == _A3_SCHEMA_VERSION:
             try:
                 age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
                 if age <= CACHE_TTL:
@@ -3740,82 +3816,114 @@ def compute_a3_revenue_model_quality(symbol, name=None, description="", force=Fa
             except Exception:
                 return cached
 
-    pathway_results = []
-    digest = _concall_digest(sym, name)
-    company = name or sym
-    context = f"COMPANY: {company}\n"
-    if description:
-        context += f"\nBUSINESS DESCRIPTION (from filings):\n{description[:2500]}\n"
-    if digest:
-        context += f"\nRECENT EARNINGS-CALL HIGHLIGHTS (newest first):\n{digest}\n"
+    from tools.revenue_model_scoring import classify_contract_type, extract_renewal_rate_pct
+    from tools.annual_report_financials import fetch_revenue_model_evidence_from_annual_report
 
-    ar14_checked = bool(description or digest)
-    pathway_results.append({
-        "pathway_id": "AR-14",
-        "source": "Revenue/segment note — revenue recognition policy (business description + concall digest proxy; the structured Notes-to-Accounts extraction itself is not wired)",
-        "result": "CHECKED" if ar14_checked else "NOT_DISCLOSED",
-    })
-    pathway_results.append({
-        "pathway_id": "AGG-01",
-        "source": "Screener.in (fallback/cross-check only)",
-        "result": "NOT_CHECKED",
-        "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
-    })
+    try:
+        ar_evidence = fetch_revenue_model_evidence_from_annual_report(sym, name)
+    except Exception as e:
+        print(f"[qualitative_engine] A.3 AR revenue-model evidence fetch failed for {sym}: {e}")
+        ar_evidence = {"error": str(e)}
+    ar_excerpts = ar_evidence.get("excerpts") or []
+    ar_text = "\n".join(e["text"] for e in ar_excerpts)
 
-    if not ar14_checked:
-        payload = {
-            "subpoint_id": subpoint_id,
-            "title": "Revenue model quality: transactional, recurring, annuity, contract length & renewal dynamics",
-            "available": False,
-            "reason": "No business description or concall corpus available to ground AR-14.",
-            "pathway_results": pathway_results,
-            "contract_renewal_rate_pct": None,
-        }
-        write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
-        payload["confidence_tag"] = "NOT_FOUND"
-        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-        return payload
+    classified = classify_contract_type(ar_text)
+    renewal = extract_renewal_rate_pct(ar_text)
 
-    prompt = (
-        "You are an equity analyst assessing REVENUE MODEL QUALITY for an Indian listed company, "
-        "using ONLY the grounded context below. Do not invent facts not supported by the context. "
-        "If unclear, say so rather than guessing.\n\n"
-        "Return ONLY JSON:\n"
-        "{\n"
-        '  "revenue_model": "transactional" | "recurring" | "annuity" | "mixed" | "unclear",\n'
-        '  "contract_dynamics": "1-3 sentences on contract length / renewal dynamics IF mentioned in the context, else state not disclosed in the given context",\n'
-        '  "rationale": "2-4 sentences citing what in the context supports the revenue_model classification"\n'
-        "}\n\n"
-        f"=== CONTEXT ===\n{context}"
-    )
-    data, llm_failed = _llm_json(
-        sym, "A.3", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
-        prompt, max_tokens=600, temperature=0.1,
-    )
+    if ar_excerpts:
+        ar14_result, ar14_note = "CHECKED", None
+    elif "error" in ar_evidence:
+        ar14_result, ar14_note = "NOT_DISCLOSED", ar_evidence["error"]
+    else:
+        ar14_result, ar14_note = "NOT_DISCLOSED", ("Annual Report fetched but no Ind AS 115 recognition-timing / "
+                                                     "AMC-O&M contract-tenure language located in its text.")
 
-    revenue_model = str(data.get("revenue_model") or "unclear").strip().lower()
-    if revenue_model not in ("transactional", "recurring", "annuity", "mixed", "unclear"):
-        revenue_model = "unclear"
-    contract_dynamics = str(data.get("contract_dynamics") or "").strip()
-    rationale = str(data.get("rationale") or "").strip()
+    pathway_results = [
+        {
+            "pathway_id": "AR-14", "source": "Revenue/segment note — Ind AS 115 revenue recognition policy — PRIMARY",
+            "result": ar14_result, "note": ar14_note,
+        },
+        {
+            "pathway_id": "AGG-01", "source": "Screener.in Documents/Financials (fallback/cross-check only)",
+            "result": "NOT_CHECKED",
+            "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
+        },
+    ]
 
-    confidence_tag = "SINGLE_SOURCE" if rationale else "SEARCH_INCONCLUSIVE"
+    # AR-14 segment revenue weights — the SAME reconciled figures used for
+    # A.1 row 2, reused here per the spec's explicit "REUSE it, do not
+    # rebuild segment extraction" instruction.
+    segments_pct, segments_fy = _fetch_segment_revenue_context(sym, name)
+
+    contract_type = classified["contract_type"]
+    segment_classification_note = None
+    per_segment = None
+    if segments_pct and len(segments_pct) >= 2:
+        segment_classification_note = (
+            "SEGMENT_LEVEL_PROXY: this company reports 2+ segments but no per-segment revenue-recognition-note "
+            "text extractor exists in this codebase — the same company-wide Annual Report classification below is "
+            "applied to every segment for the revenue-weighted blend. This is a documented best-effort proxy, not "
+            "genuine per-segment differentiation (same gap as A.1's AR-13 proxy and A.2.E's switching-costs "
+            "approximation)."
+        )
+        per_segment = [{"label": s["label"], "pct": s["pct"], "contract_type": contract_type} for s in segments_pct]
+    else:
+        segment_classification_note = "SINGLE_SEGMENT: no reconciled multi-segment revenue note found; classified at company level directly."
+
+    # Revenue-weighted blend (d): sum(segment revenue x segment type
+    # position) / total revenue. With the same classification applied to
+    # every segment (the documented proxy above), this necessarily collapses
+    # to that single type's fixed position when a type WAS classified — the
+    # formula is still computed explicitly (not hardcoded to the fixed
+    # value) so it stays correct once/if a real per-segment extractor is
+    # ever added.
+    blend_position = None
+    contract_type_label = None
+    if contract_type is not None:
+        weights = segments_pct if (segments_pct and len(segments_pct) >= 2) else [{"label": "Company", "pct": 100.0}]
+        total_weight = sum(s["pct"] for s in weights) or 100.0
+        pos = _CONTRACT_TYPE_POSITION[contract_type]
+        blend_position = round(sum(s["pct"] * pos for s in weights) / total_weight, 1)
+
+        # Mixed-detection rule (e): Mixed only if the blend isn't within
+        # +/-12 of any fixed type position AND no single classified type
+        # carries >60% of the revenue-weighted mass. With one classification
+        # applied uniformly, mass is always 100% on that type, so this
+        # always resolves to the nearest single label today — the check is
+        # still run explicitly per the spec rather than skipped, since a
+        # future real per-segment extractor could produce a genuine mix.
+        nearest_type, nearest_dist = min(
+            ((t, abs(blend_position - p)) for t, p in _CONTRACT_TYPE_POSITION.items()), key=lambda x: x[1]
+        )
+        dominant_mass_pct = 100.0  # single classification applied to all weight, per the documented proxy above
+        if nearest_dist <= 12 or dominant_mass_pct > 60:
+            contract_type_label = _CONTRACT_TYPE_LABEL[nearest_type]
+        else:
+            contract_type_label = "Mixed"
+            blend_position = 100  # Mixed's own fixed marker position on the 5-zone bar
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if contract_type is None else "SINGLE_SOURCE"
 
     payload = {
         "subpoint_id": subpoint_id,
+        "schema_version": _A3_SCHEMA_VERSION,
         "title": "Revenue model quality: transactional, recurring, annuity, contract length & renewal dynamics",
         "available": True,
-        "revenue_model": revenue_model,
-        "contract_dynamics": contract_dynamics,
-        "rationale": rationale,
-        "contract_renewal_rate_pct": None,  # requires a disclosed renewal count — not wired
+        "contract_type": contract_type,
+        "contract_type_label": contract_type_label,
+        "blend_position": blend_position,
+        "evidence_quote": classified["evidence_quote"],
+        "evidence_source": classified["source"],
+        "rationale": classified["reasoning"],
+        "contract_renewal_rate_pct": renewal["renewal_rate_pct"],
+        "renewal_rate_evidence_quote": renewal["evidence_quote"],
+        "segments": per_segment,
+        "segment_fiscal_year": segments_fy,
+        "segment_classification_note": segment_classification_note,
         "pathway_results": pathway_results,
-        "grounded": bool(digest),
     }
-    if not llm_failed:
-        write_qualitative(sym, subpoint_id, payload, confidence_tag)
-    else:
-        print(f"[qualitative_engine] A.3 NOT cached for {sym} — LLM call did not run; will retry next request.")
+
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
