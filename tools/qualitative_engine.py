@@ -1661,6 +1661,144 @@ def compute_a2b_distribution_moat(symbol, name=None, description="", force=False
     return payload
 
 
+_A2C_SCHEMA_VERSION = 1
+
+
+def compute_a2c_cost_leadership_moat(symbol, name=None, description="", market_cap_cr=None, force=False):
+    """A.2.C ("2C" in the sheet) — Cost leadership moat: 0-5 score combining
+    a QUANT proxy (operating margin vs the peer set, identical Peer Set
+    Protocol as the main A.2 Moat row, reusing
+    tools/moat_peer_scoring.score_quant_pillars's `opm_level` pillar — never
+    text-scanned) with a QUALITATIVE requirement that CRISIL/ICRA or the AR
+    MD&A NAME the source of the cost advantage (scale, captive input,
+    proprietary technology) — a margin lead alone, with no stated reason,
+    scores lower per the rubric (see tools/moat_cost_leadership_scoring.py).
+
+    Sources, PRIMARY-first for the qualitative leg (same ordering as A.2.B):
+    Annual Report MD&A (AR-13) is PRIMARY, CRISIL/ICRA rationale (PORTAL-07)
+    is SECONDARY. The peer cost-structure comparison (PEER-01) is the quant
+    leg, sourced via the same fixed-universe/market-cap-band protocol used
+    by the main A.2 Moat row (tools/peer_universe.py) — never re-derived
+    here. Earnings call — NOT_CHECKED this run, same reason as A.2.A/A.2.B.
+
+    Deliberately deterministic for the qualitative leg (no LLM), same
+    rationale as A.2.A/A.2.B: reproducible, auditable, avoids the shared
+    Groq/OpenRouter quota for the 2,409-company bulk pass.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.2.C"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None and cached.get("schema_version") == _A2C_SCHEMA_VERSION:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.crisil_scraper import fetch_crisil_rationale
+    from tools.moat_cost_leadership_scoring import score_cost_leadership_moat
+    from tools.annual_report_financials import fetch_cost_leadership_evidence_from_annual_report
+    from tools.moat_peer_scoring import score_quant_pillars
+
+    crisil_result = fetch_crisil_rationale(name or sym, symbol=sym)
+    crisil_text = crisil_result.get("key_rating_drivers", "") if crisil_result.get("result") == "CHECKED" else ""
+
+    try:
+        ar_evidence = fetch_cost_leadership_evidence_from_annual_report(sym, name)
+    except Exception as e:
+        print(f"[qualitative_engine] A.2.C AR cost-leadership evidence fetch failed for {sym}: {e}")
+        ar_evidence = {"error": str(e)}
+    ar_excerpts = ar_evidence.get("excerpts") or []
+    ar_mdna_text = "\n".join(e["text"] for e in ar_excerpts)
+
+    # Quant leg — same peer-set machinery as the main A.2 composite, not
+    # re-derived: just pull the `opm_level` pillar's percentile.
+    try:
+        quant = score_quant_pillars(sym, market_cap_cr=market_cap_cr)
+    except Exception as e:
+        print(f"[qualitative_engine] A.2.C peer OPM lookup failed for {sym}: {e}")
+        quant = {"status": "ERROR", "pillars": []}
+    opm_pillar = next((p for p in (quant.get("pillars") or []) if p.get("key") == "opm_level"), None)
+    opm_percentile = opm_pillar.get("percentile") if opm_pillar else None
+    peer_status = quant.get("status")
+
+    scored = score_cost_leadership_moat(
+        ar_mdna_text=ar_mdna_text, crisil_text=crisil_text, business_description=description or "",
+        opm_percentile=opm_percentile,
+    )
+
+    if ar_excerpts:
+        ar13_result, ar13_note = "CHECKED", None
+    elif "error" in ar_evidence:
+        ar13_result, ar13_note = "NOT_DISCLOSED", ar_evidence["error"]
+    else:
+        ar13_result, ar13_note = "NOT_DISCLOSED", "Annual Report fetched but no named cost-advantage source located in its MD&A/Business Overview text."
+
+    pathway_results = [
+        {
+            "pathway_id": "AR-13", "source": "Annual Report MD&A (Business Overview) — PRIMARY (qualitative)",
+            "result": ar13_result, "note": ar13_note,
+        },
+        {
+            "pathway_id": "PORTAL-07", "source": "CRISIL/ICRA Rating Rationale — SECONDARY (qualitative)",
+            "result": "CHECKED" if crisil_text else crisil_result.get("result", "NOT_DISCLOSED"),
+            "note": crisil_result.get("note") if crisil_result.get("result") != "CHECKED" else
+                    f"Rated {crisil_result.get('rating')}, {crisil_result.get('rationale_date')}.",
+        },
+        {
+            "pathway_id": "PEER-01", "source": "Peer operating-margin comparison (quant proxy)",
+            "result": "CHECKED" if opm_percentile is not None else peer_status,
+            "note": None if opm_percentile is not None else
+                    f"Peer Set Protocol status: {peer_status}." if peer_status else "Operating-margin history unavailable.",
+        },
+        {
+            "pathway_id": "QUAL-01", "source": "Earnings call commentary",
+            "result": "NOT_CHECKED",
+            "note": "Deliberately skipped — this codebase's earnings-call digest itself requires an "
+                    "LLM call, which this deterministic sub-point avoids by design.",
+        },
+    ]
+
+    payload = {
+        "subpoint_id": subpoint_id,
+        "schema_version": _A2C_SCHEMA_VERSION,
+        "title": "Cost Leadership",
+        "available": True,
+        "score": scored["score"],
+        "categories_covered": scored["categories_covered"],
+        "numeric_anchor": scored["numeric_anchor"],
+        "evidence_quote": scored["evidence_quote"],
+        "evidence_source": scored["source"],
+        "opm_percentile": opm_percentile,
+        "rationale": scored["reasoning"],
+        "pathway_results": pathway_results,
+    }
+
+    # A score built from BOTH a named qualitative source AND a supporting
+    # quant percentile is the only case genuinely corroborated by two
+    # independent legs — everything else (named-source-only, or
+    # margin-lead-only) is a single pathway feeding the score.
+    if scored["score"] is None:
+        confidence_tag = "SEARCH_INCONCLUSIVE"
+    elif (scored["source"] not in ("none", "peer margin comparison (quant only)")
+          and opm_percentile is not None and opm_percentile > 50):
+        # A named qualitative source (AR/CRISIL) whose claim is ALSO backed
+        # by an actual above-average peer-relative margin — two independent
+        # legs genuinely corroborating each other, not just one pathway
+        # feeding the score.
+        confidence_tag = "VERIFIED"
+    else:
+        confidence_tag = "SINGLE_SOURCE"
+
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
 def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=False):
     """A.4 — Product lifecycle stage: growth, maturity, commoditisation,
     obsolescence risk. Formula: Relative growth = Company revenue CAGR - Industry

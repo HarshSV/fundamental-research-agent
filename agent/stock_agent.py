@@ -1995,11 +1995,11 @@ def build_executive_summary(state: SystemState) -> dict:
     # f22-f25 here (rather than restructuring every downstream read) means the
     # existing facts/chart/finding wiring for subpoints 1-4 below picks this up
     # automatically. f22-f25 are not read anywhere else in this file.
-    _biz_comp = _a2 = _a2a = _a2b = _a3 = _a4 = _a5 = _a12_trend = None
+    _biz_comp = _a2 = _a2a = _a2b = _a2c = _a3 = _a4 = _a5 = _a12_trend = None
     try:
         from tools.qualitative_engine import (
             compute_business_composition, compute_a2_competitive_moat, compute_a2a_brand_moat,
-            compute_a2b_distribution_moat,
+            compute_a2b_distribution_moat, compute_a2c_cost_leadership_moat,
             compute_a3_revenue_model_quality, compute_a4_product_lifecycle_stage,
             compute_a5_pricing_power, compute_a1_2_pattern_trend,
         )
@@ -2009,6 +2009,7 @@ def build_executive_summary(state: SystemState) -> dict:
         _a2 = compute_a2_competitive_moat(symbol, name, _biz_desc_for_qual, market_cap_cr=_mcap_cr)
         _a2a = compute_a2a_brand_moat(symbol, name, _biz_desc_for_qual)
         _a2b = compute_a2b_distribution_moat(symbol, name, _biz_desc_for_qual)
+        _a2c = compute_a2c_cost_leadership_moat(symbol, name, _biz_desc_for_qual, market_cap_cr=_mcap_cr)
         _a3 = compute_a3_revenue_model_quality(symbol, name, _biz_desc_for_qual)
         _a4 = compute_a4_product_lifecycle_stage(symbol, name, _biz_desc_for_qual)
         _a5 = compute_a5_pricing_power(symbol, name, _biz_desc_for_qual)
@@ -2668,6 +2669,38 @@ def build_executive_summary(state: SystemState) -> dict:
                     'evidenceQuote': (_a2b or {}).get('evidence_quote'),
                     'confidence_tag': (_a2b or {}).get('confidence_tag'), 'retrieved_at': (_a2b or {}).get('retrieved_at'),
                     'pathway_results': (_a2b or {}).get('pathway_results'),
+                },
+                {
+                    # 2C — Cost leadership moat sub-point. The only A.2.x
+                    # factor with TWO legs: a QUANT proxy (operating margin
+                    # vs the peer set, same Peer Set Protocol as the main A.2
+                    # row) and a QUALITATIVE requirement that AR MD&A/CRISIL
+                    # NAME the source of the advantage — see
+                    # tools/moat_cost_leadership_scoring.py. A margin lead
+                    # with no named reason scores 3/5, never higher.
+                    'key': 'cost_leadership_moat',
+                    'title': 'Cost Leadership',
+                    'finding': (_a2c or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Cost leadership strength', f"{(_a2c or {}).get('score')} / 5"] if (_a2c or {}).get('score') is not None else None),
+                        (['Evidence categories', ', '.join((_a2c or {}).get('categories_covered') or [])] if (_a2c or {}).get('categories_covered') else None),
+                        (['Operating margin percentile vs peers', f"{(_a2c or {}).get('opm_percentile')}th"] if (_a2c or {}).get('opm_percentile') is not None else None),
+                        (['Evidence source', (_a2c or {}).get('evidence_source')] if (_a2c or {}).get('evidence_source') else None),
+                    ] if f],
+                    'chart': ({'type': 'bar', 'data': [{'label': 'Cost leadership strength', 'value': (_a2c or {}).get('score')}], 'scaleMax': 5}
+                              if (_a2c or {}).get('score') is not None else None),
+                    'formula': '0-5 deterministic evidence score: 5 = a NAMED cost-advantage source (scale/captive input/'
+                               'proprietary tech) with a numeric anchor, 4 = named source across 2+ categories, no anchor, '
+                               '3 = operating margin above peer-set average (quant proxy) with no named reason, '
+                               '2 = only unquantified company claim (MANAGEMENT_CLAIM), 1 = generic boilerplate only, '
+                               'blank = no cost-structure commentary AND no peer margin comparison available.',
+                    'sources': {
+                        'primary': {'label': 'CRISIL/ICRA Rating Rationale + Annual Report MD&A', 'url': 'https://www.crisilratings.com'},
+                        'secondary': {'label': 'Peer operating-margin comparison', 'note': 'same Peer Set Protocol as the main Moat row'},
+                    },
+                    'evidenceQuote': (_a2c or {}).get('evidence_quote'),
+                    'confidence_tag': (_a2c or {}).get('confidence_tag'), 'retrieved_at': (_a2c or {}).get('retrieved_at'),
+                    'pathway_results': (_a2c or {}).get('pathway_results'),
                 },
                 {
                     'key': 'revenue_model_quality',

@@ -2414,6 +2414,34 @@ def fetch_distribution_evidence_from_annual_report(symbol, name, fiscal_year=Non
     )
 
 
+# Cost-leadership evidence anchors (A.2.C / row 2C) — a NAMED source of cost
+# advantage (scale, captive input, proprietary process/technology), never
+# just a margin number by itself (the margin-vs-peers comparison is the
+# separate quant leg, computed from Screener data via
+# tools/moat_peer_scoring.score_quant_pillars — never text-scanned).
+_COST_LEADERSHIP_EVIDENCE_ANCHORS = [
+    "economies of scale", "scale advantage", "scale efficienc", "cost per unit",
+    "cost per tonne", "lowest cost producer", "low-cost producer", "low cost producer",
+    "cost leadership", "cost advantage", "captive mine", "captive raw material",
+    "captive power", "backward integration", "vertically integrated",
+    "proprietary technology", "proprietary process", "in-house technology",
+    "patented process", "cost efficient operations", "cost-efficient operations",
+]
+
+
+def fetch_cost_leadership_evidence_from_annual_report(symbol, name, fiscal_year=None):
+    """Real, grounded text excerpts from the company's OWN Annual Report PDF
+    (Business Overview / MD&A) for A.2.C (Cost leadership moat) — the
+    qualitative leg only: a NAMED reason for a lower cost base (scale,
+    captive input, proprietary technology). The quantitative leg (operating
+    margin vs peer set) is computed separately from real Screener data via
+    tools/moat_peer_scoring.score_quant_pillars, never text-scanned."""
+    return _fetch_ar_evidence_excerpts(
+        symbol, name, _COST_LEADERSHIP_EVIDENCE_ANCHORS, "ar_costevid_text_v1",
+        fiscal_year=fiscal_year, bio_filter=True, fetch_label="cost-leadership-evidence",
+    )
+
+
 def fetch_revenue_characteristics_evidence(symbol, name, fiscal_year=None):
     """Real, grounded text excerpts from the company's OWN Annual Report PDF
     for A.1.2 (cyclical vs recurring revenue) — mirrors
