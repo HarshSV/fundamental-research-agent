@@ -13,6 +13,7 @@ import History from "./views/History.jsx";
 import AskNavrist from "./components/AskNavrist.jsx";
 import { IncomeIcicle } from "./components/IncomeIcicle.jsx";
 import { SunburstChart } from "./components/SunburstChart.jsx";
+import { RecurringCyclicalTrendChart } from "./components/RecurringCyclicalTrendChart.jsx";
 import { addHistory } from "./lib/history.js";
 import { SECTIONS } from "./components/layout/sections.jsx";
 import { SECTORS, getRatiosForSector, getIndustrySpecificRatiosForSector,
@@ -1394,6 +1395,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             VERIFIED: 'text-emerald-200 bg-emerald-950 border-emerald-500/60',
             SINGLE_SOURCE: 'text-blue-200 bg-blue-950 border-blue-500/60',
             CONFLICT_UNRESOLVED: 'text-red-200 bg-red-950 border-red-500/60',
+            // Deliberately neutral, not amber-warning — N/A means "this
+            // factor doesn't apply to this business model," not "evidence
+            // was checked and found weak" (see A.2.D's network-effects gate).
+            NOT_APPLICABLE: 'text-slate-300 bg-slate-800 border-slate-500/60',
         };
         const QualitativeSubpoint = ({ sp }) => {
             const chart = sp.chart;
@@ -1405,9 +1410,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // both render as their own full-width block — the standard facts/
             // chart two-column grid below is built for smaller rating/donut
             // charts and doesn't fit either of these.
-            if (chart?.type === 'business_composition' || chart?.type === 'income_statement_flow' || chart?.type === 'sunburst_combined') {
+            if (chart?.type === 'business_composition' || chart?.type === 'income_statement_flow' || chart?.type === 'sunburst_combined' || chart?.type === 'recurring_cyclical_trend') {
                 const missing = chart?.type === 'business_composition' ? !chart?.segments?.length
                     : chart?.type === 'income_statement_flow' ? !(chart?.nodes?.length && chart?.links?.length)
+                    : chart?.type === 'recurring_cyclical_trend' ? !(chart?.currentYearMix || chart?.trend?.length)
                     : !(chart?.segments?.length || (chart?.nodes?.length && chart?.links?.length));
                 return (
                     <div className="border border-slate-800 rounded-lg overflow-hidden">
@@ -1425,6 +1431,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 <p className="text-xs text-slate-500 italic">
                                     {chart?.type === 'income_statement_flow'
                                         ? (sp.unavailableReason || 'Not enough comparable financial data is available to build this flow reliably.')
+                                        : chart?.type === 'recurring_cyclical_trend'
+                                        ? (sp.unavailableReason || 'Not enough resolvable Annual Report years to build this view.')
                                         : 'Not enough segment disclosure is available to build this view.'}
                                 </p>
                             ) : chart.type === 'business_composition' ? (
@@ -1436,6 +1444,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                     )}
                                     <SunburstChart chart={chart} />
                                 </>
+                            ) : chart.type === 'recurring_cyclical_trend' ? (
+                                <RecurringCyclicalTrendChart chart={chart} unavailableReason={sp.unavailableReason} />
                             ) : (
                                 <IncomeStatementFlowCard chart={chart} unavailableReason={sp.unavailableReason} />
                             )}

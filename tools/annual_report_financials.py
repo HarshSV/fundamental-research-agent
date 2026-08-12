@@ -2442,6 +2442,57 @@ def fetch_cost_leadership_evidence_from_annual_report(symbol, name, fiscal_year=
     )
 
 
+# Network-effects evidence anchors (A.2.D / row 2D) — two distinct anchor
+# tiers, scanned together in one pass and split apart downstream by
+# tools/moat_network_effects_scoring.py:
+#   - platform-language anchors (does this business even HAVE a platform/
+#     marketplace element at all? gates the N/A branch — a company with none
+#     of these anywhere is N/A, not a low score, per the spec's explicit
+#     "N/A means the factor doesn't apply" instruction).
+#   - growth-linkage anchors (GMV/transaction-value terms alongside user-base
+#     terms) — the actual evidence the rubric requires; platform language
+#     ALONE never reaches above 3/5.
+#     Bare "platform" / "ecosystem" / "marketplace" are deliberately
+#     EXCLUDED — confirmed false positives: "platform"/"ecosystem" matched
+#     generic corporate boilerplate (HGINFRA's "SAP S/4HANA Enterprise
+#     platform", "transport ecosystem"); bare "marketplace" matched ordinary
+#     English usage meaning "the market"/competitive landscape (DABUR:
+#     "remain distinctive in the marketplace", JYOTHYLAB: "competitive
+#     marketplace") rather than an actual two-sided marketplace BUSINESS;
+#     bare "online platform(s)" matched a company merely SELLING THROUGH
+#     existing third-party platforms as a distribution channel (HERITGFOOD:
+#     "wider availability through supermarkets and online platforms"), not
+#     the company itself OWNING/OPERATING one. Only phrases that require
+#     explicit ownership or an unambiguous marketplace-business-model
+#     meaning are kept.
+_NETWORK_EFFECTS_PLATFORM_ANCHORS = [
+    "network effect", "two-sided market", "two sided market", "aggregator model",
+    "gig economy", "marketplace model", "marketplace business", "marketplace platform",
+    "our marketplace", "digital marketplace", "online marketplace",
+    "e-commerce platform", "ecommerce platform", "our platform connects",
+    "the platform connects", "platform business model", "platform-based business",
+    "buyers and sellers", "sellers and buyers",
+]
+_NETWORK_EFFECTS_GROWTH_ANCHORS = [
+    "gross merchandise value", "gmv", "transaction value", "active users",
+    "monthly active users", "registered users", "user base", "seller base",
+    "buyer base", "customer base grew", "network of buyers", "network of sellers",
+]
+_NETWORK_EFFECTS_ANCHORS = _NETWORK_EFFECTS_PLATFORM_ANCHORS + _NETWORK_EFFECTS_GROWTH_ANCHORS
+
+
+def fetch_network_effects_evidence_from_annual_report(symbol, name, fiscal_year=None):
+    """Real, grounded text excerpts from the company's OWN Annual Report PDF
+    (Business Overview / MD&A) for A.2.D (Network effects moat) — platform/
+    marketplace language AND, separately, GMV/transaction-value-vs-user-base
+    growth-linkage language (the actual evidence the rubric requires; mere
+    platform existence is explicitly NOT sufficient evidence per the spec)."""
+    return _fetch_ar_evidence_excerpts(
+        symbol, name, _NETWORK_EFFECTS_ANCHORS, "ar_neteffevid_text_v3",  # v3: also dropped bare "marketplace"/"online platform" false positives
+        fiscal_year=fiscal_year, bio_filter=True, fetch_label="network-effects-evidence",
+    )
+
+
 def fetch_revenue_characteristics_evidence(symbol, name, fiscal_year=None):
     """Real, grounded text excerpts from the company's OWN Annual Report PDF
     for A.1.2 (cyclical vs recurring revenue) — mirrors

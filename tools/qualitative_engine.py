@@ -1799,6 +1799,115 @@ def compute_a2c_cost_leadership_moat(symbol, name=None, description="", market_c
     return payload
 
 
+# v2: dropped bare "platform"/"ecosystem" from the applicability gate —
+# confirmed (HGINFRA) they matched generic corporate boilerplate ("SAP
+# S/4HANA Enterprise platform") with zero marketplace meaning, making
+# nearly every non-platform company incorrectly "applicable". Bumped so
+# every already-cached company re-evaluates under the tightened gate.
+_A2D_SCHEMA_VERSION = 3
+
+
+def compute_a2d_network_effects_moat(symbol, name=None, description="", force=False):
+    """A.2.D ("2D" in the sheet) — Network effects moat: 0-5 score, or "N/A"
+    for a business with no platform/marketplace element at all (see
+    tools/moat_network_effects_scoring.py — N/A is NOT a low score, it means
+    the factor doesn't apply to this business model).
+
+    Requires an actual GROWTH-LINKAGE figure (a value metric like GMV/
+    transaction value tracked AGAINST a user/seller/buyer-base metric) — mere
+    platform/marketplace existence is explicitly insufficient per the spec.
+
+    Sources: Annual Report MD&A (AR-13) is PRIMARY. Industry reports
+    (INDUSTRY-01) are SECONDARY per the spec but have no fetcher wired in
+    this codebase yet — recorded as NOT_CHECKED, not NOT_DISCLOSED, since it
+    was never attempted (never silently skipped without saying so).
+    Management commentary/investor presentation is approximated via the
+    business description, same AR-13-adjacent proxy convention used
+    elsewhere, capped at MANAGEMENT_CLAIM tier. Earnings call — NOT_CHECKED,
+    same reason as A.2.A-C (the only digest tool requires an LLM call).
+
+    Deliberately deterministic (no LLM), same rationale as the other A.2.x
+    factors.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.2.D"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None and cached.get("schema_version") == _A2D_SCHEMA_VERSION:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.moat_network_effects_scoring import score_network_effects_moat
+    from tools.annual_report_financials import fetch_network_effects_evidence_from_annual_report
+
+    try:
+        ar_evidence = fetch_network_effects_evidence_from_annual_report(sym, name)
+    except Exception as e:
+        print(f"[qualitative_engine] A.2.D AR network-effects evidence fetch failed for {sym}: {e}")
+        ar_evidence = {"error": str(e)}
+    ar_excerpts = ar_evidence.get("excerpts") or []
+    ar_mdna_text = "\n".join(e["text"] for e in ar_excerpts)
+
+    scored = score_network_effects_moat(ar_mdna_text=ar_mdna_text, business_description=description or "")
+
+    if ar_excerpts:
+        ar13_result, ar13_note = "CHECKED", None
+    elif "error" in ar_evidence:
+        ar13_result, ar13_note = "NOT_DISCLOSED", ar_evidence["error"]
+    else:
+        ar13_result, ar13_note = "NOT_DISCLOSED", "Annual Report fetched but no platform/network-effects language located in its MD&A/Business Overview text."
+
+    pathway_results = [
+        {
+            "pathway_id": "AR-13", "source": "Annual Report MD&A (Business Overview) — PRIMARY",
+            "result": ar13_result, "note": ar13_note,
+        },
+        {
+            "pathway_id": "INDUSTRY-01", "source": "Industry reports — SECONDARY",
+            "result": "NOT_CHECKED",
+            "note": "No industry-report source is wired into this codebase yet — never silently skipped without saying so.",
+        },
+        {
+            "pathway_id": "QUAL-01", "source": "Earnings call commentary",
+            "result": "NOT_CHECKED",
+            "note": "Deliberately skipped — this codebase's earnings-call digest itself requires an "
+                    "LLM call, which this deterministic sub-point avoids by design.",
+        },
+    ]
+
+    payload = {
+        "subpoint_id": subpoint_id,
+        "schema_version": _A2D_SCHEMA_VERSION,
+        "title": "Network Effects",
+        "available": True,
+        "applicable": scored["applicable"],
+        "score": scored["score"],
+        "categories_covered": scored["categories_covered"],
+        "numeric_anchor": scored["numeric_anchor"],
+        "evidence_quote": scored["evidence_quote"],
+        "evidence_source": scored["source"],
+        "rationale": scored["reasoning"],
+        "pathway_results": pathway_results,
+    }
+
+    if not scored["applicable"]:
+        confidence_tag = "NOT_APPLICABLE"
+    elif scored["score"] is None:
+        confidence_tag = "SEARCH_INCONCLUSIVE"
+    else:
+        confidence_tag = "SINGLE_SOURCE"
+
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
 def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=False):
     """A.4 — Product lifecycle stage: growth, maturity, commoditisation,
     obsolescence risk. Formula: Relative growth = Company revenue CAGR - Industry

@@ -1995,11 +1995,12 @@ def build_executive_summary(state: SystemState) -> dict:
     # f22-f25 here (rather than restructuring every downstream read) means the
     # existing facts/chart/finding wiring for subpoints 1-4 below picks this up
     # automatically. f22-f25 are not read anywhere else in this file.
-    _biz_comp = _a2 = _a2a = _a2b = _a2c = _a3 = _a4 = _a5 = _a12_trend = None
+    _biz_comp = _a2 = _a2a = _a2b = _a2c = _a2d = _a3 = _a4 = _a5 = _a12_trend = None
     try:
         from tools.qualitative_engine import (
             compute_business_composition, compute_a2_competitive_moat, compute_a2a_brand_moat,
             compute_a2b_distribution_moat, compute_a2c_cost_leadership_moat,
+            compute_a2d_network_effects_moat,
             compute_a3_revenue_model_quality, compute_a4_product_lifecycle_stage,
             compute_a5_pricing_power, compute_a1_2_pattern_trend,
         )
@@ -2010,6 +2011,7 @@ def build_executive_summary(state: SystemState) -> dict:
         _a2a = compute_a2a_brand_moat(symbol, name, _biz_desc_for_qual)
         _a2b = compute_a2b_distribution_moat(symbol, name, _biz_desc_for_qual)
         _a2c = compute_a2c_cost_leadership_moat(symbol, name, _biz_desc_for_qual, market_cap_cr=_mcap_cr)
+        _a2d = compute_a2d_network_effects_moat(symbol, name, _biz_desc_for_qual)
         _a3 = compute_a3_revenue_model_quality(symbol, name, _biz_desc_for_qual)
         _a4 = compute_a4_product_lifecycle_stage(symbol, name, _biz_desc_for_qual)
         _a5 = compute_a5_pricing_power(symbol, name, _biz_desc_for_qual)
@@ -2701,6 +2703,40 @@ def build_executive_summary(state: SystemState) -> dict:
                     'evidenceQuote': (_a2c or {}).get('evidence_quote'),
                     'confidence_tag': (_a2c or {}).get('confidence_tag'), 'retrieved_at': (_a2c or {}).get('retrieved_at'),
                     'pathway_results': (_a2c or {}).get('pathway_results'),
+                },
+                {
+                    # 2D — Network effects moat sub-point. The only A.2.x
+                    # factor with a genuine THIRD outcome (N/A) alongside its
+                    # 0-5 score — a business with no platform/marketplace
+                    # element at all is N/A, never a low score, per the
+                    # spec's explicit instruction (see
+                    # tools/moat_network_effects_scoring.py). Requires an
+                    # actual growth-LINKAGE figure (GMV/transaction value vs
+                    # user/seller/buyer-base growth); mere platform/
+                    # marketplace existence caps at 3/5, never higher.
+                    'key': 'network_effects_moat',
+                    'title': 'Network Effects',
+                    'finding': (_a2d or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Applicable', 'No — this business has no platform/marketplace element'] if (_a2d or {}).get('applicable') is False else None),
+                        (['Network effects strength', f"{(_a2d or {}).get('score')} / 5"] if (_a2d or {}).get('score') is not None else None),
+                        (['Evidence categories', ', '.join((_a2d or {}).get('categories_covered') or [])] if (_a2d or {}).get('categories_covered') else None),
+                        (['Evidence source', (_a2d or {}).get('evidence_source')] if (_a2d or {}).get('evidence_source') and (_a2d or {}).get('applicable') else None),
+                    ] if f],
+                    'chart': ({'type': 'bar', 'data': [{'label': 'Network effects strength', 'value': (_a2d or {}).get('score')}], 'scaleMax': 5}
+                              if (_a2d or {}).get('score') is not None else None),
+                    'formula': '0-5 deterministic evidence score: 5 = an actual growth-linkage figure (value metric like GMV '
+                               'growing alongside a user/seller/buyer-base metric), 4 = same linkage evidence, single data point, '
+                               '3 = platform/marketplace described with no growth-linkage data, 2 = only company platform language '
+                               '(MANAGEMENT_CLAIM), 1 = generic boilerplate only. N/A (not a low score) = no platform/marketplace '
+                               'element in this business at all.',
+                    'sources': {
+                        'primary': {'label': 'Annual Report MD&A', 'note': 'GMV/transaction-value vs user-base growth linkage'},
+                        'secondary': {'label': 'Management commentary / investor presentation'},
+                    },
+                    'evidenceQuote': (_a2d or {}).get('evidence_quote'),
+                    'confidence_tag': (_a2d or {}).get('confidence_tag'), 'retrieved_at': (_a2d or {}).get('retrieved_at'),
+                    'pathway_results': (_a2d or {}).get('pathway_results'),
                 },
                 {
                     'key': 'revenue_model_quality',
