@@ -740,7 +740,217 @@ _GENERAL_RECURRING_REASONING_RE = re.compile(
 # segment's classification instead of just the model's prose reasoning.
 # Bumped so every cached payload picks up the new field rather than the UI
 # silently having nothing to show for stocks generated before this.
-_BIZ_COMP_SCHEMA_VERSION = 10
+# v11 (1B): the classifier now sees each segment's OWN AR excerpts (windows
+# whose text actually names that segment) as PRIMARY evidence, falling back
+# to the shared company-wide excerpt pool + general business-type reasoning
+# only when no segment-named excerpt exists — previously every segment was
+# classified from the same shared pool regardless of whether it actually
+# mentioned that segment. Added `segment_sourced` per segment. Bumped so
+# already-cached companies get reclassified under the corrected sourcing
+# instead of keeping a shared-pool classification for up to 30 days.
+_BIZ_COMP_SCHEMA_VERSION = 11
+
+
+def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_year=None):
+    """Shared segment-pattern (Recurring/Mixed/Cyclical/Unclassified)
+    classifier — extracted out of `compute_business_composition` so the same
+    grounded, per-segment-sourced (1B) classification logic can be reused for
+    a SPECIFIC historical fiscal year too (see `compute_a1_2_pattern_trend`
+    below), not only the latest Annual Report. `fiscal_year=None` keeps the
+    original latest-year behaviour.
+
+    Returns (patterns_by_label, classification_error, evidence):
+      - patterns_by_label: {label.lower(): {pattern, reason_points, brands,
+        segment_sourced}}, only for segments the classifier actually returned.
+      - classification_error: the exception if the LLM call never produced
+        usable JSON (a transient failure, never persisted as a real result —
+        same "ITC postmortem" guardrail as compute_business_composition), else None.
+      - evidence: the raw fetch_revenue_characteristics_evidence() result,
+        for callers that also want the excerpts themselves.
+    """
+    try:
+        from tools.annual_report_financials import fetch_revenue_characteristics_evidence
+        evidence = fetch_revenue_characteristics_evidence(sym, name, fiscal_year=fiscal_year)
+    except Exception as e:
+        print(f"[qualitative_engine] segment-pattern evidence fetch failed for {sym} FY{fiscal_year}: {e}")
+        evidence = {"error": str(e)}
+
+    def _fmt_excerpts(items):
+        return "\n".join(f"[p.{e['page']}] ...{e['text']}..." for e in (items or [])) or "(none found)"
+
+    # 1B requires each segment's pattern to be grounded in that segment's OWN
+    # AR/MD&A description — never a single company-wide impression. The
+    # underlying excerpt scan (`fetch_revenue_characteristics_evidence`) is
+    # not segment-aware, so filter its excerpts here: a window whose text
+    # actually names the segment is that segment's OWN evidence (primary); a
+    # segment with no name-matched window falls back to the shared/company-
+    # wide excerpts, but tagged as fallback so the prompt (and the classifier)
+    # never treats it as equivalent to a segment-specific citation.
+    def _mentions_segment(text, seg_label):
+        tl = (text or "").lower()
+        # A multi-word label (e.g. "Consumer Care") must match as a whole
+        # phrase or by its most distinctive word (>=4 chars) — matching any
+        # short/common word (e.g. "and", "the") would false-positive on
+        # nearly every excerpt.
+        label_l = seg_label.lower().strip()
+        if label_l and label_l in tl:
+            return True
+        words = [w for w in re.split(r"[^a-z0-9]+", label_l) if len(w) >= 4]
+        return any(w in tl for w in words)
+
+    def _own_and_fallback_excerpts(seg_label):
+        own = {"recurring": [], "cyclicality": []}
+        for family in ("recurring", "cyclicality"):
+            for e in (evidence.get(f"{family}_excerpts") or []):
+                if _mentions_segment(e.get("text"), seg_label):
+                    own[family].append(e)
+        return own
+
+    # Concall commentary is already an approved, existing Navrist source (same
+    # grounded corpus digest used by A.1's business-model-clarity judgment and
+    # elsewhere) — wiring it in here too gives the segment classifier real
+    # management commentary to work from (e.g. management describing a
+    # specific segment's contracts/demand pattern) in addition to the Annual
+    # Report excerpts, without adding any new external source. Generic across
+    # every company: `_concall_digest` is symbol-driven, no per-company logic.
+    digest = _concall_digest(sym, name)
+
+    seg_names = [s["label"] for s in segments_for_calc]
+    patterns_by_label = {}
+    seg_sourced_by_label = {}
+    # Always attempt classification — the classifier is explicitly allowed to
+    # reason from well-established business-model/sector knowledge (e.g.
+    # "FMCG household/personal-care products are repeat-purchase, driven by
+    # everyday consumer demand" or "auto manufacturing is capex/demand
+    # cyclical") even without a literal quote, not only when AR/concall text
+    # happened to contain matching language. Still grounded reasoning, not a
+    # blind guess — the order-book-only false-positive guard below still
+    # applies regardless of source.
+    per_segment_blocks = []
+    for seg_label in seg_names:
+        own = _own_and_fallback_excerpts(seg_label)
+        has_own = bool(own["recurring"] or own["cyclicality"])
+        seg_sourced_by_label[seg_label.lower()] = has_own
+        if has_own:
+            per_segment_blocks.append(
+                f"--- SEGMENT: {seg_label} (own AR excerpts naming this segment — PRIMARY for this segment) ---\n"
+                f"Recurring/contract language: {_fmt_excerpts(own['recurring'])}\n"
+                f"Cyclicality/demand language: {_fmt_excerpts(own['cyclicality'])}\n"
+            )
+        else:
+            per_segment_blocks.append(
+                f"--- SEGMENT: {seg_label} (NO own-named excerpt found — no segment-specific AR text located; "
+                f"classify from general company-wide excerpts below plus well-established business-type "
+                f"reasoning, per the rules above) ---\n"
+            )
+    context = (
+        f"COMPANY: {company}\n"
+        f"REPORTED SEGMENTS: {', '.join(seg_names)}\n\n"
+        + "\n".join(per_segment_blocks) + "\n"
+        f"=== COMPANY-WIDE AR EXCERPTS (fallback only — use ONLY for a segment with no own-named excerpt above) ===\n"
+        f"Recurring/contract language: {_fmt_excerpts(evidence.get('recurring_excerpts'))}\n"
+        f"Cyclicality/demand language: {_fmt_excerpts(evidence.get('cyclicality_excerpts'))}\n"
+        + (f"\n=== RECENT CONCALL / MANAGEMENT COMMENTARY (secondary corroboration, newest first) ===\n{digest}\n" if digest else "")
+    )
+    prompt = (
+        "You are an equity analyst classifying the REVENUE PATTERN of each individually reported business "
+        "segment for an Indian listed company. For each segment, the excerpts under that SEGMENT's own heading "
+        "above (if any) are its PRIMARY evidence and must be used first — never substitute the company-wide "
+        "impression for a segment that has its own named excerpts. Only fall back to the company-wide excerpts "
+        "and/or well-established general business-type knowledge for a segment explicitly marked 'NO own-named "
+        "excerpt found'. The concall/management commentary (if present) is SECONDARY corroboration for any "
+        "segment. When neither a segment-specific nor a company-wide source discusses a segment, you MUST STILL "
+        "classify it using well-established, general knowledge of how that kind of business actually earns "
+        "revenue — e.g. FMCG household/personal-care/food products are repeat-purchase, driven by everyday "
+        "consumer demand (typically Cyclical or Mixed, not purely discretionary); auto/industrial manufacturing "
+        "is capex- and demand-cycle sensitive (typically Cyclical); IT services delivery is often Mixed "
+        "(project-based plus renewing maintenance); banking/lending interest income and insurance premiums are "
+        "typically Recurring. Reserve \"unclassified\" for the rare case where you genuinely cannot reason about "
+        "the segment's business model at all — it should be UNUSUAL, not the default outcome.\n\n"
+        "FALSE-POSITIVE GUARD (still applies regardless of source): order book, contract assets, contract "
+        "liabilities, customer contracts, or the mere existence of a contract do NOT by themselves prove "
+        "recurring revenue — order book reflects revenue VISIBILITY (future revenue already booked), a DIFFERENT "
+        "concept from RECURRINGNESS (whether revenue repeats from the same customers over time). Never cite an "
+        "order book figure, alone, as your reason for \"recurring\" — if that is genuinely your only evidence, use "
+        "\"cyclical\" or \"unclassified\" instead, or pair it with real reasoning about repeat/renewal.\n\n"
+        "Only use \"mixed\" when the segment demonstrably has BOTH meaningful recurring/stable AND cyclical/"
+        "transactional characteristics, and you can state both reasons — never as a stand-in for uncertainty, "
+        "and never default to \"mixed\" just because the pattern is unclear (use \"unclassified\" instead).\n\n"
+        "For EACH segment also provide:\n"
+        "- reason_points: 2-3 short bullet points (not a paragraph) explaining the classification — what the "
+        "segment's business actually does, and why that supports the pattern chosen. If based on that segment's "
+        "own named excerpts, say so; if based on company-wide/general reasoning because no own-named excerpt "
+        "existed, make that clear too.\n"
+        "- example_brands: 2-4 well-known, real brand/product names commonly associated with that segment for "
+        "this company, from general public knowledge (e.g. for an FMCG 'Beauty & Wellbeing' segment: real, "
+        "well-known personal-care brand names). ONLY include names you are confident are real and genuinely "
+        "associated with this company — leave the list empty rather than guessing or inventing a name.\n\n"
+        "Return ONLY JSON:\n"
+        '{ "segments": [ {"label": "<EXACT segment label from REPORTED SEGMENTS, one entry per segment, same order>", '
+        '"pattern": "recurring" | "mixed" | "cyclical" | "unclassified", '
+        '"reason_points": ["point 1", "point 2"], "example_brands": ["Brand A", "Brand B"]} ] }\n\n'
+        f"=== CONTEXT ===\n{context}"
+    )
+    # Distinguishes "the classifier ran and genuinely could not classify" from
+    # "the classifier never ran" (rate limit / network). Only the first is a
+    # real finding; the second must not be persisted as one.
+    classification_error = None
+    try:
+        from tools.groq_client import groq_chat, parse_json_loose
+        raw = groq_chat(
+            messages=[
+                {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=1400, temperature=0.1,
+        )
+        data = parse_json_loose(raw)
+        # A model can return a reply that fails to parse as JSON at all (or
+        # parses but without a "segments" list) without groq_chat itself
+        # raising — that's structurally the same "the classifier didn't
+        # actually run" case as a network/rate-limit exception (confirmed:
+        # ITC's cache held all-"unclassified" from exactly this, with no
+        # exception ever thrown), so it must be treated the same way rather
+        # than silently defaulting to {} and letting every segment fall
+        # through as "unclassified" for real judgment reasons it never gave.
+        # A genuine "the model classified every segment as unclassified" is
+        # NOT this case — that's a valid segments list where each entry's
+        # own pattern value happens to be "unclassified", handled normally
+        # below.
+        if data is None or not isinstance(data.get("segments"), list):
+            raise ValueError(f"Classifier reply had no usable 'segments' array (raw[:200]={(raw or '')[:200]!r})")
+        for s in (data.get("segments") or []):
+            lbl = str(s.get("label") or "").strip()
+            pat = str(s.get("pattern") or "").strip().lower()
+            if not lbl or pat not in _SEGMENT_PATTERN:
+                continue
+            reason_points = [str(p).strip() for p in (s.get("reason_points") or []) if str(p).strip()][:4]
+            if not reason_points:
+                # Tolerate a model that ignores the list field and answers
+                # with the older free-form "reason" string instead.
+                fallback = str(s.get("reason") or "").strip()
+                reason_points = [fallback] if fallback else []
+            brands = [str(b).strip() for b in (s.get("example_brands") or []) if str(b).strip() and len(str(b).strip()) < 60][:4]
+            reason_text = " ".join(reason_points)
+            # Broadened false-positive gate: a "recurring" claim must be
+            # backed by either a literal repeat/renewal signal word OR
+            # general, well-established business-model reasoning (consumer
+            # staple, essential/everyday demand, membership, deposits/loans,
+            # insurance premiums, maintenance/service contracts, warranty) —
+            # NOT trusted when the reasoning cites only order-book/contract-
+            # asset/contract-liability language with nothing else, which is
+            # revenue visibility, not recurringness.
+            if pat == "recurring" and not _RECURRING_SIGNAL_RE.search(reason_text) and not _GENERAL_RECURRING_REASONING_RE.search(reason_text):
+                pat, reason_points, brands = "unclassified", [], []
+            patterns_by_label[lbl.lower()] = {
+                "pattern": pat, "reason_points": reason_points, "brands": brands,
+                "segment_sourced": seg_sourced_by_label.get(lbl.lower(), False),
+            }
+    except Exception as e:
+        classification_error = e
+        print(f"[qualitative_engine] segment-pattern classification failed for {sym} FY{fiscal_year}: {e}")
+
+    return patterns_by_label, classification_error, evidence
 
 
 def compute_business_composition(symbol, name=None, description="", force=False):
@@ -840,134 +1050,13 @@ def compute_business_composition(symbol, name=None, description="", force=False)
     residual_pct = round(max(0.0, residual) / consolidated_revenue * 100, 1) if consolidated_revenue else 0.0
 
     # --- Step 6-7: segment-specific pattern classification, evidence-grounded ---
-    try:
-        from tools.annual_report_financials import fetch_revenue_characteristics_evidence
-        evidence = fetch_revenue_characteristics_evidence(sym, name)
-    except Exception as e:
-        print(f"[qualitative_engine] business_composition evidence fetch failed for {sym}: {e}")
-        evidence = {"error": str(e)}
-
-    def _fmt_excerpts(items):
-        return "\n".join(f"[p.{e['page']}] ...{e['text']}..." for e in (items or [])) or "(none found)"
-
-    # Concall commentary is already an approved, existing Navrist source (same
-    # grounded corpus digest used by A.1's business-model-clarity judgment and
-    # elsewhere) — wiring it in here too gives the segment classifier real
-    # management commentary to work from (e.g. management describing a
-    # specific segment's contracts/demand pattern) in addition to the Annual
-    # Report excerpts, without adding any new external source. Generic across
-    # every company: `_concall_digest` is symbol-driven, no per-company logic.
-    digest = _concall_digest(sym, name)
-
-    seg_names = [s["label"] for s in segments_for_calc]
-    patterns_by_label = {}
-    # Always attempt classification — the classifier is explicitly allowed to
-    # reason from well-established business-model/sector knowledge (e.g.
-    # "FMCG household/personal-care products are repeat-purchase, driven by
-    # everyday consumer demand" or "auto manufacturing is capex/demand
-    # cyclical") even without a literal quote, not only when AR/concall text
-    # happened to contain matching language. Still grounded reasoning, not a
-    # blind guess — the order-book-only false-positive guard below still
-    # applies regardless of source.
-    context = (
-        f"COMPANY: {company}\n"
-        f"REPORTED SEGMENTS: {', '.join(seg_names)}\n\n"
-        f"=== ANNUAL REPORT EXCERPTS — RECURRING/CONTRACT/SUBSCRIPTION LANGUAGE ===\n{_fmt_excerpts(evidence.get('recurring_excerpts'))}\n\n"
-        f"=== ANNUAL REPORT EXCERPTS — CYCLICALITY/DEMAND-SENSITIVITY LANGUAGE ===\n{_fmt_excerpts(evidence.get('cyclicality_excerpts'))}\n"
-        + (f"\n=== RECENT CONCALL / MANAGEMENT COMMENTARY (secondary corroboration, newest first) ===\n{digest}\n" if digest else "")
-    )
-    prompt = (
-        "You are an equity analyst classifying the REVENUE PATTERN of each individually reported business "
-        "segment for an Indian listed company. The Annual Report excerpts are the PRIMARY evidence; the concall/"
-        "management commentary (if present) is SECONDARY corroboration. When neither source explicitly discusses a "
-        "segment, you MUST STILL classify it using well-established, general knowledge of how that kind of "
-        "business actually earns revenue — e.g. FMCG household/personal-care/food products are repeat-purchase, "
-        "driven by everyday consumer demand (typically Cyclical or Mixed, not purely discretionary); auto/"
-        "industrial manufacturing is capex- and demand-cycle sensitive (typically Cyclical); IT services delivery "
-        "is often Mixed (project-based plus renewing maintenance); banking/lending interest income and insurance "
-        "premiums are typically Recurring. Reserve \"unclassified\" for the rare case where you genuinely cannot "
-        "reason about the segment's business model at all — it should be UNUSUAL, not the default outcome.\n\n"
-        "FALSE-POSITIVE GUARD (still applies regardless of source): order book, contract assets, contract "
-        "liabilities, customer contracts, or the mere existence of a contract do NOT by themselves prove "
-        "recurring revenue — order book reflects revenue VISIBILITY (future revenue already booked), a DIFFERENT "
-        "concept from RECURRINGNESS (whether revenue repeats from the same customers over time). Never cite an "
-        "order book figure, alone, as your reason for \"recurring\" — if that is genuinely your only evidence, use "
-        "\"cyclical\" or \"unclassified\" instead, or pair it with real reasoning about repeat/renewal.\n\n"
-        "Only use \"mixed\" when the segment demonstrably has BOTH meaningful recurring/stable AND cyclical/"
-        "transactional characteristics, and you can state both reasons — never as a stand-in for uncertainty.\n\n"
-        "For EACH segment also provide:\n"
-        "- reason_points: 2-3 short bullet points (not a paragraph) explaining the classification — what the "
-        "segment's business actually does, and why that supports the pattern chosen.\n"
-        "- example_brands: 2-4 well-known, real brand/product names commonly associated with that segment for "
-        "this company, from general public knowledge (e.g. for an FMCG 'Beauty & Wellbeing' segment: real, "
-        "well-known personal-care brand names). ONLY include names you are confident are real and genuinely "
-        "associated with this company — leave the list empty rather than guessing or inventing a name.\n\n"
-        "Return ONLY JSON:\n"
-        '{ "segments": [ {"label": "<EXACT segment label from REPORTED SEGMENTS, one entry per segment, same order>", '
-        '"pattern": "recurring" | "mixed" | "cyclical" | "unclassified", '
-        '"reason_points": ["point 1", "point 2"], "example_brands": ["Brand A", "Brand B"]} ] }\n\n'
-        f"=== CONTEXT ===\n{context}"
-    )
-    # Distinguishes "the classifier ran and genuinely could not classify" from
-    # "the classifier never ran" (rate limit / network). Only the first is a
-    # real finding; the second must not be persisted as one.
-    classification_error = None
-    try:
-        from tools.groq_client import groq_chat, parse_json_loose
-        raw = groq_chat(
-            messages=[
-                {"role": "system", "content": "You are a precise equity analyst. Reply with strict JSON only."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=1400, temperature=0.1,
-        )
-        data = parse_json_loose(raw)
-        # A model can return a reply that fails to parse as JSON at all (or
-        # parses but without a "segments" list) without groq_chat itself
-        # raising — that's structurally the same "the classifier didn't
-        # actually run" case as a network/rate-limit exception (confirmed:
-        # ITC's cache held all-"unclassified" from exactly this, with no
-        # exception ever thrown), so it must be treated the same way rather
-        # than silently defaulting to {} and letting every segment fall
-        # through as "unclassified" for real judgment reasons it never gave.
-        # A genuine "the model classified every segment as unclassified" is
-        # NOT this case — that's a valid segments list where each entry's
-        # own pattern value happens to be "unclassified", handled normally
-        # below.
-        if data is None or not isinstance(data.get("segments"), list):
-            raise ValueError(f"Classifier reply had no usable 'segments' array (raw[:200]={(raw or '')[:200]!r})")
-        for s in (data.get("segments") or []):
-            lbl = str(s.get("label") or "").strip()
-            pat = str(s.get("pattern") or "").strip().lower()
-            if not lbl or pat not in _SEGMENT_PATTERN:
-                continue
-            reason_points = [str(p).strip() for p in (s.get("reason_points") or []) if str(p).strip()][:4]
-            if not reason_points:
-                # Tolerate a model that ignores the list field and answers
-                # with the older free-form "reason" string instead.
-                fallback = str(s.get("reason") or "").strip()
-                reason_points = [fallback] if fallback else []
-            brands = [str(b).strip() for b in (s.get("example_brands") or []) if str(b).strip() and len(str(b).strip()) < 60][:4]
-            reason_text = " ".join(reason_points)
-            # Broadened false-positive gate: a "recurring" claim must be
-            # backed by either a literal repeat/renewal signal word OR
-            # general, well-established business-model reasoning (consumer
-            # staple, essential/everyday demand, membership, deposits/loans,
-            # insurance premiums, maintenance/service contracts, warranty) —
-            # NOT trusted when the reasoning cites only order-book/contract-
-            # asset/contract-liability language with nothing else, which is
-            # revenue visibility, not recurringness.
-            if pat == "recurring" and not _RECURRING_SIGNAL_RE.search(reason_text) and not _GENERAL_RECURRING_REASONING_RE.search(reason_text):
-                pat, reason_points, brands = "unclassified", [], []
-            patterns_by_label[lbl.lower()] = {"pattern": pat, "reason_points": reason_points, "brands": brands}
-    except Exception as e:
-        classification_error = e
-        print(f"[qualitative_engine] business_composition segment classification failed for {sym}: {e}")
+    patterns_by_label, classification_error, evidence = _classify_segments_pattern(
+        sym, name, company, segments_for_calc, fiscal_year=fiscal_year)
 
     segments_out = []
     for s in segments_for_calc:
         pct = round(s["value_cr"] / consolidated_revenue * 100, 1) if consolidated_revenue else 0.0
-        cls = patterns_by_label.get(s["label"].lower()) or {"pattern": "unclassified", "reason_points": [], "brands": []}
+        cls = patterns_by_label.get(s["label"].lower()) or {"pattern": "unclassified", "reason_points": [], "brands": [], "segment_sourced": False}
         segments_out.append({
             "name": s["label"],
             "external_revenue_cr": round(s["value_cr"], 1),
@@ -975,6 +1064,12 @@ def compute_business_composition(symbol, name=None, description="", force=False)
             "pattern": cls["pattern"],
             "pattern_reason_points": cls.get("reason_points") or [],
             "example_brands": cls.get("brands") or [],
+            # True only when an AR excerpt actually NAMES this segment (1B:
+            # "each segment's OWN business description... never the
+            # company-wide description") — False means the classification
+            # fell back to company-wide excerpts + general business-type
+            # reasoning, which the UI should show as a weaker sourcing basis.
+            "segment_sourced": cls.get("segment_sourced", False),
         })
 
     # --- Step 10: business-model tag (deterministic) ------------------------
@@ -1004,6 +1099,11 @@ def compute_business_composition(symbol, name=None, description="", force=False)
     else:
         weighted_pattern_score = None
         weighted_pattern_label = "unclassified"
+
+    # Recomputed here (cheap/cached) since the classification helper now
+    # owns its own local `digest` — this call just needs the same bool for
+    # the payload's `used_concall`/`grounded` flags below.
+    digest = _concall_digest(sym, name)
 
     # --- Step 12: deterministic plain-English footer (no invented trend) ----
     if model_type == "single_product" and segment_count <= 1:
@@ -1048,11 +1148,11 @@ def compute_business_composition(symbol, name=None, description="", force=False)
         # company failed to disclose something, which would be a claim we have
         # no evidence for.
         "pattern_classification_failed": bool(classification_error),
-        # The actual evidence the pattern classifier read — same excerpts fed
-        # into the prompt above, not re-fetched or paraphrased. These are
-        # shared context across every segment (the classifier reads all of
-        # them together, not one excerpt per segment), so the UI shows them
-        # once per sub-point rather than duplicated under each segment.
+        # The full company-wide excerpt pool the classifier drew from — each
+        # segment above additionally carries its own `segment_sourced` flag
+        # (True when at least one of these excerpts actually names that
+        # segment and was used as its PRIMARY evidence; False means that
+        # segment fell back to this shared pool + general reasoning).
         # `used_concall` tells the UI whether management commentary was part
         # of the grounding too, since a segment's own reason_points can cite
         # either source without saying which.
@@ -1078,6 +1178,147 @@ def compute_business_composition(symbol, name=None, description="", force=False)
     else:
         print(f"[qualitative_engine] business_composition NOT cached for {sym} — "
               f"segment classification did not run; will retry next request.")
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_A12_TREND_SCHEMA_VERSION = 1
+_A12_TREND_MAX_YEARS = 5
+
+
+def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
+    """1B, current-year + multi-year view: revenue-weighted Recurring vs
+    Cyclical % for the latest Annual Report ("current year mix") and for as
+    many of the up-to-5 most recent Annual Reports as actually have a
+    reconciled segment note ("N-year trend") — real per-year classification,
+    reusing the SAME segment-pattern classifier as `compute_business_composition`
+    (`_classify_segments_pattern`), just run once per historical filing
+    instead of only the latest. A year with no usable segment/revenue data is
+    skipped from the trend rather than filled with a guess.
+
+    Mixed-pattern segments split 50/50 between Recurring and Cyclical for
+    this two-way % (the 3-way Recurring/Mixed/Cyclical view lives on the A.1
+    sunburst); Unclassified segments' revenue is excluded from the base a
+    year's % is computed over — never silently folded into either side.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.1.2b"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None and cached.get("schema_version") == _A12_TREND_SCHEMA_VERSION:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    company = name or sym
+    try:
+        from tools.annual_report_financials import list_annual_report_years, _get_extracted_financials
+        years = (list_annual_report_years(sym, name) or [])[:_A12_TREND_MAX_YEARS]
+    except Exception as e:
+        print(f"[qualitative_engine] a1_2_pattern_trend year list failed for {sym}: {e}")
+        years = []
+
+    if not years:
+        payload = {
+            "subpoint_id": subpoint_id, "schema_version": _A12_TREND_SCHEMA_VERSION,
+            "available": False, "reason": "No Annual Report found for this company.",
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
+        payload["confidence_tag"] = "NOT_FOUND"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    trend = []
+    any_llm_failure = False
+    for fy in sorted(years):  # oldest -> newest, matching the reference chart's left-to-right order
+        try:
+            parsed = _get_extracted_financials(sym, name, fy, consolidated=True)
+        except Exception as e:
+            print(f"[qualitative_engine] a1_2_pattern_trend financials fetch failed for {sym} FY{fy}: {e}")
+            continue
+        if not parsed or "error" in parsed:
+            continue
+        revenue_pair = parsed.get("revenue")
+        consolidated_revenue = revenue_pair[0] if revenue_pair else None
+        raw_segments = parsed.get("segments")
+        if not consolidated_revenue:
+            continue
+        # Same graceful single-block fallback as compute_business_composition
+        # — real total revenue, classified as one segment, rather than an
+        # empty year when the segment note isn't reconciled for that filing.
+        segments_for_calc = raw_segments if (raw_segments and len(raw_segments) >= 2) else [
+            {"label": company, "value_cr": consolidated_revenue}
+        ]
+
+        patterns_by_label, classification_error, _evidence = _classify_segments_pattern(
+            sym, name, company, segments_for_calc, fiscal_year=fy)
+        if classification_error:
+            any_llm_failure = True
+            continue
+
+        recurring_rev = cyclical_rev = classified_rev = 0.0
+        for s in segments_for_calc:
+            cls = patterns_by_label.get(s["label"].lower())
+            pat = (cls or {}).get("pattern")
+            if pat == "recurring":
+                recurring_rev += s["value_cr"]
+                classified_rev += s["value_cr"]
+            elif pat == "cyclical":
+                cyclical_rev += s["value_cr"]
+                classified_rev += s["value_cr"]
+            elif pat == "mixed":
+                recurring_rev += s["value_cr"] * 0.5
+                cyclical_rev += s["value_cr"] * 0.5
+                classified_rev += s["value_cr"]
+            # "unclassified" (or missing) segments are excluded from the base.
+        if classified_rev <= 0:
+            continue  # nothing usable this year — skip rather than guess
+
+        trend.append({
+            "fiscal_year": fy,
+            "recurring_pct": round(recurring_rev / classified_rev * 100, 1),
+            "cyclical_pct": round(cyclical_rev / classified_rev * 100, 1),
+            "classified_coverage_pct": round(classified_rev / consolidated_revenue * 100, 1),
+        })
+
+    if not trend:
+        payload = {
+            "subpoint_id": subpoint_id, "schema_version": _A12_TREND_SCHEMA_VERSION,
+            "available": False,
+            "reason": ("Classifier could not be reached for any year this run — will retry next request."
+                       if any_llm_failure else
+                       "No year had both a reconciled segment note and revenue on the P&L page."),
+        }
+        # A run where every year failed purely on a transient LLM error must
+        # not be cached as a real "no data" finding — same guardrail as
+        # compute_business_composition's classification_error handling.
+        if not any_llm_failure:
+            write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
+        payload["confidence_tag"] = "NOT_FOUND"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    current = trend[-1]
+    confidence_tag = "VERIFIED" if len(trend) >= 3 else "SINGLE_SOURCE"
+    payload = {
+        "subpoint_id": subpoint_id,
+        "schema_version": _A12_TREND_SCHEMA_VERSION,
+        "available": True,
+        "current_year_mix": {"fiscal_year": current["fiscal_year"], "recurring_pct": current["recurring_pct"], "cyclical_pct": current["cyclical_pct"]},
+        "trend": trend,
+        "years_attempted": len(years),
+        "years_resolved": len(trend),
+    }
+    if not any_llm_failure:
+        write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    else:
+        print(f"[qualitative_engine] a1_2_pattern_trend partially NOT cached for {sym} — "
+              f"{len(years) - len(trend)}/{len(years)} year(s) hit a classifier failure; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -1201,15 +1442,31 @@ def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr
     return payload
 
 
+# Bumped whenever the AR-13 pathway's actual data source changes materially —
+# v2 replaced the thin yfinance business-description proxy for AR-13 with a
+# real Annual Report MD&A/Business Overview text extraction
+# (fetch_brand_evidence_from_annual_report), which was causing near-universal
+# "Missing" scores: a one-paragraph factual company blurb almost never
+# contains brand-marketing language, regardless of how strong the company's
+# real brand evidence is. Bumped so every already-cached company gets
+# rescored against the real AR text instead of keeping a stale
+# proxy-sourced "Missing" for up to CACHE_TTL.
+# v3: fetch_brand_evidence_from_annual_report now filters out director/KMP
+# biography text (confirmed false-positive on HGINFRA, whose only match was
+# an Independent Director's civil-service career bio, not a company brand
+# claim) and dropped the overly-generic "leadership position" anchor.
+_A2A_SCHEMA_VERSION = 3
+
+
 def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
     """A.2.A ("2A" in the sheet) — Brand moat: 0-5 score based on pricing
     power, customer preference, premium positioning, repeat business, and
     market-share evidence.
 
     Sources: CRISIL/ICRA rating rationale (PORTAL-07, tools/crisil_scraper.py),
-    Annual Report MD&A (approximated here via the company's business
-    description, same AR-13 proxy used by A.1/A.4/A.5), Earnings call —
-    NOT_CHECKED this run (see below).
+    Annual Report MD&A (AR-13, tools/annual_report_financials.py's
+    fetch_brand_evidence_from_annual_report — the REAL MD&A/Business Overview
+    narrative, not a proxy), Earnings call — NOT_CHECKED this run (see below).
 
     Deliberately deterministic (tools/moat_brand_scoring.py) rather than
     LLM-scored: every score traces to a literal matched sentence, fully
@@ -1225,7 +1482,7 @@ def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
-        if cached is not None:
+        if cached is not None and cached.get("schema_version") == _A2A_SCHEMA_VERSION:
             try:
                 age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
                 if age <= CACHE_TTL:
@@ -1235,11 +1492,27 @@ def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
 
     from tools.crisil_scraper import fetch_crisil_rationale
     from tools.moat_brand_scoring import score_brand_moat
+    from tools.annual_report_financials import fetch_brand_evidence_from_annual_report
 
     crisil_result = fetch_crisil_rationale(name or sym, symbol=sym)
     crisil_text = crisil_result.get("key_rating_drivers", "") if crisil_result.get("result") == "CHECKED" else ""
 
-    scored = score_brand_moat(crisil_text=crisil_text, business_description=description or "")
+    try:
+        ar_evidence = fetch_brand_evidence_from_annual_report(sym, name)
+    except Exception as e:
+        print(f"[qualitative_engine] A.2.A AR brand-evidence fetch failed for {sym}: {e}")
+        ar_evidence = {"error": str(e)}
+    ar_excerpts = ar_evidence.get("excerpts") or []
+    ar_mdna_text = "\n".join(e["text"] for e in ar_excerpts)
+
+    scored = score_brand_moat(crisil_text=crisil_text, business_description=description or "", ar_mdna_text=ar_mdna_text)
+
+    if ar_excerpts:
+        ar13_result, ar13_note = "CHECKED", None
+    elif "error" in ar_evidence:
+        ar13_result, ar13_note = "NOT_DISCLOSED", ar_evidence["error"]
+    else:
+        ar13_result, ar13_note = "NOT_DISCLOSED", "Annual Report fetched but no brand-evidence language located in its MD&A/Business Overview text."
 
     pathway_results = [
         {
@@ -1249,8 +1522,8 @@ def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
                     f"Rated {crisil_result.get('rating')}, {crisil_result.get('rationale_date')}.",
         },
         {
-            "pathway_id": "AR-13", "source": "Annual Report MD&A (business description proxy)",
-            "result": "CHECKED" if description else "NOT_DISCLOSED",
+            "pathway_id": "AR-13", "source": "Annual Report MD&A (Business Overview)",
+            "result": ar13_result, "note": ar13_note,
         },
         {
             "pathway_id": "QUAL-01", "source": "Earnings call commentary",
@@ -1262,6 +1535,7 @@ def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
 
     payload = {
         "subpoint_id": subpoint_id,
+        "schema_version": _A2A_SCHEMA_VERSION,
         "title": "Brand",
         "available": True,
         "score": scored["score"],
@@ -1273,9 +1547,9 @@ def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
         "pathway_results": pathway_results,
     }
 
-    # Only one pathway ever feeds the actual score (CRISIL OR company description,
-    # never both corroborating) — SINGLE_SOURCE whenever a score exists, per the
-    # cross-verification rule; SEARCH_INCONCLUSIVE when nothing was found at all.
+    # Only one pathway ever feeds the actual score (CRISIL OR the company's own
+    # words, never both corroborating) — SINGLE_SOURCE whenever a score exists, per
+    # the cross-verification rule; SEARCH_INCONCLUSIVE when nothing was found at all.
     confidence_tag = "SEARCH_INCONCLUSIVE" if scored["score"] is None else "SINGLE_SOURCE"
 
     write_qualitative(sym, subpoint_id, payload, confidence_tag)

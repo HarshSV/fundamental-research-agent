@@ -2124,7 +2124,7 @@ def fetch_governance_text_sections(symbol, name):
         sym = symbol.strip().upper().replace(".NS", "")
         years = list_annual_report_years(sym, name)
         if not years:
-            return {"error": "No Annual Report found for this company."}
+            return {"error": _no_annual_report_message(sym)}
         fiscal_year = years[0]
         ckey = f"ar_gov_text_v1_{sym}_{fiscal_year}"
         cached = _read_cache(ckey)
@@ -2227,9 +2227,154 @@ _REVENUE_CHAR_SECTION_ANCHORS = {
 }
 
 
-def fetch_revenue_characteristics_evidence(symbol, name):
-    """Real, grounded text excerpts from the company's OWN latest Annual
-    Report PDF for A.1.2 (cyclical vs recurring revenue) — mirrors
+# Brand-evidence anchors (A.2.A / row 2A) — phrase families used only to
+# LOCATE candidate windows in the Annual Report's MD&A/Business Overview
+# text; the actual 0-5 scoring regex categorization happens downstream in
+# tools/moat_brand_scoring.py's `_matches_in`, kept as the single source of
+# truth for what counts as evidence so this fetcher and the scorer can never
+# drift apart on what "brand evidence" means.
+_BRAND_EVIDENCE_ANCHORS = [
+    # "leadership position" deliberately excluded — confirmed (HGINFRA) it
+    # matches Independent Director BIOS ("...significant leadership
+    # positions as Additional Chief Secretary...") far more often than any
+    # genuine company-brand claim. "leading position"/"leading player" are
+    # kept since they're rarely used to describe an individual's career.
+    "market leader", "leading position", "leading player",
+    "brand recall", "brand equity", "brand loyalty", "trusted brand", "preferred brand",
+    "preferred choice", "customer preference", "consumer preference", "customer loyalty",
+    "repeat customers", "repeat business", "repeat purchase", "customer retention",
+    "premium pricing", "premium positioning", "premium segment", "pricing power",
+    "market share", "dominant position", "flagship brand", "strong brand",
+    "well-known brand", "established brand",
+]
+# A window is a director/KMP BIOGRAPHY, not a brand-evidence claim about the
+# COMPANY, if it carries these markers near the matched anchor — e.g. "holds
+# a bachelor's degree", "Mr./Ms./Dr. <Name>", "Independent Director",
+# "career", "graduated". Confirmed false-positive case: HGINFRA's only
+# "leading position"-family match was a director's civil-service career
+# summary, not anything about the company's market position.
+_BIO_CONTEXT_RE = re.compile(
+    r"\bindependent director\b|\bboard of directors?\b|\bchief secretary\b|\bkey managerial personnel\b|"
+    r"\bholds a\b|\bbachelor'?s degree\b|\bmaster'?s degree\b|\bmba\b|\bgraduated\b|\bcareer\b|"
+    r"\bmr\.\s|\bms\.\s|\bdr\.\s|\bappointed as\b|\bresignation\b|\bdate of birth\b",
+    re.I,
+)
+
+
+def fetch_brand_evidence_from_annual_report(symbol, name, fiscal_year=None):
+    """Real, grounded text excerpts from the company's OWN Annual Report PDF
+    (Business Overview / MD&A) for A.2.A (Brand moat) — same scan-every-page,
+    score-by-signal-density approach as `fetch_revenue_characteristics_evidence`
+    just above, reused rather than duplicated logic-wise. This is the ACTUAL
+    MD&A narrative, not the thin yfinance company-blurb proxy previously used —
+    that blurb is a dry factual description and structurally almost never
+    contains brand-marketing language, which was causing near-universal
+    "Missing" brand scores even for companies with real, citable brand
+    evidence in their own Annual Report.
+
+    Returns {'pdf_url', 'fiscal_year', 'excerpts': [{'text','page','anchor'}]}
+    or {'error': reason}. Never raises. Cached 90 days like its siblings.
+    """
+    try:
+        sym = symbol.strip().upper().replace(".NS", "")
+        years = list_annual_report_years(sym, name)
+        if not years:
+            return {"error": _no_annual_report_message(sym)}
+        fy = fiscal_year or years[0]
+        ckey = f"ar_brandevid_text_v2_{sym}_{fy}"  # v2: added director-bio false-positive filter
+        cached = _read_cache(ckey)
+        if cached is not None:
+            return cached
+
+        pdf_url = _find_annual_report_pdf(sym, name, fy)
+        if not pdf_url:
+            out = {"error": "Annual Report PDF URL not found."}
+            _write_cache(ckey, out)
+            return out
+
+        is_nse_url = "nseindia.com" in pdf_url
+        content = None
+        for attempt in range(2):
+            try:
+                if is_nse_url:
+                    from tools.nse_annual_reports import download_nse_pdf_bytes
+                    content = download_nse_pdf_bytes(pdf_url)
+                    if content is None:
+                        raise RuntimeError("NSE download/zip-extract returned nothing")
+                else:
+                    content = _sess().get(pdf_url, timeout=90).content
+                break
+            except Exception as e:
+                print(f"[annual_report_financials] brand-evidence PDF download failed for {sym}: {e}")
+        if content is None or len(content) < 50000:
+            return {"error": "Could not download the Annual Report right now.", "source_url": pdf_url}
+
+        try:
+            import fitz
+        except Exception as e:
+            return {"error": f"pymupdf unavailable: {e}"}
+        try:
+            doc = fitz.open(stream=content, filetype="pdf")
+        except Exception as e:
+            return {"error": f"PDF read failed: {e}"}
+
+        candidates = []
+        try:
+            for pgi, page in enumerate(doc):
+                try:
+                    t = _page_text(page)
+                except Exception:
+                    continue
+                tl = t.lower()
+                for anchor in _BRAND_EVIDENCE_ANCHORS:
+                    idx = tl.find(anchor)
+                    if idx == -1:
+                        continue
+                    start = max(0, idx - 200)
+                    if start > 0:
+                        sp = t.rfind(" ", 0, start + 1)
+                        start = sp + 1 if sp != -1 else 0
+                    end = idx + 900
+                    if end < len(t):
+                        sp = t.rfind(" ", idx, end)
+                        if sp > idx:
+                            end = sp
+                    window = t[start:end].strip()
+                    # Reject a window that reads as a director/KMP biography
+                    # rather than a claim about the COMPANY — see the
+                    # HGINFRA false-positive this guards against, above.
+                    if _BIO_CONTEXT_RE.search(window):
+                        continue
+                    # Digits/%/named years make a window more likely to carry
+                    # the kind of concrete anchor (market-share %, "since
+                    # <year>", ranking) the 5/5 tier needs — same scoring
+                    # heuristic as fetch_revenue_characteristics_evidence.
+                    score = sum(c.isdigit() for c in window)
+                    candidates.append({"text": window, "page": pgi + 1, "anchor": anchor, "score": score})
+        finally:
+            doc.close()
+
+        seen_pages = set()
+        excerpts = []
+        for c in sorted(candidates, key=lambda c: -c["score"]):
+            if c["page"] in seen_pages:
+                continue
+            seen_pages.add(c["page"])
+            excerpts.append({"text": c["text"], "page": c["page"], "anchor": c["anchor"]})
+            if len(excerpts) >= 8:
+                break
+
+        out = {"pdf_url": pdf_url, "fiscal_year": fy, "excerpts": excerpts}
+        _write_cache(ckey, out)
+        return out
+    except Exception as e:
+        print(f"[annual_report_financials] fetch_brand_evidence_from_annual_report failed for {symbol}: {e}")
+        return {"error": f"Error: {e}"}
+
+
+def fetch_revenue_characteristics_evidence(symbol, name, fiscal_year=None):
+    """Real, grounded text excerpts from the company's OWN Annual Report PDF
+    for A.1.2 (cyclical vs recurring revenue) — mirrors
     `fetch_governance_text_sections`'s approach (scan every page, score
     candidate windows by digit density, keep the best per anchor family),
     but additionally preserves the PAGE NUMBER each excerpt came from so the
@@ -2237,13 +2382,21 @@ def fetch_revenue_characteristics_evidence(symbol, name):
     {'pdf_url', 'fiscal_year', 'recurring_excerpts': [...], 'cyclicality_excerpts': [...]}
     where each excerpt is {'text', 'page', 'anchor'}, or {'error': reason}.
     Never raises. Reuses the same PDF-fetch plumbing as the ratio/governance
-    extractors (BSE/NSE lookup, retry, cache) — no new data source."""
+    extractors (BSE/NSE lookup, retry, cache) — no new data source.
+
+    `fiscal_year` defaults to the latest Annual Report on file; pass an
+    explicit year (e.g. for a multi-year Recurring/Cyclical trend) to pull
+    that year's own filing instead — same function, same reconciliation
+    guarantees, just a different year's PDF."""
     try:
         sym = symbol.strip().upper().replace(".NS", "")
         years = list_annual_report_years(sym, name)
         if not years:
-            return {"error": "No Annual Report found for this company."}
-        fiscal_year = years[0]
+            return {"error": _no_annual_report_message(sym)}
+        if fiscal_year is None:
+            fiscal_year = years[0]
+        elif fiscal_year not in years:
+            return {"error": f"No Annual Report on file for FY{fiscal_year}."}
         ckey = f"ar_revchar_text_v5_{sym}_{fiscal_year}"
         cached = _read_cache(ckey)
         if cached is not None:
@@ -2372,6 +2525,28 @@ def fetch_revenue_characteristics_evidence(symbol, name):
     except Exception as e:
         print(f"[annual_report_financials] fetch_revenue_characteristics_evidence failed for {symbol}: {e}")
         return {"error": f"Error: {e}"}
+
+
+def _no_annual_report_message(symbol):
+    """Formal, consistent 'no Annual Report on file' message — used
+    everywhere `list_annual_report_years` comes back empty, i.e. BOTH BSE's
+    AnnualReport_New API AND NSE's annual-reports API returned zero filings
+    for this company (that dual-source check is what `list_annual_report_years`
+    performs before returning an empty list). This is a genuine, verified
+    data-availability gap, not a fetch/parse failure — most commonly because
+    the company IPO'd recently and hasn't reached its first post-listing AGM
+    yet (a maiden Annual Report is typically filed 12-18 months after
+    listing). Distinguishing this explicitly from other NOT_DISCLOSED
+    reasons (e.g. "found the report but couldn't parse a section out of it")
+    matters for anyone auditing why a sub-point came back blank."""
+    return (
+        f"NO ANNUAL REPORT ON FILE — checked both BSE's Annual Report archive and NSE's "
+        f"Annual Report archive for {symbol}; neither has a filing on record. This is most "
+        f"commonly because the company IPO'd recently and has not yet reached its first "
+        f"post-listing AGM (a maiden Annual Report is typically filed 12-18 months after "
+        f"listing). Not a fetch error — both primary sources were reachable and responded, "
+        f"they simply have nothing filed for this company yet."
+    )
 
 
 def list_annual_report_years(symbol, name):
