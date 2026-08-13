@@ -49,6 +49,12 @@ _PLATFORM_PATTERNS = [
     r"\bonline marketplace\b", r"\be-?commerce platform\b", r"\b(?:our|the) platform connects\b",
     r"\bplatform business model\b", r"\bplatform-based business\b",
     r"\bbuyers and sellers\b", r"\bsellers and buyers\b",
+    # v2: "network of merchants"/"merchant partners"/"merchant network" —
+    # confirmed false negative on RELIANCE (JioMart Digital: "partners with
+    # a large network of merchants nationwide for distribution") — MUST stay
+    # in sync with tools/annual_report_financials.py's
+    # _NETWORK_EFFECTS_PLATFORM_ANCHORS, which supplies this text.
+    r"\bnetwork of merchants\b", r"\bmerchant partners\b", r"\bmerchant network\b",
 ]
 
 _GROWTH_LINKAGE_PATTERNS = [
@@ -57,6 +63,9 @@ _GROWTH_LINKAGE_PATTERNS = [
 _USER_METRIC_PATTERNS = [
     r"\bactive users?\b", r"\bmonthly active users?\b", r"\bregistered users?\b",
     r"\buser base\b", r"\bseller base\b", r"\bbuyer base\b",
+    # v2: merchant-side growth vocabulary, same rationale/sync requirement as above.
+    r"\bmerchant base\b", r"\bmerchant engagement\b",
+    r"\bexpanding customer base\b", r"\bgrowing customer base\b",
 ]
 
 _NUMERIC_ANCHOR = re.compile(r"\d+(?:\.\d+)?\s*%")

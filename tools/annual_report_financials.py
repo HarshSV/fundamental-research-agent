@@ -811,6 +811,47 @@ _CAPEX_DISPOSAL_PROCEEDS_LABELS = [
     # OF property..." variants above — confirmed on Gopal Snacks).
     "sale proceeds from property plant", "sale proceeds from property, plant",
 ]
+# C.7 (Capital allocation decisions) — Dividend paid, Buyback spend, and
+# M&A/acquisition outflow, all from the Cash Flow Statement's FINANCING
+# (dividend/buyback) or INVESTING (acquisition) sections respectively. Each
+# follows the exact same (current, prior) tuple / None-if-not-found
+# convention as every other CFS item above — a company that genuinely did
+# NOT pay a dividend/buyback/acquire anything in a given year is expected to
+# simply have no matching line in that year's filing (so `None` from THIS
+# extractor legitimately means "not present in the filing", not "definitely
+# zero" — the caller (fetch_multi_year_cash_flow_items / C.7) is responsible
+# for not silently converting that None into a fabricated 0).
+_DIVIDEND_PAID_LABELS = [
+    "dividend paid", "dividends paid", "dividend paid (including tax on dividend)",
+    "dividends paid (including dividend distribution tax)", "payment of dividend",
+    "payment of dividends", "final dividend paid", "equity dividend paid",
+    "dividend paid on equity shares", "dividend paid to equity shareholders",
+    "dividend distributed to equity shareholders",
+]
+_BUYBACK_SPEND_LABELS = [
+    "buy back of equity shares", "buyback of equity shares", "buy-back of equity shares",
+    "payment for buy-back of equity shares", "payment for buyback of equity shares",
+    "amount paid for buyback of shares", "amount paid for buy-back of shares",
+    "consideration paid for buyback of equity shares", "shares bought back",
+    "expenditure on buyback of equity shares", "buy back of shares",
+    "buy-back of shares", "buyback of shares",
+    # Some filers fold the buyback-related transaction tax into the same
+    # captioned line rather than a separate one.
+    "buy back of equity shares (including tax on buy back)",
+]
+_ACQUISITION_OUTFLOW_LABELS = [
+    "purchase consideration for acquisition", "consideration paid for acquisition",
+    "acquisition of subsidiary", "acquisition of subsidiaries",
+    "acquisition of subsidiary, net of cash acquired", "acquisition of business",
+    "payment for acquisition of business", "payment for business acquisition",
+    "investment in subsidiaries", "investment in subsidiary",
+    "investment in joint ventures", "investment in joint venture",
+    "investment in associates", "investment in associate",
+    "acquisition of joint venture", "acquisition of associate",
+    "purchase consideration paid for acquisition of subsidiary",
+    "net cash paid on acquisition of subsidiary",
+    "consideration paid on acquisition of business, net of cash acquired",
+]
 
 
 # Cash Flow Statement section headings — some filers (confirmed on HUL, TCS,
@@ -901,12 +942,35 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
     lease_repayment = None
     interest_paid = None
     lease_interest_paid = None
+    dividend_paid = None
+    buyback_spend = None
+    acquisition_outflow = None
     for i in range(start_idx, min(start_idx + max_pages, doc.page_count)):
         try:
             t = _page_text(doc[i])
         except Exception:
             continue
         tl = t.lower()
+        # Skip supplementary IFRS/US-GAAP reconciliation statements — some
+        # ADR-listed filers (confirmed on Wipro's FY23 Integrated Annual
+        # Report) include a SECOND, differently-shaped "Consolidated
+        # Statement of Cash Flows" as an IFRS convenience-translation
+        # reconciliation, laid out with 3 fiscal years' columns PLUS a 4th
+        # "convenience translation into US dollar" column — a genuinely
+        # different column count/meaning than the (current-year,
+        # prior-year) 2-column layout every _NUM_RE-based `nums[0], nums[1]`
+        # pick in this function assumes. Left unguarded, a label match on
+        # this page silently mis-reads an OLDER year's column as if it were
+        # the CURRENT fiscal year's figure (confirmed: Wipro FY23's real
+        # Buyback line is genuinely absent from its own primary CFS — the
+        # buyback was board-approved after FY23 year-end — but the scan fell
+        # through to this IFRS table and wrongly grabbed FY21's ₹9,519.9 Cr
+        # buyback figure as if it were FY23's own). Neither marker below is
+        # ticker-specific — "convenience translation" and "under ifrs" are
+        # standard captions any ADR-listed Indian filer's IFRS reconciliation
+        # section uses.
+        if "convenience translation" in tl or "under ifrs" in tl:
+            continue
         # Section-tracking includes the Cash Flow Statement's OWN caption
         # (e.g. "Consolidated Statement of Cash Flows"/"Consolidated Cash
         # Flow Statement") in addition to the BS/P&L captions every other
@@ -964,7 +1028,8 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
                         break
 
         if re.search(_CFS_INVESTING_PAT, tl, re.I) and (
-                capex_ppe_purchase is None or capex_intangible_purchase is None or capex_disposal_proceeds is None):
+                capex_ppe_purchase is None or capex_intangible_purchase is None or capex_disposal_proceeds is None
+                or acquisition_outflow is None):
             inv_segment = _bounded_segment_module(t, _CFS_INVESTING_PAT, _CFS_FINANCING_PAT)
             if inv_segment is None:
                 inv_segment = t[re.search(_CFS_INVESTING_PAT, tl, re.I).start():]
@@ -1022,9 +1087,42 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
                             capex_disposal_proceeds = (round(abs(a) * factor, 2), round(abs(b) * factor, 2))
                             break
 
-        if re.search(_CFS_FINANCING_PAT, tl, re.I) and (borrowings_repayment is None or lease_repayment is None):
-            segment = _bounded_segment_module(t, _CFS_FINANCING_PAT,
-                                               r"net (?:increase|decrease|increase/decrease)")
+            # C.7 M&A/acquisition outflow — same line-start anchor as the
+            # three Capex loops above (a bare substring search would grab
+            # "Investment in subsidiaries" or similar wording embedded
+            # inside an unrelated Notes sentence rather than the actual CFS
+            # line item).
+            if acquisition_outflow is None:
+                for label in _ACQUISITION_OUTFLOW_LABELS:
+                    m = re.search(_CFS_LINE_START + re.escape(label), inv_segment, re.I | re.M)
+                    if not m:
+                        continue
+                    window = inv_segment[m.end():m.end() + 200]
+                    nums = re.findall(_NUM_RE, window)
+                    if len(nums) >= 2:
+                        a, b = _parse_num(nums[0]), _parse_num(nums[1])
+                        if a is not None and b is not None:
+                            acquisition_outflow = (round(abs(a) * factor, 2), round(abs(b) * factor, 2))
+                            break
+
+        if re.search(_CFS_FINANCING_PAT, tl, re.I) and (
+                borrowings_repayment is None or lease_repayment is None
+                or dividend_paid is None or buyback_spend is None):
+            # Stop boundary requires "cash and cash equivalents" within a
+            # short window after "net increase/decrease" — the bare "net
+            # (?:increase|decrease)" pattern alone (no such requirement)
+            # false-matched an INTERIM Financing-section subtotal line like
+            # "Net increase / (decrease) in working capital demand loans"
+            # (confirmed on Sun Pharma's FY24 consolidated filing), cutting
+            # the segment short well before the real "Net increase/
+            # (decrease) in cash and cash equivalents" line that actually
+            # closes the Financing section — silently dropping every
+            # Financing-section line item (Dividend paid, in Sun Pharma's
+            # case) printed AFTER that interim subtotal but before the real
+            # closing line.
+            segment = _bounded_segment_module(
+                t, _CFS_FINANCING_PAT,
+                r"net (?:increase|decrease|increase/decrease)[^\n]{0,60}cash and cash equivalents")
             if segment is None:
                 segment = t[re.search(_CFS_FINANCING_PAT, tl, re.I).start():]
 
@@ -1082,6 +1180,49 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
                             lease_interest_paid = (round(abs(a) * factor, 2), round(abs(b) * factor, 2))
                             break
 
+            # C.7 Dividend paid / Buyback spend — both live in Financing
+            # Activities, same window mechanics as Repayment/Interest above.
+            # MUST be line-start anchored (`_CFS_LINE_START`, re.M) rather
+            # than a bare substring search — confirmed false positive on
+            # TCS's FY23 filing: a bare search for "buy-back of equity
+            # shares" matches as a literal SUBSTRING inside "Expenses for
+            # buy-back of equity shares" (a real but much smaller ₹49 Cr
+            # transaction-cost line printed just above the actual ₹18,000 Cr
+            # "Buy-back of equity shares" principal line), so the bare
+            # search grabbed the ₹49 Cr expense figure as if it were the
+            # entire buyback spend — the exact same substring-collision trap
+            # the Capex loops above are already anchored against (see that
+            # block's own comment re: Tata Steel's "Grant received on
+            # acquisition of..." collision). Anchoring to line-start is what
+            # fixes it: "Expenses for buy-back..." and "Tax on buy-back..."
+            # don't start their own line with the label text, only the real
+            # "Buy-back of equity shares" line does.
+            if dividend_paid is None:
+                for label in _DIVIDEND_PAID_LABELS:
+                    m = re.search(_CFS_LINE_START + re.escape(label), segment, re.I | re.M)
+                    if not m:
+                        continue
+                    window = segment[m.end():m.end() + 200]
+                    nums = re.findall(_NUM_RE, window)
+                    if len(nums) >= 2:
+                        a, b = _parse_num(nums[0]), _parse_num(nums[1])
+                        if a is not None and b is not None:
+                            dividend_paid = (round(abs(a) * factor, 2), round(abs(b) * factor, 2))
+                            break
+
+            if buyback_spend is None:
+                for label in _BUYBACK_SPEND_LABELS:
+                    m = re.search(_CFS_LINE_START + re.escape(label), segment, re.I | re.M)
+                    if not m:
+                        continue
+                    window = segment[m.end():m.end() + 200]
+                    nums = re.findall(_NUM_RE, window)
+                    if len(nums) >= 2:
+                        a, b = _parse_num(nums[0]), _parse_num(nums[1])
+                        if a is not None and b is not None:
+                            buyback_spend = (round(abs(a) * factor, 2), round(abs(b) * factor, 2))
+                            break
+
         # Early-exit once every REQUIRED item is found — capex_intangible_purchase
         # and capex_disposal_proceeds are genuinely optional (many companies have
         # no intangible purchases or disposals in a given year) and would never
@@ -1098,7 +1239,9 @@ def _find_cash_flow_statement_items(doc, start_idx, want_section, max_pages=120)
             "capex_intangible_purchase": capex_intangible_purchase,
             "capex_disposal_proceeds": capex_disposal_proceeds,
             "borrowings_repayment": borrowings_repayment, "lease_repayment": lease_repayment,
-            "interest_paid": interest_paid, "lease_interest_paid": lease_interest_paid}
+            "interest_paid": interest_paid, "lease_interest_paid": lease_interest_paid,
+            "dividend_paid": dividend_paid, "buyback_spend": buyback_spend,
+            "acquisition_outflow": acquisition_outflow}
 
 
 _FINANCE_COST_LABELS = [
@@ -2542,11 +2685,24 @@ _NETWORK_EFFECTS_PLATFORM_ANCHORS = [
     "e-commerce platform", "ecommerce platform", "our platform connects",
     "the platform connects", "platform business model", "platform-based business",
     "buyers and sellers", "sellers and buyers",
+    # v4: "network of merchants"/"merchant partners" — confirmed false
+    # NEGATIVE on RELIANCE, whose AR describes JioMart Digital as a business
+    # that "partners with a large network of merchants nationwide for
+    # distribution" — a real platform-business description using retail-tech
+    # vocabulary ("merchants" rather than "buyers and sellers"/"marketplace")
+    # that none of the anchors above matched, so the whole factor fell
+    # through to N/A even though a genuine platform element was disclosed.
+    # Generic across any company using this common retail-tech phrasing, not
+    # Reliance-specific.
+    "network of merchants", "merchant partners", "merchant network",
 ]
 _NETWORK_EFFECTS_GROWTH_ANCHORS = [
     "gross merchandise value", "gmv", "transaction value", "active users",
     "monthly active users", "registered users", "user base", "seller base",
     "buyer base", "customer base grew", "network of buyers", "network of sellers",
+    # v4: merchant-side growth vocabulary, same rationale as above.
+    "merchant base", "merchant engagement", "expanding customer base",
+    "growing customer base",
 ]
 _NETWORK_EFFECTS_ANCHORS = _NETWORK_EFFECTS_PLATFORM_ANCHORS + _NETWORK_EFFECTS_GROWTH_ANCHORS
 
@@ -2558,8 +2714,26 @@ def fetch_network_effects_evidence_from_annual_report(symbol, name, fiscal_year=
     growth-linkage language (the actual evidence the rubric requires; mere
     platform existence is explicitly NOT sufficient evidence per the spec)."""
     return _fetch_ar_evidence_excerpts(
-        symbol, name, _NETWORK_EFFECTS_ANCHORS, "ar_neteffevid_text_v3",  # v3: also dropped bare "marketplace"/"online platform" false positives
-        fiscal_year=fiscal_year, bio_filter=True, fetch_label="network-effects-evidence",
+        symbol, name, _NETWORK_EFFECTS_ANCHORS, "ar_neteffevid_text_v6",
+        # v5: max_excerpts raised 8 -> 20 — confirmed on RELIANCE, whose
+        # "transaction value" anchor (kept for legitimate GMV-adjacent
+        # e-commerce vocabulary) ALSO matches ordinary related-party-
+        # transaction disclosure boilerplate ("transaction value... for the
+        # immediately preceding financial year"), which appears on 8+ pages
+        # and is digit-dense enough to win every slot in the default 8-item
+        # cap, crowding out the one genuine "network of merchants" sentence
+        # (plain prose, few digits) before it could ever be selected. Same
+        # crowding pattern already fixed for A.3's revenue-model anchors.
+        # v6: max_per_page raised 1 -> 3 — max_excerpts alone wasn't enough:
+        # RELIANCE's page 46 has BOTH "network of merchants" (the real
+        # platform-presence evidence) and "merchant engagement" (30-40 words
+        # later, in a sentence whose window happened to reach a nearby
+        # "1,500 cities" figure and so out-scored the first on digit
+        # density) — with the default max_per_page=1, only the higher-
+        # scoring one survived, discarding the anchor that actually gates
+        # the applicability check.
+        fiscal_year=fiscal_year, bio_filter=True, max_excerpts=20, max_per_page=3,
+        fetch_label="network-effects-evidence",
     )
 
 
@@ -2669,6 +2843,46 @@ def fetch_revenue_model_evidence_from_annual_report(symbol, name, fiscal_year=No
         # the extra per-page windows aren't immediately squeezed back out.
         fiscal_year=fiscal_year, bio_filter=True, max_per_page=3, max_excerpts=16,
         fetch_label="revenue-model-evidence",
+    )
+
+
+# Related-party-transactions note anchors (C.3 / row C.3) — Ind AS 24
+# "Related Party Disclosures" is a mandatory Notes-to-Accounts section in
+# every Indian company's Annual Report, but its heading wording and internal
+# layout (flat list vs. matrix vs. split transactions/balances tables) vary
+# by filer — there is no small fixed label universe like the Cash Flow
+# Statement's line items. These anchors target the SECTION HEADER and the
+# transaction-type/relationship-type vocabulary Ind AS 24 itself mandates
+# (so they generalize across filers, per CLAUDE.md's no-ticker-specific-logic
+# rule), not any one company's phrasing.
+_RPT_EVIDENCE_ANCHORS = [
+    "related party disclosures", "related party disclosure",
+    "related party transactions", "related party transaction",
+    "disclosure of related party", "related parties and transactions",
+    "as per ind as 24", "ind as 24",
+    "key management personnel", "kmp compensation",
+    "transactions with related part",
+    "balances outstanding with related part",
+    "nature of relationship",
+]
+
+
+def fetch_rpt_evidence_from_annual_report(symbol, name, fiscal_year=None):
+    """Real, grounded text excerpts from the company's OWN Annual Report PDF
+    (Ind AS 24 "Related Party Disclosures" note, Notes to Financial
+    Statements) for C.3 (Related-party transactions) — counterparty names,
+    relationship types, transaction types and amounts. Own anchor list and
+    cache prefix — deliberately generic Ind AS 24 vocabulary, not any one
+    filer's table layout (no ticker-specific logic, per CLAUDE.md).
+
+    RPT notes are frequently long, multi-page tables — max_per_page and
+    max_excerpts are raised well above the single-clause moat-factor
+    fetchers (e.g. switching-costs evidence) so a real table isn't silently
+    truncated to one window."""
+    return _fetch_ar_evidence_excerpts(
+        symbol, name, _RPT_EVIDENCE_ANCHORS, "ar_rptevid_text_v1",
+        fiscal_year=fiscal_year, bio_filter=False,  # bio_filter is for director-CAREER bios; KMP compensation rows legitimately mention director names/roles and must not be dropped
+        max_per_page=4, max_excerpts=24, fetch_label="rpt-evidence",
     )
 
 
@@ -2871,6 +3085,146 @@ def list_annual_report_years(symbol, name):
     except Exception as e:
         print(f"[annual_report_financials] NSE year list failed for {symbol}: {e}")
         return []
+
+
+def fetch_multi_year_segment_revenue(symbol, name, n_years=4):
+    """Multi-year segment revenue for A.4 (product lifecycle stage — segment-
+    level CAGR needs 4 consecutive annual data points, same convention as
+    tools/metrics_engine.py's company-level cagr_3y_revenue). Calls the
+    EXISTING `_get_extracted_financials` (already cached 90 days) once per
+    fiscal year for the latest `n_years` years on file, and reads each
+    year's `parsed["segments"]` (`[{"label", "value_cr"}]`, absolute crore
+    values for that single year).
+
+    Returns {year: [{"label", "value_cr"}, ...]}. A year with no reconciled
+    segment note (parsed["segments"] falsy, or an extraction error) is simply
+    absent from the dict — never a fabricated/zeroed entry. Never raises.
+
+    This is the slow part of A.4 (up to n_years AR PDF fetches instead of
+    today's single latest-year fetch), but each individual year is already
+    cached 90 days via `_get_extracted_financials`, so only the FIRST
+    computation per company pays the full cost — do not attempt to further
+    parallelize/optimize this; per the approved A.4 plan, follow as written.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    out = {}
+    try:
+        years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[annual_report_financials] fetch_multi_year_segment_revenue: year list failed for {sym}: {e}")
+        return out
+    for fy in years[:n_years]:
+        try:
+            parsed = _get_extracted_financials(sym, name, fy, consolidated=True)
+        except Exception as e:
+            print(f"[annual_report_financials] fetch_multi_year_segment_revenue: FY{fy} fetch failed for {sym}: {e}")
+            continue
+        if not parsed or "error" in parsed:
+            continue
+        segments = parsed.get("segments")
+        if not segments:
+            continue
+        out[fy] = [{"label": s["label"], "value_cr": s["value_cr"]} for s in segments]
+    return out
+
+
+def fetch_multi_year_cash_flow_items(symbol, name, n_years=6):
+    """Multi-year Capex / M&A / Buyback / Dividend cash outflows for C.7
+    (Capital allocation decisions — spec calls for a 5-8 year table; default
+    6). Mirrors `fetch_multi_year_segment_revenue`'s pattern exactly: loop
+    `list_annual_report_years` for the latest `n_years` years, call the
+    already-90-day-cached `_get_extracted_financials` once per year, and pull
+    each year's OWN Cash Flow Statement line items out of the result.
+
+    Year-alignment logic (the double-counting trap):
+    Each `_get_extracted_financials(sym, name, fy)` call returns a
+    (current_year, prior_year) TUPLE per field — fy's own filing shows BOTH
+    fy's figures (as "current") AND fy-1's figures (as "prior", a
+    comparative column every Ind AS filing prints). If this function looped
+    every year in `years` and blindly took `[0]` (current) from each call,
+    that's correct and never overlaps — year fy's loop iteration reads ONLY
+    fy's current-year column, never fy-1's. So there is actually no
+    structural double-count risk from using `[0]` alone across the loop,
+    PROVIDED every year's OWN filing is fetched via its own loop iteration.
+
+    The real gap this function has to handle honestly is the opposite case:
+    a year whose OWN filing isn't reachable at all (`_get_extracted_financials`
+    returns an error, e.g. AR not found/download failure) — that year is
+    simply left OUT of the result dict entirely, rather than backfilled from
+    the following year's "prior" column. Backfilling from fy+1's prior
+    column might look tempting (the data IS sitting right there), but doing
+    so would produce a fy entry that's silently sourced from a DIFFERENT
+    filing than every other year in the table, with no record of that origin
+    switch — and worse, if BOTH fy's own filing AND fy+1's filing end up
+    contributing a value for the same fy (e.g. fy's filing partially parses
+    some fields but not others), backfilled-from-neighbour values could
+    silently coexist with directly-parsed ones inside the same year's row,
+    which is a correctness trap for anyone downstream summing/averaging
+    across the table. So: ONLY a year's own current-year column, from its
+    own filing, ever populates that year's entry here — including the
+    OLDEST year in the window, which (same as every other year) is read from
+    its own filing's current-year column, not from `years[n_years]`'s prior
+    column (that older filing, one year further back than what
+    `list_annual_report_years` restricted this loop to, is deliberately never
+    fetched at all — outside the requested window).
+
+    Returns {year: {"capex": float_or_None, "dividend_paid": ..., "buyback_spend": ...,
+    "acquisition_outflow": ...}}. Capex = capex_ppe_purchase + capex_intangible_purchase
+    (both None-safe: if BOTH are None, "capex" is None, not 0; if only one is
+    present, uses just that one — a services company legitimately has no PP&E
+    purchase line at all). A year absent from `_get_extracted_financials`
+    entirely (fetch/parse error) is simply absent from the output dict, same
+    "never a fabricated/zeroed entry" convention as
+    `fetch_multi_year_segment_revenue`. Never raises."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    out = {}
+    try:
+        years = list_annual_report_years(sym, name) or []
+    except Exception as e:
+        print(f"[annual_report_financials] fetch_multi_year_cash_flow_items: year list failed for {sym}: {e}")
+        return out
+    for fy in years[:n_years]:
+        try:
+            parsed = _get_extracted_financials(sym, name, fy, consolidated=True)
+        except Exception as e:
+            print(f"[annual_report_financials] fetch_multi_year_cash_flow_items: FY{fy} fetch failed for {sym}: {e}")
+            continue
+        if not parsed or "error" in parsed:
+            continue
+
+        def _cur(field):
+            # Read ONLY the current-year ([0]) column of a (cur, prior)
+            # tuple — see docstring above for why the prior column is never
+            # used to backfill a different year.
+            v = parsed.get(field)
+            return v[0] if isinstance(v, (tuple, list)) and len(v) >= 1 else None
+
+        ppe = _cur("capex_ppe_purchase")
+        intang = _cur("capex_intangible_purchase")
+        if ppe is None and intang is None:
+            capex = None
+        else:
+            capex = (ppe or 0.0) + (intang or 0.0)
+
+        dividend_paid = _cur("dividend_paid")
+        buyback_spend = _cur("buyback_spend")
+        acquisition_outflow = _cur("acquisition_outflow")
+
+        # A year where every single one of the four categories came back
+        # unparsed contributes nothing usable — leave it out entirely rather
+        # than adding an all-None row (matches the "absent, not fabricated"
+        # convention `fetch_multi_year_segment_revenue` follows for a year
+        # with no segment note at all).
+        if capex is None and dividend_paid is None and buyback_spend is None and acquisition_outflow is None:
+            continue
+
+        out[fy] = {
+            "capex": capex,
+            "dividend_paid": dividend_paid,
+            "buyback_spend": buyback_spend,
+            "acquisition_outflow": acquisition_outflow,
+        }
+    return out
 
 
 def _find_annual_report_pdf(symbol, name, year):
@@ -4319,6 +4673,9 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         "capex_ppe_purchase": cf_items.get("capex_ppe_purchase"),  # (cur, prior) or None, normalised to ₹ Cr — Sr No 36
         "capex_intangible_purchase": cf_items.get("capex_intangible_purchase"),  # (cur, prior) or None, normalised to ₹ Cr — Sr No 36
         "capex_disposal_proceeds": cf_items.get("capex_disposal_proceeds"),  # (cur, prior) or None, normalised to ₹ Cr — Sr No 36
+        "dividend_paid": cf_items.get("dividend_paid"),  # (cur, prior) or None, normalised to ₹ Cr — C.7, cash-basis (Financing Activities)
+        "buyback_spend": cf_items.get("buyback_spend"),  # (cur, prior) or None, normalised to ₹ Cr — C.7 (Financing Activities)
+        "acquisition_outflow": cf_items.get("acquisition_outflow"),  # (cur, prior) or None, normalised to ₹ Cr — C.7 (Investing Activities, M&A)
         "dividend_per_share": dividend_per_share,  # ₹ per share DECLARED during the year, ALWAYS standalone-sourced
         "dividend_per_share_found": dividend_found,  # False when defaulted to 0.0 (genuine zero vs. unconfirmed)
         "lt_borrowings": lt_borrowings,  # (cur, prior) or None, normalised to ₹ Cr
@@ -4356,7 +4713,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     cache after acquiring the lock (not just before), since another thread
     may have already finished the fetch while this one was waiting."""
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_extract_v14_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v15_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -4385,7 +4742,12 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # cached extractions had operating_cash_flow/capex_*/*_repayment/
     # net_fixed_assets all silently null and would otherwise keep being
     # served for the remainder of their 90-day TTL regardless of the fix.
-    ckey = f"ar_extract_v14_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    # "_v15" (bumped from "_v14") — C.7 build added dividend_paid/
+    # buyback_spend/acquisition_outflow to `_find_cash_flow_statement_items`;
+    # pre-v15 cache entries don't have these keys at all (dict.get returns
+    # None either way, but bumping avoids ever conflating "not computed in
+    # this older cache entry" with "genuinely not found in the filing").
+    ckey = f"ar_extract_v15_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached

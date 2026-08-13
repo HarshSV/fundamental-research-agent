@@ -2036,13 +2036,21 @@ def build_executive_summary(state: SystemState) -> dict:
     except Exception as e:
         print(f"[qualitative_topics] income statement flow fetch failed: {e}")
 
-    _LIFECYCLE_MAP = {'growth': 'Growth', 'maturity': 'Maturity', 'commoditisation': 'Commoditisation', 'decline_obsolescence': 'Decline / obsolescence risk', 'mixed': 'Maturity'}
 
     if _a2 and _a2.get('available'):
         f23 = {
             'composite_score': _a2.get('composite_score'),
             'quant_proxy_only': _a2.get('quant_proxy_only'),
-            'pillars': _a2.get('pillars') or [],
+            # BUG FIX: compute_a2_competitive_moat's real payload key is
+            # 'moat_pillars_bar' (confirmed: {'label','value'} entries), not
+            # 'pillars' — that key has never existed on this payload, so
+            # f23['pillars'] silently evaluated to [] on every run, which
+            # meant _moat_bars' quant-pillar loop below never actually
+            # populated any bars. Found while verifying the new A.2 moat
+            # donut in the browser: the whole "RATING BREAKDOWN" panel for
+            # RELIANCE (ROCE/margin/etc pillar bars) was missing entirely,
+            # not just lacking the new donut.
+            'pillars': _a2.get('moat_pillars_bar') or [],
             'peer_set': _a2.get('peer_set'),
             'qualitative_evidence': _a2.get('qualitative_evidence'),
             'rationale': _a2.get('rationale'),
@@ -2064,9 +2072,14 @@ def build_executive_summary(state: SystemState) -> dict:
         }
     if _a4 and _a4.get('available'):
         f25 = {
-            'lifecycle_stage': _LIFECYCLE_MAP.get(_a4.get('lifecycle_stage')),
+            'segments': _a4.get('segments'),
+            'unclassified_pct': _a4.get('unclassified_pct'),
+            'blend_summary': _a4.get('blend_summary'),
+            'sector': _a4.get('sector'),
+            'sector_median_cagr_pct': _a4.get('sector_median_cagr_pct'),
             'relative_growth_pct': _a4.get('relative_growth_pct'),
             'rationale': _a4.get('rationale'),
+            'limitations': _a4.get('limitations'),
             'confidence_tag': _a4.get('confidence_tag'), 'retrieved_at': _a4.get('retrieved_at'),
             'pathway_results': _a4.get('pathway_results'),
         }
@@ -2075,7 +2088,13 @@ def build_executive_summary(state: SystemState) -> dict:
         f26 = {
             'pricing_power_rating': _a5.get('pricing_power_rating'),
             'price_pass_through_ratio': _a5.get('price_pass_through_ratio'),
+            'realisation_change_pct': _a5.get('realisation_change_pct'),
+            'input_cost_change_pct': _a5.get('input_cost_change_pct'),
+            'commodity_name': _a5.get('commodity_name'),
+            'commodity_source': _a5.get('commodity_source'),
+            'realisation_volume_confirmation': _a5.get('realisation_volume_confirmation'),
             'rationale': _a5.get('rationale'),
+            'limitations': _a5.get('limitations'),
             'confidence_tag': _a5.get('confidence_tag'), 'retrieved_at': _a5.get('retrieved_at'),
             'pathway_results': _a5.get('pathway_results'),
         }
@@ -2212,9 +2231,10 @@ def build_executive_summary(state: SystemState) -> dict:
         _c3 = compute_c3_related_party_transactions(symbol, name)
         if _c3 and _c3.get('available'):
             f36 = {
-                'rpt_intensity_pct': None,
-                'rpt_frequency': None,
-                'counterparty_flags': [],
+                'rpt_intensity_pct': _c3.get('rpt_intensity_pct'),
+                'rpt_frequency': _c3.get('rpt_frequency'),
+                'counterparty_flags': _c3.get('counterparty_flags') or [],
+                'records': _c3.get('records') or [],
                 'rationale': _c3.get('rationale'),
                 'confidence_tag': _c3.get('confidence_tag'), 'retrieved_at': _c3.get('retrieved_at'),
                 'pathway_results': _c3.get('pathway_results'),
@@ -2299,8 +2319,51 @@ def build_executive_summary(state: SystemState) -> dict:
         _blend_position = float(_blend_position)
     except (TypeError, ValueError):
         _blend_position = None
-    _lifecycle_stage = _enum(f25.get('lifecycle_stage'), ['Growth', 'Maturity', 'Commoditisation', 'Decline / obsolescence risk'])
-    _pricing_power_rating = _enum(f26.get('pricing_power_rating'), ['Strong', 'Moderate', 'Weak'])
+    # A.3 revenue-model donut: aggregate the already-computed `segments`
+    # array (each carries a real revenue `pct` and its `contract_type`) by
+    # contract_type, summing pct per type — real revenue-weighted mix, never
+    # a fabricated split. Only types that actually appear are charted (the
+    # classifier only ever emits transactional/recurring/annuity today, so
+    # Long-term Contract/Mixed legitimately never show up — known, documented
+    # limitation, not a bug). Falls back to the single company-wide
+    # classification (100% weight) when no multi-segment note exists.
+    _A3_CONTRACT_TYPE_LABEL_BY_KEY = {
+        'transactional': 'Transactional', 'recurring': 'Recurring', 'annuity': 'Annuity',
+        'long_term_contract': 'Long-term Contract', 'mixed': 'Mixed',
+    }
+    _a3_segments = f24.get('segments') or []
+    _a3_type_pct = {}
+    for _seg in _a3_segments:
+        _ctype = _seg.get('contract_type')
+        _cpct = _seg.get('pct')
+        if _ctype is None or _cpct is None:
+            continue
+        _clabel = _A3_CONTRACT_TYPE_LABEL_BY_KEY.get(_ctype, str(_ctype).title())
+        _a3_type_pct[_clabel] = _a3_type_pct.get(_clabel, 0.0) + float(_cpct)
+    if not _a3_type_pct and _contract_type_label:
+        # single-segment company: one 100%-weight slice for its own classification
+        _a3_type_pct[_contract_type_label] = 100.0
+    _a3_donut_data = [{'label': _k, 'pct': round(_v, 1)} for _k, _v in _a3_type_pct.items()]
+
+    # A.4 segments come pre-classified/validated from compute_a4_product_lifecycle_stage
+    # (tools/qualitative_engine.py) — passed through as-is rather than re-derived here.
+    _lifecycle_segments = f25.get('segments') or []
+    # Matches frontend's STAGE_COLOR (main.jsx) so the new stage donut and the
+    # existing per-segment stacked bar use the same color per stage.
+    _STAGE_DONUT_COLOR = {
+        'growth': 'rgb(45 212 191)', 'maturity': 'rgb(250 204 21)',
+        'commoditisation': 'rgb(251 113 60)', 'decline': 'rgb(220 38 38)',
+    }
+    _lifecycle_blend_summary = f25.get('blend_summary')
+    _pricing_power_rating = _enum(f26.get('pricing_power_rating'), ['Weak', 'Moderate', 'Strong', 'Insufficient Data'])
+    # 4-zone spectrum position for the reused SpectrumBarChart component (see
+    # A.5's 'Insufficient Data' mandatory 4th state — the marker is placed at
+    # this zone's own slot, never silently collapsed into 'Moderate').
+    _PRICING_POWER_ZONES = ['Weak', 'Moderate', 'Strong', 'Insufficient Data']
+    _pricing_power_position = None
+    if _pricing_power_rating:
+        _zi = _PRICING_POWER_ZONES.index(_pricing_power_rating)
+        _pricing_power_position = round((_zi + 0.5) / len(_PRICING_POWER_ZONES) * 100, 1)
     # _structural_defensibility is computed further down, AFTER f27 is potentially
     # overridden by the sourced A.6 engine (needs _margin_volatility/_ebitda_margin_series
     # computed first) — see the `_a6 = None` block below.
@@ -2322,12 +2385,6 @@ def build_executive_summary(state: SystemState) -> dict:
     except (TypeError, ValueError):
         _renewal_pct = None
 
-    _rel_growth = f25.get('relative_growth_pct')
-    try:
-        _rel_growth = round(max(-50.0, min(50.0, float(_rel_growth))), 1)
-    except (TypeError, ValueError):
-        _rel_growth = None
-
     _pass_through = f26.get('price_pass_through_ratio')
     try:
         _pass_through = round(max(0.0, min(2.0, float(_pass_through))), 2)
@@ -2345,9 +2402,14 @@ def build_executive_summary(state: SystemState) -> dict:
         for r in _margin_rows if r.get('ebitda_margin') is not None
     ]
     _margin_volatility = None
+    _avg_ebitda_margin = None
     if len(_ebitda_margin_series) >= 3:
         _vals = [r['value'] for r in _ebitda_margin_series]
         _mean = sum(_vals) / len(_vals)
+        # Average EBITDA margin — mean of the real, non-null margin values
+        # already collected in _ebitda_margin_series (same source as the
+        # volatility calc, computed directly from reported financials).
+        _avg_ebitda_margin = round(_mean, 2)
         if _mean:
             _variance = sum((v - _mean) ** 2 for v in _vals) / len(_vals)
             _margin_volatility = round((_variance ** 0.5) / abs(_mean), 2)
@@ -2389,16 +2451,49 @@ def build_executive_summary(state: SystemState) -> dict:
                             'color': '#8b5cf6', 'emphasize': True})
     for _pb in (f23.get('pillars') or []):
         try:
-            _val = _pb.get('score_0_5')
+            # BUG FIX: 'pillars' now correctly comes from moat_pillars_bar
+            # (see f23 build above), whose entries are shaped {'label',
+            # 'value'} — not {'score_0_5','is_qualitative'} as this loop
+            # previously assumed (a shape that never existed on this field,
+            # which is why it silently produced zero bars). No qualitative-
+            # evidence bar (i) exists on this field today — that would be a
+            # separate future addition, not fabricated here.
+            _val = _pb.get('value')
             if _val is None:
                 continue
             _moat_bars.append({
                 'label': _pb['label'],
                 'value': round(max(0.0, min(5.0, float(_val))), 1),
-                'color': '#f59e0b' if _pb.get('is_qualitative') else None,
+                'color': None,
             })
         except (TypeError, ValueError, KeyError):
             continue
+
+    # A.2 parent-card secondary donut: combined 5-slice view of the A.2.A-E
+    # evidence scores (Brand/Distribution/Cost Leadership/Network Effects/
+    # Switching Costs), ADDED alongside the existing peer-percentile bar
+    # chart, never replacing it (locked-in design decision). A factor with
+    # score=None (missing evidence) or genuinely Not Applicable (network
+    # effects on a non-platform business) is EXCLUDED from the slices —
+    # never rendered as a fabricated 0-value wedge.
+    _moat_factor_defs = [
+        ('Brand', _a2a), ('Distribution', _a2b), ('Cost leadership', _a2c),
+        ('Network effects', _a2d), ('Switching costs', _a2e),
+    ]
+    _moat_secondary_data = []
+    for _flabel, _fpayload in _moat_factor_defs:
+        _fscore = (_fpayload or {}).get('score')
+        if _fscore is None:
+            continue
+        try:
+            _moat_secondary_data.append({'label': _flabel, 'value': round(float(_fscore), 1)})
+        except (TypeError, ValueError):
+            continue
+    _moat_secondary_chart = (
+        {'type': 'donut', 'data': _moat_secondary_data,
+         'centerValue': (f"{_moat_overall:.1f}/5" if (_moat_overall is not None and not f23.get('quant_proxy_only')) else None)}
+        if _moat_secondary_data else None
+    )
 
     _track_record_rating = _enum(f28.get('track_record_rating'), ['Strong', 'Mixed', 'Weak'])
     _ceo_tenure = f28.get('ceo_tenure_years')
@@ -2472,6 +2567,13 @@ def build_executive_summary(state: SystemState) -> dict:
         _rpt_intensity_pct = None
     _rpt_frequency = _enum(f36.get('rpt_frequency'), ['None', 'Occasional', 'Frequent'])
     _counterparty_flags = [v for v in (f36.get('counterparty_flags') or []) if isinstance(v, str) and v.strip()][:3]
+    # Full row list for the RPT table component — each row already carries
+    # its own verbatim quote (validated in tools/rpt_extractor.py), so no
+    # further sanitization is needed beyond a defensive type/shape check.
+    _rpt_records = [
+        r for r in (f36.get('records') or [])
+        if isinstance(r, dict) and r.get('counterparty') and r.get('quote')
+    ][:50]
 
     _subsidiary_count = f37.get('subsidiary_count')
     try:
@@ -2587,6 +2689,12 @@ def build_executive_summary(state: SystemState) -> dict:
                         'type': 'recurring_cyclical_trend',
                         'currentYearMix': (_a12_trend or {}).get('current_year_mix'),
                         'trend': (_a12_trend or {}).get('trend') or [],
+                        # Passed through so a short trend explains ITSELF rather
+                        # than looking like lost data — e.g. HINDUNILVR, whose
+                        # segment note only reconciles for FY2026, legitimately
+                        # has ONE plottable year out of five.
+                        'skippedYears': (_a12_trend or {}).get('skipped_years') or [],
+                        'yearsAttempted': (_a12_trend or {}).get('years_attempted'),
                     },
                     'formula': 'Revenue-weighted blend = Σ(segment revenue × segment pattern position) / '
                                'Σ(classified segment revenue), per year. Mixed segments split 50/50 between '
@@ -2608,6 +2716,12 @@ def build_executive_summary(state: SystemState) -> dict:
                         (['Qualitative evidence source', (f23.get('qualitative_evidence') or {}).get('source')] if (f23.get('qualitative_evidence') or {}).get('score') is not None else None),
                     ] if f],
                     'chart': ({'type': 'bar', 'data': _moat_bars, 'scaleMax': 5} if _moat_bars else None),
+                    # Second, independent chart on the SAME card — the combined
+                    # 5-slice A.2.A-E donut, additive per the locked-in design
+                    # decision (see _moat_secondary_chart above). Minimal schema
+                    # extension: one new optional card-level key, no change to
+                    # any other card's shape.
+                    'secondaryChart': _moat_secondary_chart,
                     'formula': 'Composite Moat Score = mean of 8 peer-quintile-ranked quant pillars (0-5) + '
                                'qualitative-evidence score (0-5, from CRISIL/ICRA + management commentary). '
                                'Never shown without the qualitative-evidence input (QUANT_PROXY_ONLY otherwise).',
@@ -2788,17 +2902,22 @@ def build_executive_summary(state: SystemState) -> dict:
                     'finding': f24.get('rationale') or None,
                     'facts': [f for f in [
                         (['Contract type', _contract_type_label] if _contract_type_label else None),
-                        (['Contract renewal rate', f"~{round(f24.get('contract_renewal_rate_pct'))}%"]
-                         if f24.get('contract_renewal_rate_pct') is not None else None),
+                        # Renewal rate KPI — a hard disclosed fact per F-24's docstring,
+                        # never estimated. Shown explicitly as "Not disclosed" (not
+                        # omitted, not 0%) whenever the company hasn't stated it, so the
+                        # card never implies a 0% renewal rate that isn't real.
+                        ['Contract renewal rate', f"~{round(f24.get('contract_renewal_rate_pct'))}%"
+                         if f24.get('contract_renewal_rate_pct') is not None else 'Not disclosed'],
                         (['Evidence source', f24.get('evidence_source')] if f24.get('evidence_source') else None),
                         (['Segment basis', f24.get('segment_classification_note')] if f24.get('segment_classification_note') else None),
                     ] if f],
-                    'chart': ({
-                        'type': 'spectrum_bar',
-                        'options': ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'],
-                        'position': _blend_position,
-                        'active_label': _contract_type_label,
-                    } if _blend_position is not None else None),
+                    # Revenue-weighted donut per contract type, built from the real
+                    # per-segment pct/contract_type pairs (see _a3_donut_data above) —
+                    # replaces the SPECTRUM_BAR marker per the locked-in design decision
+                    # (A.3 has genuine revenue weights to sum, unlike a pure
+                    # classification card, so it gets a real weighted donut, not an
+                    # equal-wedge one).
+                    'chart': ({'type': 'donut', 'data': _a3_donut_data} if _a3_donut_data else None),
                     'formula': 'Contract renewal rate = Contracts renewed / Contracts up for renewal',
                     'sources': {
                         'primary': {'label': 'Company Annual Report', 'note': 'Notes to Accounts – Revenue Recognition, Ind AS 115'},
@@ -2810,47 +2929,97 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f24.get('pathway_results'),
                 },
                 {
+                    # A.4 — deterministic, sector-CAGR-benchmarked segment classification
+                    # (see tools/product_lifecycle_scoring.py + compute_a4_product_lifecycle_stage).
+                    # A diversified company NEVER collapses to one word here — the
+                    # 'segment_stage_breakdown' chart shows every classified segment's
+                    # own stage + revenue weight, per the documented Reliance-mismatch
+                    # rationale (see that function's docstring).
                     'key': 'product_lifecycle_stage',
                     'title': 'Product lifecycle stage: growth, maturity, commoditisation, obsolescence risk',
                     'finding': f25.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Lifecycle stage', _lifecycle_stage] if _lifecycle_stage else None),
-                        (['Relative growth', f"{'+' if _rel_growth >= 0 else ''}{_rel_growth} percentage points vs industry"]
-                         if _rel_growth is not None else None),
+                        (['Blend', _lifecycle_blend_summary] if _lifecycle_blend_summary else None),
+                        (['Sector benchmark', f"{f25.get('sector')} peer-median 3yr revenue CAGR: {f25.get('sector_median_cagr_pct')}%"]
+                         if f25.get('sector') and f25.get('sector_median_cagr_pct') is not None else None),
+                        (['Unclassified revenue', f"{f25.get('unclassified_pct')}%"]
+                         if f25.get('unclassified_pct') else None),
                     ] if f],
-                    'chart': ({'type': 'diverging', 'value': _rel_growth, 'range': 20,
-                               'label': 'Revenue CAGR vs industry (5yr)'} if _rel_growth is not None else (
-                        {'type': 'spectrum',
-                         'options': ['Growth', 'Maturity', 'Commoditisation', 'Decline / obsolescence risk'],
-                         'active': _lifecycle_stage}
-                        if _lifecycle_stage else None
-                    )),
-                    'formula': 'Relative growth = Company revenue CAGR − Industry revenue CAGR',
+                    'chart': ({'type': 'segment_stage_breakdown', 'segments': _lifecycle_segments,
+                               'unclassified_pct': f25.get('unclassified_pct'),
+                               'blend_summary': _lifecycle_blend_summary,
+                               'sector': f25.get('sector'), 'sector_median_cagr_pct': f25.get('sector_median_cagr_pct'),
+                               # Aggregate-by-STAGE summary donut, ADDED alongside the
+                               # existing per-segment stacked bar (kept for its real
+                               # per-segment detail — see main.jsx's SegmentStageBreakdown).
+                               # Segments with stage=None (unclassified — CAGR/sector-median
+                               # unavailable, or label unmatched across years) are EXCLUDED
+                               # from the donut by construction, never guessed into a stage.
+                               'stageDonutData': [
+                                   {'label': _sl, 'value': round(sum(s.get('share_pct') or 0.0 for s in _lifecycle_segments if s.get('stage') == _sk), 1),
+                                    'color': _STAGE_DONUT_COLOR.get(_sk)}
+                                   for _sk, _sl in [('growth', 'Growth'), ('maturity', 'Maturity'),
+                                                     ('commoditisation', 'Commoditisation'), ('decline', 'Decline / obsolescence risk')]
+                                   if any(s.get('stage') == _sk for s in _lifecycle_segments)
+                               ]}
+                              if _lifecycle_segments else None),
+                    'formula': 'Relative growth = Segment revenue CAGR − Sector-median revenue CAGR',
                     'sources': {
-                        'primary': {'label': 'CRISIL Ratings/Research', 'url': 'https://www.crisilratings.com'},
-                        'secondary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page'},
-                        'tertiary': {'label': 'Moneycontrol News/Research', 'note': 'Research/analyst reports', 'url': 'https://www.moneycontrol.com'},
+                        'primary': {'label': 'Company Annual Report', 'note': 'Segment revenue note, multi-year'},
+                        'secondary': {'label': 'NSE fixed sector universe', 'note': 'Peer-median 3yr revenue CAGR by sector'},
+                        'tertiary': {'label': 'CRISIL Ratings/Research', 'url': 'https://www.crisilratings.com', 'note': 'Not wired — PORTAL-07 not checked this run.'},
                     },
                     'confidence_tag': f25.get('confidence_tag'), 'retrieved_at': f25.get('retrieved_at'),
                     'pathway_results': f25.get('pathway_results'),
                 },
                 {
+                    # A.5 — deterministic classification (see
+                    # tools/pricing_power_scoring.py + compute_a5_pricing_power).
+                    # 4-zone SPECTRUM_BAR (Weak/Moderate/Strong/Insufficient Data)
+                    # reuses the SAME generic component built for A.3 (it takes
+                    # `options` as a prop, so a different zone count/set needed no
+                    # frontend component change) — 'Insufficient Data' renders
+                    # visually distinct (greyed out) per the spec, never silently
+                    # rendered as Moderate. See f26.realisation_volume_confirmation
+                    # for the independent 5A cross-check (realisation vs volume).
                     'key': 'pricing_power',
                     'title': 'Pricing power: ability to raise prices without losing customers; pass-through of cost inflation',
                     'finding': f26.get('rationale') or None,
                     'facts': [f for f in [
                         (['Pricing power', _pricing_power_rating] if _pricing_power_rating else None),
                         (['Price pass-through ratio', f"{_pass_through:.2f}x"] if _pass_through is not None else None),
+                        (['Realisation change', f"{f26.get('realisation_change_pct'):+.1f}%"] if f26.get('realisation_change_pct') is not None else None),
+                        (['Input cost change', f"{f26.get('input_cost_change_pct'):+.1f}%"] if f26.get('input_cost_change_pct') is not None else None),
+                        (['Input commodity (proxy)', f26.get('commodity_name')] if f26.get('commodity_name') else None),
+                        (['5A confirmation', 'Confirmed' if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is True
+                          else ('Not confirmed' if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is False else None)]
+                         if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is not None else None),
+                        # "Price Increase Sustained" KPI — the SAME 5A confirmation
+                        # boolean, re-labelled as the plain-English question the spec
+                        # asks for. Omitted entirely (not forced to Yes/No) when
+                        # `confirmed` is genuinely None — never guessed.
+                        (['Price increase sustained', 'Yes' if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is True
+                          else 'No']
+                         if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is not None else None),
                     ] if f],
-                    'chart': ({'type': 'bar', 'panelTitle': 'Pass-through ratio', 'data': [{'label': 'Price pass-through ratio', 'value': _pass_through}], 'scaleMax': 2} if _pass_through is not None else (
-                        {'type': 'spectrum', 'options': ['Weak', 'Moderate', 'Strong'], 'active': _pricing_power_rating}
-                        if _pricing_power_rating else None
-                    )),
+                    # Equal-wedge classification donut — Pricing Power is a fixed
+                    # category (Weak/Moderate/Strong/Insufficient Data), not a real
+                    # revenue-weighted blend, so it never gets a weighted-donut style
+                    # slice size; every zone is an equal wedge, the actual rating's
+                    # wedge shown full-color, the rest dimmed (per the locked-in
+                    # design decision). Center shows the real pass-through ratio when
+                    # known, else 'Insufficient Data' — never a fabricated number.
+                    'chart': ({
+                        'type': 'classification_donut',
+                        'zones': _PRICING_POWER_ZONES,
+                        'active': _pricing_power_rating,
+                        'centerValue': _pass_through,
+                    } if _pricing_power_rating else None),
                     'formula': 'Price pass-through ratio = Change in realisation % / Change in input cost %',
                     'sources': {
                         'primary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab'},
                         'secondary': {'label': 'Company Annual Report', 'note': 'MD&A, sourced via BSE announcement / company IR page'},
-                        'tertiary': {'label': 'MCX – Commodity Prices', 'note': '+ LME for commodity input costs', 'url': 'https://www.mcx.co.in'},
+                        'tertiary': {'label': 'FRED (St. Louis Fed)', 'note': f26.get('commodity_source') or 'Proxy for MCX/LME commodity input costs — no free historical MCX/LME feed exists', 'url': 'https://fred.stlouisfed.org'},
                     },
                     'confidence_tag': f26.get('confidence_tag'), 'retrieved_at': f26.get('retrieved_at'),
                     'pathway_results': f26.get('pathway_results'),
@@ -2861,11 +3030,29 @@ def build_executive_summary(state: SystemState) -> dict:
                     'finding': f27.get('rationale') or None,
                     'facts': [f for f in [
                         (['Structural defensibility', _structural_defensibility] if _structural_defensibility else None),
-                        (['Margin volatility', f"{_margin_volatility:.2f}"] if _margin_volatility is not None else None),
+                        (['Margin volatility (5Y)', f"{_margin_volatility:.2f}"] if _margin_volatility is not None else None),
+                        # New KPI, computed directly from the real margin series above
+                        # (not an LLM estimate) — shown alongside volatility per the spec.
+                        (['Average EBITDA margin', f"{_avg_ebitda_margin:.2f}%"] if _avg_ebitda_margin is not None else None),
                         (['One-off years flagged', '; '.join(f27.get('one_off_flags') or [])] if f27.get('one_off_flags') else None),
                     ] if f],
                     'chart': ({'type': 'trend', 'rows': _ebitda_margin_series, 'seriesLabel': 'EBITDA margin',
-                               'panelTitle': 'EBITDA margin trend'} if len(_ebitda_margin_series) >= 3 else None),
+                               'panelTitle': 'EBITDA margin trend',
+                               # Per-point annotations for one-off flags — a simple regex
+                               # on the existing "FY24: reason" string format (we control
+                               # that format upstream in compute_a6_margin_sustainability,
+                               # tools/qualitative_engine.py), not a structured payload
+                               # change, since the risk/benefit of touching that engine's
+                               # cached schema wasn't worth it for a display-only feature.
+                               # A flag string that doesn't match the "FYnn: ..." prefix is
+                               # skipped, never guessed onto a year.
+                               'annotations': [
+                                   {'fiscal_year': _m.group(1), 'reason': _m.group(2).strip()}
+                                   for _flag in (f27.get('one_off_flags') or [])
+                                   for _m in [re.match(r'^\s*(FY\d{2,4})\s*:\s*(.+)$', _flag)]
+                                   if _m
+                               ]}
+                              if len(_ebitda_margin_series) >= 3 else None),
                     'formula': 'Margin volatility = Std dev of EBITDA margin (5Y) / Mean EBITDA margin (5Y)',
                     'sources': {
                         'primary': {'label': 'BSE India – Corporate Announcements', 'note': 'Quarterly Results', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
@@ -3069,8 +3256,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         (['RPT frequency', _rpt_frequency] if _rpt_frequency else None),
                         (['Counterparties', '; '.join(_counterparty_flags)] if _counterparty_flags else None),
                     ] if f],
-                    'chart': ({'type': 'spectrum', 'options': ['None', 'Occasional', 'Frequent'], 'active': _rpt_frequency}
-                               if _rpt_frequency else None),
+                    'chart': ({'type': 'rpt_table', 'frequency': _rpt_frequency, 'rows': _rpt_records}
+                               if _rpt_records else None),
                     'formula': 'RPT intensity = Total RPT value / Total revenue',
                     'sources': {
                         'primary': {'label': 'Company Annual Report', 'note': 'RPT note, sourced via BSE announcement / company IR page'},
@@ -3155,8 +3342,36 @@ def build_executive_summary(state: SystemState) -> dict:
                     'key': 'capital_allocation',
                     'title': 'Capital allocation decisions: history of cash deployment and rationale',
                     'finding': (_c7 or {}).get('rationale') or None,
-                    'facts': [],
-                    'chart': None,
+                    'facts': [f for f in [
+                        (['Years covered', ', '.join(f'FY{y}' for y in (_c7 or {}).get('years_covered') or [])]
+                         if (_c7 or {}).get('years_covered') else None),
+                        (['Avg. capex share', f"{(_c7 or {}).get('avg_mix_pct', {}).get('Capex')}%"]
+                         if (_c7 or {}).get('avg_mix_pct', {}).get('Capex') is not None else None),
+                        (['Avg. dividend share', f"{(_c7 or {}).get('avg_mix_pct', {}).get('Dividends')}%"]
+                         if (_c7 or {}).get('avg_mix_pct', {}).get('Dividends') is not None else None),
+                        (['Buyback years', ', '.join(f'FY{y}' for y in (_c7 or {}).get('buyback_years') or [])]
+                         if (_c7 or {}).get('buyback_years') else None),
+                        (['M&A years', ', '.join(f'FY{y}' for y in (_c7 or {}).get('acquisition_years') or [])]
+                         if (_c7 or {}).get('acquisition_years') else None),
+                    ] if f],
+                    # Reuses the RecurringCyclicalTrendChart visual pattern (stacked
+                    # bars, gap-honest — a year missing a category is disclosed via
+                    # `missingCategories`, never silently zeroed) — recolored/relabeled
+                    # for the 4 capital-allocation categories instead of Recurring/
+                    # Cyclical. See frontend/src/components/CapitalAllocationTrendChart.jsx.
+                    'chart': ({
+                        'type': 'capital_allocation_trend',
+                        'trend': [
+                            {
+                                'fiscal_year': row.get('fiscal_year'),
+                                'mixPct': row.get('mix_pct') or {},
+                                'amountsCr': row.get('amounts_cr') or {},
+                                'totalDeployedCr': row.get('total_deployed_cr'),
+                                'missingCategories': row.get('missing_categories') or [],
+                            }
+                            for row in ((_c7 or {}).get('capital_allocation_mix') or [])
+                        ],
+                    } if (_c7 or {}).get('capital_allocation_mix') else None),
                     'formula': 'Capital allocation mix % = Each use of cash / Total cash deployed',
                     'sources': {
                         'primary': {'label': 'Company Annual Report', 'note': 'Cash Flow Statement, sourced via BSE announcement / company IR page'},

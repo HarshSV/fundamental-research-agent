@@ -14,6 +14,8 @@ import AskNavrist from "./components/AskNavrist.jsx";
 import { IncomeIcicle } from "./components/IncomeIcicle.jsx";
 import { SunburstChart } from "./components/SunburstChart.jsx";
 import { RecurringCyclicalTrendChart } from "./components/RecurringCyclicalTrendChart.jsx";
+import { RPTTable } from "./components/RPTTable.jsx";
+import { CapitalAllocationTrendChart } from "./components/CapitalAllocationTrendChart.jsx";
 import { addHistory } from "./lib/history.js";
 import { SECTIONS } from "./components/layout/sections.jsx";
 import { SECTORS, getRatiosForSector, getIndustrySpecificRatiosForSector,
@@ -475,7 +477,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // --- SUBCOMPONENT: Reusable multi-series trend chart (line + area) with hover tooltip ---
         // rows: [{label, [key]:number, ...}]; series: [{key,label,color}]; fmt(v)->string for axis/tooltip.
-        const TrendChart = ({ rows, series, fmt = (v) => v, height = 150, refLine = null, smooth = false }) => {
+        const TrendChart = ({ rows, series, fmt = (v) => v, height = 150, refLine = null, smooth = false, annotations = null }) => {
+            const [annoHi, setAnnoHi] = useState(null);
             const [hi, setHi] = useState(null);
             const [hoverX, setHoverX] = useState(null);
             const svgRef = useRef(null);
@@ -581,6 +584,35 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 </g>
                             </g>
                         )}
+                        {/* per-point annotation markers (e.g. A.6's one-off-margin
+                            flags) — matched against the row label by fiscal year
+                            substring since that's the only shared key the backend
+                            can reliably provide; a flag with no matching plotted
+                            row is simply skipped, never guessed onto a nearby point. */}
+                        {(annotations || []).map((a, ai) => {
+                            const idx = clean.findIndex(r => a.fiscal_year && String(r.label).includes(String(a.fiscal_year)));
+                            if (idx === -1) return null;
+                            const s0 = series[0];
+                            const v = clean[idx][s0.key];
+                            if (v == null || isNaN(v)) return null;
+                            const ax = x(idx), ay = y(v);
+                            const open = annoHi === ai;
+                            return (
+                                <g key={ai} onMouseEnter={() => setAnnoHi(ai)} onMouseLeave={() => setAnnoHi(null)} style={{ cursor: 'pointer' }}>
+                                    <circle cx={ax} cy={ay - 10} r="5" fill="#f59e0b" stroke="#0b1220" strokeWidth="1.5" />
+                                    <text x={ax} y={ay - 7} fill="#0b1220" fontSize="7.5" fontWeight="800" textAnchor="middle" pointerEvents="none">!</text>
+                                    {open && (
+                                        <g transform={`translate(${Math.min(ax + 8, W - 176)}, ${Math.max(ay - 60, P.t)})`}>
+                                            <rect width="168" height="44" rx="5" fill="#0f172a" opacity="0.96" stroke="#f59e0b" strokeWidth="1" />
+                                            <text x="8" y="16" fill="#fbbf24" fontSize="9" fontWeight="800">{a.fiscal_year}</text>
+                                            <foreignObject x="6" y="20" width="156" height="20">
+                                                <div style={{ fontSize: '9px', color: '#e2e8f0', lineHeight: 1.2 }}>{a.reason}</div>
+                                            </foreignObject>
+                                        </g>
+                                    )}
+                                </g>
+                            );
+                        })}
                     </svg>
                     <div className="flex flex-wrap gap-4 justify-center mt-1 text-[10px] font-semibold">
                         {series.map(s => (
@@ -589,6 +621,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 <span className="text-slate-500">{s.label}</span>
                             </div>
                         ))}
+                        {(annotations || []).length > 0 && (
+                            <div className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-full flex items-center justify-center text-[7px] font-black" style={{ background: '#f59e0b', color: '#0b1220' }}>!</span>
+                                <span className="text-slate-500">Flagged one-off (hover)</span>
+                            </div>
+                        )}
                     </div>
                 </div>
             );
@@ -683,6 +721,60 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 className={`flex items-start justify-between gap-2 text-[11px] rounded px-1.5 py-1 ${hi === i ? 'bg-slate-800' : ''}`}>
                                 <span className="flex items-start gap-1.5 min-w-0"><span className="w-2.5 h-2.5 rounded-sm flex-shrink-0 mt-0.5" style={{ background: s.color }}></span><span className="text-slate-200 leading-snug">{s.label}</span></span>
                                 <span className="font-mono text-slate-300 whitespace-nowrap">{parseFloat((s.frac * 100).toFixed(2))}%{unit ? ` · ${fmt(s.value)}${unit}` : ''}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: equal-wedge "classification" donut — for a single
+        // fixed-category classification (e.g. Pricing Power: Weak/Moderate/
+        // Strong/Insufficient Data), NOT a revenue-weighted blend. Every zone
+        // gets an equal-size wedge (there is no real "weight" to a category —
+        // fabricating one would misrepresent a classification as a blend);
+        // the actual classification's wedge is shown full-color, the rest
+        // dimmed — same concept as SpectrumBarChart's marker, in donut form.
+        // Generic via props (zones/active/centerValue/centerUnit) so it isn't
+        // hardcoded to Pricing Power's own zone labels.
+        const ClassificationDonut = ({ zones, active, centerValue = null, centerUnit = '', dark = false }) => {
+            const opts = (zones || []).filter(Boolean);
+            if (!opts.length) return <div className="text-center p-4 text-[11px] text-slate-500">No data to chart.</div>;
+            const palette = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#ef4444', '#64748b'];
+            const cx = 60, cy = 60, R = 56, HOLE = 32;
+            const n = opts.length;
+            const isInsufficient = (label) => INSUFFICIENT_ZONE_LABELS.has(String(label).toLowerCase());
+            const activeIdx = active ? opts.findIndex(o => o.toLowerCase() === active.toLowerCase()) : -1;
+            const slices = opts.map((label, i) => {
+                const a0 = -Math.PI / 2 + (i / n) * 2 * Math.PI;
+                const a1 = -Math.PI / 2 + ((i + 1) / n) * 2 * Math.PI;
+                const isActive = i === activeIdx;
+                const rr = isActive ? R + 3 : R;
+                const large = (a1 - a0) > Math.PI ? 1 : 0;
+                const path = `M ${(cx + rr * Math.cos(a0)).toFixed(2)} ${(cy + rr * Math.sin(a0)).toFixed(2)} A ${rr} ${rr} 0 ${large} 1 ${(cx + rr * Math.cos(a1)).toFixed(2)} ${(cy + rr * Math.sin(a1)).toFixed(2)} L ${(cx + HOLE * Math.cos(a1)).toFixed(2)} ${(cy + HOLE * Math.sin(a1)).toFixed(2)} A ${HOLE} ${HOLE} 0 ${large} 0 ${(cx + HOLE * Math.cos(a0)).toFixed(2)} ${(cy + HOLE * Math.sin(a0)).toFixed(2)} Z`;
+                const color = isInsufficient(label) ? '#64748b' : palette[i % palette.length];
+                return { label, path, color, isActive };
+            });
+            const centerLabel = centerValue != null ? `${centerValue}${centerUnit}` : (active || 'Insufficient Data');
+            return (
+                <div className="flex items-center gap-4">
+                    <div className="flex-shrink-0 w-28">
+                        <svg viewBox="0 0 124 124" className="w-28 h-28">
+                            {slices.map((s, i) => (
+                                <path key={i} d={s.path} fill={s.color} stroke="#0b1220" strokeWidth="1"
+                                    opacity={activeIdx === -1 || s.isActive ? 1 : 0.28} />
+                            ))}
+                            <text x={cx} y={cy + 5} fill="rgb(var(--slate-100))" fontSize={centerValue != null ? "15" : "12"} fontWeight="800" textAnchor="middle" pointerEvents="none">
+                                {centerLabel}
+                            </text>
+                        </svg>
+                        {active && <div className="text-center mt-1 text-[10px] text-slate-500 leading-snug px-1">{active}</div>}
+                    </div>
+                    <div className="flex-1 space-y-1 min-w-0">
+                        {slices.map((s, i) => (
+                            <div key={i} className={`flex items-center gap-1.5 text-[11px] rounded px-1.5 py-1 ${s.isActive ? 'bg-slate-800' : ''}`}>
+                                <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: s.color, opacity: activeIdx === -1 || s.isActive ? 1 : 0.4 }}></span>
+                                <span className={s.isActive ? 'text-slate-100 font-semibold' : 'text-slate-400'}>{s.label}</span>
                             </div>
                         ))}
                     </div>
@@ -812,30 +904,48 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // the backend-computed 0-100 revenue-weighted blend position (never
         // eyeballed here) — see compute_a3_revenue_model_quality. Styling
         // mirrors SpectrumChart's dark-mode CSS-variable conventions above.
+        // Generic "fixed zones + one marker" bar — takes `options` as a prop
+        // so it's reusable across a DIFFERENT zone count/set (A.3's 5
+        // contract-type zones, A.5's 4 pricing-power zones incl. the
+        // mandatory "Insufficient Data" state), not hardcoded to any one
+        // subpoint's zones. A zone literally named "Insufficient Data" (or
+        // any other "not enough evidence" style label) gets a visually
+        // distinct, greyed-out treatment when active — the spec's own
+        // requirement that this state must never silently render as if it
+        // were a real "Moderate"-style finding.
+        const INSUFFICIENT_ZONE_LABELS = new Set(['insufficient data', 'unclear', 'not enough evidence']);
         const SpectrumBarChart = ({ options, position, activeLabel, dark = false }) => {
             const opts = (options || []).filter(Boolean);
             if (!opts.length || position == null) return null;
             const clamped = Math.max(0, Math.min(100, Number(position)));
+            const isInsufficient = activeLabel && INSUFFICIENT_ZONE_LABELS.has(activeLabel.toLowerCase());
             const trackColor = 'rgb(var(--slate-800))';
-            const activeColor = 'rgb(var(--blue-500))';
-            const labelColor = 'rgb(var(--slate-200))';
+            const activeColor = isInsufficient ? 'rgb(var(--slate-500))' : 'rgb(var(--blue-500))';
             const mutedColor = 'rgb(var(--slate-500))';
             return (
                 <div className="w-full">
                     <div className="relative h-2 rounded-full mb-2" style={{ background: trackColor }}>
                         <div
                             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2"
-                            style={{ left: `${clamped}%`, background: activeColor, borderColor: 'rgb(var(--slate-950))' }}
+                            style={{
+                                left: `${clamped}%`, background: activeColor, borderColor: 'rgb(var(--slate-950))',
+                                opacity: isInsufficient ? 0.6 : 1,
+                            }}
                             title={activeLabel ? `${activeLabel} (${clamped}/100)` : `${clamped}/100`}
                         />
                     </div>
                     <div className="flex items-stretch gap-1">
                         {opts.map((o) => {
                             const isActive = activeLabel && o.toLowerCase() === activeLabel.toLowerCase();
+                            const isThisInsufficient = INSUFFICIENT_ZONE_LABELS.has(o.toLowerCase());
                             return (
                                 <div key={o} className="flex-1 min-w-0">
                                     <div className="text-[11px] font-semibold text-center leading-tight truncate"
-                                        style={{ color: isActive ? activeColor : mutedColor }} title={o}>
+                                        style={{
+                                            color: isActive ? activeColor : mutedColor,
+                                            fontStyle: isThisInsufficient ? 'italic' : 'normal',
+                                            opacity: isThisInsufficient && !isActive ? 0.6 : 1,
+                                        }} title={o}>
                                         {o}
                                     </div>
                                 </div>
@@ -1253,6 +1363,99 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
+        // --- SUBCOMPONENT: Product lifecycle stage — Row A.4. Adapts
+        // BusinessCompositionChart's 100%-stacked-bar scaffolding above
+        // (block width = real segment revenue share, one distinct fill per
+        // segment, small colored dot for the classification) but recolored
+        // by lifecycle STAGE (Growth/Maturity/Commoditisation/Decline)
+        // instead of revenue pattern (Recurring/Mixed/Cyclical). Every block
+        // comes from compute_a4_product_lifecycle_stage's deterministic,
+        // sector-CAGR-benchmarked classifier (tools/product_lifecycle_scoring.py)
+        // — never an LLM guess. A diversified company deliberately never
+        // collapses to one label here (see that function's docstring on the
+        // "Reliance mismatch" institutional knowledge it carries forward).
+        const STAGE_LABEL = { growth: 'Growth', maturity: 'Maturity', commoditisation: 'Commoditisation', decline: 'Decline / obsolescence risk' };
+        const STAGE_COLOR = {
+            growth: 'rgb(45 212 191)',        // teal — expanding faster than sector
+            maturity: 'rgb(250 204 21)',      // amber — in line with sector
+            commoditisation: 'rgb(251 113 60)', // warm coral — below-sector growth + margin compression
+            decline: 'rgb(220 38 38)',        // red — negative revenue CAGR
+        };
+        const UNCLASSIFIED_COLOR = 'rgb(100 116 139)'; // slate — segment CAGR/benchmark unavailable, never a guess
+
+        const SegmentStageBreakdown = ({ chart }) => {
+            const segs = (chart?.segments || []).filter(s => s && s.label && s.share_pct > 0);
+            const unclassifiedPct = chart?.unclassified_pct || 0;
+            const [hoverIdx, setHoverIdx] = useState(null);
+            if (!segs.length) return null;
+
+            return (
+                <div>
+                    {(chart?.sector && chart?.sector_median_cagr_pct != null) && (
+                        <p className="text-[12px] text-slate-400 mb-2">
+                            Benchmarked against sector "{chart.sector}" peer-median 3yr revenue CAGR of {chart.sector_median_cagr_pct}%.
+                        </p>
+                    )}
+
+                    {/* 100%-stacked bar — block width = segment revenue share, block
+                        color = that segment's classified lifecycle stage. */}
+                    <div className="flex w-full h-11 rounded-md overflow-hidden">
+                        {segs.map((s, i) => {
+                            const color = s.stage ? (STAGE_COLOR[s.stage] || UNCLASSIFIED_COLOR) : UNCLASSIFIED_COLOR;
+                            const isLast = i === segs.length - 1 && unclassifiedPct <= 0.5;
+                            return (
+                                <div key={s.label + i}
+                                    className="flex flex-col items-center justify-center gap-0.5 px-1 min-w-0 cursor-default"
+                                    style={{
+                                        width: `${s.share_pct}%`, background: color,
+                                        borderRight: isLast ? 'none' : '1.5px solid rgba(15, 23, 42, 0.5)',
+                                    }}
+                                    title={`${s.label} — ${s.share_pct}% of revenue — ${s.stage_label || 'Unclassified'}${s.segment_cagr != null ? ` (segment CAGR ${(s.segment_cagr * 100).toFixed(1)}%)` : ''}\n${s.reasoning || ''}`}
+                                    onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}>
+                                    {s.share_pct >= 9 && (
+                                        <>
+                                            <span className="text-[11px] font-bold text-white truncate max-w-full drop-shadow">{s.label}</span>
+                                            <span className="text-[10px] font-semibold text-white/90">{s.share_pct}%</span>
+                                        </>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        {unclassifiedPct > 0.5 && (
+                            <div className="flex items-center justify-center" style={{ width: `${unclassifiedPct}%`, background: UNCLASSIFIED_COLOR }}
+                                title={`Unclassified — ${unclassifiedPct}% of revenue (segment label not matched across fiscal years, or CAGR/sector-median unavailable — never a guessed stage)`}>
+                                {unclassifiedPct >= 6 && <span className="text-[10px] font-semibold text-white/90">{unclassifiedPct}%</span>}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Legend + per-segment detail, always visible (no hover needed to read it) */}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2.5">
+                        {segs.map((s, i) => (
+                            <div key={s.label + i} className={`flex items-center gap-1.5 ${hoverIdx === i ? 'opacity-100' : 'opacity-90'}`}>
+                                <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: s.stage ? (STAGE_COLOR[s.stage] || UNCLASSIFIED_COLOR) : UNCLASSIFIED_COLOR }} />
+                                <span className="text-[11px] text-slate-300">{s.label}</span>
+                                <span className="text-[10px] text-slate-500">
+                                    {s.share_pct}% · {s.stage_label || 'Unclassified'}
+                                    {s.segment_cagr != null && ` · CAGR ${(s.segment_cagr * 100).toFixed(1)}%`}
+                                </span>
+                            </div>
+                        ))}
+                        {unclassifiedPct > 0.5 && (
+                            <div className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: UNCLASSIFIED_COLOR }} />
+                                <span className="text-[11px] text-slate-400">Unclassified · {unclassifiedPct}%</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {chart?.blend_summary && (
+                        <p className="text-[12px] text-slate-300 leading-relaxed mt-3 italic">"{chart.blend_summary}"</p>
+                    )}
+                </div>
+            );
+        };
+
         const IncomeStatementFlowCard = ({ chart, unavailableReason }) => {
             const nodes = chart?.nodes;
             const links = chart?.links;
@@ -1450,10 +1653,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // both render as their own full-width block — the standard facts/
             // chart two-column grid below is built for smaller rating/donut
             // charts and doesn't fit either of these.
-            if (chart?.type === 'business_composition' || chart?.type === 'income_statement_flow' || chart?.type === 'sunburst_combined' || chart?.type === 'recurring_cyclical_trend') {
+            if (chart?.type === 'business_composition' || chart?.type === 'income_statement_flow' || chart?.type === 'sunburst_combined' || chart?.type === 'recurring_cyclical_trend' || chart?.type === 'segment_stage_breakdown' || chart?.type === 'capital_allocation_trend' || chart?.type === 'rpt_table') {
                 const missing = chart?.type === 'business_composition' ? !chart?.segments?.length
                     : chart?.type === 'income_statement_flow' ? !(chart?.nodes?.length && chart?.links?.length)
                     : chart?.type === 'recurring_cyclical_trend' ? !(chart?.currentYearMix || chart?.trend?.length)
+                    : chart?.type === 'segment_stage_breakdown' ? !chart?.segments?.length
+                    : chart?.type === 'capital_allocation_trend' ? !chart?.trend?.length
+                    : chart?.type === 'rpt_table' ? !chart?.rows?.length
                     : !(chart?.segments?.length || (chart?.nodes?.length && chart?.links?.length));
                 return (
                     <div className="border border-slate-800 rounded-lg overflow-hidden">
@@ -1473,6 +1679,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                         ? (sp.unavailableReason || 'Not enough comparable financial data is available to build this flow reliably.')
                                         : chart?.type === 'recurring_cyclical_trend'
                                         ? (sp.unavailableReason || 'Not enough resolvable Annual Report years to build this view.')
+                                        : chart?.type === 'capital_allocation_trend'
+                                        ? (sp.unavailableReason || 'Not enough resolvable Annual Report years to build this view.')
+                                        : chart?.type === 'rpt_table'
+                                        ? 'No related-party transaction row could be located and verified against a verbatim Annual Report quote.'
                                         : 'Not enough segment disclosure is available to build this view.'}
                                 </p>
                             ) : chart.type === 'business_composition' ? (
@@ -1486,6 +1696,26 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 </>
                             ) : chart.type === 'recurring_cyclical_trend' ? (
                                 <RecurringCyclicalTrendChart chart={chart} unavailableReason={sp.unavailableReason} />
+                            ) : chart.type === 'capital_allocation_trend' ? (
+                                <CapitalAllocationTrendChart chart={chart} unavailableReason={sp.unavailableReason} />
+                            ) : chart.type === 'segment_stage_breakdown' ? (
+                                <>
+                                    <SegmentStageBreakdown chart={chart} />
+                                    {/* Aggregate-by-stage summary donut, ADDED alongside the
+                                        existing per-segment stacked bar (not replacing it) —
+                                        same "add, don't replace" pattern as the Moat card, so
+                                        the per-segment detail isn't lost. Unclassified segments
+                                        are excluded from the donut slices by construction (only
+                                        real classified stage_pct entries are ever sent here). */}
+                                    {chart.stageDonutData?.length > 0 && (
+                                        <div className="mt-4 pt-4 border-t border-slate-800">
+                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Revenue mix by lifecycle stage</div>
+                                            <Donut data={chart.stageDonutData} fmt={(v) => Number(v).toFixed(0)} dark />
+                                        </div>
+                                    )}
+                                </>
+                            ) : chart.type === 'rpt_table' ? (
+                                <RPTTable chart={chart} />
                             ) : (
                                 <IncomeStatementFlowCard chart={chart} unavailableReason={sp.unavailableReason} />
                             )}
@@ -1517,12 +1747,19 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                     ))}
                                 </ul>
                             ) : (
-                                <p className="text-xs text-slate-500 italic mb-3">Not yet available — regenerate report to populate.</p>
+                                // "Not yet available" is only accurate when there is truly NOTHING
+                                // for this sub-point yet (no bullet facts, no finding/rationale text,
+                                // no chart) — showing it whenever `facts` alone happened to be empty
+                                // was misleading real, populated cards (e.g. A.2's moat rationale +
+                                // chart with no `facts` list) as if the data were missing entirely.
+                                !sp.finding && !(chart && (chart.data?.length > 0 || chart.options?.length > 0 || chart.zones?.length > 0 || chart.value != null || chart.rows?.length > 0 || chart.segments?.length > 0 || chart.position != null)) && (
+                                    <p className="text-xs text-slate-500 italic mb-3">Not yet available — regenerate report to populate.</p>
+                                )
                             )}
                             {sp.finding && <p className="text-[13px] text-slate-400 leading-relaxed">{sp.finding}</p>}
                             <SourcesFooter formula={sp.formula} sources={sp.sources} />
                         </div>
-                        {chart && (chart.data?.length > 0 || chart.options?.length > 0 || chart.value != null || chart.rows?.length > 0 || chart.segments?.length > 0 || chart.position != null) && (
+                        {chart && (chart.data?.length > 0 || chart.options?.length > 0 || chart.zones?.length > 0 || chart.value != null || chart.rows?.length > 0 || chart.segments?.length > 0 || chart.position != null) && (
                             <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg self-start">
                                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{chartTitle}</div>
                                 {chart.type === 'donut' && (
@@ -1530,7 +1767,24 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                         center={chartTop ? { value: `${Math.round(chartTop.pct)}%`, label: chartTop.label } : null} />
                                 )}
                                 {chart.type === 'bar' && (
-                                    <BarScore data={chart.data.map(d => ({ label: d.label, value: d.value }))} scaleMax={chart.scaleMax || 5} dark />
+                                    <>
+                                        <BarScore data={chart.data.map(d => ({ label: d.label, value: d.value }))} scaleMax={chart.scaleMax || 5} dark />
+                                        {/* Moat card only: combined 5-slice donut of the A.2.A-E
+                                            evidence scores, ADDED alongside the peer-percentile bar
+                                            chart above (not replacing it) — carried on the same
+                                            card via `secondaryChart`, a minimal schema extension
+                                            (one extra optional key) rather than a second `chart`
+                                            slot on every card. Factors with score=None or genuinely
+                                            N/A (network effects) are excluded upstream in Python —
+                                            never sent here as a fabricated 0-value slice. */}
+                                        {sp.secondaryChart?.type === 'donut' && sp.secondaryChart.data?.length > 0 && (
+                                            <div className="mt-4 pt-4 border-t border-slate-800">
+                                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Moat factor mix</div>
+                                                <Donut data={sp.secondaryChart.data} fmt={(v) => Number(v).toFixed(1)} unit="/5" dark
+                                                    center={sp.secondaryChart.centerValue != null ? { value: sp.secondaryChart.centerValue, label: 'Composite moat score' } : null} />
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                                 {chart.type === 'spectrum' && (
                                     <SpectrumChart options={chart.options} active={chart.active} dark />
@@ -1538,11 +1792,15 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 {chart.type === 'spectrum_bar' && (
                                     <SpectrumBarChart options={chart.options} position={chart.position} activeLabel={chart.active_label} dark />
                                 )}
+                                {chart.type === 'classification_donut' && (
+                                    <ClassificationDonut zones={chart.zones} active={chart.active}
+                                        centerValue={chart.centerValue != null ? `${Number(chart.centerValue).toFixed(2)}x` : null} dark />
+                                )}
                                 {chart.type === 'diverging' && (
                                     <DivergingBar value={chart.value} range={chart.range || 20} label={chart.label} dark />
                                 )}
                                 {chart.type === 'trend' && (
-                                    <TrendChart rows={chart.rows} series={[{ key: 'value', label: chart.seriesLabel || 'Value', color: '#3b82f6' }]} fmt={(v) => `${Number(v).toFixed(1)}%`} height={140} smooth />
+                                    <TrendChart rows={chart.rows} series={[{ key: 'value', label: chart.seriesLabel || 'Value', color: '#3b82f6' }]} fmt={(v) => `${Number(v).toFixed(1)}%`} height={140} smooth annotations={chart.annotations} />
                                 )}
                             </div>
                         )}

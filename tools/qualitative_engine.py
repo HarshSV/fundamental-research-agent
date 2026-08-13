@@ -87,6 +87,25 @@ def _concall_digest(symbol, name):
         return ""
 
 
+_MONTH_ABBR = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+               "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+
+
+def _concall_date_to_iso(date_str):
+    """screener_scraper/concall_intelligence dates are formatted 'Mon YYYY'
+    (e.g. 'Feb 2026') — NOT the ISO 'YYYY-MM-DD' FRED series use. Used by
+    A.5 to align a concall quarter to the right point in a commodity price
+    series without a raw string compare silently misaligning the two
+    different date formats. Returns None (not a guess) if unparseable."""
+    m = re.match(r"([A-Za-z]{3})\w*\s+(\d{4})", (date_str or "").strip())
+    if not m:
+        return None
+    mon = _MONTH_ABBR.get(m.group(1).lower())
+    if not mon:
+        return None
+    return f"{m.group(2)}-{mon:02d}-01"
+
+
 def _fetch_segment_revenue_context(sym, name):
     """AR-14 pathway: real, self-validated business-segment revenue shares
     for the current year (see tools/annual_report_financials.py's
@@ -748,7 +767,32 @@ _GENERAL_RECURRING_REASONING_RE = re.compile(
 # mentioned that segment. Added `segment_sourced` per segment. Bumped so
 # already-cached companies get reclassified under the corrected sourcing
 # instead of keeping a shared-pool classification for up to 30 days.
-_BIZ_COMP_SCHEMA_VERSION = 11
+# v12: the single-block fallback (no reconciled segment note -> one block
+# labelled with the COMPANY NAME) is no longer run through the
+# Recurring/Cyclical classifier at all. v11 and earlier persisted the noise
+# it produced — confirmed live: LT="recurring", SUNPHARMA="cyclical", both
+# effectively backwards, each shown as a confident 100% mix. Every such
+# payload must be recomputed, so this bump is mandatory, not cosmetic.
+_BIZ_COMP_SCHEMA_VERSION = 12
+
+# Per-fiscal-year cache for _classify_segments_pattern's LLM result — see
+# that function's cache_subpoint block below for why this exists (shared
+# Groq/OpenRouter daily quota exhaustion, confirmed on HINDUNILVR: 3 of 5
+# historical years failed with HTTP 429 on one run, forcing
+# compute_a1_2_pattern_trend to report NOT_FOUND even though 2 years HAD
+# genuinely classified successfully moments earlier in the SAME run — without
+# per-year caching, the next retry burns quota re-classifying those same 2
+# already-successful years all over again instead of only retrying the ones
+# that actually failed).
+# v2: MUST be bumped past every v1 entry. v1 was written before the
+# single-block fallback was removed from compute_a1_2_pattern_trend and
+# before unrequested/hallucinated labels were rejected, so v1 entries can
+# hold exactly the garbage this cache then FROZE for 30 days — confirmed on
+# HINDUNILVR, whose v1 entries were {FY22: "hindunilvr"=recurring, FY23:
+# "hindunilvr"=mixed, FY24: "hindunilvr"=cyclical + hallucinated "water"/
+# "home care"/"beauty & wellbeing" labels}. Bumping makes every one of those
+# a cache miss so they are recomputed under the corrected rules.
+_SEGMENT_PATTERN_YEAR_CACHE_VERSION = 2
 
 
 def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_year=None):
@@ -768,6 +812,22 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
       - evidence: the raw fetch_revenue_characteristics_evidence() result,
         for callers that also want the excerpts themselves.
     """
+    # Per-year result cache — only for a SPECIFIC historical fiscal_year
+    # (compute_a1_2_pattern_trend's multi-year loop). fiscal_year=None (the
+    # "latest year" case used by compute_business_composition) is
+    # deliberately always freshly classified, unchanged — that call site
+    # already has its own subpoint-level cache/TTL and calling it once per
+    # request isn't the quota-burning multi-year retry pattern this exists
+    # to fix. A cached entry is only ever WRITTEN below after a genuine
+    # successful classification (classification_error is None), never for a
+    # rate-limited/failed run — same "never persist a fake result" guardrail
+    # as the rest of this function.
+    cache_subpoint = f"A.1.2y_{fiscal_year}" if fiscal_year is not None else None
+    if cache_subpoint:
+        cached = read_qualitative(sym, cache_subpoint)
+        if cached is not None and cached.get("schema_version") == _SEGMENT_PATTERN_YEAR_CACHE_VERSION:
+            return cached.get("patterns_by_label") or {}, None, cached.get("evidence") or {}
+
     try:
         from tools.annual_report_financials import fetch_revenue_characteristics_evidence
         evidence = fetch_revenue_characteristics_evidence(sym, name, fiscal_year=fiscal_year)
@@ -919,10 +979,25 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
         # below.
         if data is None or not isinstance(data.get("segments"), list):
             raise ValueError(f"Classifier reply had no usable 'segments' array (raw[:200]={(raw or '')[:200]!r})")
+        # Only labels that were ACTUALLY REQUESTED are accepted. The model
+        # does sometimes return segments that were never in the input —
+        # confirmed on HINDUNILVR FY2024, where a single requested segment
+        # came back as four ("water", "home care", "beauty & wellbeing", plus
+        # the requested one). Previously every returned label was stored, and
+        # a requested segment the model simply omitted got NO classification
+        # and then silently dropped out of the percentage base downstream —
+        # so a year where only 1 of 5 real segments came back would render
+        # that one segment's pattern as ~100% of the mix. Unrequested labels
+        # are now discarded and low coverage is treated as a failed run.
+        requested_norm = {lbl.lower(): lbl for lbl in seg_names}
         for s in (data.get("segments") or []):
             lbl = str(s.get("label") or "").strip()
             pat = str(s.get("pattern") or "").strip().lower()
             if not lbl or pat not in _SEGMENT_PATTERN:
+                continue
+            if lbl.lower() not in requested_norm:
+                print(f"[qualitative_engine] segment-pattern: discarding unrequested label "
+                      f"{lbl!r} for {sym} FY{fiscal_year} (not in {seg_names})")
                 continue
             reason_points = [str(p).strip() for p in (s.get("reason_points") or []) if str(p).strip()][:4]
             if not reason_points:
@@ -946,9 +1021,24 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
                 "pattern": pat, "reason_points": reason_points, "brands": brands,
                 "segment_sourced": seg_sourced_by_label.get(lbl.lower(), False),
             }
+        # Zero requested segments came back usable -> the classifier did not
+        # really run on THIS company's segments, structurally the same as a
+        # rate-limit/parse failure. Raising here (rather than returning an
+        # empty dict) routes it through the caller's transient-failure path,
+        # which refuses to persist it as a real finding.
+        if not patterns_by_label:
+            raise ValueError(
+                f"Classifier returned no usable classification for any requested segment "
+                f"{seg_names} (raw[:200]={(raw or '')[:200]!r})")
     except Exception as e:
         classification_error = e
         print(f"[qualitative_engine] segment-pattern classification failed for {sym} FY{fiscal_year}: {e}")
+
+    if cache_subpoint and classification_error is None and patterns_by_label:
+        write_qualitative(sym, cache_subpoint, {
+            "schema_version": _SEGMENT_PATTERN_YEAR_CACHE_VERSION,
+            "patterns_by_label": patterns_by_label, "evidence": evidence,
+        }, "SINGLE_SOURCE")
 
     return patterns_by_label, classification_error, evidence
 
@@ -1035,7 +1125,20 @@ def compute_business_composition(symbol, name=None, description="", force=False)
     # via the existing business-model-clarity judgment (grounded in the
     # business description/concall digest) as a graceful fallback rather
     # than an empty graph. This is NOT the same as inventing segments.
-    if not raw_segments or len(raw_segments) < 2:
+    #
+    # CRITICAL: that single block must NOT be run through the
+    # Recurring/Cyclical pattern classifier. Its "label" is the company name,
+    # so the classifier is being asked to pattern-classify a bare ticker
+    # string, and it answers with noise — confirmed live: L&T (engineering &
+    # construction, textbook project-cyclical) came back "recurring" and Sun
+    # Pharma (pharmaceuticals, textbook defensive) came back "cyclical",
+    # each then rendered as a confident "100% Recurring"/"100% Cyclical"
+    # current-year mix. Roughly a third of large caps sampled have no
+    # reconciled segment note in their latest AR, so this was mislabelling
+    # a large slice of the universe. A revenue PATTERN is measured from
+    # reported segments or it is not measured at all.
+    single_block_fallback = not raw_segments or len(raw_segments) < 2
+    if single_block_fallback:
         a1 = compute_a1_business_model_clarity(sym, name, description, force=force)
         model_type = a1.get("model_type") if a1.get("available") else None
         segments_for_calc = [{"label": company, "value_cr": consolidated_revenue}]
@@ -1050,8 +1153,15 @@ def compute_business_composition(symbol, name=None, description="", force=False)
     residual_pct = round(max(0.0, residual) / consolidated_revenue * 100, 1) if consolidated_revenue else 0.0
 
     # --- Step 6-7: segment-specific pattern classification, evidence-grounded ---
-    patterns_by_label, classification_error, evidence = _classify_segments_pattern(
-        sym, name, company, segments_for_calc, fiscal_year=fiscal_year)
+    # Skipped entirely in the single-block case (see the comment above) —
+    # every segment stays "unclassified", which the pattern-mix code below
+    # already handles by excluding it from the base, so no mix is shown
+    # rather than a fabricated one.
+    if single_block_fallback:
+        patterns_by_label, classification_error, evidence = {}, None, {}
+    else:
+        patterns_by_label, classification_error, evidence = _classify_segments_pattern(
+            sym, name, company, segments_for_calc, fiscal_year=fiscal_year)
 
     segments_out = []
     for s in segments_for_calc:
@@ -1120,6 +1230,10 @@ def compute_business_composition(symbol, name=None, description="", force=False)
         pattern_clause = "with a mix of recurring and cyclical revenue"
     elif classification_error:
         pattern_clause = "though its revenue pattern could not be classified on this run"
+    elif single_block_fallback:
+        pattern_clause = ("though its Annual Report has no reconciled segment note for this year, so the "
+                          "recurring-vs-cyclical split is not measured (it is only ever derived from reported "
+                          "segments, never inferred from the company as a whole)")
     else:
         pattern_clause = "though its revenue pattern could not be reliably classified from available disclosures"
     footer_readline = f"{company} is {biz_clause}, {pattern_clause}."
@@ -1183,7 +1297,12 @@ def compute_business_composition(symbol, name=None, description="", force=False)
     return payload
 
 
-_A12_TREND_SCHEMA_VERSION = 1
+# v2: the single-block "classify the company name as one segment" fallback
+# was removed (see the long comment in compute_a1_2_pattern_trend). Every v1
+# payload may contain trend points that measured nothing, including
+# VERIFIED-badged 3-point trends built entirely from company-name coin
+# flips, so no v1 payload may be served as current.
+_A12_TREND_SCHEMA_VERSION = 2
 _A12_TREND_MAX_YEARS = 5
 
 
@@ -1234,31 +1353,49 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
         return payload
 
     trend = []
+    skipped_years = []
     any_llm_failure = False
     for fy in sorted(years):  # oldest -> newest, matching the reference chart's left-to-right order
         try:
             parsed = _get_extracted_financials(sym, name, fy, consolidated=True)
         except Exception as e:
             print(f"[qualitative_engine] a1_2_pattern_trend financials fetch failed for {sym} FY{fy}: {e}")
+            skipped_years.append({"fiscal_year": fy, "reason": "ANNUAL_REPORT_FETCH_FAILED"})
             continue
         if not parsed or "error" in parsed:
+            skipped_years.append({"fiscal_year": fy, "reason": "ANNUAL_REPORT_UNREADABLE"})
             continue
         revenue_pair = parsed.get("revenue")
         consolidated_revenue = revenue_pair[0] if revenue_pair else None
         raw_segments = parsed.get("segments")
         if not consolidated_revenue:
+            skipped_years.append({"fiscal_year": fy, "reason": "NO_REVENUE_ON_PL_PAGE"})
             continue
-        # Same graceful single-block fallback as compute_business_composition
-        # — real total revenue, classified as one segment, rather than an
-        # empty year when the segment note isn't reconciled for that filing.
-        segments_for_calc = raw_segments if (raw_segments and len(raw_segments) >= 2) else [
-            {"label": company, "value_cr": consolidated_revenue}
-        ]
+
+        # A year WITHOUT a reconciled multi-segment note contributes NOTHING
+        # to this trend. There used to be a "graceful single-block fallback"
+        # here that classified the whole company as one segment labelled with
+        # the COMPANY NAME — that was actively harmful, not graceful:
+        # confirmed on HINDUNILVR, whose segment note only reconciles for
+        # FY2026, so FY2022/23/24 each fell back to asking the classifier to
+        # label the bare string "HINDUNILVR". It answered recurring / mixed /
+        # cyclical on three different years — three independent coin flips on
+        # a company name, rendered to the user as a real 3-year
+        # Recurring-vs-Cyclical TREND (FY24 showing "0% Recurring" for an
+        # FMCG staples business) and awarded a VERIFIED badge purely because
+        # three such points existed. A revenue-PATTERN trend has to be
+        # measured from actual reported segments or not shown at all; a
+        # missing segment note is missing data, never a data point.
+        if not raw_segments or len(raw_segments) < 2:
+            skipped_years.append({"fiscal_year": fy, "reason": "NO_RECONCILED_SEGMENT_NOTE"})
+            continue
+        segments_for_calc = raw_segments
 
         patterns_by_label, classification_error, _evidence = _classify_segments_pattern(
             sym, name, company, segments_for_calc, fiscal_year=fy)
         if classification_error:
             any_llm_failure = True
+            skipped_years.append({"fiscal_year": fy, "reason": "CLASSIFIER_UNREACHABLE"})
             continue
 
         recurring_rev = cyclical_rev = classified_rev = 0.0
@@ -1277,6 +1414,7 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
                 classified_rev += s["value_cr"]
             # "unclassified" (or missing) segments are excluded from the base.
         if classified_rev <= 0:
+            skipped_years.append({"fiscal_year": fy, "reason": "NO_SEGMENT_CLASSIFIED"})
             continue  # nothing usable this year — skip rather than guess
 
         trend.append({
@@ -1287,12 +1425,22 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
         })
 
     if not trend:
+        no_segment_years = [s["fiscal_year"] for s in skipped_years if s["reason"] == "NO_RECONCILED_SEGMENT_NOTE"]
+        if any_llm_failure:
+            reason = "Classifier could not be reached for any year this run — will retry next request."
+        elif no_segment_years:
+            reason = (f"No Annual Report year on file has a reconciled multi-segment revenue note "
+                      f"(checked FY{', FY'.join(str(y) for y in sorted(no_segment_years))}). A "
+                      f"Recurring-vs-Cyclical split is measured from reported segments — without a segment "
+                      f"note there is nothing to measure, and this is reported as unavailable rather than "
+                      f"inferred from the company as a single block.")
+        else:
+            reason = "No year had both a reconciled segment note and revenue on the P&L page."
         payload = {
             "subpoint_id": subpoint_id, "schema_version": _A12_TREND_SCHEMA_VERSION,
             "available": False,
-            "reason": ("Classifier could not be reached for any year this run — will retry next request."
-                       if any_llm_failure else
-                       "No year had both a reconciled segment note and revenue on the P&L page."),
+            "reason": reason,
+            "skipped_years": skipped_years,
         }
         # A run where every year failed purely on a transient LLM error must
         # not be cached as a real "no data" finding — same guardrail as
@@ -1304,6 +1452,12 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
         return payload
 
     current = trend[-1]
+    # VERIFIED requires 3+ years that were each measured from a real reported
+    # segment note. Before the single-block fallback was removed above, three
+    # company-name coin flips satisfied this and earned a VERIFIED badge on
+    # data that measured nothing (see the HINDUNILVR case in that comment) —
+    # every entry in `trend` is now genuinely segment-derived, so the count
+    # means what the badge claims it means.
     confidence_tag = "VERIFIED" if len(trend) >= 3 else "SINGLE_SOURCE"
     payload = {
         "subpoint_id": subpoint_id,
@@ -1313,6 +1467,10 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
         "trend": trend,
         "years_attempted": len(years),
         "years_resolved": len(trend),
+        # Surfaced so a short/1-point trend is self-explaining ("4 of 5 years
+        # had no reconciled segment note") instead of looking like the app
+        # silently lost data.
+        "skipped_years": skipped_years,
     }
     if not any_llm_failure:
         write_qualitative(sym, subpoint_id, payload, confidence_tag)
@@ -1804,7 +1962,21 @@ def compute_a2c_cost_leadership_moat(symbol, name=None, description="", market_c
 # S/4HANA Enterprise platform") with zero marketplace meaning, making
 # nearly every non-platform company incorrectly "applicable". Bumped so
 # every already-cached company re-evaluates under the tightened gate.
-_A2D_SCHEMA_VERSION = 4  # v4: fixed _sentences() splitting mid-phrase terms across PDF line-wraps
+# v4: fixed _sentences() splitting mid-phrase terms across PDF line-wraps
+# v5: added "network of merchants"/"merchant engagement"/"expanding customer
+# base" anchors — confirmed false-negative N/A on RELIANCE, whose AR
+# genuinely describes JioMart Digital (a real platform business connecting a
+# merchant network to a growing customer base) but used retail-tech
+# vocabulary none of the v4 anchors matched, so the whole factor wrongly
+# fell through to Not Applicable instead of a real (if presence-only) score.
+# v6: max_excerpts raised 8->20 in the AR fetcher — the new v5 anchors alone
+# weren't enough on RELIANCE because 8 pages of digit-dense "transaction
+# value" RPT-boilerplate false positives filled the entire default excerpt
+# cap before the genuine "network of merchants" sentence was ever reached.
+# v7: max_per_page raised 1->3 — the default of 1 excerpt/page was still
+# discarding "network of merchants" in favour of a same-page, higher-
+# digit-scoring "merchant engagement" sentence 30-40 words later.
+_A2D_SCHEMA_VERSION = 7
 
 
 def compute_a2d_network_effects_moat(symbol, name=None, description="", force=False):
@@ -2018,29 +2190,90 @@ def compute_a2e_switching_costs_moat(symbol, name=None, description="", force=Fa
     return payload
 
 
+def _fetch_company_growth_and_margin(sym):
+    """Company-level 3yr revenue CAGR + chronological EBITDA-margin history
+    for A.4's single-segment fallback and its Commoditisation margin leg.
+    Reuses the SAME live yfinance-backed pipeline as the main research run
+    (tools/angel_scraper.AngelDataScraper -> tools/metrics_engine's F-05/F-06)
+    rather than a second hand-rolled fetch — fast/live, not an AR PDF fetch.
+    Returns (cagr_3y_revenue: float|None, margins_annual: list). Never
+    raises; an empty/failed fetch returns (None, [])."""
+    try:
+        from tools.angel_scraper import AngelDataScraper
+        from tools.metrics_engine import FundamentalMetricsEngine
+        raw_data = AngelDataScraper().fetch_fundamental_payload(sym)
+        metrics = FundamentalMetricsEngine.calculate_all_metrics(raw_data)
+        growth = metrics.get("F-05_Growth_Summary") or {}
+        margin = metrics.get("F-06_Margin_Analysis") or {}
+        return growth.get("cagr_3y_revenue"), (margin.get("margins_annual") or [])
+    except Exception as e:
+        print(f"[qualitative_engine] A.4 company-level growth/margin fetch failed for {sym}: {e}")
+        return None, []
+
+
+_LIFECYCLE_STAGE_LABEL = {
+    "growth": "Growth", "maturity": "Maturity",
+    "commoditisation": "Commoditisation", "decline": "Decline / obsolescence risk",
+}
+
+# v1: initial deterministic rewrite (replaces the old LLM-narrative stub,
+# which had no schema_version key at all — old payloads are correctly
+# treated as a cache miss).
+# v2: company_margin_trend_compressing now excludes the trailing "TTM" entry
+# from margins_annual before applying the N-year lookback (see that
+# function's docstring) — confirmed on RELIANCE, the lookback previously
+# landed on FY2024 instead of FY2023 because TTM occupied the "latest" slot.
+_A4_SCHEMA_VERSION = 2
+
+
 def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=False):
     """A.4 — Product lifecycle stage: growth, maturity, commoditisation,
-    obsolescence risk. Formula: Relative growth = Company revenue CAGR - Industry
-    revenue CAGR.
+    obsolescence risk. Formula: Relative growth = Segment revenue CAGR -
+    Sector-median revenue CAGR (see tools/sector_cagr_universe.py).
 
-    Sourcing Sequence: AR-14 (revenue/segment) -> PORTAL-07 (rating-agency
-    rationale) -> QUAL-01 (news/analyst commentary, corroborative only).
+    Sourcing Sequence: AR-14 (multi-year revenue/segment note, via
+    tools.annual_report_financials.fetch_multi_year_segment_revenue) ->
+    SECTOR-CAGR-01 (this company's own NSE sector's peer-median 3yr revenue
+    CAGR, via tools.sector_cagr_universe) -> PORTAL-07 (rating-agency
+    rationale) -> QUAL-01 (news/analyst commentary), both NOT_CHECKED — no
+    fetcher for either is wired into this codebase.
 
-    No industry-level revenue CAGR source is wired into this codebase (CRISIL/
-    Moneycontrol industry research isn't fetched anywhere), so the Relative Growth
-    formula cannot be computed even though the company's own revenue CAGR exists
-    elsewhere in the ratio engine — a one-sided subtraction would be worse than no
-    number (DON'T/DO INSTEAD rule #12: never guess a missing input). The lifecycle
-    STAGE itself is a narrative judgment grounded in the same AR-14 proxy (business
-    description + concall digest) used for A.1/A.3 — PORTAL-07 and QUAL-01 are not
-    wired either, so this never exceeds SINGLE_SOURCE.
+    Deliberately deterministic (no LLM), same rationale as A.2.x/A.3 — see
+    tools/product_lifecycle_scoring.py for the segment classifier itself.
+
+    IMPORTANT — a diversified company must NEVER get a single-word lifecycle
+    label. (Institutional knowledge carried over from the old LLM-stub
+    version of this function, which discovered this the hard way: "Reliance
+    mismatch found 1-Aug-2026" — a single-word "Growth"/"Maturity" label for
+    a genuinely multi-segment conglomerate like Reliance is actively
+    misleading, since different segments can be in completely different
+    lifecycle stages at once.) This version enforces that by construction:
+    when 2+ segments are classified, the payload's `blend_summary` is always
+    a revenue-weighted composite string (e.g. "Mature core (62.3% of
+    revenue) + Growth segments (28.1% of revenue)"), never collapsed to one
+    word — only a genuinely single-segment company gets a single-stage
+    summary.
+
+    DOCUMENTED SCOPING LIMITATIONS (surfaced in the payload, not hidden):
+      - Sector benchmark is COMPANY-level (this company's one NSE sector's
+        peer-median CAGR), applied to every segment — not a genuine
+        per-segment sector reclassification (this codebase has no
+        segment-level sector taxonomy).
+      - Commoditisation's margin-compression leg uses the COMPANY-LEVEL
+        EBITDA margin trend, not true segment-level margin (not extractable
+        from this codebase's AR parsing today).
+      - Segment CAGR requires the SAME normalized segment label to appear in
+        both the oldest and newest fetched Annual Report years — a company
+        that renamed/restructured a segment mid-window shows that segment
+        as unclassified (`unclassified_pct`), never a guessed CAGR.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "A.4"
+    title = "Product lifecycle stage: growth, maturity, commoditisation, obsolescence risk"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
-        if cached is not None:
+        if cached is not None and cached.get("schema_version") == _A4_SCHEMA_VERSION:
             try:
                 age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
                 if age <= CACHE_TTL:
@@ -2048,25 +2281,47 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
             except Exception:
                 return cached
 
-    pathway_results = []
-    digest = _concall_digest(sym, name)
-    company = name or sym
-    context = f"COMPANY: {company}\n"
-    if description:
-        context += f"\nBUSINESS DESCRIPTION (from filings):\n{description[:2500]}\n"
-    if digest:
-        context += f"\nRECENT EARNINGS-CALL HIGHLIGHTS (newest first):\n{digest}\n"
+    from tools.product_lifecycle_scoring import (
+        classify_segment_lifecycle_stage, company_margin_trend_compressing,
+        compute_segment_cagr_from_multi_year, normalize_segment_label,
+    )
+    from tools.annual_report_financials import fetch_multi_year_segment_revenue
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_cagr_universe import get_sector_median_cagr
 
-    ar14_checked = bool(description or digest)
+    pathway_results = []
+
+    # --- AR-14: multi-year segment revenue (own-company CAGR input) -------
+    try:
+        multi_year_segments = fetch_multi_year_segment_revenue(sym, name, n_years=4)
+    except Exception as e:
+        print(f"[qualitative_engine] A.4 multi-year segment fetch failed for {sym}: {e}")
+        multi_year_segments = {}
+    segment_cagrs = compute_segment_cagr_from_multi_year(multi_year_segments)
+    ar14_checked = bool(multi_year_segments)
     pathway_results.append({
         "pathway_id": "AR-14",
-        "source": "Revenue/segment note (business description + concall digest proxy)",
+        "source": "Revenue/segment note — multi-year Annual Report segment revenue",
         "result": "CHECKED" if ar14_checked else "NOT_DISCLOSED",
+        "note": None if ar14_checked else "No Annual Report segment note reconciled for any of the latest fiscal years on file.",
+    })
+
+    # --- SECTOR-CAGR-01: this company's sector peer-median CAGR -----------
+    sector = get_nse_sector(sym)
+    sector_result = get_sector_median_cagr(sector) if sector else {
+        "status": "NOT_IN_UNIVERSE", "reason": f"{sym} has no NSE sector tag in the fixed universe.",
+    }
+    sector_median_cagr = sector_result.get("median_cagr") if sector_result.get("status") == "OK" else None
+    pathway_results.append({
+        "pathway_id": "SECTOR-CAGR-01",
+        "source": "Sector-median 3yr revenue CAGR (fixed NSE sector universe, tools/sector_cagr_universe.py)",
+        "result": "CHECKED" if sector_median_cagr is not None else sector_result.get("status", "NOT_DISCLOSED"),
+        "note": sector_result.get("reason"),
     })
     pathway_results.append({
         "pathway_id": "PORTAL-07",
         "source": "Rating Agency Rationale (CRISIL/ICRA/CARE) — industry growth context",
-        "result": "NOT_DISCLOSED",
+        "result": "NOT_CHECKED",
         "note": "No rating-agency rationale fetcher is wired into this codebase yet.",
     })
     pathway_results.append({
@@ -2076,12 +2331,78 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
         "note": "Corroborative-only pathway — not invoked this run.",
     })
 
-    if not ar14_checked:
+    # --- Company-level revenue CAGR + margin trend (fallback + Commoditisation leg) ---
+    company_cagr, margins_annual = _fetch_company_growth_and_margin(sym)
+    margin_trend = company_margin_trend_compressing(margins_annual)
+
+    # --- Segment revenue weights (latest year), same AR-14 fetch A.1/A.3 reuse ---
+    segments_pct, segments_fy = _fetch_segment_revenue_context(sym, name)
+
+    classified_segments = []
+    if segments_pct and len(segments_pct) >= 2:
+        norm_cagr_lookup = {normalize_segment_label(lbl): v for lbl, v in segment_cagrs.items()}
+        for s in segments_pct:
+            entry = norm_cagr_lookup.get(normalize_segment_label(s["label"]))
+            seg_cagr = entry.get("cagr") if entry else None
+            result = classify_segment_lifecycle_stage(seg_cagr, sector_median_cagr, margin_trend)
+            classified_segments.append({
+                "label": s["label"],
+                "share_pct": s["pct"],
+                "segment_cagr": seg_cagr,
+                "stage": result["stage"],
+                "stage_label": _LIFECYCLE_STAGE_LABEL.get(result["stage"]),
+                "relative_growth_pct": result["relative_growth_pct"],
+                "reasoning": result["reasoning"],
+                "matched_across_years": bool(entry and entry.get("matched_across_years")),
+            })
+    elif company_cagr is not None:
+        # Single-segment (or no reconciled segment note) company — classify
+        # at company level directly, as ONE 100%-weight "segment" so the
+        # same blend machinery below still applies uniformly.
+        result = classify_segment_lifecycle_stage(company_cagr, sector_median_cagr, margin_trend)
+        classified_segments.append({
+            "label": "Company (single-segment)",
+            "share_pct": 100.0,
+            "segment_cagr": company_cagr,
+            "stage": result["stage"],
+            "stage_label": _LIFECYCLE_STAGE_LABEL.get(result["stage"]),
+            "relative_growth_pct": result["relative_growth_pct"],
+            "reasoning": result["reasoning"],
+            "matched_across_years": None,
+        })
+
+    stage_weight = {}
+    unclassified_pct = 0.0
+    for seg in classified_segments:
+        if seg["stage"] is None:
+            unclassified_pct += seg["share_pct"]
+        else:
+            stage_weight[seg["stage"]] = stage_weight.get(seg["stage"], 0.0) + seg["share_pct"]
+    unclassified_pct = round(unclassified_pct, 1)
+
+    # Company-level blend string — NEVER a single word once there are 2+
+    # segments (see docstring's "Reliance mismatch" note). A genuinely
+    # single-segment company naturally produces a one-term blend, which is
+    # correct (there is nothing to diversify across), not a violation of
+    # the rule.
+    blend_parts = []
+    for stg in ("growth", "maturity", "commoditisation", "decline"):
+        w = round(stage_weight.get(stg, 0.0), 1)
+        if w > 0.05:
+            label = "Mature core" if stg == "maturity" else f"{_LIFECYCLE_STAGE_LABEL[stg]} segments"
+            blend_parts.append(f"{label} ({w}% of revenue)")
+    if unclassified_pct > 0.05:
+        blend_parts.append(f"Unclassified ({unclassified_pct}% of revenue — segment label not matched across fiscal years, or CAGR/sector-median unavailable)")
+    blend_summary = " + ".join(blend_parts) if blend_parts else None
+
+    available = bool(classified_segments)
+    if not available:
         payload = {
             "subpoint_id": subpoint_id,
-            "title": "Product lifecycle stage: growth, maturity, commoditisation, obsolescence risk",
+            "schema_version": _A4_SCHEMA_VERSION,
+            "title": title,
             "available": False,
-            "reason": "No business description or concall corpus available to ground AR-14.",
+            "reason": "No multi-year segment revenue note and no company-level revenue CAGR could be computed.",
             "pathway_results": pathway_results,
             "relative_growth_pct": None,
         }
@@ -2090,51 +2411,55 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    prompt = (
-        "You are an equity analyst assessing PRODUCT LIFECYCLE STAGE for an Indian listed company, "
-        "using ONLY the grounded context below. Do not invent facts not supported by the context. "
-        "If unclear, say so rather than guessing.\n\n"
-        "Return ONLY JSON:\n"
-        "{\n"
-        '  "lifecycle_stage": "growth" | "maturity" | "commoditisation" | "decline_obsolescence" | "mixed" | "unclear",\n'
-        '  "obsolescence_risk": "low" | "medium" | "high" | "unclear",\n'
-        '  "rationale": "2-4 sentences citing what in the context supports this"\n'
-        "}\n\n"
-        f"=== CONTEXT ===\n{context}"
-    )
-    data, llm_failed = _llm_json(
-        sym, "A.4", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
-        prompt, max_tokens=600, temperature=0.1,
-    )
+    # Rationale sentence for the card's "finding" field — deterministic,
+    # built from the same classified data, never LLM-authored.
+    if blend_parts:
+        rationale = f"{sym}: {blend_summary}."
+        if sector_median_cagr is not None:
+            rationale += f" Benchmarked against sector '{sector}' peer-median 3yr revenue CAGR of {sector_median_cagr * 100:.1f}%."
+        else:
+            rationale += f" Sector-median CAGR benchmark unavailable ({sector_result.get('status')}) — classification limited to what the Decline (negative-CAGR) check alone could determine."
+    else:
+        rationale = "Segment revenue history was found but none could be classified — see 'unclassified_pct' and per-segment reasoning."
 
-    lifecycle_stage = str(data.get("lifecycle_stage") or "unclear").strip().lower()
-    if lifecycle_stage not in ("growth", "maturity", "commoditisation", "decline_obsolescence", "mixed", "unclear"):
-        lifecycle_stage = "unclear"
-    obsolescence_risk = str(data.get("obsolescence_risk") or "unclear").strip().lower()
-    if obsolescence_risk not in ("low", "medium", "high", "unclear"):
-        obsolescence_risk = "unclear"
-    rationale = str(data.get("rationale") or "").strip()
-
-    confidence_tag = "SINGLE_SOURCE" if rationale else "SEARCH_INCONCLUSIVE"
+    confidence_tag = "SINGLE_SOURCE" if any(s["stage"] is not None for s in classified_segments) else "SEARCH_INCONCLUSIVE"
 
     payload = {
         "subpoint_id": subpoint_id,
-        "title": "Product lifecycle stage: growth, maturity, commoditisation, obsolescence risk",
+        "schema_version": _A4_SCHEMA_VERSION,
+        "title": title,
         "available": True,
-        "lifecycle_stage": lifecycle_stage,
-        "obsolescence_risk": obsolescence_risk,
+        "segments": classified_segments,
+        "unclassified_pct": unclassified_pct,
+        "blend_summary": blend_summary,
+        "sector": sector,
+        "sector_median_cagr_pct": round(sector_median_cagr * 100, 2) if sector_median_cagr is not None else None,
+        "sector_benchmark_status": sector_result.get("status"),
+        "company_margin_trend_compressing": (margin_trend or {}).get("compressing") if margin_trend else None,
+        "segment_fiscal_year": segments_fy,
+        "relative_growth_pct": (classified_segments[0]["relative_growth_pct"]
+                                 if len(classified_segments) == 1 else None),
         "rationale": rationale,
-        "relative_growth_pct": None,  # requires industry CAGR — not wired
+        "limitations": [
+            "Sector benchmark is company-level (this company's own single NSE sector's peer-median CAGR), "
+            "applied uniformly to every segment — not a genuine per-segment sector reclassification.",
+            "Commoditisation's margin-compression check uses the company-level EBITDA margin trend, not "
+            "true segment-level margin.",
+        ],
         "pathway_results": pathway_results,
-        "grounded": bool(digest),
     }
-    if not llm_failed:
-        write_qualitative(sym, subpoint_id, payload, confidence_tag)
-    else:
-        print(f"[qualitative_engine] A.4 NOT cached for {sym} — LLM call did not run; will retry next request.")
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
+
+
+# v2: full deterministic rewrite (replaces the old pure-LLM-guess stub).
+# v3: pricing_realisation_extractor's quote-verification guardrail tightened
+# (whitespace-normalized FULL quote match instead of a 40-char prefix check)
+# — bumped so a v2 A.5 payload built on the weaker guardrail is never served
+# as current.
+_A5_SCHEMA_VERSION = 3
 
 
 def compute_a5_pricing_power(symbol, name=None, description="", force=False):
@@ -2142,25 +2467,47 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
     pass-through of cost inflation. Formula: Price pass-through ratio = Change in
     realisation % / Change in input cost %.
 
-    Sourcing Sequence: AR-13 (MD&A narrative) -> AGG-01 (fallback/cross-check
-    only) -> QUAL-02 (concall transcripts) -> NICHE-14 (MCX/LME commodity prices).
+    Sourcing Sequence: QUAL-02 (concall transcripts, realisation/volume numeric
+    extraction — tools.pricing_realisation_extractor) -> NICHE-14 (MCX/LME
+    commodity input-cost index, FRED proxy — tools.commodity_price_fetcher) ->
+    AR-13 (MD&A narrative, LLM narrative fallback ONLY when the ratio genuinely
+    can't be computed) -> AGG-01 (fallback/cross-check only, not invoked).
 
-    AR-13 (business description) and QUAL-02 (the same grounded concall digest
-    used elsewhere) both feed ONE combined LLM synthesis call here — they are not
-    independently checked and cross-compared, so this stays SINGLE_SOURCE even
-    though two pathway IDs are marked CHECKED (cross-verification rule: only
-    counts as VERIFIED when 2+ pathways are checked AND agree independently).
-    NICHE-14 (MCX/LME commodity price index) has no fetcher wired, so the
-    quantitative Price pass-through ratio cannot be computed — recorded
-    NOT_DISCLOSED rather than guessed; only a qualitative pricing_power rating is
-    produced. AGG-01 is fallback-only and not invoked this run.
+    Deliberately deterministic for the CLASSIFICATION itself (see
+    tools/pricing_power_scoring.py) — same rationale as A.2.x/A.3/A.4: a
+    pricing-power label built on a bare LLM guess is exactly the anti-pattern
+    the spec's own guardrail #23 forbids ("if the pass-through ratio cannot be
+    computed, the result MUST be Insufficient Data — never default to
+    Moderate"). The ONLY LLM call in this pipeline is the upstream
+    realisation/volume NUMBER extraction (tools.pricing_realisation_extractor),
+    and even that is gated by a numeric-anchor-in-quote guardrail — every
+    accepted number carries a verbatim transcript quote. A short LLM-authored
+    narrative is still produced as a clearly-labeled qualitative supplement
+    (never blended into the rating itself), using AR-13/QUAL-02 context, same
+    SINGLE_SOURCE-at-most convention as before.
+
+    DOCUMENTED SCOPING LIMITATIONS (surfaced in the payload, not hidden):
+      - NICHE-14 is a FRED-published IMF commodity price INDEX used as an
+        explicitly-labeled PROXY for MCX/LME — neither offers a free,
+        programmatic, historical spot-price feed (see
+        tools/commodity_price_fetcher.py's module docstring). Every source
+        field referencing it says so; never claim it's literally MCX/LME.
+      - The company->commodity mapping is a static, sector-level lookup
+        (tools/commodity_price_fetcher.py's `_SECTOR_COMMODITY_MAP`), generic
+        across every company in a sector — a company with no mapped sector, or
+        a sector this pass didn't map, honestly gets Insufficient Data for 5B
+        rather than a guessed commodity.
+      - 5A (realisation/volume) requires a transcript to have EXPLICITLY
+        stated numbers with a verbatim quote; quarters without one are simply
+        absent from the trend, never guessed.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "A.5"
+    title = "Pricing power: ability to raise prices without losing customers; pass-through of cost inflation"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
-        if cached is not None:
+        if cached is not None and cached.get("schema_version") == _A5_SCHEMA_VERSION:
             try:
                 age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
                 if age <= CACHE_TTL:
@@ -2168,20 +2515,60 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
             except Exception:
                 return cached
 
-    pathway_results = []
-    digest = _concall_digest(sym, name)
-    company = name or sym
-    context = f"COMPANY: {company}\n"
-    if description:
-        context += f"\nBUSINESS DESCRIPTION (from filings):\n{description[:2500]}\n"
-    if digest:
-        context += f"\nRECENT EARNINGS-CALL HIGHLIGHTS (newest first):\n{digest}\n"
+    from tools.pricing_power_scoring import classify_pricing_power, compute_pass_through_ratio
+    from tools.pricing_realisation_extractor import extract_realisation_volume_series
+    from tools.commodity_price_fetcher import get_company_commodity, fetch_commodity_price_series
+    from tools.nse_sector_map import get_nse_sector
 
+    pathway_results = []
+
+    # --- QUAL-02: realisation/volume numeric extraction (5A) ---------------
+    try:
+        rv_result = extract_realisation_volume_series(sym, name)
+    except Exception as e:
+        print(f"[qualitative_engine] A.5 realisation/volume extraction failed for {sym}: {e}")
+        rv_result = {"status": "NOT_DISCLOSED", "quarters": [], "reason": str(e)}
+    rv_quarters = rv_result.get("quarters") or []
+    qual02_checked = rv_result.get("status") == "OK"
+    pathway_results.append({
+        "pathway_id": "QUAL-02",
+        "source": "Concall Transcript — realisation/volume numeric extraction (verbatim-quote-anchored)",
+        "result": "CHECKED" if qual02_checked else "NOT_DISCLOSED",
+        "note": rv_result.get("reason"),
+    })
+
+    # --- NICHE-14: MCX/LME-proxy commodity input-cost index (5B) -----------
+    sector = get_nse_sector(sym)
+    commodity = get_company_commodity(sym, sector)
+    commodity_series_result = None
+    if commodity:
+        try:
+            commodity_series_result = fetch_commodity_price_series(commodity["fred_series_id"])
+        except Exception as e:
+            print(f"[qualitative_engine] A.5 commodity fetch failed for {sym}: {e}")
+            commodity_series_result = {"status": "ERROR", "reason": str(e)}
+    niche14_checked = bool(commodity_series_result and commodity_series_result.get("status") == "OK")
+    if not commodity:
+        niche14_note = (f"No commodity mapping for sector '{sector}'." if sector
+                         else f"{sym} has no NSE sector tag in the fixed universe — cannot infer an input commodity.")
+    elif not niche14_checked:
+        niche14_note = commodity_series_result.get("reason") if commodity_series_result else "Fetch did not run."
+    else:
+        niche14_note = None
+    pathway_results.append({
+        "pathway_id": "NICHE-14",
+        "source": commodity_series_result.get("source") if niche14_checked else "MCX / LME — commodity input-cost index (FRED proxy; no free historical MCX/LME feed exists)",
+        "result": "CHECKED" if niche14_checked else "NOT_IN_UNIVERSE" if not commodity else "NOT_DISCLOSED",
+        "note": niche14_note,
+        "commodity_name": commodity.get("commodity_name") if commodity else None,
+    })
+
+    # --- AR-13 / AGG-01: narrative context (fallback-only, see docstring) --
+    digest = _concall_digest(sym, name)
     ar13_checked = bool(description)
-    qual02_checked = bool(digest)
     pathway_results.append({
         "pathway_id": "AR-13",
-        "source": "MD&A narrative (business description proxy)",
+        "source": "MD&A narrative (business description proxy) — narrative supplement only, never feeds the rating",
         "result": "CHECKED" if ar13_checked else "NOT_DISCLOSED",
     })
     pathway_results.append({
@@ -2190,72 +2577,115 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
         "result": "NOT_CHECKED",
         "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
     })
-    pathway_results.append({
-        "pathway_id": "QUAL-02",
-        "source": "Concall Transcript (grounded digest)",
-        "result": "CHECKED" if qual02_checked else "NOT_HELD",
-        "note": None if qual02_checked else "No transcript found for a recent quarter — do not assume one happened unseen.",
-    })
-    pathway_results.append({
-        "pathway_id": "NICHE-14",
-        "source": "MCX / LME — commodity input-cost index",
-        "result": "NOT_DISCLOSED",
-        "note": "No MCX/LME commodity-price fetcher is wired into this codebase yet — Price pass-through ratio cannot be computed without an input-cost index.",
-    })
 
-    if not ar13_checked and not qual02_checked:
+    # --- 5A confirmation + 5B pass-through ratio (both deterministic) ------
+    realisation_change_pct = None
+    input_cost_change_pct = None
+    pass_through_ratio = None
+    if qual02_checked and niche14_checked:
+        usable_rv = [q for q in rv_quarters if q.get("realisation_per_unit") is not None]
+        if len(usable_rv) >= 2:
+            r0, r1 = usable_rv[0]["realisation_per_unit"], usable_rv[-1]["realisation_per_unit"]
+            if r0:
+                realisation_change_pct = round((r1 - r0) / r0 * 100, 2)
+            # Align the commodity series to the SAME quarter window. Concall
+            # dates come from screener_scraper as "Mon YYYY" (e.g. "Feb 2026"),
+            # NOT the FRED series' ISO "YYYY-MM-DD" — a raw string compare
+            # between the two formats would silently misalign every lookup
+            # (e.g. "Feb 2026" > "2026-01-01" lexicographically is FALSE even
+            # though Feb 2026 is chronologically later), so convert to ISO
+            # first rather than comparing the raw strings.
+            series = commodity_series_result["series"]
+            start_iso = _concall_date_to_iso(usable_rv[0].get("date"))
+            end_iso = _concall_date_to_iso(usable_rv[-1].get("date"))
+            windowed = [p for p in series if (not start_iso or p["date"] <= start_iso)] or series[:1]
+            windowed_end = [p for p in series if (not end_iso or p["date"] <= end_iso)] or series[-1:]
+            c0 = windowed[-1]["value"] if windowed else None
+            c1 = windowed_end[-1]["value"] if windowed_end else None
+            if c0 and c1:
+                input_cost_change_pct = round((c1 - c0) / c0 * 100, 2)
+        pass_through_ratio = compute_pass_through_ratio(realisation_change_pct, input_cost_change_pct)
+
+    classification = classify_pricing_power(rv_quarters, pass_through_ratio)
+    pricing_power_rating = classification["pricing_power_rating"]
+
+    # --- Optional narrative supplement (LLM), never overrides the rating ---
+    rationale = None
+    llm_failed = False
+    if ar13_checked or digest:
+        company = name or sym
+        context = f"COMPANY: {company}\n"
+        if description:
+            context += f"\nBUSINESS DESCRIPTION (from filings):\n{description[:2500]}\n"
+        if digest:
+            context += f"\nRECENT EARNINGS-CALL HIGHLIGHTS (newest first):\n{digest}\n"
+        prompt = (
+            "You are an equity analyst writing a SHORT supplementary narrative on PRICING POWER for an Indian "
+            "listed company, using ONLY the grounded context below. Do not invent facts not supported by the "
+            "context. This narrative is a supplement to an already-computed quantitative rating — do not assign "
+            "your own rating, just describe what the context shows about price hikes taken / realization trends / "
+            "cost pass-through commentary in 2-4 sentences.\n\n"
+            'Return ONLY JSON: {"narrative": "2-4 sentences"}\n\n'
+            f"=== CONTEXT ===\n{context}"
+        )
+        data, llm_failed = _llm_json(
+            sym, "A.5", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
+            prompt, max_tokens=400, temperature=0.1,
+        )
+        rationale = str(data.get("narrative") or "").strip() or None
+
+    if not rationale:
+        rationale = classification["reasoning"]
+
+    available = qual02_checked or niche14_checked or ar13_checked
+    if not available:
         payload = {
             "subpoint_id": subpoint_id,
-            "title": "Pricing power: ability to raise prices without losing customers; pass-through of cost inflation",
+            "schema_version": _A5_SCHEMA_VERSION,
+            "title": title,
             "available": False,
-            "reason": "No business description or concall corpus available to ground AR-13/QUAL-02.",
+            "reason": "No concall realisation/volume data, no commodity input-cost series, and no business "
+                      "description available to ground any pathway.",
             "pathway_results": pathway_results,
             "price_pass_through_ratio": None,
+            "pricing_power_rating": "Insufficient Data",
         }
         write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
         payload["confidence_tag"] = "NOT_FOUND"
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    prompt = (
-        "You are an equity analyst assessing PRICING POWER for an Indian listed company, "
-        "using ONLY the grounded context below. Do not invent facts not supported by the context. "
-        "If unclear, say so rather than guessing.\n\n"
-        "Return ONLY JSON:\n"
-        "{\n"
-        '  "pricing_power_rating": "Strong" | "Moderate" | "Weak" | "unclear",\n'
-        '  "rationale": "2-4 sentences citing what in the context supports this — price hikes taken, realization trends, cost pass-through commentary"\n'
-        "}\n\n"
-        f"=== CONTEXT ===\n{context}"
-    )
-    data, llm_failed = _llm_json(
-        sym, "A.5", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
-        prompt, max_tokens=600, temperature=0.1,
-    )
-
-    pricing_power_rating = str(data.get("pricing_power_rating") or "unclear").strip()
-    if pricing_power_rating.lower() not in ("strong", "moderate", "weak"):
-        pricing_power_rating = "unclear"
-    else:
-        pricing_power_rating = pricing_power_rating.capitalize()
-    rationale = str(data.get("rationale") or "").strip()
-
-    confidence_tag = "SINGLE_SOURCE" if rationale else "SEARCH_INCONCLUSIVE"
+    confidence_tag = "SINGLE_SOURCE" if (qual02_checked or niche14_checked) else "SEARCH_INCONCLUSIVE"
 
     payload = {
         "subpoint_id": subpoint_id,
-        "title": "Pricing power: ability to raise prices without losing customers; pass-through of cost inflation",
+        "schema_version": _A5_SCHEMA_VERSION,
+        "title": title,
         "available": True,
         "pricing_power_rating": pricing_power_rating,
+        "price_pass_through_ratio": pass_through_ratio,
+        "realisation_change_pct": realisation_change_pct,
+        "input_cost_change_pct": input_cost_change_pct,
+        "commodity_name": commodity.get("commodity_name") if commodity else None,
+        "commodity_source": commodity_series_result.get("source") if niche14_checked else None,
+        "realisation_volume_quarters": rv_quarters,
+        "realisation_volume_confirmation": classification["confirmation"],
         "rationale": rationale,
-        "price_pass_through_ratio": None,  # requires MCX/LME input-cost index — not wired
         "pathway_results": pathway_results,
         "grounded": bool(digest),
+        "limitations": [
+            "NICHE-14 (input-cost leg) uses FRED's published IMF commodity price index as an explicitly-labeled "
+            "PROXY for MCX/LME — neither offers a free, programmatic, historical spot-price feed.",
+            "The company->commodity mapping is a static, sector-level lookup (generic across every company in a "
+            "sector), not a company-specific input-cost basket.",
+            "5A realisation/volume figures only include quarters where a transcript EXPLICITLY stated the number "
+            "with a verbatim quote — quarters without one are simply absent from the trend, never guessed.",
+        ],
     }
     if not llm_failed:
         write_qualitative(sym, subpoint_id, payload, confidence_tag)
     else:
-        print(f"[qualitative_engine] A.5 NOT cached for {sym} — LLM call did not run; will retry next request.")
+        print(f"[qualitative_engine] A.5 NOT cached for {sym} — LLM narrative call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -3299,6 +3729,21 @@ def compute_c2_promoter_pledging(symbol, name=None, force=False):
     return payload
 
 
+_C3_SCHEMA_VERSION = 1
+
+# Relationship-type substrings that flag a counterparty as promoter/KMP-
+# adjacent. Ind AS 24 vocabulary only (generic across every filer, per
+# CLAUDE.md's no-ticker-specific-logic rule) — this ROUTES the row to a
+# human analyst as a flag, it never asserts wrongdoing or a conclusion
+# (same precedent as C.8's minority-shareholder-treatment handling).
+_C3_PROMOTER_KMP_RELATIONSHIP_MARKERS = [
+    "promoter", "key management personnel", "kmp", "director", "relative of",
+    "managing director", "whole-time director", "chairman", "chief executive",
+    "chief financial officer", "company secretary", "enterprise controlled by",
+    "enterprise significantly influenced by", "firm in which",
+]
+
+
 def compute_c3_related_party_transactions(symbol, name=None, force=False):
     """C.3 — Related-party transactions (RPTs): frequency, counterparty identity,
     pricing and rationale. Formula: RPT intensity = Total RPT value / Total
@@ -3308,19 +3753,34 @@ def compute_c3_related_party_transactions(symbol, name=None, force=False):
     (director registry, NOT bio — counterparty cross-check) -> AGG-01 (Tofler,
     fallback/cross-check only).
 
-    Same situation as B.2/B.3/B.6: no AR-04 RPT-note parser, no AR-05 group-
-    structure parser, no PORTAL-05 MCA fetcher, no Tofler fetcher. RPT value,
-    counterparty names, and pricing/rationale disclosures don't legitimately
-    appear in a generic business-description paragraph or concall transcript —
-    same guardrail as B.2/B.3/B.6, that text is not used as a stand-in here.
-    Honest full gap, no LLM call.
+    AR-04 is now backed by a real fetcher: tools.annual_report_financials.
+    fetch_rpt_evidence_from_annual_report locates the Ind AS 24 "Related
+    Party Disclosures" note text, and tools.rpt_extractor LLM-extracts
+    counterparty/relationship/transaction/amount rows with a mandatory
+    verbatim-quote + numeric-anchor guardrail (a row failing either check is
+    dropped, never guessed — per CLAUDE.md).
+
+    AR-05 (group structure — subsidiary list / Form AOC-1) has NO parser in
+    this codebase; that's a separate, deliberately untouched future build
+    (see C.4, the adjacent group-structural-complexity sub-point). Left
+    NOT_DISCLOSED here, honestly.
+
+    PORTAL-05 (MCA Company/Director Master Data) has no free, programmatic
+    path: the public MCA Company/LLP Master Data search now returns 403
+    Forbidden (MCA locked down no-login access in Dec 2025), and no MCA API
+    exists. Left NOT_DISCLOSED with that explanation — same class of honest
+    limitation as NICHE-14/MCX-LME for A.5's pricing power. No fetcher was
+    built for it (there is nothing free to build against).
+
+    AGG-01 (Tofler) stays NOT_CHECKED — fallback/cross-check only, never
+    invoked, same as every other fallback-only pathway in this codebase.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "C.3"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
-        if cached is not None:
+        if cached is not None and cached.get("schema_version") == _C3_SCHEMA_VERSION:
             try:
                 age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
                 if age <= CACHE_TTL:
@@ -3328,24 +3788,112 @@ def compute_c3_related_party_transactions(symbol, name=None, force=False):
             except Exception:
                 return cached
 
+    from tools.rpt_extractor import extract_rpt_records
+
+    try:
+        rpt_result = extract_rpt_records(sym, name)
+    except Exception as e:
+        print(f"[qualitative_engine] C.3 RPT extraction failed for {sym}: {e}")
+        rpt_result = {"status": "NOT_DISCLOSED", "records": [], "reason": f"Extraction failed: {e}"}
+
+    records = rpt_result.get("records") or []
+    ar04_result = "CHECKED" if records else "NOT_DISCLOSED"
+    ar04_note = None if records else rpt_result.get("reason")
+
+    # --- Deterministic aggregation (LLM touched only the row extraction
+    # step above, same architecture split as A.5's pricing power) ----------
+    amounts = [r["amount_cr"] for r in records if r.get("amount_cr") is not None]
+    total_rpt_value_cr = round(sum(amounts), 2) if amounts else None
+
+    # Total revenue — reuse the SAME cached AR P&L extraction every other
+    # AR-sourced ratio in this codebase uses (_get_extracted_financials),
+    # not a second hand-rolled fetch. Only computed if a real fiscal-year
+    # figure is available; never estimated.
+    total_revenue_cr = None
+    try:
+        from tools.annual_report_financials import list_annual_report_years, _get_extracted_financials
+        years = list_annual_report_years(sym, name) or []
+        fy = rpt_result.get("fiscal_year") or (years[0] if years else None)
+        if fy:
+            parsed = _get_extracted_financials(sym, name, fy, consolidated=True)
+            revenue = parsed.get("revenue") if isinstance(parsed, dict) else None
+            if revenue and revenue[0]:
+                total_revenue_cr = float(revenue[0])
+    except Exception as e:
+        print(f"[qualitative_engine] C.3 total-revenue fetch failed for {sym}: {e}")
+
+    # RPT intensity % — only when BOTH numerator and denominator are real
+    # numbers (per CLAUDE.md: unknown/not-quantifiable values are never
+    # converted to zero or a fabricated estimate).
+    rpt_intensity_pct = None
+    if total_rpt_value_cr is not None and total_revenue_cr:
+        rpt_intensity_pct = round((total_rpt_value_cr / total_revenue_cr) * 100, 2)
+
+    # rpt_frequency — a qualitative bucket (None/Occasional/Frequent) rather
+    # than the raw validated-row count. Chosen because the raw count is a
+    # function of how many distinct rows the AR note happens to enumerate
+    # (which varies hugely by filer's disclosure granularity — one filer
+    # might list 3 aggregated line items, another 30 individually-named
+    # counterparties, for genuinely comparable underlying activity), so a
+    # bare count isn't comparable across companies the way a bucket is.
+    # This mirrors the existing downstream contract already baked into
+    # agent/stock_agent.py's _enum(f36.get('rpt_frequency'), ['None',
+    # 'Occasional', 'Frequent']). The raw count is still reported
+    # separately (rpt_row_count) for full auditability/testing.
+    row_count = len(records)
+    if row_count == 0:
+        rpt_frequency = None  # not "None" the bucket — genuinely not computed, distinct from a confirmed-zero count
+    elif row_count <= 3:
+        rpt_frequency = "Occasional"
+    else:
+        rpt_frequency = "Frequent"
+
+    # counterparty_flags — routes promoter/KMP-adjacent counterparties to a
+    # human analyst; never asserts wrongdoing (same precedent as C.8).
+    counterparty_flags = []
+    seen_flags = set()
+    for r in records:
+        rel = (r.get("relationship_type") or "").lower()
+        if any(m in rel for m in _C3_PROMOTER_KMP_RELATIONSHIP_MARKERS):
+            label = f"{r['counterparty']} ({r.get('relationship_type')})"
+            if label not in seen_flags:
+                seen_flags.add(label)
+                counterparty_flags.append(label)
+
+    if records:
+        rationale = (
+            f"{row_count} related-party transaction row(s) verified against verbatim Annual Report quotes "
+            f"({'FY' + str(rpt_result.get('fiscal_year')) if rpt_result.get('fiscal_year') else 'latest available year'}). "
+            + (f"RPT intensity ~{rpt_intensity_pct}% of total revenue ({total_rpt_value_cr} Cr of {total_revenue_cr} Cr). "
+               if rpt_intensity_pct is not None else
+               "RPT intensity not computed — either total RPT value or total revenue could not be confirmed as a real number. ")
+            + (f"{len(counterparty_flags)} counterparty flag(s) for human review." if counterparty_flags else "No promoter/KMP-adjacent counterparties flagged among verified rows.")
+        )
+    else:
+        rationale = (
+            "Not computed — the Related Party Disclosures note could not be located and/or no row could be "
+            "extracted and verified against a verbatim quote in this Annual Report."
+            + (f" ({ar04_note})" if ar04_note else "")
+        )
+
     pathway_results = [
         {
             "pathway_id": "AR-04",
             "source": "Related Party Transactions note (Notes to Financial Statements)",
-            "result": "NOT_DISCLOSED",
-            "note": "No AR-04 RPT-note parser is wired into this codebase yet.",
+            "result": ar04_result,
+            "note": ar04_note,
         },
         {
             "pathway_id": "AR-05",
             "source": "Subsidiaries / group structure (Form AOC-1 + Consolidated Notes)",
             "result": "NOT_DISCLOSED",
-            "note": "No AR-05 group-structure parser is wired into this codebase yet.",
+            "note": "No AR-05 group-structure parser is wired into this codebase yet (separate future build, tracked under C.4).",
         },
         {
             "pathway_id": "PORTAL-05",
             "source": "MCA Company/Director Master Data (counterparty cross-check, NOT bio)",
             "result": "NOT_DISCLOSED",
-            "note": "No MCA director-master-data fetcher is wired into this codebase yet.",
+            "note": "MCA's public Company/LLP Master Data search returns 403 Forbidden (MCA locked down no-login access, Dec 2025) — no free, programmatic path exists. No fetcher was built; there is nothing free to build against.",
         },
         {
             "pathway_id": "AGG-01",
@@ -3357,15 +3905,20 @@ def compute_c3_related_party_transactions(symbol, name=None, force=False):
 
     payload = {
         "subpoint_id": subpoint_id,
+        "schema_version": _C3_SCHEMA_VERSION,
         "title": "Related-party transactions (RPTs): frequency, counterparty identity, pricing and rationale",
         "available": True,
-        "rpt_intensity_pct": None,
-        "rpt_frequency": None,
-        "counterparty_flags": [],
-        "rationale": "Not computed — AR-04 (RPT note), AR-05 (group structure), and PORTAL-05 (MCA counterparty cross-check) all require fetchers this codebase doesn't have yet.",
+        "rpt_intensity_pct": rpt_intensity_pct,
+        "rpt_frequency": rpt_frequency,
+        "rpt_row_count": row_count,
+        "total_rpt_value_cr": total_rpt_value_cr,
+        "total_revenue_cr": total_revenue_cr,
+        "counterparty_flags": counterparty_flags,
+        "records": records,  # {counterparty, relationship_type, transaction_type, amount_cr, quote, fiscal_year}
+        "rationale": rationale,
         "pathway_results": pathway_results,
     }
-    confidence_tag = "SEARCH_INCONCLUSIVE"
+    confidence_tag = "SINGLE_SOURCE" if records else "SEARCH_INCONCLUSIVE"
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -3566,31 +4119,42 @@ def compute_c6_auditor_relationships(symbol, name=None, force=False):
     return payload
 
 
+_C7_SCHEMA_VERSION = 1  # v1: real deterministic multi-year capital-allocation-mix build, replacing the "Not computed" stub
+
+
 def compute_c7_capital_allocation(symbol, name=None, force=False):
     """C.7 — Capital allocation decisions: history of cash deployment and
     rationale. Formula: Capital allocation mix % = Each use of cash / Total cash
-    deployed (a 5-8 year table of capex, M&A spend, buybacks and dividends from
-    the Cash Flow Statement).
+    deployed, over a 5-8 year table of capex, M&A spend, buybacks and dividends
+    from the Cash Flow Statement.
 
     Sourcing Sequence: AR-08 (Statement of Cash Flows) -> AGG-01 (fallback/
-    cross-check only).
+    cross-check only, NOT invoked).
 
-    AR-08 (the Cash Flow Statement itself) IS parsed elsewhere in this codebase,
-    but only for a SINGLE latest year's capex figure (used by a different ratio,
-    Free Cash Flow) — not the 5-8 year, 4-line (capex / M&A spend / buybacks /
-    dividends) breakdown this sub-point's formula actually requires. Dividends
-    paid, buyback spend, and M&A/acquisition cash outflow are not extracted
-    anywhere in this codebase at all, for any year. Building a real multi-year
-    capital-allocation mix table needs new cash-flow-statement parsing work this
-    pass doesn't include — recorded as an honest gap rather than a guessed mix,
-    same convention as C.3-C.6.
+    Deterministic (no LLM) — same convention as every other C-section row
+    built this session. Reuses
+    tools.annual_report_financials.fetch_multi_year_cash_flow_items (new,
+    mirrors fetch_multi_year_segment_revenue's pattern) for the raw per-year
+    capex/dividend/buyback/acquisition figures, then computes each year's
+    mix % here.
+
+    Missing-category handling (CLAUDE.md: never convert unknown to zero) —
+    per year, `total_deployed` is the sum ONLY over categories that have a
+    real (non-None) parsed value that year; a category legitimately absent
+    from the filing that year is recorded in `missing_categories` for that
+    year and EXCLUDED from both the numerator and denominator, never treated
+    as a 0% contributor. This means the mix percentages for a year with a
+    missing category describe the mix AMONG the categories that WERE found,
+    not a true 4-way split — `missing_categories` makes that limitation
+    explicit rather than hiding it.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "C.7"
+    title = "Capital allocation decisions: history of cash deployment and rationale"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
-        if cached is not None:
+        if cached is not None and cached.get("schema_version") == _C7_SCHEMA_VERSION:
             try:
                 age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
                 if age <= CACHE_TTL:
@@ -3598,12 +4162,21 @@ def compute_c7_capital_allocation(symbol, name=None, force=False):
             except Exception:
                 return cached
 
+    from tools.annual_report_financials import fetch_multi_year_cash_flow_items
+
+    try:
+        multi_year = fetch_multi_year_cash_flow_items(sym, name, n_years=6)
+    except Exception as e:
+        print(f"[qualitative_engine] C.7 multi-year cash-flow fetch failed for {sym}: {e}")
+        multi_year = {}
+
+    ar08_checked = bool(multi_year)
     pathway_results = [
         {
             "pathway_id": "AR-08",
             "source": "Statement of Cash Flows (5-8yr capex/M&A/buybacks/dividends breakdown)",
-            "result": "NOT_DISCLOSED",
-            "note": "Only a single latest-year capex figure is extracted elsewhere in this codebase (for the Free Cash Flow ratio) — dividends paid, buyback spend, and M&A cash outflow are not extracted for any year, and no multi-year table is built.",
+            "result": "CHECKED" if ar08_checked else "NOT_DISCLOSED",
+            "note": None if ar08_checked else "No year in the latest fiscal-year window on file yielded a parseable capex/dividend/buyback/acquisition figure from the Cash Flow Statement.",
         },
         {
             "pathway_id": "AGG-01",
@@ -3613,16 +4186,96 @@ def compute_c7_capital_allocation(symbol, name=None, force=False):
         },
     ]
 
+    if not multi_year:
+        payload = {
+            "subpoint_id": subpoint_id,
+            "schema_version": _C7_SCHEMA_VERSION,
+            "title": title,
+            "available": False,
+            "reason": "No Cash Flow Statement year in the latest fiscal-year window on file yielded any of capex/dividend/buyback/acquisition figures.",
+            "capital_allocation_mix": None,
+            "years_covered": None,
+            "rationale": None,
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
+        payload["confidence_tag"] = "NOT_FOUND"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    categories = ("capex", "acquisition_outflow", "buyback_spend", "dividend_paid")
+    category_label = {
+        "capex": "Capex", "acquisition_outflow": "M&A", "buyback_spend": "Buybacks", "dividend_paid": "Dividends",
+    }
+
+    by_year = []
+    for fy in sorted(multi_year.keys()):
+        row = multi_year[fy]
+        present = {c: row.get(c) for c in categories if row.get(c) is not None}
+        missing = [category_label[c] for c in categories if row.get(c) is None]
+        total = sum(present.values())
+        mix_pct = {c: round((v / total) * 100.0, 1) if total > 0 else None for c, v in present.items()}
+        by_year.append({
+            "fiscal_year": fy,
+            "amounts_cr": {category_label[c]: round(v, 2) for c, v in present.items()},
+            "mix_pct": {category_label[c]: mix_pct[c] for c in present},
+            "total_deployed_cr": round(total, 2) if total > 0 else None,
+            "missing_categories": missing,
+        })
+
+    years_covered = [r["fiscal_year"] for r in by_year]
+
+    # Multi-year averages — averaged only over years where that category had
+    # a real parsed value (never imputing 0 for a missing year), same
+    # "exclude, don't zero" rule as the per-year mix above.
+    avg_mix = {}
+    buyback_years = []
+    acquisition_years = []
+    for c in categories:
+        vals = [r["mix_pct"].get(category_label[c]) for r in by_year if category_label[c] in r["mix_pct"]]
+        vals = [v for v in vals if v is not None]
+        avg_mix[category_label[c]] = round(sum(vals) / len(vals), 1) if vals else None
+        if c == "buyback_spend":
+            buyback_years = [r["fiscal_year"] for r in by_year if r["amounts_cr"].get("Buybacks", 0) and r["amounts_cr"]["Buybacks"] > 0]
+        if c == "acquisition_outflow":
+            acquisition_years = [r["fiscal_year"] for r in by_year if r["amounts_cr"].get("M&A", 0) and r["amounts_cr"]["M&A"] > 0]
+
+    # Deterministic rationale sentence — built entirely from the computed
+    # numbers above, never LLM-authored (matches this build's constraint and
+    # every other deterministic C-row this session).
+    yr_lo, yr_hi = min(years_covered), max(years_covered)
+    parts = [f"Over FY{yr_lo}-FY{yr_hi} ({len(years_covered)} fiscal years with data)"]
+    avg_fragments = []
+    for c in categories:
+        lbl = category_label[c]
+        v = avg_mix.get(lbl)
+        if v is not None:
+            avg_fragments.append(f"{lbl.lower()} averaged {v}% of cash deployed")
+    if avg_fragments:
+        parts.append(", ".join(avg_fragments))
+    if buyback_years:
+        parts.append(f"buybacks occurred in FY{', FY'.join(str(y) for y in buyback_years)}")
+    if acquisition_years:
+        parts.append(f"M&A/acquisition outflow occurred in FY{', FY'.join(str(y) for y in acquisition_years)}")
+    rationale = "; ".join(parts) + "."
+    if any(r["missing_categories"] for r in by_year):
+        rationale += " Note: at least one category was not parseable from the filing in one or more years (see per-year 'missing_categories') — those years' mix % reflects only the categories that WERE found, not a true 4-way split."
+
+    confidence_tag = "SINGLE_SOURCE"
+
     payload = {
         "subpoint_id": subpoint_id,
-        "title": "Capital allocation decisions: history of cash deployment and rationale",
+        "schema_version": _C7_SCHEMA_VERSION,
+        "title": title,
         "available": True,
-        "capital_allocation_mix": None,
-        "years_covered": None,
-        "rationale": "Not computed — a 5-8 year, capex/M&A/buybacks/dividends cash-flow breakdown requires new statement parsing this codebase doesn't have yet (only a single latest-year capex figure exists, for a different ratio).",
+        "capital_allocation_mix": by_year,
+        "years_covered": years_covered,
+        "avg_mix_pct": avg_mix,
+        "buyback_years": buyback_years,
+        "acquisition_years": acquisition_years,
+        "rationale": rationale,
         "pathway_results": pathway_results,
     }
-    confidence_tag = "SEARCH_INCONCLUSIVE"
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
