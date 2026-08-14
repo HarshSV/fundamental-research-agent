@@ -2249,6 +2249,19 @@ _GOVERNANCE_SECTION_ANCHORS = {
     "kmp_changes": [
         "key managerial personnel", "change in key managerial",
     ],
+    # B.2.2: Shareholding of Directors and KMP (distinct from the promoter-
+    # group shareholding table, which is a different section).
+    "shareholding_kmp": [
+        "shareholding of directors and key managerial personnel",
+        "shareholding of directors and kmp", "shares held by directors and kmp",
+        "shareholding of key managerial personnel", "equity shares held by directors",
+    ],
+    # B.2.4: Remuneration Policy — fixed/variable and long-term/short-term
+    # incentive design language (distinct from the B.2.1 remuneration TABLE).
+    "remuneration_policy": [
+        "remuneration policy", "nomination and remuneration policy",
+        "policy on remuneration", "policy for remuneration",
+    ],
 }
 
 
@@ -2388,7 +2401,7 @@ def fetch_governance_text_sections(symbol, name):
     proxy, the actual filing. Returns {'pdf_url', 'fiscal_year',
     'remuneration_text', 'esop_text', 'kmp_changes_text'} (each text field
     None if that section wasn't located) or {'error': reason}. Never raises."""
-    return _fetch_ar_text_sections(symbol, name, _GOVERNANCE_SECTION_ANCHORS, "ar_gov_text_v2")
+    return _fetch_ar_text_sections(symbol, name, _GOVERNANCE_SECTION_ANCHORS, "ar_gov_text_v3")
 
 
 # Founder/CEO track-record evidence anchors (B.1.1-B.1.3). Three independent

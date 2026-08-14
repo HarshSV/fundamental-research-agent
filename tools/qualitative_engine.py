@@ -3173,26 +3173,20 @@ def compute_b1_founder_ceo_track_record(symbol, name=None, description="", force
 
 
 
-def compute_b2_management_incentives(symbol, name=None, force=False):
-    """B.2 — Management incentives: pay structure, equity ownership, vesting,
-    long-term orientation. Formula: Fixed:variable pay ratio; ESOP as % of KMP
-    compensation = ESOP value / Total KMP pay.
-
-    Sourcing Sequence: AR-02 (KMP remuneration table) -> AR-03 (ESOP disclosure
-    note) -> PORTAL-05 (MCA director registry — appointment dates only, NOT bio).
-
-    Now wired to REAL Annual Report text: `annual_report_financials.
-    fetch_governance_text_sections` downloads the company's own latest AR PDF
-    (same PORTAL-01 pipeline every ratio card uses) and locates the actual
-    remuneration-table / ESOP-annexure pages by content (digit-density scoring,
-    not just a keyword hit — a real table is numbers-heavy, a passing mention
-    isn't). The LLM extraction step is instructed to report ONLY what the given
-    excerpt explicitly states — never invent a % or ratio the text doesn't
-    contain. PORTAL-05 (MCA registry) still has no fetcher, so this stays
-    SINGLE_SOURCE at best even when AR-02/AR-03 text is found.
+def compute_b2_1_pay_structure(symbol, name=None, force=False):
+    """B.2.1 - Pay structure. Spec formula: Fixed vs Variable Compensation
+    Mix. Deterministic (no LLM) - see
+    tools/management_incentives_scoring.py's extract_pay_mix: finds every
+    explicit "Fixed <Commission/Pay/Salary>" and "Variable/Performance-
+    linked <Commission/Pay/Bonus>" label with a real amount figure nearby,
+    sums each bucket. Sourcing: Corporate Governance Report - Remuneration
+    to Directors/KMP (falls back to the Remuneration Policy text when the
+    KMP table itself has no fixed/variable split, which is common - many
+    AR remuneration tables only show a remuneration-to-median-employee
+    ratio, not a fixed/variable breakdown).
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "B.2"
+    subpoint_id = "B.2.1"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -3208,102 +3202,291 @@ def compute_b2_management_incentives(symbol, name=None, force=False):
         from tools.annual_report_financials import fetch_governance_text_sections
         gov = fetch_governance_text_sections(sym, name) or {}
     except Exception as e:
-        print(f"[qualitative_engine] B.2 AR text fetch failed for {sym}: {e}")
+        print(f"[qualitative_engine] B.2.1 AR text fetch failed for {sym}: {e}")
         gov = {"error": str(e)}
 
     remuneration_text = gov.get("remuneration_text")
-    esop_text = gov.get("esop_text")
+    policy_text = gov.get("remuneration_policy_text")
     pdf_url = gov.get("pdf_url")
+    pathway_results = [{
+        "pathway_id": "AR-02",
+        "source": "Corporate Governance Report - Remuneration to Directors/KMP",
+        "result": "CHECKED" if (remuneration_text or policy_text) else "NOT_DISCLOSED",
+        "note": None if (remuneration_text or policy_text) else "Remuneration table/policy section not located in the latest Annual Report PDF this run.",
+    }]
 
-    pathway_results = [
-        {
-            "pathway_id": "AR-02",
-            "source": "KMP Remuneration table (Board's Report Annexure, Sec. 197(12))",
-            "result": "CHECKED" if remuneration_text else "NOT_DISCLOSED",
-            "note": None if remuneration_text else "Section not located in the latest Annual Report PDF this run — a differently-worded heading or a separate filing may carry it.",
-        },
-        {
-            "pathway_id": "AR-03",
-            "source": "ESOP disclosure note (SEBI SBEB Regulations 2021 Annexure)",
-            "result": "CHECKED" if esop_text else "NOT_DISCLOSED",
-            "note": None if esop_text else "Section not located in the latest Annual Report PDF this run — may indicate no ESOP scheme exists (NOT_APPLICABLE), not confirmed either way.",
-        },
-        {
-            "pathway_id": "PORTAL-05",
-            "source": "MCA Company/Director Master Data (appointment dates only, not remuneration)",
-            "result": "NOT_DISCLOSED",
-            "note": "No MCA director-master-data fetcher is wired into this codebase yet.",
-        },
-    ]
+    from tools.management_incentives_scoring import extract_pay_mix
+    result = extract_pay_mix(remuneration_text) if remuneration_text else {"fixed_amount": None, "variable_amount": None, "fixed_pct": None}
+    if result["fixed_pct"] is None and policy_text:
+        result = extract_pay_mix(policy_text)
 
-    if not remuneration_text and not esop_text:
+    if result["fixed_pct"] is None:
         payload = {
-            "subpoint_id": subpoint_id,
-            "title": "Management incentives: pay structure, equity ownership, vesting, long-term orientation",
-            "available": True,
-            "fixed_variable_pay_ratio": None,
-            "esop_pct_of_kmp_comp": None,
-            "esop_facts": [],
-            "rationale": gov.get("error") or "Neither the remuneration table nor the ESOP note was located in the latest Annual Report PDF this run.",
-            "pathway_results": pathway_results,
-            "source_pdf_url": pdf_url,
+            "subpoint_id": subpoint_id, "title": "Pay structure", "available": True, **result,
+            "rationale": (gov.get("error") or "No explicit Fixed and Variable compensation component amounts were located in the latest Annual Report this run."),
+            "pathway_results": pathway_results, "source_pdf_url": pdf_url,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
         payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    context = f"COMPANY: {name or sym}\n"
-    if remuneration_text:
-        context += f"\n=== EXCERPT — REMUNERATION TABLE (real AR page text) ===\n{remuneration_text}\n"
-    if esop_text:
-        context += f"\n=== EXCERPT — ESOP DISCLOSURE (real AR page text) ===\n{esop_text}\n"
-
-    prompt = (
-        "You are extracting ONLY what is EXPLICITLY stated in the real Annual Report excerpts below. "
-        "Do not compute a ratio unless the exact inputs are present in the text. Do not infer or estimate. "
-        "If a figure is not explicitly stated, say so.\n\n"
-        "Return ONLY JSON:\n"
-        "{\n"
-        '  "fixed_variable_pay_ratio": "e.g. \'70:30\' if explicitly stated or directly computable from stated fixed/variable figures, else null",\n'
-        '  "esop_pct_of_kmp_comp": "numeric percent if explicitly stated or directly computable, else null",\n'
-        '  "esop_facts": ["short factual items explicitly in the ESOP excerpt, e.g. options granted count, exercise price, vesting years - 0 to 4 items"],\n'
-        '  "summary": "1-3 sentences summarizing only what the excerpts explicitly show"\n'
-        "}\n\n"
-        f"=== CONTEXT ===\n{context}"
-    )
-    data, llm_failed = _llm_json(
-        sym, "B.2", "You are a precise extraction assistant. Reply with strict JSON only. Never infer or invent a number not explicitly in the text.",
-        prompt, max_tokens=600, temperature=0.0,
-    )
-
-    fixed_variable_pay_ratio = data.get("fixed_variable_pay_ratio") or None
-    esop_pct_of_kmp_comp = data.get("esop_pct_of_kmp_comp")
-    try:
-        esop_pct_of_kmp_comp = round(max(0.0, min(100.0, float(esop_pct_of_kmp_comp))), 1)
-    except (TypeError, ValueError):
-        esop_pct_of_kmp_comp = None
-    esop_facts = [str(x).strip() for x in (data.get("esop_facts") or []) if str(x).strip()][:4]
-    summary = str(data.get("summary") or "").strip()
-
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Management incentives: pay structure, equity ownership, vesting, long-term orientation",
-        "available": True,
-        "fixed_variable_pay_ratio": fixed_variable_pay_ratio,
-        "esop_pct_of_kmp_comp": esop_pct_of_kmp_comp,
-        "esop_facts": esop_facts,
-        "rationale": summary or "Remuneration/ESOP sections located in the Annual Report, but no directly stated ratio or percentage was found in the excerpt — see facts below.",
-        "pathway_results": pathway_results,
-        "source_pdf_url": pdf_url,
+        "subpoint_id": subpoint_id, "title": "Pay structure", "available": True, **result,
+        "rationale": f"Fixed component {result['fixed_amount']} vs Variable component {result['variable_amount']} explicitly stated "
+                     f"({result['fixed_pct']}% fixed).",
+        "pathway_results": pathway_results, "source_pdf_url": pdf_url,
     }
     confidence_tag = "SINGLE_SOURCE"
-    if not llm_failed:
-        write_qualitative(sym, subpoint_id, payload, confidence_tag)
-    else:
-        print(f"[qualitative_engine] B.2 NOT cached for {sym} — LLM call did not run; will retry next request.")
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b2_2_equity_ownership(symbol, name=None, force=False):
+    """B.2.2 - Equity ownership. Spec formula: Management Ownership Score
+    (1-5). Deterministic (no LLM) - see
+    tools/management_incentives_scoring.py's score_equity_ownership: sums
+    every explicit "X% of total/paid-up shares" figure tied to a named
+    Director/KMP role (never a promoter-group holding, a different
+    section). Sourcing: Corporate Governance Report - Shareholding of
+    Directors and KMP.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import fetch_governance_text_sections
+        gov = fetch_governance_text_sections(sym, name) or {}
+    except Exception as e:
+        print(f"[qualitative_engine] B.2.2 AR text fetch failed for {sym}: {e}")
+        gov = {"error": str(e)}
+
+    shareholding_text = gov.get("shareholding_kmp_text")
+    pdf_url = gov.get("pdf_url")
+    pathway_results = [{
+        "pathway_id": "AR-02",
+        "source": "Corporate Governance Report - Shareholding of Directors and KMP",
+        "result": "CHECKED" if shareholding_text else "NOT_DISCLOSED",
+        "note": None if shareholding_text else "Shareholding of Directors/KMP section not located in the latest Annual Report PDF this run.",
+    }]
+
+    from tools.management_incentives_scoring import score_equity_ownership
+    result = score_equity_ownership(shareholding_text) if shareholding_text else {"management_ownership_pct": None, "ownership_score": None}
+
+    if result["ownership_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Equity ownership", "available": True, **result,
+            "rationale": (gov.get("error") or "No explicit Director/KMP shareholding percentage was located in the latest Annual Report this run."),
+            "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Equity ownership", "available": True, **result,
+        "rationale": f"Directors/KMP explicitly hold {result['management_ownership_pct']}% of total shares -> score {result['ownership_score']}/5.",
+        "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b2_3_vesting_structure(symbol, name=None, force=False):
+    """B.2.3 - Vesting structure. Spec formula: Long-term Incentive Score
+    (1-5). Deterministic (no LLM) - see
+    tools/management_incentives_scoring.py's score_vesting_structure: sums
+    explicit "vested"/"unvested" option-count figures from the ESOP
+    disclosure. Score bands on the unvested share of total options (this
+    engine's own documented interpretation - more unvested means more
+    forward-looking retention pull; the spec doesn't state a direction).
+    Sourcing: Corporate Governance Report - ESOP/Stock Option Scheme
+    Vesting Schedule.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.2.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import fetch_governance_text_sections
+        gov = fetch_governance_text_sections(sym, name) or {}
+    except Exception as e:
+        print(f"[qualitative_engine] B.2.3 AR text fetch failed for {sym}: {e}")
+        gov = {"error": str(e)}
+
+    esop_text = gov.get("esop_text")
+    pdf_url = gov.get("pdf_url")
+    pathway_results = [{
+        "pathway_id": "AR-03",
+        "source": "ESOP / Stock Option Scheme Vesting Schedule",
+        "result": "CHECKED" if esop_text else "NOT_DISCLOSED",
+        "note": None if esop_text else "ESOP disclosure section not located in the latest Annual Report PDF this run - may indicate no ESOP scheme exists, not confirmed either way.",
+    }]
+
+    from tools.management_incentives_scoring import score_vesting_structure
+    result = score_vesting_structure(esop_text) if esop_text else {"vested_count": None, "unvested_count": None, "unvested_pct": None, "vesting_score": None}
+
+    if result["vesting_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Vesting structure", "available": True, **result,
+            "rationale": (gov.get("error") or "No explicit vested/unvested option counts were located in the latest Annual Report this run."),
+            "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Vesting structure", "available": True, **result,
+        "rationale": f"{result['vested_count']} vested vs {result['unvested_count']} unvested options explicitly stated "
+                     f"({result['unvested_pct']}% unvested -> score {result['vesting_score']}/5).",
+        "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b2_4_long_term_orientation(symbol, name=None, force=False):
+    """B.2.4 - Long-term orientation. Spec formula: Long-term Alignment
+    Score (1-5). Deterministic (no LLM) - see
+    tools/management_incentives_scoring.py's score_long_term_orientation:
+    classifies Remuneration Policy sentences into long-term-incentive
+    keywords (LTIP/ESOP/stock options/deferred pay/performance shares) vs
+    short-term-incentive keywords (annual bonus/STI/cash bonus). Sourcing:
+    Remuneration Policy - Performance-linked Long-term Incentives.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.2.4"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import fetch_governance_text_sections
+        gov = fetch_governance_text_sections(sym, name) or {}
+    except Exception as e:
+        print(f"[qualitative_engine] B.2.4 AR text fetch failed for {sym}: {e}")
+        gov = {"error": str(e)}
+
+    policy_text = gov.get("remuneration_policy_text")
+    pdf_url = gov.get("pdf_url")
+    pathway_results = [{
+        "pathway_id": "AR-02",
+        "source": "Remuneration Policy - Performance-linked Long-term Incentives",
+        "result": "CHECKED" if policy_text else "NOT_DISCLOSED",
+        "note": None if policy_text else "Remuneration Policy section not located in the latest Annual Report PDF this run.",
+    }]
+
+    from tools.management_incentives_scoring import score_long_term_orientation
+    result = score_long_term_orientation(policy_text) if policy_text else {"long_term_count": None, "short_term_count": None, "long_term_pct": None, "alignment_score": None}
+
+    if result["alignment_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Long-term orientation", "available": True, **result,
+            "rationale": (gov.get("error") or "No explicit long-term or short-term incentive language was located in the latest Annual Report's Remuneration Policy this run."),
+            "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Long-term orientation", "available": True, **result,
+        "rationale": f"{result['long_term_count']} long-term vs {result['short_term_count']} short-term incentive mention(s) "
+                     f"explicitly found ({result['long_term_pct']}% long-term -> score {result['alignment_score']}/5).",
+        "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b2_management_incentives(symbol, name=None, force=False):
+    """B.2 - Management incentives: combines the four sub-points (B.2.1 pay
+    structure, B.2.2 equity ownership, B.2.3 vesting structure, B.2.4
+    long-term orientation) into a single grounded payload, each sourced
+    from real Annual Report text and scored deterministically (regex/
+    keyword pattern matching, no LLM call - see
+    tools/management_incentives_scoring.py) - every figure traces to a
+    literal matched amount/percentage/count in the filing, and any
+    sub-point the AR doesn't explicitly cover is surfaced as unavailable
+    rather than defaulted.
+
+    This does NOT run PORTAL-05 (MCA director registry) - no fetcher wired
+    in this codebase; stays SINGLE_SOURCE at best even when AR text is found.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    b21 = compute_b2_1_pay_structure(sym, name, force=force)
+    b22 = compute_b2_2_equity_ownership(sym, name, force=force)
+    b23 = compute_b2_3_vesting_structure(sym, name, force=force)
+    b24 = compute_b2_4_long_term_orientation(sym, name, force=force)
+
+    parts = []
+    if b21.get("fixed_pct") is not None:
+        parts.append(f"Pay structure: {b21['fixed_pct']}% fixed vs {round(100 - b21['fixed_pct'], 1)}% variable.")
+    if b22.get("ownership_score") is not None:
+        parts.append(f"Equity ownership: {b22['management_ownership_pct']}% held by Directors/KMP (score {b22['ownership_score']}/5).")
+    if b23.get("vesting_score") is not None:
+        parts.append(f"Vesting: {b23['unvested_pct']}% of options unvested (score {b23['vesting_score']}/5).")
+    if b24.get("alignment_score") is not None:
+        parts.append(f"Long-term orientation: {b24['long_term_pct']}% long-term incentive language (score {b24['alignment_score']}/5).")
+    if not parts:
+        parts.append("None of the four sub-points (pay structure, equity ownership, vesting, long-term orientation) were explicitly covered in the latest Annual Report this run.")
+    parts.append("MCA director/KMP cross-check (PORTAL-05) has not been run - route to an analyst before this factors into an investment decision.")
+
+    _tags = [t.get("confidence_tag") for t in (b21, b22, b23, b24)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+
+    retrieved_ats = [t.get("retrieved_at") for t in (b21, b22, b23, b24) if t.get("retrieved_at")]
+    payload = {
+        "subpoint_id": "B.2",
+        "title": "Management incentives: pay structure, equity ownership, vesting, long-term orientation",
+        "available": True,
+        "b2_1": b21, "b2_2": b22, "b2_3": b23, "b2_4": b24,
+        "rationale": " ".join(parts),
+        "pathway_results": (b21.get("pathway_results") or []) + (b22.get("pathway_results") or []) + (b23.get("pathway_results") or []) + (b24.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 

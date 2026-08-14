@@ -864,8 +864,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         const MultiDonutPanel = ({ panels }) => {
             const items = (panels || []).filter(Boolean);
             if (!items.length) return null;
+            const gridCols = items.length >= 4 ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-3';
             return (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className={`grid grid-cols-1 ${gridCols} gap-4`}>
                     {items.map((p, i) => (
                         <div key={i} className="bg-slate-950/50 border border-slate-800 rounded-xl p-3">
                             <p className="text-[11px] font-bold text-slate-300 mb-2 text-center">{p.title}</p>
@@ -2838,7 +2839,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 revenuePatternDonut = (
                     <MoatWheelDonut data={sp.secondaryChart?.data} centerValue={sp.secondaryChart?.centerValue} overallLabel="Overall Score" />
                 );
-            } else if (sp.key === 'founder_ceo_track_record' && sp.chart?.type === 'multi_donut') {
+            } else if ((sp.key === 'founder_ceo_track_record' || sp.key === 'management_incentives') && sp.chart?.type === 'multi_donut') {
                 revenuePatternDonut = (
                     <MultiDonutPanel panels={sp.chart.panels} />
                 );

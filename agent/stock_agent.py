@@ -2122,13 +2122,11 @@ def build_executive_summary(state: SystemState) -> dict:
         _b2 = compute_b2_management_incentives(symbol, name)
         if _b2 and _b2.get('available'):
             f29 = {
-                'fixed_variable_pay_ratio': _b2.get('fixed_variable_pay_ratio'),
-                'esop_pct_of_kmp_comp': _b2.get('esop_pct_of_kmp_comp'),
-                'esop_facts': _b2.get('esop_facts') or [],
-                'long_term_orientation_rating': None,
                 'rationale': _b2.get('rationale'),
                 'confidence_tag': _b2.get('confidence_tag'), 'retrieved_at': _b2.get('retrieved_at'),
                 'pathway_results': _b2.get('pathway_results'),
+                'b2_1': _b2.get('b2_1') or {}, 'b2_2': _b2.get('b2_2') or {},
+                'b2_3': _b2.get('b2_3') or {}, 'b2_4': _b2.get('b2_4') or {},
             }
     except Exception as e:
         print(f"[qualitative_topics] sourced B.2 engine failed, falling back to raw LLM fields: {e}")
@@ -2622,13 +2620,62 @@ def build_executive_summary(state: SystemState) -> dict:
         }
     _b1_panels = [_b1_1_donut, _b1_2_donut, _b1_3_donut]
 
-    _fixed_variable_ratio = f29.get('fixed_variable_pay_ratio') if isinstance(f29.get('fixed_variable_pay_ratio'), str) and f29.get('fixed_variable_pay_ratio').strip() else None
-    _esop_pct = f29.get('esop_pct_of_kmp_comp')
-    try:
-        _esop_pct = round(max(0.0, min(100.0, float(_esop_pct))), 1)
-    except (TypeError, ValueError):
-        _esop_pct = None
-    _lt_orientation = _enum(f29.get('long_term_orientation_rating'), ['Strong', 'Moderate', 'Weak'])
+    # B.2's four sub-points (pay structure / equity ownership / vesting /
+    # long-term orientation) combined into one 4-panel donut card, same
+    # pattern as B.1 - every figure is a real matched amount/%/count from
+    # the Annual Report (tools/management_incentives_scoring.py), never
+    # fabricated when a sub-point's AR excerpt wasn't located.
+    _b2_1, _b2_2, _b2_3, _b2_4 = f29.get('b2_1') or {}, f29.get('b2_2') or {}, f29.get('b2_3') or {}, f29.get('b2_4') or {}
+
+    if _b2_1.get('fixed_pct') is not None:
+        _b2_1_donut = {
+            'type': 'donut', 'title': 'Pay Structure',
+            'data': [{'label': 'Fixed pay', 'value': _b2_1.get('fixed_amount')},
+                     {'label': 'Variable pay', 'value': _b2_1.get('variable_amount')}],
+            'centerValue': f"{_b2_1.get('fixed_pct')}%",
+            'explanation': f"{_co}'s remuneration disclosure explicitly splits {_b2_1.get('fixed_pct')}% fixed vs {round(100 - _b2_1.get('fixed_pct'), 1)}% variable pay.",
+        }
+    else:
+        _b2_1_donut = {'type': 'unavailable', 'title': 'Pay Structure',
+                        'explanation': f"No explicit Fixed vs Variable pay component amounts were located in {_co}'s latest Annual Report."}
+
+    if _b2_2.get('ownership_score') is not None:
+        _mgmt_pct = _b2_2.get('management_ownership_pct')
+        _b2_2_donut = {
+            'type': 'donut', 'title': 'Equity Ownership',
+            'data': [{'label': 'Management-owned', 'value': _mgmt_pct},
+                     {'label': 'Non-owned', 'value': round(100 - _mgmt_pct, 2)}],
+            'centerValue': f"{_mgmt_pct}%",
+            'explanation': f"Directors/KMP at {_co} explicitly hold {_mgmt_pct}% of total shares (score {_b2_2.get('ownership_score')}/5).",
+        }
+    else:
+        _b2_2_donut = {'type': 'unavailable', 'title': 'Equity Ownership',
+                        'explanation': f"No explicit Director/KMP shareholding percentage was located in {_co}'s latest Annual Report."}
+
+    if _b2_3.get('vesting_score') is not None:
+        _b2_3_donut = {
+            'type': 'donut', 'title': 'Vesting Structure',
+            'data': [{'label': 'Vested', 'value': _b2_3.get('vested_count')},
+                     {'label': 'Unvested', 'value': _b2_3.get('unvested_count')}],
+            'centerValue': f"{_b2_3.get('unvested_pct')}%",
+            'explanation': f"{_co}'s ESOP disclosure explicitly states {_b2_3.get('vested_count')} vested vs {_b2_3.get('unvested_count')} unvested options (score {_b2_3.get('vesting_score')}/5).",
+        }
+    else:
+        _b2_3_donut = {'type': 'unavailable', 'title': 'Vesting Structure',
+                        'explanation': f"No explicit vested/unvested option counts were located in {_co}'s latest Annual Report ESOP disclosure."}
+
+    if _b2_4.get('alignment_score') is not None:
+        _b2_4_donut = {
+            'type': 'donut', 'title': 'Long-term Orientation',
+            'data': [{'label': 'Long-term incentives', 'value': _b2_4.get('long_term_count')},
+                     {'label': 'Short-term incentives', 'value': _b2_4.get('short_term_count')}],
+            'centerValue': f"{_b2_4.get('long_term_pct')}%",
+            'explanation': f"{_co}'s Remuneration Policy explicitly mentions long-term incentive language {_b2_4.get('long_term_pct')}% of the time it discusses incentive type (score {_b2_4.get('alignment_score')}/5).",
+        }
+    else:
+        _b2_4_donut = {'type': 'unavailable', 'title': 'Long-term Orientation',
+                        'explanation': f"No explicit long-term/short-term incentive language was located in {_co}'s latest Remuneration Policy."}
+    _b2_panels = [_b2_1_donut, _b2_2_donut, _b2_3_donut, _b2_4_donut]
 
     _bench_depth_rating = _enum(f30.get('bench_depth_rating'), ['Strong', 'Moderate', 'Weak'])
     _kmp_attrition_pct = f30.get('kmp_attrition_rate_pct')
@@ -3066,30 +3113,29 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f28.get('pathway_results'),
                 },
                 {
+                    # B.2 — the four sub-points (B.2.1 pay structure, B.2.2
+                    # equity ownership, B.2.3 vesting structure, B.2.4
+                    # long-term orientation) combined into ONE card as a
+                    # 4-panel donut set, same pattern as B.1: every panel
+                    # comes from a real Annual Report excerpt via
+                    # compute_b2_1/2/3/4, never an ungrounded guess.
                     'key': 'management_incentives',
                     'title': 'Management incentives: pay structure, equity ownership, vesting, long-term orientation',
                     'finding': f29.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Fixed:variable pay ratio', _fixed_variable_ratio] if _fixed_variable_ratio else None),
-                        (['ESOP as % of KMP pay', f"~{round(_esop_pct)}%"] if _esop_pct is not None else None),
-                        (['Long-term orientation', _lt_orientation] if _lt_orientation else None),
-                        (['ESOP details (from AR)', '; '.join(f29.get('esop_facts'))] if f29.get('esop_facts') else None),
+                        (['Fixed pay %', f"{_b2_1.get('fixed_pct')}%"] if _b2_1.get('fixed_pct') is not None else None),
+                        (['Management ownership', f"{_b2_2.get('management_ownership_pct')}%"] if _b2_2.get('management_ownership_pct') is not None else None),
+                        (['Unvested options', f"{_b2_3.get('unvested_pct')}%"] if _b2_3.get('unvested_pct') is not None else None),
+                        (['Long-term incentive language', f"{_b2_4.get('long_term_pct')}%"] if _b2_4.get('long_term_pct') is not None else None),
                     ] if f],
-                    'chart': ({
-                        'type': 'donut',
-                        'data': [
-                            {'label': 'ESOP / equity component', 'pct': round(_esop_pct, 1)},
-                            {'label': 'Cash compensation', 'pct': round(100 - _esop_pct, 1)},
-                        ],
-                    } if _esop_pct is not None else (
-                        {'type': 'spectrum', 'options': ['Weak', 'Moderate', 'Strong'], 'active': _lt_orientation}
-                        if _lt_orientation else None
-                    )),
-                    'formula': 'Fixed:variable pay ratio; ESOP as % of KMP compensation = ESOP value / Total KMP pay',
+                    'chart': ({'type': 'multi_donut', 'panels': _b2_panels} if _b2_panels else None),
+                    'formula': 'Fixed vs Variable pay mix; Management Ownership Score = Directors/KMP % of total shares, banded 1-5; '
+                               'Long-term Incentive Score = unvested % of ESOP options, banded 1-5; '
+                               'Long-term Alignment Score = long-term incentive mentions / total incentive mentions, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'Company Annual Report', 'note': 'Remuneration/MGT-9 note, sourced via BSE announcement / company IR page'},
-                        'secondary': {'label': 'Company Annual Report', 'note': 'ESOP disclosure note, sourced via BSE announcement / company IR page'},
-                        'tertiary': {'label': 'MCA – Company/Director Master Data', 'note': 'MGT-7/MGT-9 filings', 'url': 'https://www.mca.gov.in'},
+                        'primary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report — Remuneration to Directors/KMP'},
+                        'secondary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report — Shareholding of Directors and KMP'},
+                        'tertiary': {'label': 'Company Annual Report', 'note': 'ESOP / Stock Option Scheme Vesting Schedule + Remuneration Policy'},
                     },
                     'confidence_tag': f29.get('confidence_tag'), 'retrieved_at': f29.get('retrieved_at'),
                     'pathway_results': f29.get('pathway_results'),
