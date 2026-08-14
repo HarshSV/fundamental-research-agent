@@ -2832,29 +2832,49 @@ def compute_a6_margin_sustainability(symbol, name=None, description="", force=Fa
     return payload
 
 
-def _score_1_5(good_count, total_count):
-    """Shared 1-5 scaling for a good/total ratio (e.g. successful/total
-    initiatives, long-tenured/total directors) - 1 at 0% good, 5 at 100%
-    good, linear in between. Returns None if total_count is 0 (nothing to
-    score, not a 0/failing score)."""
-    if not total_count:
+def _band_score_pct(pct):
+    """Shared banding for a 0-100% ratio into a 1-5 score, per the spec's
+    fixed thresholds (>=80=5, 65-79=4, 50-64=3, 30-49=2, <30=1). Returns
+    None if pct is None (nothing to score)."""
+    if pct is None:
         return None
-    return round(1 + 4 * (good_count / total_count), 1)
+    if pct >= 80:
+        return 5
+    if pct >= 65:
+        return 4
+    if pct >= 50:
+        return 3
+    if pct >= 30:
+        return 2
+    return 1
+
+
+_NSE_ANNOUNCEMENTS_GAP = {
+    "pathway_id": "PORTAL-02",
+    "source": "NSE Corporate Announcements - major initiative announcements, cross-checked against actual outcomes",
+    "result": "NOT_WIRED",
+    "note": "No NSE corporate-announcements scraper is wired in this codebase yet - initiative/outcome evidence below comes from the Annual Report narrative only, not cross-checked against the original announcement.",
+}
 
 
 def compute_b1_1_past_track_record(symbol, name=None, force=False):
-    """B.1.1 - Past successes/failures: the Chairman/MD message +
-    historical-milestones narrative in the latest Annual Report is scanned
-    for EXPLICITLY stated strategic initiatives (expansions, turnarounds,
-    new launches, divestments, write-offs, plant/capacity commissioning,
-    discontinued operations) and each is classified successful or failed
-    strictly per what the text itself says - never inferred or guessed.
-    Execution Score (1-5) = 1 + 4 x (successful / total classified
-    initiatives); None if the narrative names no concrete outcome this year
-    (a marketing-style message with no measurable initiative is not the
-    same as a clean record, and must not be scored as one).
+    """B.1.1 - Past successes/failures. Spec formula: Initiative Success Rate
+    = Successfully Completed Strategic Initiatives / Total Major Strategic
+    Initiatives Announced in Last 5 Years x 100, banded to a 1-5 score
+    (>=80%=5, 65-79%=4, 50-64%=3, 30-49%=2, <30%=1).
 
-    Sourcing Sequence: AR-13 (Chairman & MD message / MD&A milestones).
+    Sourcing: the Chairman/MD message across the last up to 5 Annual
+    Reports (fetch_founder_milestones_multi_year) - a single year can't
+    distinguish successful from delayed/ongoing initiatives, since most
+    initiatives announced in year N only resolve in a later year. Each
+    initiative found is classified success / delayed / failed / ongoing
+    STRICTLY per what its own year's text states - never inferred, and an
+    initiative is never re-classified using a later year's text (that would
+    silently blend two separate disclosures into one claim). The NSE
+    Corporate Announcements cross-check the spec also calls for has no
+    fetcher wired in this codebase - see the PORTAL-02 gap in
+    pathway_results; this score is AR-narrative-only, not a full
+    announced-vs-actual reconciliation.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "B.1.1"
@@ -2870,26 +2890,29 @@ def compute_b1_1_past_track_record(symbol, name=None, force=False):
                 return cached
 
     try:
-        from tools.annual_report_financials import fetch_founder_track_record_text
-        ft = fetch_founder_track_record_text(sym, name) or {}
+        from tools.annual_report_financials import fetch_founder_milestones_multi_year
+        year_texts = fetch_founder_milestones_multi_year(sym, name, n_years=5) or []
     except Exception as e:
-        print(f"[qualitative_engine] B.1.1 AR text fetch failed for {sym}: {e}")
-        ft = {"error": str(e)}
+        print(f"[qualitative_engine] B.1.1 multi-year AR text fetch failed for {sym}: {e}")
+        year_texts = []
 
-    milestones_text = ft.get("milestones_text")
-    pdf_url = ft.get("pdf_url")
-    pathway_results = [{
-        "pathway_id": "AR-13",
-        "source": "Chairman & MD message / MD&A historical milestones",
-        "result": "CHECKED" if milestones_text else "NOT_DISCLOSED",
-        "note": None if milestones_text else "Chairman/MD message section not located in the latest Annual Report PDF this run.",
-    }]
+    pathway_results = [
+        {
+            "pathway_id": "AR-13",
+            "source": "Chairman & MD message across the last 5 Annual Reports",
+            "result": "CHECKED" if year_texts else "NOT_DISCLOSED",
+            "note": (f"Chairman/MD message located in {len(year_texts)} of the last 5 Annual Reports."
+                     if year_texts else "Chairman/MD message section not located in any of the last 5 Annual Reports this run."),
+        },
+        _NSE_ANNOUNCEMENTS_GAP,
+    ]
+    pdf_url = year_texts[0]["pdf_url"] if year_texts else None
 
     def _unavailable(reason, tag):
         payload = {
             "subpoint_id": subpoint_id, "title": "Past successes / failures",
-            "available": True, "execution_score": None, "initiatives": [],
-            "successful_count": 0, "failed_count": 0,
+            "available": True, "initiative_success_rate_pct": None, "execution_score": None,
+            "initiatives": [], "successful_count": 0, "delayed_count": 0, "failed_count": 0, "ongoing_count": 0,
             "rationale": reason, "pathway_results": pathway_results, "source_pdf_url": pdf_url,
         }
         if tag:
@@ -2900,53 +2923,64 @@ def compute_b1_1_past_track_record(symbol, name=None, force=False):
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    if not milestones_text:
-        return _unavailable(ft.get("error") or "No Chairman/MD message or historical-milestones section was located in the latest Annual Report PDF this run.", "SEARCH_INCONCLUSIVE")
+    if not year_texts:
+        return _unavailable("No Chairman/MD message was located in any of the last 5 Annual Reports this run.", "SEARCH_INCONCLUSIVE")
 
-    prompt = (
-        "The excerpt below is real Annual Report page text (Chairman/MD message or historical-milestones "
-        "narrative). Extract ONLY concrete strategic initiatives EXPLICITLY described with a stated outcome "
-        "(e.g. a plant commissioned, an expansion completed, a turnaround achieved, a divestment, a "
-        "discontinued/written-off operation, a failed/delayed project) - do not infer outcomes that aren't "
-        "stated, and ignore generic aspirational language with no concrete initiative or outcome.\n\n"
-        "Return ONLY JSON:\n"
-        "{\n"
-        '  "initiatives": [{"label": "short description", "outcome": "success" | "failure"}],\n'
-        '  "summary": "1-2 sentences on what the excerpt actually describes"\n'
-        "}\n\n"
-        f"=== EXCERPT ===\n{milestones_text}"
-    )
-    data, llm_failed = _llm_json(
-        sym, "B.1.1", "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never invent an outcome the text doesn't state.",
-        prompt, max_tokens=500, temperature=0.0,
-    )
-    if llm_failed:
-        return _unavailable("Could not be classified on this run - reload to try again.", None)
-
-    initiatives = [
-        {"label": str(it.get("label") or "").strip(), "outcome": it.get("outcome")}
-        for it in (data.get("initiatives") or [])
-        if isinstance(it, dict) and str(it.get("label") or "").strip() and it.get("outcome") in ("success", "failure")
-    ][:10]
-    summary = str(data.get("summary") or "").strip()
+    initiatives = []
+    any_llm_failed = False
+    for yt in year_texts:
+        prompt = (
+            "The excerpt below is real Annual Report page text (Chairman/MD message), fiscal year ending "
+            f"{yt['fiscal_year']}. Extract ONLY concrete major strategic initiatives EXPLICITLY described IN "
+            "THIS EXCERPT ITSELF (the kind of thing this could be: a plant/capacity commissioning, an "
+            "expansion, a turnaround, an acquisition, a divestment, a restructuring, a new market/product "
+            "launch - but use the excerpt's own wording, never one of these category names as a label unless "
+            "the excerpt actually describes that exact initiative) and classify EACH by its outcome AS STATED "
+            "IN THIS EXCERPT ONLY - do not infer outcomes that aren't stated, ignore generic aspirational "
+            "language with no concrete initiative, and return an empty list if the excerpt names none.\n\n"
+            "Return ONLY JSON:\n"
+            "{\n"
+            '  "initiatives": [{"label": "short description copied/paraphrased from THIS excerpt only", "outcome": "success" | "delayed" | "failed" | "ongoing"}]\n'
+            "}\n\n"
+            f"=== EXCERPT (FY{yt['fiscal_year']}) ===\n{yt['milestones_text']}"
+        )
+        data, llm_failed = _llm_json(
+            sym, "B.1.1", "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never invent an outcome the text doesn't state.",
+            prompt, max_tokens=500, temperature=0.0,
+        )
+        if llm_failed:
+            any_llm_failed = True
+            continue
+        for it in (data.get("initiatives") or []):
+            if isinstance(it, dict) and str(it.get("label") or "").strip() and it.get("outcome") in ("success", "delayed", "failed", "ongoing"):
+                initiatives.append({"label": str(it["label"]).strip(), "outcome": it["outcome"], "fiscal_year": yt["fiscal_year"]})
 
     if not initiatives:
+        if any_llm_failed and not initiatives:
+            return _unavailable("Could not be classified on this run - reload to try again.", None)
         return _unavailable(
-            "The Chairman/MD message was read, but it does not describe any concrete strategic initiative "
-            "with a stated outcome this year (" + (summary or "aspirational language only") + ") - "
-            "no track-record evidence was located this run, not a clean record.",
+            "The Chairman/MD messages across the last 5 Annual Reports were read, but none describe a "
+            "concrete major strategic initiative with a stated outcome - no track-record evidence was "
+            "located this run, not a clean record.",
             "SEARCH_INCONCLUSIVE",
         )
 
+    initiatives = initiatives[:25]
     successful = sum(1 for it in initiatives if it["outcome"] == "success")
-    failed = sum(1 for it in initiatives if it["outcome"] == "failure")
-    execution_score = _score_1_5(successful, successful + failed)
+    delayed = sum(1 for it in initiatives if it["outcome"] == "delayed")
+    failed = sum(1 for it in initiatives if it["outcome"] == "failed")
+    ongoing = sum(1 for it in initiatives if it["outcome"] == "ongoing")
+    total = len(initiatives)
+    success_rate_pct = round(100 * successful / total, 1)
+    execution_score = _band_score_pct(success_rate_pct)
 
     payload = {
         "subpoint_id": subpoint_id, "title": "Past successes / failures",
-        "available": True, "execution_score": execution_score, "initiatives": initiatives,
-        "successful_count": successful, "failed_count": failed,
-        "rationale": summary or f"{successful} successful and {failed} failed initiative(s) explicitly described in the Chairman/MD message.",
+        "available": True, "initiative_success_rate_pct": success_rate_pct, "execution_score": execution_score,
+        "initiatives": initiatives, "successful_count": successful, "delayed_count": delayed,
+        "failed_count": failed, "ongoing_count": ongoing,
+        "rationale": f"{successful} of {total} major strategic initiatives named across the last {len(year_texts)} Annual Report(s) "
+                     f"were explicitly described as completed successfully ({success_rate_pct}% -> score {execution_score}/5).",
         "pathway_results": pathway_results, "source_pdf_url": pdf_url,
     }
     confidence_tag = "SINGLE_SOURCE"
@@ -2956,17 +2990,34 @@ def compute_b1_1_past_track_record(symbol, name=None, force=False):
     return payload
 
 
-def compute_b1_2_management_tenure(symbol, name=None, force=False):
-    """B.1.2 - Management tenure: the Corporate Governance Report's Board of
-    Directors / KMP section is scanned for EXPLICITLY stated appointment
-    dates or tenure duration per named director/KMP, each classified
-    Long-tenured (>=5 years as of the report's own fiscal year) or
-    Short-tenured (<5 years) strictly from what the text states. Tenure
-    Stability Score (1-5) = 1 + 4 x (long-tenured / total classified);
-    None if no director's tenure is explicitly stated.
+_TENURE_BUCKETS = [(">10Y", 10, None), ("7-10Y", 7, 10), ("4-7Y", 4, 7), ("2-4Y", 2, 4), ("<2Y", 0, 2)]
 
-    Sourcing Sequence: AR-06 (Corporate Governance Report - Board of
-    Directors / Key Managerial Personnel).
+
+def _tenure_bucket_for(years):
+    for label, lo, hi in _TENURE_BUCKETS:
+        if hi is None:
+            if years > lo:
+                return label
+        elif lo <= years < hi if lo > 0 else years < hi:
+            return label
+    return "<2Y"
+
+
+def compute_b1_2_management_tenure(symbol, name=None, force=False):
+    """B.1.2 - Management tenure. Spec formula: Average Leadership Tenure =
+    (CEO Tenure + CFO Tenure + Executive Director Tenure) / Number of Key
+    Executives identified, banded to a 1-5 score (>10y=5, 7-10y=4, 4-7y=3,
+    2-4y=2, <2y=1).
+
+    Sourcing: Corporate Governance Report - Board of Directors / KMP section
+    of the latest Annual Report, restricted to named individuals EXPLICITLY
+    holding a CEO / CFO / Executive Director-type role with an explicitly
+    stated appointment date or tenure duration - a generic director bio
+    with no role or no date is not counted, per the spec's "Number of Key
+    Executives" denominator (not every director on the board). The
+    NSE Corporate Announcements appointment/resignation cross-check the
+    spec also calls for has no fetcher wired - see the PORTAL-02 gap in
+    pathway_results.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "B.1.2"
@@ -2991,18 +3042,20 @@ def compute_b1_2_management_tenure(symbol, name=None, force=False):
     tenure_text = ft.get("tenure_text")
     fiscal_year = ft.get("fiscal_year")
     pdf_url = ft.get("pdf_url")
-    pathway_results = [{
-        "pathway_id": "AR-06",
-        "source": "Corporate Governance Report - Board of Directors / Key Managerial Personnel",
-        "result": "CHECKED" if tenure_text else "NOT_DISCLOSED",
-        "note": None if tenure_text else "Director appointment/tenure detail not located in the latest Annual Report PDF this run.",
-    }]
+    pathway_results = [
+        {
+            "pathway_id": "AR-06",
+            "source": "Corporate Governance Report - Board of Directors / Key Managerial Personnel",
+            "result": "CHECKED" if tenure_text else "NOT_DISCLOSED",
+            "note": None if tenure_text else "Director appointment/tenure detail not located in the latest Annual Report PDF this run.",
+        },
+        {**_NSE_ANNOUNCEMENTS_GAP, "source": "NSE Corporate Announcements - board appointment/resignation announcements, to verify appointment dates"},
+    ]
 
     def _unavailable(reason, tag):
         payload = {
             "subpoint_id": subpoint_id, "title": "Management tenure",
-            "available": True, "tenure_score": None, "directors": [],
-            "long_tenured_count": 0, "short_tenured_count": 0,
+            "available": True, "average_tenure_years": None, "tenure_score": None, "executives": [],
             "rationale": reason, "pathway_results": pathway_results, "source_pdf_url": pdf_url,
         }
         if tag:
@@ -3018,48 +3071,73 @@ def compute_b1_2_management_tenure(symbol, name=None, force=False):
 
     prompt = (
         "The excerpt below is real Annual Report page text (Corporate Governance Report - Board of Directors "
-        f"/ KMP section, fiscal year ending {fiscal_year or 'unknown'}). Extract ONLY named directors/KMP whose "
-        "appointment date or tenure duration is EXPLICITLY stated, and classify each as \"long\" (tenure as of "
-        f"this report is 5 years or more) or \"short\" (less than 5 years) based strictly on the stated date "
-        "relative to this report's fiscal year - do not guess a date that isn't given.\n\n"
+        f"/ KMP section, fiscal year ending {fiscal_year or 'unknown'}). Identify ONLY named individuals "
+        "EXPLICITLY holding a CEO, CFO, Managing Director, or Executive Director role AT THIS COMPANY, whose "
+        "APPOINTMENT DATE OR TENURE AT THIS COMPANY (not total career/industry experience) is EXPLICITLY "
+        "stated. CRITICAL: a phrase like 'has 30 years of experience across FMCG, Metals & Mining' describes "
+        "career experience BEFORE joining, NOT tenure at this company - do NOT use it as tenure_years. Only "
+        "use an explicit appointment date (compute years to this report's fiscal year end), or an explicit "
+        "'has been with the company / in this role since <year>' / 'X years with the company' statement. If no "
+        "such company-specific tenure is stated for an individual, do not include them at all - do not guess "
+        "or substitute career experience.\n\n"
         "Return ONLY JSON:\n"
         "{\n"
-        '  "directors": [{"name": "name", "tenure_bucket": "long" | "short", "detail": "the stated date/duration"}],\n'
+        '  "executives": [{"name": "name", "role": "CEO" | "CFO" | "Executive Director" | "Managing Director", "tenure_years": number, "detail": "the stated appointment date/company tenure, quoted or closely paraphrased"}],\n'
         '  "summary": "1-2 sentences on what the excerpt actually contains"\n'
         "}\n\n"
         f"=== EXCERPT ===\n{tenure_text}"
     )
     data, llm_failed = _llm_json(
-        sym, "B.1.2", "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never invent a date that isn't stated.",
+        sym, "B.1.2", "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never invent a date or role that isn't stated.",
         prompt, max_tokens=500, temperature=0.0,
     )
     if llm_failed:
         return _unavailable("Could not be classified on this run - reload to try again.", None)
 
-    directors = [
-        {"name": str(d.get("name") or "").strip(), "tenure_bucket": d.get("tenure_bucket"), "detail": str(d.get("detail") or "").strip()}
-        for d in (data.get("directors") or [])
-        if isinstance(d, dict) and str(d.get("name") or "").strip() and d.get("tenure_bucket") in ("long", "short")
-    ][:15]
+    _NOT_STATED_MARKERS = ("not stated", "not explicitly", "not given", "not disclosed", "not mentioned", "unknown", "n/a")
+    executives = []
+    for e in (data.get("executives") or []):
+        if not isinstance(e, dict):
+            continue
+        detail = str(e.get("detail") or "").strip()
+        # Defensive guard against a weaker fallback model handing back a
+        # fabricated 0 (or any number) while its own "detail" field admits
+        # no date/tenure was actually stated — a "not stated" detail can
+        # never license a numeric score, however the model scored it.
+        if detail and any(marker in detail.lower() for marker in _NOT_STATED_MARKERS):
+            continue
+        try:
+            yrs = float(e.get("tenure_years"))
+        except (TypeError, ValueError):
+            continue
+        if not str(e.get("name") or "").strip() or not str(e.get("role") or "").strip():
+            continue
+        yrs = max(0.0, min(60.0, yrs))
+        executives.append({
+            "name": str(e["name"]).strip(), "role": str(e["role"]).strip(), "tenure_years": round(yrs, 1),
+            "bucket": _tenure_bucket_for(yrs), "detail": str(e.get("detail") or "").strip(),
+        })
+    executives = executives[:10]
     summary = str(data.get("summary") or "").strip()
 
-    if not directors:
+    if not executives:
         return _unavailable(
-            "A director/KMP section was found in the Annual Report, but no explicit appointment date or "
-            "tenure duration was stated for a named individual (" + (summary or "different context") + ") - "
+            "A director/KMP section was found in the Annual Report, but no CEO/CFO/Executive Director with "
+            "an explicit appointment date or tenure duration was identified (" + (summary or "different context") + ") - "
             "no tenure evidence was located this run.",
             "SEARCH_INCONCLUSIVE",
         )
 
-    long_n = sum(1 for d in directors if d["tenure_bucket"] == "long")
-    short_n = sum(1 for d in directors if d["tenure_bucket"] == "short")
-    tenure_score = _score_1_5(long_n, long_n + short_n)
+    avg_tenure = round(sum(e["tenure_years"] for e in executives) / len(executives), 1)
+    tenure_score = 5 if avg_tenure > 10 else 4 if avg_tenure >= 7 else 3 if avg_tenure >= 4 else 2 if avg_tenure >= 2 else 1
 
     payload = {
         "subpoint_id": subpoint_id, "title": "Management tenure",
-        "available": True, "tenure_score": tenure_score, "directors": directors,
-        "long_tenured_count": long_n, "short_tenured_count": short_n,
-        "rationale": summary or f"{long_n} long-tenured (>=5y) and {short_n} short-tenured (<5y) director(s)/KMP explicitly dated in the Corporate Governance Report.",
+        "available": True, "average_tenure_years": avg_tenure, "tenure_score": tenure_score, "executives": executives,
+        "rationale": summary or (
+            f"Average tenure across {len(executives)} identified key executive(s) "
+            f"({', '.join(e['role'] for e in executives)}) is {avg_tenure} years -> score {tenure_score}/5."
+        ),
         "pathway_results": pathway_results, "source_pdf_url": pdf_url,
     }
     confidence_tag = "SINGLE_SOURCE"
@@ -3070,15 +3148,18 @@ def compute_b1_2_management_tenure(symbol, name=None, force=False):
 
 
 def compute_b1_3_strategy_relevance(symbol, name=None, force=False):
-    """B.1.3 - Relevance to current strategy: the MD&A Business Strategy
-    section + director profiles are scanned for an EXPLICIT connection
-    between director/leadership background (domain experience, prior role)
-    and the company's stated current strategy. Classified High/Moderate/Low
-    alignment strictly from what the text states - never a guess from a
-    generic bio. No score/classification when the connection isn't
-    explicitly drawn in the text.
+    """B.1.3 - Relevance to current strategy. Spec formula: Strategy
+    Alignment Score = (Leadership Experience Areas Matching Current
+    Strategic Priorities / Total Current Strategic Priorities) x 100,
+    banded to a 1-5 score (>=80%=5, 65-79%=4, 50-64%=3, 30-49%=2, <30%=1),
+    labelled High (score>=4) / Moderate (score 3) / Low (score<=2).
 
-    Sourcing Sequence: AR-13 (MD&A Business Strategy) + AR-01 (director profiles).
+    Sourcing: MD&A Business Strategy + director profiles from the latest
+    Annual Report. The spec's Investor Presentation / Earnings Call
+    Transcript cross-check for current strategic priorities has no fetcher
+    wired in this codebase specifically for this sub-point - see the
+    PORTAL-03 gap in pathway_results; strategic priorities here are read
+    from the AR's own MD&A only.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "B.1.3"
@@ -3102,17 +3183,26 @@ def compute_b1_3_strategy_relevance(symbol, name=None, force=False):
 
     strategy_text = ft.get("strategy_text")
     pdf_url = ft.get("pdf_url")
-    pathway_results = [{
-        "pathway_id": "AR-13",
-        "source": "MD&A Business Strategy + director profiles",
-        "result": "CHECKED" if strategy_text else "NOT_DISCLOSED",
-        "note": None if strategy_text else "Business Strategy / director-profile section not located in the latest Annual Report PDF this run.",
-    }]
+    pathway_results = [
+        {
+            "pathway_id": "AR-13",
+            "source": "MD&A Business Strategy + director profiles",
+            "result": "CHECKED" if strategy_text else "NOT_DISCLOSED",
+            "note": None if strategy_text else "Business Strategy / director-profile section not located in the latest Annual Report PDF this run.",
+        },
+        {
+            "pathway_id": "PORTAL-03",
+            "source": "NSE Corporate Announcements - Investor Presentation / Earnings Call Transcript current strategic priorities",
+            "result": "NOT_WIRED",
+            "note": "No investor-presentation/transcript fetcher is wired for this sub-point - strategic priorities are read from the Annual Report's own MD&A only.",
+        },
+    ]
 
     def _unavailable(reason, tag):
         payload = {
             "subpoint_id": subpoint_id, "title": "Relevance to current strategy",
-            "available": True, "alignment": None,
+            "available": True, "strategy_alignment_pct": None, "alignment_score": None, "alignment": None,
+            "strategic_priorities": [], "matched_areas": [],
             "rationale": reason, "pathway_results": pathway_results, "source_pdf_url": pdf_url,
         }
         if tag:
@@ -3128,39 +3218,53 @@ def compute_b1_3_strategy_relevance(symbol, name=None, force=False):
 
     prompt = (
         "The excerpt below is real Annual Report page text (MD&A Business Strategy section and/or director "
-        "profiles). Judge ONLY whether the text EXPLICITLY connects leadership/director background (domain "
-        "experience, prior role) to the company's stated current strategy - do not infer a connection from a "
-        "generic bio that lists qualifications without tying them to the strategy.\n\n"
+        "profiles). Read it carefully and do exactly two things, using ONLY words/phrases that actually appear "
+        "in THIS excerpt (never invent, guess, or reuse an example from these instructions):\n"
+        "1. List the company's current strategic priority areas EXPLICITLY named IN THE EXCERPT ITSELF "
+        "(business focus areas the excerpt actually states the company is prioritising right now).\n"
+        "2. For each priority you just listed, check whether a named director's EXPLICITLY stated domain "
+        "experience or prior role (also in this excerpt) matches that exact area - do not infer a match from "
+        "a generic bio with no stated connection.\n"
+        "If the excerpt names no strategic priorities at all, return an empty strategic_priorities list - do "
+        "not fabricate one.\n\n"
         "Return ONLY JSON:\n"
         "{\n"
-        '  "is_relevant_content": true | false,\n'
-        '  "alignment": "High" | "Moderate" | "Low",   // only meaningful if is_relevant_content is true\n'
-        '  "evidence": "1-2 sentences quoting/paraphrasing the explicit connection, or empty string"\n'
+        '  "strategic_priorities": ["priority name copied/paraphrased from THIS excerpt only", ...],\n'
+        '  "matched_areas": ["priority names from the list above that leadership background explicitly matches"],\n'
+        '  "evidence": "1-2 sentences quoting/paraphrasing the explicit match(es), or empty string"\n'
         "}\n\n"
         f"=== EXCERPT ===\n{strategy_text}"
     )
     data, llm_failed = _llm_json(
-        sym, "B.1.3", "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never infer a connection the text doesn't explicitly draw.",
-        prompt, max_tokens=400, temperature=0.0,
+        sym, "B.1.3", "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never infer a match the text doesn't explicitly draw.",
+        prompt, max_tokens=500, temperature=0.0,
     )
     if llm_failed:
         return _unavailable("Could not be classified on this run - reload to try again.", None)
 
-    is_relevant = bool(data.get("is_relevant_content"))
-    alignment = data.get("alignment") if is_relevant and data.get("alignment") in ("High", "Moderate", "Low") else None
+    priorities = [str(p).strip() for p in (data.get("strategic_priorities") or []) if str(p).strip()][:15]
+    matched = [str(m).strip() for m in (data.get("matched_areas") or []) if str(m).strip() and str(m).strip() in priorities]
     evidence = str(data.get("evidence") or "").strip()
 
-    if not alignment:
+    if not priorities:
         return _unavailable(
-            "A Business Strategy / director-profile section was found, but it does not explicitly connect "
-            "leadership background to the current strategy - no alignment evidence was located this run.",
+            "A Business Strategy section was found, but it does not explicitly name current strategic "
+            "priority areas - no alignment evidence was located this run.",
             "SEARCH_INCONCLUSIVE",
         )
 
+    alignment_pct = round(100 * len(matched) / len(priorities), 1)
+    alignment_score = _band_score_pct(alignment_pct)
+    alignment_label = "High" if alignment_score >= 4 else "Moderate" if alignment_score == 3 else "Low"
+
     payload = {
         "subpoint_id": subpoint_id, "title": "Relevance to current strategy",
-        "available": True, "alignment": alignment,
-        "rationale": evidence or f"{alignment} alignment between leadership background and stated strategy, per the Annual Report.",
+        "available": True, "strategy_alignment_pct": alignment_pct, "alignment_score": alignment_score,
+        "alignment": alignment_label, "strategic_priorities": priorities, "matched_areas": matched,
+        "rationale": evidence or (
+            f"Leadership background explicitly matches {len(matched)} of {len(priorities)} stated strategic "
+            f"priorities ({alignment_pct}% -> {alignment_label} alignment)."
+        ),
         "pathway_results": pathway_results, "source_pdf_url": pdf_url,
     }
     confidence_tag = "SINGLE_SOURCE"
@@ -3193,11 +3297,11 @@ def compute_b1_founder_ceo_track_record(symbol, name=None, description="", force
 
     parts = []
     if b11.get("execution_score") is not None:
-        parts.append(f"Execution: {b11['successful_count']} successful vs {b11['failed_count']} failed initiative(s) explicitly described (score {b11['execution_score']}/5).")
+        parts.append(f"Initiative success rate: {b11['initiative_success_rate_pct']}% ({b11['successful_count']}/{len(b11['initiatives'])} initiatives, score {b11['execution_score']}/5).")
     if b12.get("tenure_score") is not None:
-        parts.append(f"Tenure: {b12['long_tenured_count']} long-tenured vs {b12['short_tenured_count']} short-tenured director(s) (score {b12['tenure_score']}/5).")
+        parts.append(f"Average leadership tenure: {b12['average_tenure_years']} years across {len(b12['executives'])} key executive(s) (score {b12['tenure_score']}/5).")
     if b13.get("alignment"):
-        parts.append(f"Strategy alignment: {b13['alignment']}.")
+        parts.append(f"Strategy alignment: {b13['alignment']} ({b13['strategy_alignment_pct']}%).")
     if not parts:
         parts.append("None of the three sub-points (past initiatives, director tenure, strategy alignment) were explicitly covered in the latest Annual Report this run.")
     parts.append(

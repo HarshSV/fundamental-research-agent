@@ -789,7 +789,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // (real counts) or a fixed 3-zone classification wheel (High/
         // Moderate/Low), plus an "unavailable" state that shows a dashed
         // ring + honest explanation instead of a fabricated split.
-        const BIG_DONUT_PALETTE = ['#3b82f6', '#10b981', '#f59e0b'];
+        const BIG_DONUT_PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
         const BigCenterDonut = ({ panel }) => {
             const cx = 100, cy = 100, R = 78, HOLE = 48;
             if (panel.type === 'unavailable') {

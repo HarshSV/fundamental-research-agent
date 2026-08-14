@@ -2252,25 +2252,25 @@ _GOVERNANCE_SECTION_ANCHORS = {
 }
 
 
-def _fetch_ar_text_sections(symbol, name, anchors, cache_key_prefix):
+def _fetch_ar_text_sections(symbol, name, anchors, cache_key_prefix, prefer_prose=False, fiscal_year=None):
     """Shared plumbing behind fetch_governance_text_sections and
     fetch_founder_track_record_text: downloads the company's latest Annual
     Report PDF once (cached) and returns the best-scoring real page-text
     window per anchor-dict key (`<key>_text`). An anchor phrase can appear
     many times incidentally (AGM notice text, cross-references) before the
-    real disclosure — each candidate is scored by digit density in its
-    window (a genuine table/annexure is numbers-heavy; a passing prose
-    mention isn't), and the best-scoring candidate per key is kept. Returns
-    {'pdf_url', 'fiscal_year', <key>_text: ...} or {'error': reason}. Never
-    raises. Reuses the same PDF-fetch plumbing as the ratio extractors
-    (BSE/NSE lookup, retry, cache), so a company already visited for its
-    ratios pays no extra download cost."""
+    real disclosure — candidate windows for tables are scored by digit density;
+    narrative prose candidate windows (when prefer_prose=True) are scored by
+    richness of alphabetic words. Returns {'pdf_url', 'fiscal_year', <key>_text: ...}
+    or {'error': reason}. Never raises. Reuses the same PDF-fetch plumbing as the
+    ratio extractors (BSE/NSE lookup, retry, cache), so a company already visited
+    for its ratios pays no extra download cost."""
     try:
         sym = symbol.strip().upper().replace(".NS", "")
-        years = list_annual_report_years(sym, name)
-        if not years:
-            return {"error": _no_annual_report_message(sym)}
-        fiscal_year = years[0]
+        if fiscal_year is None:
+            years = list_annual_report_years(sym, name)
+            if not years:
+                return {"error": _no_annual_report_message(sym)}
+            fiscal_year = years[0]
         ckey = f"{cache_key_prefix}_{sym}_{fiscal_year}"
         cached = _read_cache(ckey)
         if cached is not None:
@@ -2321,7 +2321,23 @@ def _fetch_ar_text_sections(symbol, name, anchors, cache_key_prefix):
                     if idx == -1:
                         continue
                     window = t[max(0, idx - 200):idx + 1300].strip()
-                    score = sum(c.isdigit() for c in window)
+                    if prefer_prose:
+                        base_words = len([w for w in window.split() if w.isalpha() and len(w) > 2])
+                        wl = window.lower()
+                        if any(bad in wl for bad in ["notice of the", "item no.", "proxy form", "book closure"]):
+                            score = base_words * 0.1
+                        else:
+                            if key == "milestones":
+                                boost = sum(1 for kw in ["commissioned", "expanded", "launched", "achieved", "growth", "completed", "capacity", "turnaround", "investment", "milestone"] if kw in wl)
+                            elif key == "tenure":
+                                boost = sum(1 for kw in ["appointed", "w.e.f", "din", "director", "years", "experience", "qualification", "managing director", "tenure"] if kw in wl)
+                            elif key == "strategy":
+                                boost = sum(1 for kw in ["strategy", "focus", "priority", "growth", "expansion", "market", "target", "pillar", "roadmap"] if kw in wl)
+                            else:
+                                boost = 0
+                            score = base_words * (1.0 + 0.5 * min(boost, 5))
+                    else:
+                        score = sum(c.isdigit() for c in window)
                     if score > best[key][1]:
                         best[key] = (window, score)
 
@@ -2354,15 +2370,20 @@ _FOUNDER_TRACK_RECORD_ANCHORS = {
     "milestones": [
         "chairman's message", "chairman & managing director", "chairman and managing director",
         "message to shareholders", "managing director's message", "md's message",
-        "historical milestones", "our journey", "milestones",
+        "letter to shareholders", "letter from the chairman", "chairman's statement",
+        "statement from the chairman", "reflections & outlook", "reflections and outlook",
+        "historical milestones", "our journey", "key milestones", "milestones",
     ],
     "tenure": [
         "date of appointment", "appointed as director", "director since",
         "brief profile of directors", "brief resume of directors", "brief resume of the directors",
+        "profile of directors", "details of directors", "board of directors profile",
+        "particulars of directors", "term of appointment", "date of birth / appointment",
     ],
     "strategy": [
         "business strategy", "strategic priorities", "our strategy",
-        "key strategic", "growth strategy", "director profile",
+        "key strategic", "growth strategy", "director profile", "strategic roadmap",
+        "strategic focus", "growth drivers", "strategic pillars",
     ],
 }
 
@@ -2377,7 +2398,34 @@ def fetch_founder_track_record_text(symbol, name):
     'fiscal_year', 'milestones_text', 'tenure_text', 'strategy_text'} (each
     text field None if that section wasn't located) or {'error': reason}.
     Never raises. Shares PDF-fetch plumbing with fetch_governance_text_sections."""
-    return _fetch_ar_text_sections(symbol, name, _FOUNDER_TRACK_RECORD_ANCHORS, "ar_founder_text_v1")
+    return _fetch_ar_text_sections(symbol, name, _FOUNDER_TRACK_RECORD_ANCHORS, "ar_founder_text_v4", prefer_prose=True)
+
+
+def fetch_founder_milestones_multi_year(symbol, name, n_years=5):
+    """B.1.1's real sourcing pathway: the Chairman/MD message across the
+    last up to `n_years` Annual Reports (not just the latest one) — a
+    single-year read can't tell successful from failed/ongoing initiatives,
+    since an initiative announced in year N often only resolves in year
+    N+1/N+2. Returns a list of {'fiscal_year', 'pdf_url', 'milestones_text'}
+    (oldest-fetch-failure years simply omitted), newest first. Never raises;
+    empty list if no Annual Reports are found at all. Each year's PDF is
+    cached independently, so a year already fetched for a different
+    sub-point (or a prior run) costs nothing extra."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    try:
+        years = list_annual_report_years(sym, name)
+    except Exception as e:
+        print(f"[annual_report_financials] fetch_founder_milestones_multi_year year-list failed for {sym}: {e}")
+        years = []
+    out = []
+    for yr in (years or [])[:n_years]:
+        res = _fetch_ar_text_sections(
+            sym, name, {"milestones": _FOUNDER_TRACK_RECORD_ANCHORS["milestones"]},
+            "ar_milestones_multi_v1", prefer_prose=True, fiscal_year=yr,
+        )
+        if res.get("milestones_text"):
+            out.append({"fiscal_year": yr, "pdf_url": res.get("pdf_url"), "milestones_text": res["milestones_text"]})
+    return out
 
 
 # Revenue-characteristics evidence anchors (A.1.2 — recurring vs cyclical

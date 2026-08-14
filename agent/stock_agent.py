@@ -2570,45 +2570,55 @@ def build_executive_summary(state: SystemState) -> dict:
     _co = name or symbol or 'This company'
 
     if _b1_1.get('execution_score') is not None:
-        _succ, _fail = _b1_1.get('successful_count') or 0, _b1_1.get('failed_count') or 0
+        _succ, _delay, _fail_n, _ongoing = (_b1_1.get('successful_count') or 0, _b1_1.get('delayed_count') or 0,
+                                              _b1_1.get('failed_count') or 0, _b1_1.get('ongoing_count') or 0)
+        _tot_init = _succ + _delay + _fail_n + _ongoing
         _b1_1_donut = {
             'type': 'donut', 'title': 'Initiative Success Rate',
-            'data': [{'label': 'Successful initiatives', 'value': _succ},
-                     {'label': 'Failed initiatives', 'value': _fail}],
-            'centerValue': f"{round(100 * _succ / max(_succ + _fail, 1))}%",
-            'explanation': f"{_succ} of {_succ + _fail} strategic moves {_co} described in its Chairman/MD message paid off.",
+            'data': [{'label': 'Successful', 'value': _succ}, {'label': 'Delayed', 'value': _delay},
+                     {'label': 'Failed', 'value': _fail_n}, {'label': 'Ongoing', 'value': _ongoing}],
+            'centerValue': f"{_b1_1.get('initiative_success_rate_pct')}%",
+            'explanation': f"{_succ} of {_tot_init} major strategic initiatives {_co} named across its last Annual Reports were completed successfully "
+                           f"(score {_b1_1.get('execution_score')}/5).",
         }
     else:
         _b1_1_donut = {
             'type': 'unavailable', 'title': 'Initiative Success Rate',
-            'explanation': f"{_co}'s latest Annual Report doesn't describe a specific initiative with a stated outcome — not enough to score this year.",
+            'explanation': f"{_co}'s last 5 Annual Reports don't name a major strategic initiative with a stated outcome — not enough to score this year.",
         }
 
     if _b1_2.get('tenure_score') is not None:
-        _long, _short = _b1_2.get('long_tenured_count') or 0, _b1_2.get('short_tenured_count') or 0
+        _execs = _b1_2.get('executives') or []
+        _bucket_counts = {}
+        for _e in _execs:
+            _b = _e.get('bucket') or '<2Y'
+            _bucket_counts[_b] = _bucket_counts.get(_b, 0) + 1
         _b1_2_donut = {
             'type': 'donut', 'title': 'Management Tenure Distribution',
-            'data': [{'label': 'Long tenure (≥5y)', 'value': _long},
-                     {'label': 'Short tenure (<5y)', 'value': _short}],
-            'centerValue': f"{round(100 * _long / max(_long + _short, 1))}%",
-            'explanation': f"{_long} of {_long + _short} directors/KMP named in the filing have been with {_co} for 5+ years.",
+            'data': [{'label': _lbl, 'value': _bucket_counts.get(_lbl, 0)} for _lbl in ['>10Y', '7-10Y', '4-7Y', '2-4Y', '<2Y'] if _bucket_counts.get(_lbl)],
+            'centerValue': f"{_b1_2.get('average_tenure_years')}y",
+            'explanation': f"Average tenure across {len(_execs)} identified key executive(s) at {_co} ({', '.join(e.get('role','') for e in _execs)}) "
+                           f"is {_b1_2.get('average_tenure_years')} years (score {_b1_2.get('tenure_score')}/5).",
         }
     else:
         _b1_2_donut = {
             'type': 'unavailable', 'title': 'Management Tenure Distribution',
-            'explanation': f"No director appointment dates were explicitly stated in {_co}'s latest Corporate Governance Report.",
+            'explanation': f"No CEO/CFO/Executive Director appointment dates were explicitly stated in {_co}'s latest Corporate Governance Report.",
         }
 
     if _b1_3.get('alignment'):
         _b1_3_donut = {
             'type': 'classification', 'title': 'Strategy Alignment Distribution',
             'zones': ['High', 'Moderate', 'Low'], 'active': _b1_3.get('alignment'),
-            'explanation': f"{_b1_3.get('alignment')} match between {_co}'s leadership background and its stated strategy, per the Annual Report.",
+            'centerValue': f"{_b1_3.get('strategy_alignment_pct')}%",
+            'explanation': f"Leadership background at {_co} explicitly matches {len(_b1_3.get('matched_areas') or [])} of "
+                           f"{len(_b1_3.get('strategic_priorities') or [])} stated strategic priorities "
+                           f"({_b1_3.get('strategy_alignment_pct')}% — {_b1_3.get('alignment')} alignment).",
         }
     else:
         _b1_3_donut = {
             'type': 'unavailable', 'title': 'Strategy Alignment Distribution',
-            'explanation': f"{_co}'s Annual Report doesn't explicitly tie leadership background to its current strategy.",
+            'explanation': f"{_co}'s Annual Report doesn't explicitly name current strategic priorities or tie leadership background to them.",
         }
     _b1_panels = [_b1_1_donut, _b1_2_donut, _b1_3_donut]
 
