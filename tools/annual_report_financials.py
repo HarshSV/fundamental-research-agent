@@ -2308,7 +2308,17 @@ def _fetch_ar_text_sections(symbol, name, anchors, cache_key_prefix, prefer_pros
         except Exception as e:
             return {"error": f"PDF read failed: {e}"}
 
-        best = {k: (None, -1) for k in anchors}
+        # Keeps the TOP-2 scoring windows per key, not just the single best
+        # one - confirmed real gap from live testing: a company's Date-of-
+        # Appointment TABLE and its directors' role/designation profiles
+        # routinely sit on DIFFERENT pages, so whichever page happened to
+        # score marginally higher would win and silently drop the other
+        # page's information (TCS: one page had clean appointment dates
+        # with no role/designation, another had roles with no clean dates -
+        # keeping only the top-1 window meant the result flipped between
+        # "dates but no roles" and "roles but no dates" depending on scoring
+        # noise, rather than ever seeing both).
+        best = {k: [] for k in anchors}
         for page in doc:
             try:
                 t = _page_text(page)
@@ -2320,7 +2330,15 @@ def _fetch_ar_text_sections(symbol, name, anchors, cache_key_prefix, prefer_pros
                     idx = tl.find(anchor)
                     if idx == -1:
                         continue
-                    window = t[max(0, idx - 200):idx + 1300].strip()
+                    # "tenure" gets a much larger window than other keys —
+                    # a Board of Directors / KMP appointment-date TABLE is
+                    # often several director rows long and separate from
+                    # any single director's bio paragraph, so a 1300-char
+                    # window (fine for a single-anchor prose match) was
+                    # routinely cutting the table off before it reached the
+                    # actual dates for directors listed further down.
+                    tail = 6000 if key == "tenure" else 1300
+                    window = t[max(0, idx - 200):idx + tail].strip()
                     if prefer_prose:
                         base_words = len([w for w in window.split() if w.isalpha() and len(w) > 2])
                         wl = window.lower()
@@ -2338,12 +2356,15 @@ def _fetch_ar_text_sections(symbol, name, anchors, cache_key_prefix, prefer_pros
                             score = base_words * (1.0 + 0.5 * min(boost, 5))
                     else:
                         score = sum(c.isdigit() for c in window)
-                    if score > best[key][1]:
-                        best[key] = (window, score)
+                    if not any(w == window for _, w in best[key]):
+                        best[key].append((score, window))
+                        best[key].sort(key=lambda sw: -sw[0])
+                        del best[key][2:]
 
         out = {"pdf_url": pdf_url, "fiscal_year": fiscal_year}
         for key in anchors:
-            out[f"{key}_text"] = best[key][0]
+            windows = [w for _, w in best[key]]
+            out[f"{key}_text"] = "\n\n=== (separate page) ===\n\n".join(windows) if windows else None
         _write_cache(ckey, out)
         return out
     except Exception as e:
@@ -2358,7 +2379,7 @@ def fetch_governance_text_sections(symbol, name):
     proxy, the actual filing. Returns {'pdf_url', 'fiscal_year',
     'remuneration_text', 'esop_text', 'kmp_changes_text'} (each text field
     None if that section wasn't located) or {'error': reason}. Never raises."""
-    return _fetch_ar_text_sections(symbol, name, _GOVERNANCE_SECTION_ANCHORS, "ar_gov_text_v1")
+    return _fetch_ar_text_sections(symbol, name, _GOVERNANCE_SECTION_ANCHORS, "ar_gov_text_v2")
 
 
 # Founder/CEO track-record evidence anchors (B.1.1-B.1.3). Three independent
@@ -2398,7 +2419,10 @@ def fetch_founder_track_record_text(symbol, name):
     'fiscal_year', 'milestones_text', 'tenure_text', 'strategy_text'} (each
     text field None if that section wasn't located) or {'error': reason}.
     Never raises. Shares PDF-fetch plumbing with fetch_governance_text_sections."""
-    return _fetch_ar_text_sections(symbol, name, _FOUNDER_TRACK_RECORD_ANCHORS, "ar_founder_text_v4", prefer_prose=True)
+    # v5: widened the "tenure" key's captured window (1300 -> 6000 chars) so
+    # a multi-director appointment-date table isn't cut off - bumped so this
+    # doesn't keep serving pre-widening cached text forever.
+    return _fetch_ar_text_sections(symbol, name, _FOUNDER_TRACK_RECORD_ANCHORS, "ar_founder_text_v6", prefer_prose=True)
 
 
 def fetch_founder_milestones_multi_year(symbol, name, n_years=5):

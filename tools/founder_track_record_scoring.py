@@ -175,6 +175,10 @@ _MONTHS = r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?
 _BARE_DATE_DAY_MONTH = re.compile(rf"\b\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTHS})\.?,?\s+(\d{{4}})\b", re.I)
 _BARE_DATE_MONTH_DAY = re.compile(rf"\b(?:{_MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+(\d{{4}})\b", re.I)
 
+# Marks a resignation/cessation notice - the nearby date is when someone
+# LEFT the role, not when they joined it.
+_CESSATION_CTX = re.compile(r"\bceas(?:ed|ation|es)\b|\bstepped down\b|\bresign(?:ed|ation)\b|\bretir(?:ed|ement)\b(?!\s+benefit)", re.I)
+
 # A plain (no Mr./Ms./Shri prefix) Title-Case name - the common table format
 # ("Rajesh Gopinathan  00029794  CEO & MD  16/02/2020") has no honorific,
 # and a DIN/number often sits BETWEEN the name and the role, so this is
@@ -199,6 +203,10 @@ _NAME_STOPWORD_PHRASES = (
     "financial services", "capital markets", "term ending", "areas of",
     "date of appointment", "date of reappointment", "areas of expertise",
     "audit committee", "remuneration committee", "stakeholders relationship",
+    # AGM Notice / resolution boilerplate, confirmed real false-positive
+    # (RELIANCE: "Ordinary Resolution" matched as if it were a name).
+    "ordinary resolution", "special resolution", "item no", "notice of",
+    "postal ballot", "explanatory statement",
 )
 # A candidate ending in a company-entity suffix is a company name, not a
 # person - confirmed real false-positive (INFY: "Infosys Limited" matched
@@ -282,6 +290,16 @@ def extract_key_executive_tenure(tenure_text, fiscal_year):
             start, end = m.start(), m.end()
             win_start = max(0, start - 150)
             window = text[win_start:end + 150]
+            # A "Cessation" / resignation notice mentions the role and a
+            # date too - but that date is when someone LEFT, not when they
+            # joined. Confirmed real bug from live testing (HINDUNILVR: "Mr.
+            # Rohit Jawa stepped down as ... Managing Director & CEO ... with
+            # effect from close of business hours on 31st July, 2025" was
+            # being read as his APPOINTMENT date, computing a near-zero
+            # "tenure" for a departure, not a start). Skip the whole match -
+            # a departing/departed executive isn't a current key executive.
+            if _CESSATION_CTX.search(window):
+                continue
             year = _find_appointment_year(window, fiscal_year)
             if year is None:
                 continue
