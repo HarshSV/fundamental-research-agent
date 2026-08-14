@@ -179,6 +179,13 @@ _BARE_DATE_MONTH_DAY = re.compile(rf"\b(?:{_MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|t
 # LEFT the role, not when they joined it.
 _CESSATION_CTX = re.compile(r"\bceas(?:ed|ation|es)\b|\bstepped down\b|\bresign(?:ed|ation)\b|\bretir(?:ed|ement)\b(?!\s+benefit)", re.I)
 
+# "as on <date>" / "as at <date>" marks a REPORT snapshot date ("shareholding
+# as on March 31, 2026"), not an appointment date - confirmed real
+# false-positive (RELIANCE: "Directorships of other Boards as on March 31,
+# 2026" near an unrelated director's OTHER-company directorship was read as
+# a Reliance appointment date).
+_REPORT_DATE_CTX = re.compile(r"\bas\s+(?:on|at)\b", re.I)
+
 # A plain (no Mr./Ms./Shri prefix) Title-Case name - the common table format
 # ("Rajesh Gopinathan  00029794  CEO & MD  16/02/2020") has no honorific,
 # and a DIN/number often sits BETWEEN the name and the role, so this is
@@ -234,6 +241,13 @@ def _find_appointment_year(window, fiscal_year):
             return int(m.group(1))
     for pat in (_BARE_DATE_NUMERIC, _BARE_DATE_DAY_MONTH, _BARE_DATE_MONTH_DAY):
         for m in pat.finditer(window):
+            # A "as on"/"as at" phrase immediately before THIS specific date
+            # match marks it as a report-snapshot date, not an appointment
+            # date - checked locally (not window-wide) since the window can
+            # legitimately contain both kinds of date in different spots.
+            local_before = window[max(0, m.start() - 20):m.start()]
+            if _REPORT_DATE_CTX.search(local_before):
+                continue
             y = int(m.group(1))
             if 1950 <= y <= fiscal_year:
                 return y

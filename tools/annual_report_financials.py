@@ -2359,7 +2359,16 @@ def _fetch_ar_text_sections(symbol, name, anchors, cache_key_prefix, prefer_pros
                     if not any(w == window for _, w in best[key]):
                         best[key].append((score, window))
                         best[key].sort(key=lambda sw: -sw[0])
-                        del best[key][2:]
+                        # "tenure" keeps more candidate pages than other
+                        # keys - a company's Board's Report appointment
+                        # announcement, its Corporate Governance director
+                        # table, AND a cessation notice can each independently
+                        # score well on different pages, and the individual
+                        # executive's appointment sentence (the one thing
+                        # this sub-point actually needs) isn't reliably the
+                        # single or even second-highest scoring page.
+                        keep = 4 if key == "tenure" else 2
+                        del best[key][keep:]
 
         out = {"pdf_url": pdf_url, "fiscal_year": fiscal_year}
         for key in anchors:
@@ -2422,7 +2431,7 @@ def fetch_founder_track_record_text(symbol, name):
     # v5: widened the "tenure" key's captured window (1300 -> 6000 chars) so
     # a multi-director appointment-date table isn't cut off - bumped so this
     # doesn't keep serving pre-widening cached text forever.
-    return _fetch_ar_text_sections(symbol, name, _FOUNDER_TRACK_RECORD_ANCHORS, "ar_founder_text_v6", prefer_prose=True)
+    return _fetch_ar_text_sections(symbol, name, _FOUNDER_TRACK_RECORD_ANCHORS, "ar_founder_text_v7", prefer_prose=True)
 
 
 def fetch_founder_milestones_multi_year(symbol, name, n_years=5):
