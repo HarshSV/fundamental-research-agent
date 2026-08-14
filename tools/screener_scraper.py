@@ -15,6 +15,11 @@ import json
 import time
 import threading
 
+_LIGATURE_MAP = str.maketrans({
+    "ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl",
+    "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "ft", "ﬆ": "st",
+})
+
 try:
     from tools import ssl_bootstrap  # noqa: F401  (Windows TLS fix; no-op on cloud)
 except Exception:
@@ -197,13 +202,18 @@ def _parse_concall_list(html):
     return out[:8]
 
 
-def download_transcript(url, max_chars=14000):
+def download_transcript(url, max_chars=14000, max_pages=16):
     """Download a single transcript PDF (BSE/company link) and extract its text.
-    Cached per-URL. Returns '' on any failure. Never raises."""
+    Cached per-URL (and per max_pages/max_chars, when non-default, so a
+    caller asking for MORE pages - e.g. B.4's Q&A-section scoring, which
+    needs pages beyond the default 16-page/14000-char digest cap most
+    callers use - doesn't silently get back a shorter, stale cached
+    extract). Returns '' on any failure. Never raises."""
     if not url:
         return ""
     import hashlib
-    ckey = "tr_" + hashlib.md5(url.encode("utf-8")).hexdigest()
+    suffix = "" if (max_chars, max_pages) == (14000, 16) else f"_{max_chars}_{max_pages}"
+    ckey = "tr_" + hashlib.md5(url.encode("utf-8")).hexdigest() + suffix
     cached = _read_cache(ckey)
     if cached is not None:
         return cached.get("text", "")
@@ -216,9 +226,16 @@ def download_transcript(url, max_chars=14000):
         if r.status_code == 200 and len(r.content) >= 5000:
             reader = PdfReader(_io.BytesIO(r.content))
             parts = []
-            for page in reader.pages[:16]:
+            for page in reader.pages[:max_pages]:
                 try:
-                    parts.append(page.extract_text() or "")
+                    # pypdf preserves Unicode ligature glyphs (ﬁ, ﬂ, ...) on
+                    # professionally-typeset PDFs just like PyMuPDF does -
+                    # "specific" extracts as "speciﬁc", silently breaking
+                    # every "fi"/"fl"-containing keyword regex downstream
+                    # (confirmed real: B.4.2's "we don't provide specific
+                    # guidance" disclaimer match failed for exactly this
+                    # reason before this fix).
+                    parts.append((page.extract_text() or "").translate(_LIGATURE_MAP))
                 except Exception:
                     continue
                 if sum(len(p) for p in parts) > max_chars:

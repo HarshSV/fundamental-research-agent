@@ -3976,22 +3976,17 @@ def compute_b3_management_bench_depth(symbol, name=None, force=False):
     return payload
 
 
-def compute_b4_communication_quality(symbol, name=None, force=False):
-    """B.4 — Communication quality: transparency in disclosures, clarity in
-    guidance, openness in meetings. N/A formula — a qualitative rating based on
-    transcript review, per the spec.
-
-    Sourcing Sequence: PORTAL-01 (get the AR PDF) -> AGG-01 (fallback/cross-check
-    only) -> QUAL-02 (concall color).
-
-    Unlike B.1-B.3, QUAL-02 (concall transcripts) IS wired in this codebase — the
-    same grounded digest used for A.1/A.3/A.5 is real transcript content, not a
-    guess. PORTAL-01 (AR investor-presentation filings) has no fetcher, so this
-    stays SINGLE_SOURCE even with a real transcript-grounded judgment, per the
-    cross-verification rule.
+def compute_b4_1_disclosure_transparency(symbol, name=None, force=False):
+    """B.4.1 - Transparency in disclosures. Spec formula: Disclosure
+    Transparency Score (1-5). Deterministic (no LLM) - see
+    tools/communication_quality_scoring.py's score_disclosure_transparency:
+    a risk-related sentence is "detailed" if it names a quantified figure,
+    "generic" if it matches known risk-boilerplate phrasing with no
+    specifics. Sourcing: Annual Report - MD&A / Notes to Accounts / Risk
+    Disclosures.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "B.4"
+    subpoint_id = "B.4.1"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -4003,83 +3998,222 @@ def compute_b4_communication_quality(symbol, name=None, force=False):
             except Exception:
                 return cached
 
-    digest = _concall_digest(sym, name)
-    pathway_results = [
-        {
-            "pathway_id": "PORTAL-01",
-            "source": "BSE Corporate Announcements -> investor presentation filings",
-            "result": "NOT_DISCLOSED",
-            "note": "No investor-presentation-filing fetcher is wired into this codebase yet.",
-        },
-        {
-            "pathway_id": "AGG-01",
-            "source": "Screener.in (fallback/cross-check only)",
-            "result": "NOT_CHECKED",
-            "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
-        },
-        {
-            "pathway_id": "QUAL-02",
-            "source": "Concall Transcript (grounded digest — real transcript content)",
-            "result": "CHECKED" if digest else "NOT_HELD",
-            "note": None if digest else "No transcript found for a recent quarter — do not assume one happened unseen.",
-        },
-    ]
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.communication_quality_scoring import score_disclosure_transparency
+        texts = extract_text_near_anchors(sym, name, {"risk": ["risk factors", "principal risks", "risks and concerns", "risk management"]}, max_pages_per_key=4)
+        result = score_disclosure_transparency(texts.get("risk", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] B.4.1 fetch failed for {sym}: {e}")
+        result = {"detailed_count": None, "generic_count": None, "detailed_pct": None, "transparency_score": None}
 
-    if not digest:
+    pathway_results = [{
+        "pathway_id": "AR-13",
+        "source": "Annual Report - MD&A / Notes to Accounts / Risk Disclosures",
+        "result": "CHECKED" if result["transparency_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["transparency_score"] is not None else "No quantified or clearly-generic risk-disclosure sentence was located in the latest Annual Report PDF this run.",
+    }]
+
+    if result["transparency_score"] is None:
         payload = {
-            "subpoint_id": subpoint_id,
-            "title": "Communication quality: transparency in disclosures, clarity in guidance, openness in meetings",
-            "available": False,
-            "reason": "No concall transcript corpus available for this company.",
-            "pathway_results": pathway_results,
+            "subpoint_id": subpoint_id, "title": "Transparency in disclosures", "available": True, **result,
+            "rationale": "No risk-disclosure text with a clear detailed/generic signal was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results, "source_pdf_url": None,
         }
-        write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
-        payload["confidence_tag"] = "NOT_FOUND"
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    company = name or sym
-    context = f"COMPANY: {company}\n\nRECENT EARNINGS-CALL HIGHLIGHTS (newest first):\n{digest}\n"
-    prompt = (
-        "You are an equity analyst assessing MANAGEMENT COMMUNICATION QUALITY (transparency, guidance "
-        "clarity, openness) for an Indian listed company, using ONLY the grounded concall context below. "
-        "Do not invent facts. If unclear, say so rather than guessing.\n\n"
-        "Return ONLY JSON:\n"
-        "{\n"
-        '  "communication_quality_rating": "Strong" | "Moderate" | "Weak" | "unclear",\n'
-        '  "rationale": "2-4 sentences citing tone, specificity of guidance, or Q&A responsiveness evident in the context"\n'
-        "}\n\n"
-        f"=== CONTEXT ===\n{context}"
-    )
-    data, llm_failed = _llm_json(
-        sym, "B.4", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
-        prompt, max_tokens=500, temperature=0.1,
-    )
-
-    communication_quality_rating = str(data.get("communication_quality_rating") or "unclear").strip()
-    if communication_quality_rating.lower() not in ("strong", "moderate", "weak"):
-        communication_quality_rating = "unclear"
-    else:
-        communication_quality_rating = communication_quality_rating.capitalize()
-    rationale = str(data.get("rationale") or "").strip()
-
-    confidence_tag = "SINGLE_SOURCE" if rationale else "SEARCH_INCONCLUSIVE"
-
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Communication quality: transparency in disclosures, clarity in guidance, openness in meetings",
-        "available": True,
-        "communication_quality_rating": communication_quality_rating,
-        "rationale": rationale,
-        "pathway_results": pathway_results,
-        "grounded": True,
+        "subpoint_id": subpoint_id, "title": "Transparency in disclosures", "available": True, **result,
+        "rationale": f"{result['detailed_count']} detailed (quantified) vs {result['generic_count']} generic risk-disclosure sentence(s) explicitly found -> score {result['transparency_score']}/5.",
+        "pathway_results": pathway_results, "source_pdf_url": None,
     }
-    if not llm_failed:
-        write_qualitative(sym, subpoint_id, payload, confidence_tag)
-    else:
-        print(f"[qualitative_engine] B.4 NOT cached for {sym} — LLM call did not run; will retry next request.")
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b4_2_guidance_clarity(symbol, name=None, force=False):
+    """B.4.2 - Clarity in guidance. Spec formula: Guidance Clarity Score
+    (1-5). Deterministic (no LLM) - see
+    tools/communication_quality_scoring.py's score_guidance_clarity: an
+    explicit "we don't provide guidance" statement is classified
+    "Ambiguous" directly (a real, common policy); otherwise counts
+    quantified forward-looking statements against vague ones. Sourcing:
+    the company's own real earnings-call transcript (Investor
+    Presentation / Earnings Call Transcript - Outlook & Guidance), same
+    real BSE-filed source already used for F-14 elsewhere in this codebase.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.screener_scraper import fetch_concall_list, download_transcript
+        from tools.communication_quality_scoring import score_guidance_clarity
+        lst = fetch_concall_list(sym, name)
+        prepared = ""
+        transcript_url = None
+        if lst:
+            transcript_url = lst[0].get("url")
+            full = download_transcript(transcript_url, max_chars=40000, max_pages=30)
+            qa_idx = full.lower().find("question-and-answer")
+            prepared = full[:qa_idx] if qa_idx > 0 else full[:8000]
+        result = score_guidance_clarity(prepared)
+    except Exception as e:
+        print(f"[qualitative_engine] B.4.2 fetch failed for {sym}: {e}")
+        result = {"quantified_count": None, "vague_count": None, "clarity_pct": None, "clarity_score": None, "explicit_no_guidance": None}
+        transcript_url = None
+
+    pathway_results = [{
+        "pathway_id": "QUAL-02",
+        "source": "NSE Corporate Announcements - Investor Presentation / Earnings Call Transcript, Outlook & Guidance",
+        "result": "CHECKED" if result["clarity_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["clarity_score"] is not None else "No earnings-call transcript with an identifiable outlook/guidance signal was located this run.",
+    }]
+
+    if result["clarity_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Clarity in guidance", "available": True, **result,
+            "rationale": "No earnings-call transcript outlook/guidance section with a clear quantified/vague signal was located this run.",
+            "pathway_results": pathway_results, "source_pdf_url": transcript_url,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Clarity in guidance", "available": True, **result,
+        "rationale": ("The company explicitly states it does not provide specific guidance -> Ambiguous (score 1/5)." if result["explicit_no_guidance"]
+                      else f"{result['quantified_count']} quantified vs {result['vague_count']} vague forward-looking statement(s) explicitly found -> score {result['clarity_score']}/5."),
+        "pathway_results": pathway_results, "source_pdf_url": transcript_url,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b4_3_investor_openness(symbol, name=None, force=False):
+    """B.4.3 - Openness in investor communication. Spec formula: Investor
+    Communication Score (1-5). Deterministic (no LLM) - see
+    tools/communication_quality_scoring.py's score_investor_openness:
+    counts unique named analysts asking questions and evasive-answer
+    phrases within the Q&A section of the company's own real earnings-call
+    transcript. Sourcing: Earnings Call Transcript - Q&A Discussion.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.4.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.screener_scraper import fetch_concall_list, download_transcript
+        from tools.communication_quality_scoring import score_investor_openness
+        lst = fetch_concall_list(sym, name)
+        full = ""
+        transcript_url = None
+        if lst:
+            transcript_url = lst[0].get("url")
+            full = download_transcript(transcript_url, max_chars=40000, max_pages=30)
+        result = score_investor_openness(full)
+    except Exception as e:
+        print(f"[qualitative_engine] B.4.3 fetch failed for {sym}: {e}")
+        result = {"unique_analysts": None, "evasive_answer_count": None, "openness_pct": None, "openness_score": None}
+        transcript_url = None
+
+    pathway_results = [{
+        "pathway_id": "QUAL-02",
+        "source": "Earnings Call Transcript - Q&A Discussion",
+        "result": "CHECKED" if result["openness_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["openness_score"] is not None else "No earnings-call transcript with an identifiable analyst Q&A section was located this run.",
+    }]
+
+    if result["openness_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Openness in investor communication", "available": True, **result,
+            "rationale": "No earnings-call transcript Q&A section with named analysts was located this run.",
+            "pathway_results": pathway_results, "source_pdf_url": transcript_url,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Openness in investor communication", "available": True, **result,
+        "rationale": f"{result['unique_analysts']} named analyst(s) asked questions, {result['evasive_answer_count']} evasive answer phrase(s) explicitly found -> score {result['openness_score']}/5.",
+        "pathway_results": pathway_results, "source_pdf_url": transcript_url,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b4_communication_quality(symbol, name=None, force=False):
+    """B.4 - Communication quality: combines the three sub-points (B.4.1
+    transparency in disclosures, B.4.2 clarity in guidance, B.4.3 openness
+    in investor communication) into a single grounded payload, each
+    sourced from real Annual Report / earnings-call-transcript text and
+    scored deterministically (no LLM call - see
+    tools/communication_quality_scoring.py). Any sub-point the source text
+    doesn't explicitly cover is surfaced as unavailable rather than
+    defaulted.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    b41 = compute_b4_1_disclosure_transparency(sym, name, force=force)
+    b42 = compute_b4_2_guidance_clarity(sym, name, force=force)
+    b43 = compute_b4_3_investor_openness(sym, name, force=force)
+
+    parts = []
+    if b41.get("transparency_score") is not None:
+        parts.append(f"Disclosure transparency: {b41['detailed_pct']}% detailed (score {b41['transparency_score']}/5).")
+    if b42.get("clarity_score") is not None:
+        parts.append(("Guidance clarity: explicit no-guidance policy (score 1/5)." if b42.get("explicit_no_guidance") else f"Guidance clarity: {b42['clarity_pct']}% quantified (score {b42['clarity_score']}/5)."))
+    if b43.get("openness_score") is not None:
+        parts.append(f"Investor openness: {b43['openness_pct']}% of analyst turns answered without evasion (score {b43['openness_score']}/5).")
+    if not parts:
+        parts.append("None of the three sub-points (disclosure transparency, guidance clarity, investor openness) were explicitly covered this run.")
+
+    _tags = [t.get("confidence_tag") for t in (b41, b42, b43)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+
+    retrieved_ats = [t.get("retrieved_at") for t in (b41, b42, b43) if t.get("retrieved_at")]
+    payload = {
+        "subpoint_id": "B.4",
+        "title": "Communication quality: transparency in disclosures, clarity in guidance, openness in meetings",
+        "available": True,
+        "b4_1": b41, "b4_2": b42, "b4_3": b43,
+        "rationale": " ".join(parts),
+        "pathway_results": (b41.get("pathway_results") or []) + (b42.get("pathway_results") or []) + (b43.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 

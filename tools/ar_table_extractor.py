@@ -23,6 +23,21 @@ import time
 
 from tools.bse_scraper import _sess, CACHE_DIR as _BSE_CACHE_DIR
 
+# PyMuPDF preserves Unicode ligature glyphs (ﬁ, ﬂ, ...) as their own single
+# codepoints on professionally-typeset PDFs, rather than decomposing them
+# into ASCII letter pairs - "specific" extracts as "speciﬁc", breaking
+# every substring search for a word containing "fi"/"fl" (confirmed real:
+# B.4.2's "we don't provide specific guidance" disclaimer regex silently
+# failed to match for exactly this reason). tools/annual_report_financials.py
+# already fixes this for its own fitz-based extraction path via
+# `_page_text()`; this module's fitz calls (get_text() in
+# _find_anchor_pages_fast and extract_text_near_anchors) bypass that
+# wrapper entirely, so the same fix is applied locally here.
+_LIGATURE_MAP = str.maketrans({
+    "ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl",
+    "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "ft", "ﬆ": "st",
+})
+
 _PDF_BYTES_CACHE_DIR = os.path.join(os.path.dirname(_BSE_CACHE_DIR), "ar_pdfs")
 _PDF_BYTES_TTL = 30 * 24 * 3600  # ARs don't change once filed - cache long
 
@@ -101,7 +116,7 @@ def _find_anchor_pages_fast(content, anchor_phrases_by_key, max_pages_per_key=3,
     scored = {k: [] for k in anchor_phrases_by_key}
     for i, page in enumerate(doc):
         try:
-            t = page.get_text()
+            t = page.get_text().translate(_LIGATURE_MAP)
         except Exception:
             continue
         if not t:
@@ -245,7 +260,7 @@ def extract_text_near_anchors(symbol, name, anchor_phrases_by_key, fiscal_year=N
         doc = fitz.open(stream=content, filetype="pdf")
         out = {"fiscal_year": fiscal_year}
         for key, pages in anchor_pages.items():
-            out[key] = "\n".join(doc[i].get_text() for i in sorted(pages))
+            out[key] = "\n".join(doc[i].get_text().translate(_LIGATURE_MAP) for i in sorted(pages))
         doc.close()
         for key in anchor_phrases_by_key:
             out.setdefault(key, "")

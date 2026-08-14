@@ -2152,12 +2152,13 @@ def build_executive_summary(state: SystemState) -> dict:
         _b4 = compute_b4_communication_quality(symbol, name)
         if _b4 and _b4.get('available'):
             f31 = {
-                'communication_quality_rating': _b4.get('communication_quality_rating'),
+                'communication_quality_rating': None,
                 'guidance_consistency': None,
                 'disclosure_flags': [],
                 'rationale': _b4.get('rationale'),
                 'confidence_tag': _b4.get('confidence_tag'), 'retrieved_at': _b4.get('retrieved_at'),
                 'pathway_results': _b4.get('pathway_results'),
+                'b4_1': _b4.get('b4_1') or {}, 'b4_2': _b4.get('b4_2') or {}, 'b4_3': _b4.get('b4_3') or {},
             }
     except Exception as e:
         print(f"[qualitative_topics] sourced B.4 engine failed, falling back to raw LLM fields: {e}")
@@ -2744,6 +2745,57 @@ def build_executive_summary(state: SystemState) -> dict:
     _guidance_consistency = f31.get('guidance_consistency') if isinstance(f31.get('guidance_consistency'), str) and f31.get('guidance_consistency').strip() else None
     _disclosure_flags = [v for v in (f31.get('disclosure_flags') or []) if isinstance(v, str) and v.strip()][:3]
 
+    # B.4's three sub-points (disclosure transparency / guidance clarity /
+    # investor openness) combined into one 3-panel donut card, same
+    # pattern as B.1/B.2/B.3 - every panel is a real matched signal from
+    # the Annual Report / earnings-call transcript, never fabricated when
+    # a sub-point's source text wasn't located.
+    _b4_1, _b4_2, _b4_3 = f31.get('b4_1') or {}, f31.get('b4_2') or {}, f31.get('b4_3') or {}
+
+    if _b4_1.get('transparency_score') is not None:
+        _b4_1_donut = {
+            'type': 'donut', 'title': 'Disclosure Transparency',
+            'data': [{'label': 'Detailed', 'value': _b4_1.get('detailed_count')},
+                     {'label': 'Generic', 'value': _b4_1.get('generic_count')}],
+            'centerValue': f"{_b4_1.get('detailed_pct')}%",
+            'explanation': f"{_co}'s Annual Report risk disclosures explicitly named {_b4_1.get('detailed_count')} detailed (quantified) vs {_b4_1.get('generic_count')} generic risk statement(s) (score {_b4_1.get('transparency_score')}/5).",
+        }
+    else:
+        _b4_1_donut = {'type': 'unavailable', 'title': 'Disclosure Transparency',
+                        'explanation': f"No risk-disclosure text with a clear detailed/generic signal was located in {_co}'s latest Annual Report."}
+
+    if _b4_2.get('clarity_score') is not None:
+        if _b4_2.get('explicit_no_guidance'):
+            _b4_2_donut = {
+                'type': 'classification', 'title': 'Guidance Clarity',
+                'zones': ['Ambiguous', 'Clear'], 'active': 'Ambiguous',
+                'explanation': f"{_co} explicitly states it does not provide specific forward guidance (score 1/5).",
+            }
+        else:
+            _b4_2_donut = {
+                'type': 'donut', 'title': 'Guidance Clarity',
+                'data': [{'label': 'Quantified', 'value': _b4_2.get('quantified_count')},
+                         {'label': 'Vague', 'value': _b4_2.get('vague_count')}],
+                'centerValue': f"{_b4_2.get('clarity_pct')}%",
+                'explanation': f"{_co}'s earnings call explicitly gave {_b4_2.get('quantified_count')} quantified vs {_b4_2.get('vague_count')} vague forward-looking statement(s) (score {_b4_2.get('clarity_score')}/5).",
+            }
+    else:
+        _b4_2_donut = {'type': 'unavailable', 'title': 'Guidance Clarity',
+                        'explanation': f"No earnings-call transcript outlook/guidance section was located for {_co} this run."}
+
+    if _b4_3.get('openness_score') is not None:
+        _b4_3_donut = {
+            'type': 'donut', 'title': 'Investor Openness',
+            'data': [{'label': 'Open', 'value': max(0, (_b4_3.get('unique_analysts') or 0) - (_b4_3.get('evasive_answer_count') or 0))},
+                     {'label': 'Defensive', 'value': _b4_3.get('evasive_answer_count')}],
+            'centerValue': f"{_b4_3.get('openness_pct')}%",
+            'explanation': f"{_b4_3.get('unique_analysts')} named analyst(s) questioned {_co}'s management, {_b4_3.get('evasive_answer_count')} evasive answer(s) explicitly found (score {_b4_3.get('openness_score')}/5).",
+        }
+    else:
+        _b4_3_donut = {'type': 'unavailable', 'title': 'Investor Openness',
+                        'explanation': f"No earnings-call transcript Q&A section with named analysts was located for {_co} this run."}
+    _b4_panels = [_b4_1_donut, _b4_2_donut, _b4_3_donut]
+
     _execution_credibility_rating = _enum(f32.get('execution_credibility_rating'), ['Strong', 'Mixed', 'Weak'])
     _guidance_accuracy_pct = f32.get('guidance_accuracy_pct')
     try:
@@ -3221,21 +3273,26 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f30.get('pathway_results'),
                 },
                 {
+                    # B.4 — the three sub-points (B.4.1 disclosure
+                    # transparency, B.4.2 guidance clarity, B.4.3 investor
+                    # openness) combined into ONE card as a 3-panel donut
+                    # set, same pattern as B.1/B.2/B.3.
                     'key': 'communication_quality',
                     'title': 'Communication quality: transparency in disclosures, clarity in guidance, openness in meetings',
                     'finding': f31.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Communication quality', _comm_quality_rating] if _comm_quality_rating else None),
-                        (['Guidance consistency', _guidance_consistency] if _guidance_consistency else None),
-                        (['Disclosure concerns', '; '.join(_disclosure_flags)] if _disclosure_flags else None),
+                        (['Disclosure transparency', f"{_b4_1.get('detailed_pct')}% detailed"] if _b4_1.get('detailed_pct') is not None else None),
+                        (['Guidance clarity', 'Ambiguous (no specific guidance)' if _b4_2.get('explicit_no_guidance') else (f"{_b4_2.get('clarity_pct')}% quantified" if _b4_2.get('clarity_pct') is not None else None)] if _b4_2.get('clarity_score') is not None else None),
+                        (['Investor openness', f"{_b4_3.get('openness_pct')}% open"] if _b4_3.get('openness_pct') is not None else None),
                     ] if f],
-                    'chart': ({'type': 'spectrum', 'options': ['Weak', 'Moderate', 'Strong'], 'active': _comm_quality_rating}
-                               if _comm_quality_rating else None),
-                    'formula': 'N/A - qualitative rating based on transcript review',
+                    'chart': ({'type': 'multi_donut', 'panels': _b4_panels} if _b4_panels else None),
+                    'formula': 'Disclosure Transparency Score = detailed (quantified) vs generic risk-disclosure sentences, banded 1-5; '
+                               'Guidance Clarity Score = quantified vs vague forward-looking statements, banded 1-5 (Ambiguous if guidance is explicitly declined); '
+                               'Investor Communication Score = analyst Q&A turns answered without evasion, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab'},
-                        'secondary': {'label': 'Screener.in – Documents/Financials tab', 'url': 'https://www.screener.in'},
-                        'tertiary': {'label': 'BSE India – Corporate Announcements', 'note': 'investor presentation filings', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
+                        'primary': {'label': 'Company Annual Report', 'note': 'MD&A / Notes to Accounts / Risk Disclosures'},
+                        'secondary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab — Outlook & Guidance'},
+                        'tertiary': {'label': 'Concall Transcript', 'note': 'Q&A Discussion'},
                     },
                     'confidence_tag': f31.get('confidence_tag'), 'retrieved_at': f31.get('retrieved_at'),
                     'pathway_results': f31.get('pathway_results'),
