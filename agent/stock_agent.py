@@ -2664,7 +2664,18 @@ def build_executive_summary(state: SystemState) -> dict:
         _b2_3_donut = {'type': 'unavailable', 'title': 'Vesting Structure',
                         'explanation': f"No explicit vested/unvested option counts were located in {_co}'s latest Annual Report ESOP disclosure."}
 
-    if _b2_4.get('alignment_score') is not None:
+    if _b2_4.get('vesting_horizon_years') is not None:
+        _horizon = _b2_4.get('vesting_horizon_years')
+        _horizon_label = 'Long-term (≥3y)' if _horizon >= 3 else 'Moderate (1-3y)' if _horizon >= 1 else 'Short (<1y)'
+        _b2_4_donut = {
+            'type': 'classification', 'title': 'Long-term Orientation',
+            'zones': ['Short (<1y)', 'Moderate (1-3y)', 'Long-term (≥3y)'], 'active': _horizon_label,
+            'centerValue': f"{_horizon}y",
+            'explanation': f"{_co}'s ESOP vests over {_horizon} year(s)"
+                           + (", explicitly performance-linked" if _b2_4.get('performance_linked') else "")
+                           + f" (score {_b2_4.get('alignment_score')}/5).",
+        }
+    elif _b2_4.get('alignment_score') is not None:
         _b2_4_donut = {
             'type': 'donut', 'title': 'Long-term Orientation',
             'data': [{'label': 'Long-term incentives', 'value': _b2_4.get('long_term_count')},
@@ -2674,7 +2685,7 @@ def build_executive_summary(state: SystemState) -> dict:
         }
     else:
         _b2_4_donut = {'type': 'unavailable', 'title': 'Long-term Orientation',
-                        'explanation': f"No explicit long-term/short-term incentive language was located in {_co}'s latest Remuneration Policy."}
+                        'explanation': f"No explicit vesting horizon or long-term/short-term incentive language was located in {_co}'s latest Annual Report."}
     _b2_panels = [_b2_1_donut, _b2_2_donut, _b2_3_donut, _b2_4_donut]
 
     _bench_depth_rating = _enum(f30.get('bench_depth_rating'), ['Strong', 'Moderate', 'Weak'])

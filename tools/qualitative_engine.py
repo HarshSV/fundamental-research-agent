@@ -3249,10 +3249,36 @@ def compute_b2_1_pay_structure(symbol, name=None, force=False):
         "note": None if (remuneration_text or policy_text) else "Remuneration table/policy section not located in the latest Annual Report PDF this run.",
     }]
 
-    from tools.management_incentives_scoring import extract_pay_mix
-    result = extract_pay_mix(remuneration_text) if remuneration_text else {"fixed_amount": None, "variable_amount": None, "fixed_pct": None}
-    if result["fixed_pct"] is None and policy_text:
-        result = extract_pay_mix(policy_text)
+    # STRUCTURAL pass first: a KMP/Director remuneration table's own column
+    # headers routinely name the pay components directly (e.g. "Basic/
+    # Consolidated Salary" | "Perquisites/Other Benefits" | "Performance
+    # Bonus/Long Term Incentives/Commission" - confirmed real on ITC) - far
+    # more reliable than searching for the literal words "Fixed"/"Variable",
+    # which many companies never use for KMP pay (only for NED sitting
+    # fees/commission, a different, smaller disclosure).
+    result = {"fixed_amount": None, "variable_amount": None, "fixed_pct": None}
+    try:
+        from tools.ar_table_extractor import extract_tables_near_anchors
+        from tools.management_incentives_scoring import extract_pay_mix_from_tables
+        fiscal_year = gov.get("fiscal_year")
+        tabs = extract_tables_near_anchors(sym, name, {"remun": ["salary", "perquisites", "commission", "gross remuneration", "stock options"]}, fiscal_year=fiscal_year, max_pages_per_key=6, max_tables_per_key=6)
+        table_result = extract_pay_mix_from_tables(tabs.get("remun", []))
+        if table_result["fixed_pct"] is not None:
+            result = table_result
+            pathway_results.insert(0, {
+                "pathway_id": "AR-02-TABLE",
+                "source": "KMP Remuneration table — Salary/Perquisites vs Bonus/Commission columns (structural table extraction)",
+                "result": "CHECKED",
+                "note": f"Fixed {table_result['fixed_amount']} vs Variable {table_result['variable_amount']} summed from real table columns.",
+            })
+    except Exception as e:
+        print(f"[qualitative_engine] B.2.1 structural table pass failed for {sym}: {e}")
+
+    if result["fixed_pct"] is None:
+        from tools.management_incentives_scoring import extract_pay_mix
+        result = extract_pay_mix(remuneration_text) if remuneration_text else {"fixed_amount": None, "variable_amount": None, "fixed_pct": None}
+        if result["fixed_pct"] is None and policy_text:
+            result = extract_pay_mix(policy_text)
 
     if result["fixed_pct"] is None:
         payload = {
@@ -3415,8 +3441,32 @@ def compute_b2_3_vesting_structure(symbol, name=None, force=False):
         "note": None if esop_text else "ESOP disclosure section not located in the latest Annual Report PDF this run - may indicate no ESOP scheme exists, not confirmed either way.",
     }]
 
-    from tools.management_incentives_scoring import score_vesting_structure
-    result = score_vesting_structure(esop_text) if esop_text else {"vested_count": None, "unvested_count": None, "unvested_pct": None, "vesting_score": None}
+    # STRUCTURAL pass first: a standard Ind AS 102 ESOP reconciliation
+    # table states "Options Outstanding at the end of the year" (total)
+    # and "Options exercisable at the end of the year" (already vested) -
+    # far more reliably disclosed than a literal "vested"/"unvested" label
+    # pair (confirmed real: ITC uses "exercisable", never says "vested").
+    result = {"vested_count": None, "unvested_count": None, "unvested_pct": None, "vesting_score": None}
+    try:
+        from tools.ar_table_extractor import extract_tables_near_anchors
+        from tools.management_incentives_scoring import score_vesting_structure_from_tables
+        fiscal_year = gov.get("fiscal_year")
+        tabs = extract_tables_near_anchors(sym, name, {"esop": ["vesting", "grant date", "exercise period", "exercise price", "options vested", "vesting schedule", "outstanding"]}, fiscal_year=fiscal_year, max_pages_per_key=8, max_tables_per_key=8)
+        table_result = score_vesting_structure_from_tables(tabs.get("esop", []))
+        if table_result["vesting_score"] is not None:
+            result = table_result
+            pathway_results.insert(0, {
+                "pathway_id": "AR-03-TABLE",
+                "source": "ESOP reconciliation table — Options Outstanding vs Exercisable (structural table extraction)",
+                "result": "CHECKED",
+                "note": f"{table_result['vested_count']} exercisable (vested) vs {table_result['unvested_count']} unvested, from a real Ind AS 102 table.",
+            })
+    except Exception as e:
+        print(f"[qualitative_engine] B.2.3 structural table pass failed for {sym}: {e}")
+
+    if result["vesting_score"] is None:
+        from tools.management_incentives_scoring import score_vesting_structure
+        result = score_vesting_structure(esop_text) if esop_text else {"vested_count": None, "unvested_count": None, "unvested_pct": None, "vesting_score": None}
 
     if result["vesting_score"] is None:
         payload = {
@@ -3480,8 +3530,44 @@ def compute_b2_4_long_term_orientation(symbol, name=None, force=False):
         "note": None if policy_text else "Remuneration Policy section not located in the latest Annual Report PDF this run.",
     }]
 
-    from tools.management_incentives_scoring import score_long_term_orientation
-    result = score_long_term_orientation(policy_text) if policy_text else {"long_term_count": None, "short_term_count": None, "long_term_pct": None, "alignment_score": None}
+    # STRUCTURAL pass first: infer long-term orientation from the ESOP's
+    # OWN disclosed vesting horizon (longest "completion of N months/years
+    # from grant" figure in its Vesting Schedule note) plus whether vesting
+    # is explicitly performance-linked - per the updated sourcing
+    # direction ("infer from ESOP duration, vesting horizon, and
+    # performance-linked incentives") rather than counting LTIP/STI
+    # keyword mentions in the Remuneration Policy prose, which many
+    # companies' policies don't discuss in those exact terms at all.
+    result = {"long_term_count": None, "short_term_count": None, "long_term_pct": None, "alignment_score": None,
+              "vesting_horizon_years": None, "performance_linked": None}
+    try:
+        from tools.ar_table_extractor import extract_tables_near_anchors
+        from tools.management_incentives_scoring import score_long_term_orientation_from_esop_text
+        fiscal_year = gov.get("fiscal_year")
+        tabs = extract_tables_near_anchors(sym, name, {"esop": ["vesting schedule", "vesting period"]}, fiscal_year=fiscal_year, max_pages_per_key=8, max_tables_per_key=8)
+        vesting_text = None
+        for t in tabs.get("esop", []):
+            for row in t or []:
+                if row and any("vesting schedule" in str(c or "").lower() or "vesting period" in str(c or "").lower() for c in row):
+                    vesting_text = " ".join(str(c or "") for c in row)
+                    break
+            if vesting_text:
+                break
+        table_result = score_long_term_orientation_from_esop_text(vesting_text)
+        if table_result["alignment_score"] is not None:
+            result = {**result, **table_result}
+            pathway_results.insert(0, {
+                "pathway_id": "AR-03-TABLE",
+                "source": "ESOP Vesting Schedule note — vesting horizon + performance-linkage (structural table extraction)",
+                "result": "CHECKED",
+                "note": f"{table_result['vesting_horizon_years']}-year vesting horizon, performance-linked={table_result['performance_linked']}.",
+            })
+    except Exception as e:
+        print(f"[qualitative_engine] B.2.4 structural table pass failed for {sym}: {e}")
+
+    if result["alignment_score"] is None:
+        from tools.management_incentives_scoring import score_long_term_orientation
+        result = score_long_term_orientation(policy_text) if policy_text else {"long_term_count": None, "short_term_count": None, "long_term_pct": None, "alignment_score": None}
 
     if result["alignment_score"] is None:
         payload = {
@@ -3494,10 +3580,19 @@ def compute_b2_4_long_term_orientation(symbol, name=None, force=False):
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
+    if result.get("vesting_horizon_years") is not None:
+        rationale = (
+            f"ESOP vests over {result['vesting_horizon_years']} year(s) from grant"
+            + (", explicitly performance-linked" if result.get("performance_linked") else ", time-based (not performance-linked)")
+            + f" -> score {result['alignment_score']}/5."
+        )
+    else:
+        rationale = (f"{result['long_term_count']} long-term vs {result['short_term_count']} short-term incentive mention(s) "
+                      f"explicitly found ({result['long_term_pct']}% long-term -> score {result['alignment_score']}/5).")
+
     payload = {
         "subpoint_id": subpoint_id, "title": "Long-term orientation", "available": True, **result,
-        "rationale": f"{result['long_term_count']} long-term vs {result['short_term_count']} short-term incentive mention(s) "
-                     f"explicitly found ({result['long_term_pct']}% long-term -> score {result['alignment_score']}/5).",
+        "rationale": rationale,
         "pathway_results": pathway_results, "source_pdf_url": pdf_url,
     }
     confidence_tag = "SINGLE_SOURCE"

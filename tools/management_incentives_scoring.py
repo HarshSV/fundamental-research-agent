@@ -308,3 +308,142 @@ def score_long_term_orientation(policy_text):
         "long_term_count": long_n, "short_term_count": short_n,
         "long_term_pct": pct, "alignment_score": _band_score_pct(pct),
     }
+
+
+# ---------------------------------------------------------------------------
+# STRUCTURAL variants (pdfplumber table-based) - per updated sourcing
+# direction: use remuneration disclosures (salary/perquisites/commission/
+# bonus/ESOP), promoter/director/KMP shareholding tables, and ESOP grant
+# date/vesting schedule/exercise period/option life, rather than searching
+# for exact phrasing like "Fixed"/"Variable" or "vested"/"unvested" that
+# many companies simply never use verbatim. Each reads a REAL detected
+# table (tools.ar_table_extractor.extract_tables_near_anchors) by column
+# header keyword, so it generalizes across companies that disclose the
+# same information under different column titles.
+# ---------------------------------------------------------------------------
+
+_FIXED_COL_KEYWORDS = ["salary", "basic", "perquisite", "retiral", "fixed"]
+_VARIABLE_COL_KEYWORDS = ["bonus", "commission", "incentive", "esop", "stock option", "variable", "esar"]
+
+
+def extract_pay_mix_from_tables(tables):
+    """A KMP/Director remuneration table's OWN column headers routinely
+    name the pay components directly (e.g. ITC: "Basic/Consolidated
+    Salary" | "Perquisites/Other Benefits" | "Performance Bonus/Long Term
+    Incentives/Commission") - classifies each column as fixed or variable
+    by header keyword and sums every named individual's row (skips a
+    "Total" row to avoid double-counting). Returns
+    {'fixed_amount','variable_amount','fixed_pct'} or all-None if no
+    table has both a fixed-type and a variable-type column."""
+    from tools.ar_table_extractor import find_column, parse_cell_number
+    for table in tables or []:
+        if not table or len(table) < 2:
+            continue
+        header = table[0]
+        fixed_cols = [i for i, c in enumerate(header) if any(kw in (c or "").lower() for kw in _FIXED_COL_KEYWORDS)]
+        variable_cols = [i for i, c in enumerate(header) if any(kw in (c or "").lower() for kw in _VARIABLE_COL_KEYWORDS)]
+        if not fixed_cols or not variable_cols:
+            continue
+        fixed_total, variable_total = 0.0, 0.0
+        any_row = False
+        for row in table[1:]:
+            if not row or not (row[0] or "").strip() or (row[0] or "").strip().lower() in ("total", "grand total"):
+                continue
+            row_has_value = False
+            for i in fixed_cols:
+                if i < len(row):
+                    v = parse_cell_number(row[i])
+                    if v is not None:
+                        fixed_total += v
+                        row_has_value = True
+            for i in variable_cols:
+                if i < len(row):
+                    v = parse_cell_number(row[i])
+                    if v is not None:
+                        variable_total += v
+                        row_has_value = True
+            any_row = any_row or row_has_value
+        total = fixed_total + variable_total
+        if any_row and total > 0:
+            return {"fixed_amount": round(fixed_total, 2), "variable_amount": round(variable_total, 2), "fixed_pct": round(100 * fixed_total / total, 1)}
+    return {"fixed_amount": None, "variable_amount": None, "fixed_pct": None}
+
+
+_OUTSTANDING_LABEL = re.compile(r"outstanding\s+at\s+the\s+end\s+of\s+the\s+year", re.I)
+_EXERCISABLE_LABEL = re.compile(r"exercisable\s+at\s+the\s+end\s+of\s+the\s+year", re.I)
+
+
+def score_vesting_structure_from_tables(tables):
+    """A standard Ind AS 102 ESOP reconciliation table states "Options
+    Outstanding at the end of the year" (total) and, when disclosed,
+    "Options exercisable at the end of the year" (already vested) - the
+    difference is the unvested balance. Far more reliably disclosed,
+    company-to-company, than a literal "vested"/"unvested" label pair
+    (confirmed real: ITC states "exercisable", not "vested"). Returns
+    {'vested_count','unvested_count','unvested_pct','vesting_score'} or
+    all-None if no table states both figures."""
+    from tools.ar_table_extractor import parse_cell_number
+    for table in tables or []:
+        outstanding, exercisable = None, None
+        for row in table or []:
+            if not row or not row[0]:
+                continue
+            label = row[0]
+            value = None
+            for cell in row[1:]:
+                v = parse_cell_number(cell)
+                if v is not None and v > 0:
+                    value = v
+                    break
+            if value is None:
+                continue
+            if _OUTSTANDING_LABEL.search(label):
+                outstanding = value
+            elif _EXERCISABLE_LABEL.search(label):
+                exercisable = value
+        if outstanding is not None and exercisable is not None and outstanding >= exercisable:
+            unvested = outstanding - exercisable
+            unvested_pct = round(100 * unvested / outstanding, 1) if outstanding > 0 else None
+            if unvested_pct is None:
+                continue
+            return {
+                "vested_count": round(exercisable), "unvested_count": round(unvested),
+                "unvested_pct": unvested_pct, "vesting_score": _band_score_pct(unvested_pct),
+            }
+    return {"vested_count": None, "unvested_count": None, "unvested_pct": None, "vesting_score": None}
+
+
+_VESTING_MONTHS = re.compile(r"completion\s+of\s+(\d+)\s+months?|over\s+a\s+period\s+of\s+(\d+)\s+years?|(\d+)\s+years?\s+from\s+the\s+date\s+of\s+grant", re.I)
+_PERFORMANCE_LINKED_CTX = re.compile(r"performance[- ]linked|performance condition|subject to (?:the )?performance|performance criteria", re.I)
+
+
+def score_long_term_orientation_from_esop_text(vesting_schedule_text):
+    """Infers long-term orientation from the ESOP's own disclosed vesting
+    HORIZON (the longest "completion of N months/years from grant" figure
+    in its Vesting Schedule note) plus whether vesting is explicitly
+    performance-linked - this engine's own interpretation of "Infer from
+    ESOP duration, vesting horizon, and performance-linked incentives"
+    (the spec doesn't give an exact formula for this signal). Longer
+    horizon = more long-term retention pull; performance-linking adds a
+    point (capped at 5). Bands: >=3y=5, 2-3y=4, 1-2y=3, <1y=2 (before any
+    performance-linked bonus). Returns {'vesting_horizon_years',
+    'performance_linked','alignment_score'} or all-None if no vesting
+    horizon is stated at all."""
+    if not vesting_schedule_text:
+        return {"vesting_horizon_years": None, "performance_linked": None, "alignment_score": None}
+    months = []
+    for m in _VESTING_MONTHS.finditer(vesting_schedule_text):
+        if m.group(1):
+            months.append(int(m.group(1)))
+        elif m.group(2):
+            months.append(int(m.group(2)) * 12)
+        elif m.group(3):
+            months.append(int(m.group(3)) * 12)
+    if not months:
+        return {"vesting_horizon_years": None, "performance_linked": None, "alignment_score": None}
+    horizon_years = round(max(months) / 12, 1)
+    performance_linked = bool(_PERFORMANCE_LINKED_CTX.search(vesting_schedule_text))
+    score = 5 if horizon_years >= 3 else 4 if horizon_years >= 2 else 3 if horizon_years >= 1 else 2
+    if performance_linked:
+        score = min(5, score + 1)
+    return {"vesting_horizon_years": horizon_years, "performance_linked": performance_linked, "alignment_score": score}
