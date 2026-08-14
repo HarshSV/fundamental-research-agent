@@ -2646,11 +2646,15 @@ def build_executive_summary(state: SystemState) -> dict:
             'data': [{'label': 'Management-owned', 'value': _mgmt_pct},
                      {'label': 'Non-owned', 'value': round(100 - _mgmt_pct, 2)}],
             'centerValue': f"{_mgmt_pct}%",
-            'explanation': f"Directors/KMP at {_co} explicitly hold {_mgmt_pct}% of total shares (score {_b2_2.get('ownership_score')}/5).",
+            # Uses the payload's OWN rationale (already correctly distinguishes a
+            # director/KMP-specific figure from the promoter-holding fallback used
+            # when no per-director figure was disclosed) rather than a generic
+            # string that would misattribute a promoter-sourced % to "Directors/KMP".
+            'explanation': _b2_2.get('rationale') or f"{_co}'s management ownership is {_mgmt_pct}% (score {_b2_2.get('ownership_score')}/5).",
         }
     else:
         _b2_2_donut = {'type': 'unavailable', 'title': 'Equity Ownership',
-                        'explanation': f"No explicit Director/KMP shareholding percentage was located in {_co}'s latest Annual Report."}
+                        'explanation': f"No explicit Director/KMP shareholding percentage, director share count, or promoter holding was located in {_co}'s latest filings."}
 
     if _b2_3.get('vesting_score') is not None:
         _b2_3_donut = {

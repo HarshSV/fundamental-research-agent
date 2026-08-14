@@ -3378,10 +3378,42 @@ def compute_b2_2_equity_ownership(symbol, name=None, force=False):
         from tools.management_incentives_scoring import score_equity_ownership
         result = score_equity_ownership(shareholding_text) if shareholding_text else {"management_ownership_pct": None, "ownership_score": None}
 
+    # Third tier: PROMOTER holding % from the NSE Shareholding Pattern
+    # (the same real, live-verified source already powering C.1 — see
+    # compute_c1_promoter_shareholding). Per the updated sourcing
+    # direction ("use promoter holding, director holdings, and KMP
+    # holdings from shareholding tables") - for most Indian listed
+    # companies the promoter group IS the founding/controlling management
+    # (a subsidiary's parent, a founder-family holding entity), so it's a
+    # legitimate "management-owned" proxy when neither director-profile
+    # share counts nor an explicit Director/KMP % are disclosed at all
+    # (confirmed real gap: HINDUNILVR discloses neither, but does disclose
+    # 61.9% promoter holding via the standard, NSE-mandated Shareholding
+    # Pattern filing every listed company files).
+    promoter_used = False
+    if result["ownership_score"] is None:
+        try:
+            from tools.shareholding_scraper import get_provider
+            trend = get_provider().fetch_promoter_holding_trend(sym) or []
+            if trend:
+                promoter_pct = trend[-1].get("promoter_holding_pct")
+                if promoter_pct is not None:
+                    score = 5 if promoter_pct >= 5 else 4 if promoter_pct >= 2 else 3 if promoter_pct >= 1 else 2 if promoter_pct >= 0.1 else 1
+                    result = {"management_ownership_pct": promoter_pct, "ownership_score": score}
+                    promoter_used = True
+                    pathway_results.insert(0, {
+                        "pathway_id": "PORTAL-02",
+                        "source": "NSE Shareholding Pattern — Promoter and Promoter Group holding (live endpoint)",
+                        "result": "CHECKED",
+                        "note": f"Promoter/promoter-group holding used as the management-ownership proxy — no per-director share count or % was separately disclosed this run.",
+                    })
+        except Exception as e:
+            print(f"[qualitative_engine] B.2.2 promoter-holding fallback failed for {sym}: {e}")
+
     if result["ownership_score"] is None:
         payload = {
             "subpoint_id": subpoint_id, "title": "Equity ownership", "available": True, **result,
-            "rationale": (gov.get("error") or "No explicit Director/KMP shareholding percentage was located in the latest Annual Report this run."),
+            "rationale": (gov.get("error") or "No explicit Director/KMP shareholding percentage, director share count, or promoter holding was located this run."),
             "pathway_results": pathway_results, "source_pdf_url": pdf_url,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -3391,7 +3423,10 @@ def compute_b2_2_equity_ownership(symbol, name=None, force=False):
 
     payload = {
         "subpoint_id": subpoint_id, "title": "Equity ownership", "available": True, **result,
-        "rationale": f"Directors/KMP explicitly hold {result['management_ownership_pct']}% of total shares -> score {result['ownership_score']}/5.",
+        "rationale": (f"Promoter/promoter-group (the controlling entity) holds {result['management_ownership_pct']}% of total shares -> score {result['ownership_score']}/5 "
+                      f"(no separate director/KMP-specific figure was disclosed this run)."
+                      if promoter_used else
+                      f"Directors/KMP explicitly hold {result['management_ownership_pct']}% of total shares -> score {result['ownership_score']}/5."),
         "pathway_results": pathway_results, "source_pdf_url": pdf_url,
     }
     confidence_tag = "SINGLE_SOURCE"
