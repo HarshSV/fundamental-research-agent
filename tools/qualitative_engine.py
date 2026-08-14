@@ -3737,28 +3737,17 @@ def compute_b2_management_incentives(symbol, name=None, force=False):
     return payload
 
 
-def compute_b3_management_bench_depth(symbol, name=None, force=False):
-    """B.3 — Depth of management bench: ability to replace key execs without
-    disruption. Formula: KMP attrition rate = KMP exits in period / Average KMP
-    headcount.
-
-    Sourcing Sequence: PORTAL-01 (get the AR PDF) -> QUAL-01 (LinkedIn/news,
-    corroborative only) + FOUNDER-01 (check if bench members hold directorships
-    at struck-off entities).
-
-    PORTAL-01 IS wired: `annual_report_financials.fetch_governance_text_sections`
-    (same real AR PDF used for B.2) is scanned for a "Key Managerial Personnel"
-    excerpt. That excerpt is NOT guaranteed to be actual KMP appointment/
-    resignation history — the phrase "Key Managerial Personnel" also appears in
-    unrelated contexts (e.g. Related Party Transaction notes, board-resolution
-    authorisations), so the LLM extraction is explicitly instructed to report
-    "no bench-depth information" rather than force-fit whatever the excerpt
-    contains into a KMP-changes narrative (DON'T/DO INSTEAD: never mis-route a
-    pathway's content). QUAL-01 (LinkedIn) and FOUNDER-01 (MCA struck-off cross-
-    check) remain unwired — no vendor/scraper for either.
+def compute_b3_1_leadership_depth(symbol, name=None, force=False):
+    """B.3.1 - Leadership depth. Spec formula: Leadership Depth Score (1-5).
+    Deterministic (no LLM) - see tools/management_bench_scoring.py's
+    score_leadership_depth_from_text: counts named [Name, Designation]
+    pairs in the Senior Management Personnel / Executive Leadership Team
+    section (or falls back to an explicit "Committee comprises N Members"
+    sentence). Sourcing: Annual Report - Senior Management Personnel /
+    Executive Leadership Team.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "B.3"
+    subpoint_id = "B.3.1"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -3771,120 +3760,219 @@ def compute_b3_management_bench_depth(symbol, name=None, force=False):
                 return cached
 
     try:
-        from tools.annual_report_financials import fetch_governance_text_sections
-        gov = fetch_governance_text_sections(sym, name) or {}
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.management_bench_scoring import score_leadership_depth_from_text
+        texts = extract_text_near_anchors(sym, name, {"smp": ["senior management personnel", "executive leadership team", "senior management team"]}, max_pages_per_key=4)
+        pdf_url = None
+        result = score_leadership_depth_from_text(texts.get("smp", ""))
     except Exception as e:
-        print(f"[qualitative_engine] B.3 AR text fetch failed for {sym}: {e}")
-        gov = {"error": str(e)}
+        print(f"[qualitative_engine] B.3.1 fetch failed for {sym}: {e}")
+        result = {"member_count": None, "depth_score": None}
+        pdf_url = None
 
-    kmp_text = gov.get("kmp_changes_text")
-    pdf_url = gov.get("pdf_url")
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "Annual Report - Senior Management Personnel / Executive Leadership Team",
+        "result": "CHECKED" if result["depth_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["depth_score"] is not None else "Senior Management Personnel / Executive Leadership Team listing not located in the latest Annual Report PDF this run.",
+    }]
 
-    pathway_results = [
-        {
-            "pathway_id": "PORTAL-01",
-            "source": "BSE Corporate Announcements -> Annual Report PDF (Key Managerial Personnel section)",
-            "result": "CHECKED" if kmp_text else "NOT_DISCLOSED",
-            "note": None if kmp_text else "\"Key Managerial Personnel\" section not located in the latest Annual Report PDF this run.",
-        },
-        {
-            "pathway_id": "QUAL-01",
-            "source": "LinkedIn org mapping (corroborative only)",
-            "result": "NOT_DISCLOSED",
-            "note": "No LinkedIn fetcher wired (LinkedIn specifically blocks scraping — would need a vendor like Proxycurl).",
-        },
-        {
-            "pathway_id": "FOUNDER-01",
-            "source": "MCA — check if bench members hold directorships at struck-off entities",
-            "result": "NOT_DISCLOSED",
-            "note": "No MCA director-master-data fetcher is wired into this codebase yet.",
-        },
-    ]
-
-    if not kmp_text:
+    if result["depth_score"] is None:
         payload = {
-            "subpoint_id": subpoint_id,
-            "title": "Depth of management bench: ability to replace key execs without disruption",
-            "available": True,
-            "bench_depth_rating": None,
-            "kmp_attrition_rate_pct": None,
-            "kmp_change_facts": [],
-            "rationale": gov.get("error") or "No \"Key Managerial Personnel\" section was located in the latest Annual Report PDF this run.",
-            "pathway_results": pathway_results,
-            "source_pdf_url": pdf_url,
+            "subpoint_id": subpoint_id, "title": "Leadership depth", "available": True, **result,
+            "rationale": "No Senior Management Personnel / Executive Leadership Team listing was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results, "source_pdf_url": pdf_url,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
         payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    prompt = (
-        "The excerpt below is real Annual Report page text located because it contains the phrase "
-        "\"Key Managerial Personnel\" — but that phrase also appears in unrelated contexts (e.g. Related "
-        "Party Transaction notes, board-resolution authorisations), so it may NOT actually describe KMP "
-        "appointments, resignations, or attrition. Read it carefully.\n\n"
-        "Return ONLY JSON:\n"
-        "{\n"
-        '  "is_kmp_changes_content": true | false,   // true ONLY if this excerpt genuinely describes KMP appointments/resignations/attrition, not e.g. a payment/RPT table\n'
-        '  "kmp_change_facts": ["short factual items explicitly stated, e.g. a named appointment/resignation with date - 0 to 3 items, empty if is_kmp_changes_content is false"],\n'
-        '  "summary": "1-2 sentences on what the excerpt actually contains"\n'
-        "}\n\n"
-        f"=== EXCERPT ===\n{kmp_text}"
-    )
-    data, llm_failed = _llm_json(
-        sym, "B.3", "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never force-fit unrelated text into the requested category.",
-        prompt, max_tokens=400, temperature=0.0,
-    )
-
-    is_relevant = bool(data.get("is_kmp_changes_content"))
-    kmp_change_facts = [str(x).strip() for x in (data.get("kmp_change_facts") or []) if str(x).strip()][:3] if is_relevant else []
-    summary = str(data.get("summary") or "").strip()
-
-    if not is_relevant:
-        # llm_failed produces the exact same data shape as a genuine "this
-        # excerpt isn't about KMP changes" verdict (is_relevant=False from an
-        # empty {}) — without the guard below, a rate-limited call would get
-        # cached as "the model read this and it does not describe KMP
-        # changes", asserting a judgment that was never actually made.
-        rationale = (
-            "A \"Key Managerial Personnel\" mention was found in the Annual Report, but it does not "
-            "describe KMP appointments/resignations/attrition (" + (summary or "different context") +
-            ") — no genuine bench-depth information was located this run."
-        ) if not llm_failed else "Could not be classified on this run — reload to try again."
-        payload = {
-            "subpoint_id": subpoint_id,
-            "title": "Depth of management bench: ability to replace key execs without disruption",
-            "available": True,
-            "bench_depth_rating": None,
-            "kmp_attrition_rate_pct": None,
-            "kmp_change_facts": [],
-            "rationale": rationale,
-            "pathway_results": pathway_results,
-            "source_pdf_url": pdf_url,
-        }
-        if not llm_failed:
-            write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
-        else:
-            print(f"[qualitative_engine] B.3 NOT cached for {sym} — LLM call did not run; will retry next request.")
-        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
-        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-        return payload
-
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Depth of management bench: ability to replace key execs without disruption",
-        "available": True,
-        "bench_depth_rating": None,
-        "kmp_attrition_rate_pct": None,  # requires exit-count + headcount over a period — not computable from a single excerpt
-        "kmp_change_facts": kmp_change_facts,
-        "rationale": summary or "KMP change details found in the Annual Report — see facts below.",
-        "pathway_results": pathway_results,
-        "source_pdf_url": pdf_url,
+        "subpoint_id": subpoint_id, "title": "Leadership depth", "available": True, **result,
+        "rationale": f"{result['member_count']} named senior management personnel/executive leadership members explicitly listed -> score {result['depth_score']}/5.",
+        "pathway_results": pathway_results, "source_pdf_url": pdf_url,
     }
     confidence_tag = "SINGLE_SOURCE"
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b3_2_succession_readiness(symbol, name=None, force=False):
+    """B.3.2 - Succession readiness. Spec formula: Succession Readiness
+    Score (1-5). Deterministic (no LLM) - see
+    tools/management_bench_scoring.py's score_succession_readiness:
+    classifies from either (a) explicit evidence the succession-planning
+    process is actively reviewed/in place, or (b) a concrete completed
+    transition explicitly naming a successor ("appointed ... in
+    succession to ..."). Sourcing: Nomination & Remuneration Committee
+    Report - Succession Planning.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.management_bench_scoring import score_succession_readiness
+        texts = extract_text_near_anchors(sym, name, {"succession": ["succession plan", "in succession to"]}, max_pages_per_key=4)
+        pdf_url = None
+        result = score_succession_readiness(texts.get("succession", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] B.3.2 fetch failed for {sym}: {e}")
+        result = {"succession_transitions": None, "active_process_evidence": None, "readiness": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "Nomination & Remuneration Committee Report - Succession Planning",
+        "result": "CHECKED" if result["readiness"] is not None else "NOT_DISCLOSED",
+        "note": None if result["readiness"] is not None else "No succession-planning evidence (an active process, or a named completed transition) was located in the latest Annual Report PDF this run.",
+    }]
+
+    if result["readiness"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Succession readiness", "available": True, **result,
+            "rationale": "No succession-planning evidence was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Succession readiness", "available": True, **result,
+        "rationale": (f"{result['succession_transitions']} named completed leadership transition(s) explicitly described" if result["succession_transitions"] else "")
+                     + (" and " if result["succession_transitions"] and result["active_process_evidence"] else "")
+                     + ("explicit evidence the succession-planning process is actively reviewed/in place" if result["active_process_evidence"] else "")
+                     + f" -> {result['readiness']}.",
+        "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b3_3_key_person_dependency(symbol, name=None, force=False):
+    """B.3.3 - Key executive dependency. Spec formula: Key-person
+    Dependency Score (1-5). Deterministic (no LLM) - see
+    tools/management_bench_scoring.py's score_key_person_dependency: uses
+    the leadership bench size (B.3.1's member_count) as the dependency
+    signal - responsibility spread across many named senior executives is
+    structurally distributed; a thin bench concentrates authority in very
+    few hands. (A named-Chairman-vs-CEO role-code comparison was tried
+    first but produced a confirmed wrong result live - the "(C)" code
+    used in board-composition tables is ambiguous with a COMMITTEE's own
+    chair, not just the company Chairman - so this reuses the
+    unambiguous, already-validated B.3.1 count instead.) Sourcing:
+    Corporate Governance Report - Management Structure.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.3.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    b31 = compute_b3_1_leadership_depth(sym, name, force=force)
+    from tools.management_bench_scoring import score_key_person_dependency
+    result = score_key_person_dependency(b31.get("member_count"))
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "Corporate Governance Report - Management Structure (via B.3.1's leadership-bench count)",
+        "result": "CHECKED" if result["dependency_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["dependency_score"] is not None else "No leadership-bench count was available to derive this from (see B.3.1).",
+    }]
+
+    if result["dependency_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Key executive dependency", "available": True, **result,
+            "rationale": "No leadership-bench count was available this run to assess responsibility concentration.",
+            "pathway_results": pathway_results, "source_pdf_url": None,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Key executive dependency", "available": True, **result,
+        "rationale": f"{b31.get('member_count')} named senior executives explicitly listed -> {result['dependency_level']} responsibility (score {result['dependency_score']}/5).",
+        "pathway_results": pathway_results, "source_pdf_url": None,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b3_management_bench_depth(symbol, name=None, force=False):
+    """B.3 - Depth of management bench: combines the three sub-points
+    (B.3.1 leadership depth, B.3.2 succession readiness, B.3.3 key
+    executive dependency) into a single grounded payload, each sourced
+    from real Annual Report text and scored deterministically (no LLM
+    call - see tools/management_bench_scoring.py). Any sub-point the AR
+    doesn't explicitly cover is surfaced as unavailable rather than
+    defaulted.
+
+    This does NOT run QUAL-01 (LinkedIn org mapping) or FOUNDER-01 (MCA
+    struck-off cross-check) - neither has a fetcher wired in this codebase.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    b31 = compute_b3_1_leadership_depth(sym, name, force=force)
+    b32 = compute_b3_2_succession_readiness(sym, name, force=force)
+    b33 = compute_b3_3_key_person_dependency(sym, name, force=force)
+
+    parts = []
+    if b31.get("depth_score") is not None:
+        parts.append(f"Leadership depth: {b31['member_count']} named senior executives (score {b31['depth_score']}/5).")
+    if b32.get("readiness") is not None:
+        parts.append(f"Succession readiness: {b32['readiness']}.")
+    if b33.get("dependency_score") is not None:
+        parts.append(f"Key executive dependency: {b33['dependency_level']} (score {b33['dependency_score']}/5).")
+    if not parts:
+        parts.append("None of the three sub-points (leadership depth, succession readiness, key executive dependency) were explicitly covered in the latest Annual Report this run.")
+    parts.append(
+        "LinkedIn org mapping and MCA struck-off cross-check have not been run - route to an analyst "
+        "before this factors into an investment decision."
+    )
+
+    _tags = [t.get("confidence_tag") for t in (b31, b32, b33)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+
+    retrieved_ats = [t.get("retrieved_at") for t in (b31, b32, b33) if t.get("retrieved_at")]
+    payload = {
+        "subpoint_id": "B.3",
+        "title": "Depth of management bench: ability to replace key execs without disruption",
+        "available": True,
+        "b3_1": b31, "b3_2": b32, "b3_3": b33,
+        "rationale": " ".join(parts),
+        "pathway_results": (b31.get("pathway_results") or []) + (b32.get("pathway_results") or []) + (b33.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 

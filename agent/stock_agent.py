@@ -2138,10 +2138,11 @@ def build_executive_summary(state: SystemState) -> dict:
             f30 = {
                 'bench_depth_rating': None,
                 'kmp_attrition_rate_pct': None,
-                'key_person_dependency_flags': _b3.get('kmp_change_facts') or [],
+                'key_person_dependency_flags': [],
                 'rationale': _b3.get('rationale'),
                 'confidence_tag': _b3.get('confidence_tag'), 'retrieved_at': _b3.get('retrieved_at'),
                 'pathway_results': _b3.get('pathway_results'),
+                'b3_1': _b3.get('b3_1') or {}, 'b3_2': _b3.get('b3_2') or {}, 'b3_3': _b3.get('b3_3') or {},
             }
     except Exception as e:
         print(f"[qualitative_topics] sourced B.3 engine failed, falling back to raw LLM fields: {e}")
@@ -2700,6 +2701,45 @@ def build_executive_summary(state: SystemState) -> dict:
         _kmp_attrition_pct = None
     _key_person_flags = [v for v in (f30.get('key_person_dependency_flags') or []) if isinstance(v, str) and v.strip()][:3]
 
+    # B.3's three sub-points (leadership depth / succession readiness /
+    # key executive dependency) combined into one 3-panel donut card, same
+    # pattern as B.1/B.2 - every panel is a real matched count from the
+    # Annual Report (tools/management_bench_scoring.py), never fabricated
+    # when a sub-point's excerpt wasn't located.
+    _b3_1, _b3_2, _b3_3 = f30.get('b3_1') or {}, f30.get('b3_2') or {}, f30.get('b3_3') or {}
+
+    if _b3_1.get('depth_score') is not None:
+        _b3_1_donut = {
+            'type': 'classification', 'title': 'Leadership Depth',
+            'zones': ['Limited', 'Strong'], 'active': 'Strong' if _b3_1.get('depth_score') >= 3 else 'Limited',
+            'centerValue': str(_b3_1.get('member_count')),
+            'explanation': f"{_co}'s latest Annual Report explicitly names {_b3_1.get('member_count')} senior management/executive leadership members (score {_b3_1.get('depth_score')}/5).",
+        }
+    else:
+        _b3_1_donut = {'type': 'unavailable', 'title': 'Leadership Depth',
+                        'explanation': f"No Senior Management Personnel / Executive Leadership Team listing was located in {_co}'s latest Annual Report."}
+
+    if _b3_2.get('readiness') is not None:
+        _b3_2_donut = {
+            'type': 'classification', 'title': 'Succession Readiness',
+            'zones': ['Not Ready', 'Ready'], 'active': _b3_2.get('readiness'),
+            'explanation': f"{_co}: " + (f"{_b3_2.get('succession_transitions')} named completed leadership transition(s) explicitly described" if _b3_2.get('succession_transitions') else "explicit evidence of an actively reviewed succession-planning process") + ".",
+        }
+    else:
+        _b3_2_donut = {'type': 'unavailable', 'title': 'Succession Readiness',
+                        'explanation': f"No succession-planning evidence was located in {_co}'s latest Annual Report."}
+
+    if _b3_3.get('dependency_score') is not None:
+        _b3_3_donut = {
+            'type': 'classification', 'title': 'Key Executive Dependency',
+            'zones': ['Concentrated', 'Distributed'], 'active': _b3_3.get('dependency_level'),
+            'explanation': f"{_b3_1.get('member_count')} named senior executives at {_co} -> {_b3_3.get('dependency_level')} responsibility (score {_b3_3.get('dependency_score')}/5).",
+        }
+    else:
+        _b3_3_donut = {'type': 'unavailable', 'title': 'Key Executive Dependency',
+                        'explanation': f"No leadership-bench count was available for {_co} to assess responsibility concentration."}
+    _b3_panels = [_b3_1_donut, _b3_2_donut, _b3_3_donut]
+
     _comm_quality_rating = _enum(f31.get('communication_quality_rating'), ['Strong', 'Moderate', 'Weak'])
     _guidance_consistency = f31.get('guidance_consistency') if isinstance(f31.get('guidance_consistency'), str) and f31.get('guidance_consistency').strip() else None
     _disclosure_flags = [v for v in (f31.get('disclosure_flags') or []) if isinstance(v, str) and v.strip()][:3]
@@ -3156,21 +3196,26 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f29.get('pathway_results'),
                 },
                 {
+                    # B.3 — the three sub-points (B.3.1 leadership depth,
+                    # B.3.2 succession readiness, B.3.3 key executive
+                    # dependency) combined into ONE card as a 3-panel
+                    # classification-donut set, same pattern as B.1/B.2.
                     'key': 'management_bench_depth',
                     'title': 'Depth of management bench: ability to replace key execs without disruption',
                     'finding': f30.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Bench depth', _bench_depth_rating] if _bench_depth_rating else None),
-                        (['KMP attrition rate', f"~{_kmp_attrition_pct}%"] if _kmp_attrition_pct is not None else None),
-                        (['Key-person dependency', '; '.join(_key_person_flags)] if _key_person_flags else None),
+                        (['Leadership depth', f"{_b3_1.get('member_count')} members"] if _b3_1.get('member_count') is not None else None),
+                        (['Succession readiness', _b3_2.get('readiness')] if _b3_2.get('readiness') else None),
+                        (['Key executive dependency', _b3_3.get('dependency_level')] if _b3_3.get('dependency_level') else None),
                     ] if f],
-                    'chart': ({'type': 'spectrum', 'options': ['Weak', 'Moderate', 'Strong'], 'active': _bench_depth_rating}
-                               if _bench_depth_rating else None),
-                    'formula': 'KMP attrition rate = KMP exits in period / Average KMP headcount',
+                    'chart': ({'type': 'multi_donut', 'panels': _b3_panels} if _b3_panels else None),
+                    'formula': 'Leadership Depth Score = named senior management/leadership members, banded 1-5; '
+                               'Succession Readiness = Ready if a named completed transition or an actively-reviewed '
+                               'succession process is explicitly stated; Key-person Dependency = leadership bench size, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'LinkedIn', 'note': 'org mapping', 'url': 'https://www.linkedin.com'},
-                        'secondary': {'label': 'BSE India – Corporate Announcements', 'note': 'KMP change filings', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
-                        'tertiary': {'label': 'Company Annual Report', 'note': 'org chart if disclosed, sourced via BSE announcement / company IR page'},
+                        'primary': {'label': 'Company Annual Report', 'note': 'Senior Management Personnel / Executive Leadership Team'},
+                        'secondary': {'label': 'Company Annual Report', 'note': 'Nomination & Remuneration Committee Report — Succession Planning'},
+                        'tertiary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report — Management Structure'},
                     },
                     'confidence_tag': f30.get('confidence_tag'), 'retrieved_at': f30.get('retrieved_at'),
                     'pathway_results': f30.get('pathway_results'),
