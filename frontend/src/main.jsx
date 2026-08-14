@@ -782,23 +782,94 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: N donuts/classification-wheels stacked in one card,
-        // each with its own title — used to combine several AR-sourced
-        // sub-points (e.g. B.1.1/B.1.2/B.1.3) into one visual, same idea as
-        // A.2's combined moat wheel but for independently-scored panels
-        // rather than slices of one wheel. Each panel is either a real
-        // {label,value} donut or a fixed-zone classification wheel.
+        // --- SUBCOMPONENT: single big centered-percent donut ring with a
+        // centered legend row below it — the visual style used for B.1's
+        // three combined panels (Initiative Success Rate / Management Tenure
+        // Distribution / Strategy Alignment Distribution). A 2-value donut
+        // (real counts) or a fixed 3-zone classification wheel (High/
+        // Moderate/Low), plus an "unavailable" state that shows a dashed
+        // ring + honest explanation instead of a fabricated split.
+        const BIG_DONUT_PALETTE = ['#3b82f6', '#10b981', '#f59e0b'];
+        const BigCenterDonut = ({ panel }) => {
+            const cx = 100, cy = 100, R = 78, HOLE = 48;
+            if (panel.type === 'unavailable') {
+                return (
+                    <div className="flex flex-col items-center">
+                        <svg viewBox="0 0 200 200" className="w-40 h-40">
+                            <circle cx={cx} cy={cy} r={(R + HOLE) / 2} fill="none" stroke="#1e293b" strokeWidth={R - HOLE} strokeDasharray="4 6" />
+                            <text x={cx} y={cy + 5} textAnchor="middle" fontSize="13" fontWeight="700" fill="#64748b">N/A</text>
+                        </svg>
+                        <p className="text-[10px] text-slate-500 text-center mt-1 max-w-[220px] leading-snug">{panel.explanation}</p>
+                    </div>
+                );
+            }
+            let slices = [];
+            if (panel.type === 'classification') {
+                const zones = panel.zones || [];
+                const activeIdx = zones.findIndex(z => z.toLowerCase() === (panel.active || '').toLowerCase());
+                const n = zones.length;
+                slices = zones.map((label, i) => {
+                    const a0 = -Math.PI / 2 + (i / n) * 2 * Math.PI;
+                    const a1 = -Math.PI / 2 + ((i + 1) / n) * 2 * Math.PI;
+                    return { label, a0, a1, color: BIG_DONUT_PALETTE[i % BIG_DONUT_PALETTE.length], isActive: i === activeIdx, pct: null };
+                });
+            } else {
+                const items = (panel.data || []).filter(d => d.value != null && d.value > 0);
+                const total = items.reduce((s, d) => s + d.value, 0) || 1;
+                let ang = -Math.PI / 2;
+                slices = items.map((d, i) => {
+                    const a0 = ang, a1 = ang + (d.value / total) * 2 * Math.PI; ang = a1;
+                    return { label: d.label, a0, a1, color: BIG_DONUT_PALETTE[i % BIG_DONUT_PALETTE.length], isActive: true, pct: Math.round((d.value / total) * 100) };
+                });
+            }
+            const paths = slices.map(s => {
+                const large = (s.a1 - s.a0) > Math.PI ? 1 : 0;
+                return { ...s, path: `M ${(cx + R * Math.cos(s.a0)).toFixed(2)} ${(cy + R * Math.sin(s.a0)).toFixed(2)} A ${R} ${R} 0 ${large} 1 ${(cx + R * Math.cos(s.a1)).toFixed(2)} ${(cy + R * Math.sin(s.a1)).toFixed(2)} L ${(cx + HOLE * Math.cos(s.a1)).toFixed(2)} ${(cy + HOLE * Math.sin(s.a1)).toFixed(2)} A ${HOLE} ${HOLE} 0 ${large} 0 ${(cx + HOLE * Math.cos(s.a0)).toFixed(2)} ${(cy + HOLE * Math.sin(s.a0)).toFixed(2)} Z` };
+            });
+            return (
+                <div className="flex flex-col items-center">
+                    <svg viewBox="0 0 200 200" className="w-40 h-40">
+                        {paths.map((s, i) => (
+                            <path key={i} d={s.path} fill={s.color} stroke="#0b1220" strokeWidth="2" opacity={s.isActive ? 1 : 0.25} />
+                        ))}
+                        <text x={cx} y={panel.type === 'classification' ? cy + 5 : cy - 2} textAnchor="middle" fontSize={panel.type === 'classification' ? '15' : '24'} fontWeight="800" fill="rgb(var(--slate-100))">
+                            {panel.centerValue || (panel.active || '')}
+                        </text>
+                        {panel.type !== 'classification' && (
+                            <text x={cx} y={cy + 18} textAnchor="middle" fontSize="9" fontWeight="600" fill="#64748b">
+                                {slices[0]?.label ? slices[0].label.replace(/\s*\([^)]*\)/, '').toUpperCase() : ''}
+                            </text>
+                        )}
+                    </svg>
+                    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mt-1">
+                        {slices.map((s, i) => (
+                            <div key={i} className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: s.color, opacity: s.isActive ? 1 : 0.35 }}></span>
+                                <span className={`text-[10px] ${s.isActive ? 'text-slate-300 font-semibold' : 'text-slate-600'}`}>{s.label}{s.pct != null ? ` ${s.pct}%` : ''}</span>
+                            </div>
+                        ))}
+                    </div>
+                    {panel.explanation && (
+                        <p className="text-[10px] text-slate-500 text-center mt-2 max-w-[220px] leading-snug">{panel.explanation}</p>
+                    )}
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: N big-center donuts stacked in one card, each with
+        // its own title — used to combine several AR-sourced sub-points (e.g.
+        // B.1.1/B.1.2/B.1.3) into one visual, same idea as A.2's combined moat
+        // wheel but for independently-scored panels rather than slices of one
+        // wheel.
         const MultiDonutPanel = ({ panels }) => {
             const items = (panels || []).filter(Boolean);
             if (!items.length) return null;
             return (
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {items.map((p, i) => (
-                        <div key={i}>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">{p.title}</p>
-                            {p.type === 'classification'
-                                ? <ClassificationDonut zones={p.zones} active={p.active} />
-                                : <Donut data={p.data} center={p.centerValue ? { value: p.centerValue, label: p.title } : null} />}
+                        <div key={i} className="bg-slate-950/50 border border-slate-800 rounded-xl p-3">
+                            <p className="text-[11px] font-bold text-slate-300 mb-2 text-center">{p.title}</p>
+                            <BigCenterDonut panel={p} />
                         </div>
                     ))}
                 </div>

@@ -2562,29 +2562,55 @@ def build_executive_summary(state: SystemState) -> dict:
     _prior_ventures = [v for v in (f28.get('prior_ventures') or []) if isinstance(v, str) and v.strip()][:3]
 
     # B.1's three sub-points (past initiatives / tenure / strategy alignment)
-    # combined into one 3-panel donut card — each panel is None (omitted by
-    # the frontend) when its own AR excerpt wasn't located, never fabricated.
+    # combined into one 3-panel donut card. All three panels always render
+    # (matching the spec's 3-donut layout) — but a panel whose AR excerpt
+    # wasn't located shows an honest "not disclosed" state, never a
+    # fabricated split, per the never-fake-zero/false rule.
     _b1_1, _b1_2, _b1_3 = f28.get('b1_1') or {}, f28.get('b1_2') or {}, f28.get('b1_3') or {}
-    _b1_1_donut = (
-        {'type': 'donut', 'title': 'Past Successes / Failures',
-         'data': [{'label': 'Successful initiatives', 'value': _b1_1.get('successful_count')},
-                  {'label': 'Failed initiatives', 'value': _b1_1.get('failed_count')}],
-         'centerValue': f"{_b1_1.get('execution_score')}/5"}
-        if _b1_1.get('execution_score') is not None else None
-    )
-    _b1_2_donut = (
-        {'type': 'donut', 'title': 'Management Tenure',
-         'data': [{'label': 'Long-tenured (≥5y)', 'value': _b1_2.get('long_tenured_count')},
-                  {'label': 'Short-tenured (<5y)', 'value': _b1_2.get('short_tenured_count')}],
-         'centerValue': f"{_b1_2.get('tenure_score')}/5"}
-        if _b1_2.get('tenure_score') is not None else None
-    )
-    _b1_3_donut = (
-        {'type': 'classification', 'title': 'Relevance to Current Strategy',
-         'zones': ['High', 'Moderate', 'Low'], 'active': _b1_3.get('alignment')}
-        if _b1_3.get('alignment') else None
-    )
-    _b1_panels = [p for p in [_b1_1_donut, _b1_2_donut, _b1_3_donut] if p]
+    _co = name or symbol or 'This company'
+
+    if _b1_1.get('execution_score') is not None:
+        _succ, _fail = _b1_1.get('successful_count') or 0, _b1_1.get('failed_count') or 0
+        _b1_1_donut = {
+            'type': 'donut', 'title': 'Initiative Success Rate',
+            'data': [{'label': 'Successful initiatives', 'value': _succ},
+                     {'label': 'Failed initiatives', 'value': _fail}],
+            'centerValue': f"{round(100 * _succ / max(_succ + _fail, 1))}%",
+            'explanation': f"{_succ} of {_succ + _fail} strategic moves {_co} described in its Chairman/MD message paid off.",
+        }
+    else:
+        _b1_1_donut = {
+            'type': 'unavailable', 'title': 'Initiative Success Rate',
+            'explanation': f"{_co}'s latest Annual Report doesn't describe a specific initiative with a stated outcome — not enough to score this year.",
+        }
+
+    if _b1_2.get('tenure_score') is not None:
+        _long, _short = _b1_2.get('long_tenured_count') or 0, _b1_2.get('short_tenured_count') or 0
+        _b1_2_donut = {
+            'type': 'donut', 'title': 'Management Tenure Distribution',
+            'data': [{'label': 'Long tenure (≥5y)', 'value': _long},
+                     {'label': 'Short tenure (<5y)', 'value': _short}],
+            'centerValue': f"{round(100 * _long / max(_long + _short, 1))}%",
+            'explanation': f"{_long} of {_long + _short} directors/KMP named in the filing have been with {_co} for 5+ years.",
+        }
+    else:
+        _b1_2_donut = {
+            'type': 'unavailable', 'title': 'Management Tenure Distribution',
+            'explanation': f"No director appointment dates were explicitly stated in {_co}'s latest Corporate Governance Report.",
+        }
+
+    if _b1_3.get('alignment'):
+        _b1_3_donut = {
+            'type': 'classification', 'title': 'Strategy Alignment Distribution',
+            'zones': ['High', 'Moderate', 'Low'], 'active': _b1_3.get('alignment'),
+            'explanation': f"{_b1_3.get('alignment')} match between {_co}'s leadership background and its stated strategy, per the Annual Report.",
+        }
+    else:
+        _b1_3_donut = {
+            'type': 'unavailable', 'title': 'Strategy Alignment Distribution',
+            'explanation': f"{_co}'s Annual Report doesn't explicitly tie leadership background to its current strategy.",
+        }
+    _b1_panels = [_b1_1_donut, _b1_2_donut, _b1_3_donut]
 
     _fixed_variable_ratio = f29.get('fixed_variable_pay_ratio') if isinstance(f29.get('fixed_variable_pay_ratio'), str) and f29.get('fixed_variable_pay_ratio').strip() else None
     _esop_pct = f29.get('esop_pct_of_kmp_comp')
