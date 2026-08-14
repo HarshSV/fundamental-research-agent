@@ -3499,6 +3499,32 @@ def compute_b2_3_vesting_structure(symbol, name=None, force=False):
     except Exception as e:
         print(f"[qualitative_engine] B.2.3 structural table pass failed for {sym}: {e}")
 
+    # Second tier: some ESOP grant-schedule tables (Date of Grant / Options
+    # Granted / Vesting Conditions / Exercise Period) have real column
+    # structure but NO visible cell rulings in the PDF, so pdfplumber's
+    # geometry-based table detector above finds nothing at all (confirmed
+    # real: HINDUNILVR). Parses the raw page text directly instead, and
+    # infers vested/unvested from elapsed time since each tranche's grant
+    # vs its own stated vesting period.
+    if result["vesting_score"] is None:
+        try:
+            from tools.ar_table_extractor import extract_text_near_anchors
+            from tools.management_incentives_scoring import extract_esop_grant_schedule, score_vesting_structure_from_grant_schedule
+            fiscal_year = gov.get("fiscal_year")
+            texts = extract_text_near_anchors(sym, name, {"esop": ["vesting schedule", "grant date", "exercise period", "esos", "employee stock option scheme", "date of grant"]}, fiscal_year=fiscal_year, max_pages_per_key=8)
+            tranches = extract_esop_grant_schedule(texts.get("esop", ""), texts.get("fiscal_year"))
+            grant_result = score_vesting_structure_from_grant_schedule(tranches, texts.get("fiscal_year"))
+            if grant_result["vesting_score"] is not None:
+                result = grant_result
+                pathway_results.insert(0, {
+                    "pathway_id": "AR-03-GRANT",
+                    "source": "ESOP grant schedule — Date of Grant / Options Granted / Vesting Conditions (raw-text extraction, no ruled table lines)",
+                    "result": "CHECKED",
+                    "note": f"{len(tranches)} grant tranche(s) found; vested/unvested inferred from elapsed time since each grant vs its own stated vesting period.",
+                })
+        except Exception as e:
+            print(f"[qualitative_engine] B.2.3 grant-schedule pass failed for {sym}: {e}")
+
     if result["vesting_score"] is None:
         from tools.management_incentives_scoring import score_vesting_structure
         result = score_vesting_structure(esop_text) if esop_text else {"vested_count": None, "unvested_count": None, "unvested_pct": None, "vesting_score": None}
@@ -3600,6 +3626,28 @@ def compute_b2_4_long_term_orientation(symbol, name=None, force=False):
     except Exception as e:
         print(f"[qualitative_engine] B.2.4 structural table pass failed for {sym}: {e}")
 
+    # Second tier: same grant-schedule raw-text extraction B.2.3 uses (a
+    # real table with no visible cell rulings, so the geometry-based table
+    # pass above finds nothing - confirmed real: HINDUNILVR).
+    if result["alignment_score"] is None:
+        try:
+            from tools.ar_table_extractor import extract_text_near_anchors
+            from tools.management_incentives_scoring import extract_esop_grant_schedule, score_long_term_orientation_from_grant_schedule
+            fiscal_year = gov.get("fiscal_year")
+            texts = extract_text_near_anchors(sym, name, {"esop": ["vesting schedule", "grant date", "exercise period", "esos", "employee stock option scheme", "date of grant"]}, fiscal_year=fiscal_year, max_pages_per_key=8)
+            tranches = extract_esop_grant_schedule(texts.get("esop", ""), texts.get("fiscal_year"))
+            grant_result = score_long_term_orientation_from_grant_schedule(tranches)
+            if grant_result["alignment_score"] is not None:
+                result = {**result, **grant_result}
+                pathway_results.insert(0, {
+                    "pathway_id": "AR-03-GRANT",
+                    "source": "ESOP grant schedule — vesting horizon + performance-linkage (raw-text extraction, no ruled table lines)",
+                    "result": "CHECKED",
+                    "note": f"{len(tranches)} grant tranche(s) found; {grant_result['vesting_horizon_years']}-year horizon, performance-linked={grant_result['performance_linked']}.",
+                })
+        except Exception as e:
+            print(f"[qualitative_engine] B.2.4 grant-schedule pass failed for {sym}: {e}")
+
     if result["alignment_score"] is None:
         from tools.management_incentives_scoring import score_long_term_orientation
         result = score_long_term_orientation(policy_text) if policy_text else {"long_term_count": None, "short_term_count": None, "long_term_pct": None, "alignment_score": None}
@@ -3661,10 +3709,12 @@ def compute_b2_management_incentives(symbol, name=None, force=False):
     if b21.get("fixed_pct") is not None:
         parts.append(f"Pay structure: {b21['fixed_pct']}% fixed vs {round(100 - b21['fixed_pct'], 1)}% variable.")
     if b22.get("ownership_score") is not None:
-        parts.append(f"Equity ownership: {b22['management_ownership_pct']}% held by Directors/KMP (score {b22['ownership_score']}/5).")
+        parts.append(f"Equity ownership: {b22['management_ownership_pct']}% (score {b22['ownership_score']}/5).")
     if b23.get("vesting_score") is not None:
         parts.append(f"Vesting: {b23['unvested_pct']}% of options unvested (score {b23['vesting_score']}/5).")
-    if b24.get("alignment_score") is not None:
+    if b24.get("vesting_horizon_years") is not None:
+        parts.append(f"Long-term orientation: {b24['vesting_horizon_years']}-year ESOP vesting horizon (score {b24['alignment_score']}/5).")
+    elif b24.get("alignment_score") is not None:
         parts.append(f"Long-term orientation: {b24['long_term_pct']}% long-term incentive language (score {b24['alignment_score']}/5).")
     if not parts:
         parts.append("None of the four sub-points (pay structure, equity ownership, vesting, long-term orientation) were explicitly covered in the latest Annual Report this run.")

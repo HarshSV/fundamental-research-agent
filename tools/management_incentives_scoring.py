@@ -447,3 +447,118 @@ def score_long_term_orientation_from_esop_text(vesting_schedule_text):
     if performance_linked:
         score = min(5, score + 1)
     return {"vesting_horizon_years": horizon_years, "performance_linked": performance_linked, "alignment_score": score}
+
+
+# ---------------------------------------------------------------------------
+# ESOP GRANT SCHEDULE (raw-text) - for a table with real column structure
+# (Date of Grant / Options Granted / Vesting Conditions / Exercise Period)
+# but no ruled/visible cell lines, so pdfplumber's geometry-based table
+# detector finds nothing at all (confirmed real: HINDUNILVR). Parses the
+# raw page text directly by regex instead of relying on table geometry -
+# feeds BOTH B.2.3 (vested/unvested, inferred from elapsed time since
+# grant vs the stated vesting period) and B.2.4 (vesting horizon +
+# performance-linkage) from the SAME underlying grant tranches, per the
+# updated sourcing direction ("use ESOP grant date, vesting schedule,
+# exercise period, and option life" / "infer from ESOP duration, vesting
+# horizon, and performance-linked incentives").
+# ---------------------------------------------------------------------------
+
+_WORD_NUM = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+_MONTHS = r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?"
+_GRANT_DATE = re.compile(
+    rf"\b\d{{1,2}}[-\s](?:{_MONTHS})[a-z]*[-\s](\d{{2,4}})\b", re.I
+)
+_VESTING_AFTER = re.compile(
+    r"after\s+(" + "|".join(_WORD_NUM) + r"|\d+)\s+years?\s+from\s+(?:the\s+)?date\s+of\s+grant", re.I
+)
+_GRANTED_COUNT_NEAR = re.compile(r"\b(\d[\d,]{2,})\*?\b")
+_PERFORMANCE_CONDITION_CTX = re.compile(r"performance\s+condition|performance[- ]linked|meeting\s+performance", re.I)
+
+
+def extract_esop_grant_schedule(text, fiscal_year):
+    """Finds every "Date of Grant ... Options Granted ... After <N> years
+    from date of grant" tranche in raw page text (a real table column
+    layout, just not one pdfplumber can detect geometrically). Returns a
+    list of {'grant_year','options_granted','vesting_years',
+    'performance_linked'} - empty if the text names no such tranche.
+    Never guesses a vesting period that isn't explicitly stated."""
+    if not text or not fiscal_year:
+        return []
+    tranches = []
+    seen = set()
+    for m in _GRANT_DATE.finditer(text):
+        yr = int(m.group(1))
+        if yr < 100:
+            yr += 2000
+        if not (1990 <= yr <= fiscal_year):
+            continue
+        window = text[m.end():m.end() + 350]
+        count_m = _GRANTED_COUNT_NEAR.search(window[:80])
+        granted = _to_float(count_m.group(1)) if count_m else None
+        if granted is None or granted < 10:
+            continue
+        vest_m = _VESTING_AFTER.search(window)
+        if not vest_m:
+            continue
+        raw = vest_m.group(1).lower()
+        vesting_years = int(raw) if raw.isdigit() else _WORD_NUM.get(raw)
+        if not vesting_years:
+            continue
+        performance_linked = bool(_PERFORMANCE_CONDITION_CTX.search(window[:250]))
+        # De-dup: the same tranche can legitimately be found twice when
+        # two different anchor phrases both matched the page/text region
+        # containing it (confirmed real: "vesting schedule" and "date of
+        # grant" both hit the same table) - a (year, count) pair is a
+        # reliable fingerprint for "the same disclosed tranche".
+        key = (yr, round(granted))
+        if key in seen:
+            continue
+        seen.add(key)
+        tranches.append({
+            "grant_year": yr, "options_granted": granted,
+            "vesting_years": vesting_years, "performance_linked": performance_linked,
+        })
+    return tranches[:20]
+
+
+def score_vesting_structure_from_grant_schedule(tranches, fiscal_year):
+    """Vested/unvested inferred from elapsed time since each tranche's
+    grant vs its own stated vesting period - a tranche is "vested" once
+    (fiscal_year - grant_year) >= vesting_years, "unvested" otherwise.
+    Returns the same shape as score_vesting_structure_from_tables, or
+    all-None if `tranches` is empty."""
+    if not tranches or not fiscal_year:
+        return {"vested_count": None, "unvested_count": None, "unvested_pct": None, "vesting_score": None}
+    vested, unvested = 0.0, 0.0
+    for t in tranches:
+        elapsed = fiscal_year - t["grant_year"]
+        if elapsed >= t["vesting_years"]:
+            vested += t["options_granted"]
+        else:
+            unvested += t["options_granted"]
+    total = vested + unvested
+    if total <= 0:
+        return {"vested_count": None, "unvested_count": None, "unvested_pct": None, "vesting_score": None}
+    unvested_pct = round(100 * unvested / total, 1)
+    return {
+        "vested_count": round(vested), "unvested_count": round(unvested),
+        "unvested_pct": unvested_pct, "vesting_score": _band_score_pct(unvested_pct),
+    }
+
+
+def score_long_term_orientation_from_grant_schedule(tranches):
+    """Same scoring logic as score_long_term_orientation_from_esop_text
+    (longest stated vesting horizon + performance-linkage bonus), sourced
+    from real grant tranches instead of a single Vesting Schedule
+    sentence. Returns all-None if `tranches` is empty."""
+    if not tranches:
+        return {"vesting_horizon_years": None, "performance_linked": None, "alignment_score": None}
+    horizon_years = float(max(t["vesting_years"] for t in tranches))
+    performance_linked = any(t["performance_linked"] for t in tranches)
+    score = 5 if horizon_years >= 3 else 4 if horizon_years >= 2 else 3 if horizon_years >= 1 else 2
+    if performance_linked:
+        score = min(5, score + 1)
+    return {"vesting_horizon_years": horizon_years, "performance_linked": performance_linked, "alignment_score": score}

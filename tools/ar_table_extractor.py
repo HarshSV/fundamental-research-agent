@@ -215,3 +215,41 @@ def parse_cell_number(cell):
         return float(m.group(0).replace(",", ""))
     except ValueError:
         return None
+
+
+def extract_text_near_anchors(symbol, name, anchor_phrases_by_key, fiscal_year=None, max_pages_per_key=5):
+    """Fast (fitz-only) counterpart to extract_tables_near_anchors, for
+    disclosures that ARE structurally a table on the page but whose PDF
+    has no visible cell rulings - pdfplumber's line-based table detector
+    then finds nothing at all (confirmed real: HINDUNILVR's ESOP grant-
+    schedule table - Date of Grant / Options Granted / Vesting Conditions /
+    Exercise Period - has real column structure but zero ruled lines).
+    Returns {key: 'concatenated page text', 'fiscal_year': int} - the
+    caller regex-parses the raw text itself rather than relying on
+    pdfplumber's table geometry. Never raises; returns {} on failure."""
+    try:
+        sym = symbol.strip().upper().replace(".NS", "")
+        if fiscal_year is None:
+            from tools.annual_report_financials import list_annual_report_years
+            years = list_annual_report_years(sym, name)
+            if not years:
+                return {}
+            fiscal_year = years[0]
+
+        content = download_ar_pdf_bytes(sym, name, fiscal_year)
+        if not content:
+            return {}
+
+        anchor_pages = _find_anchor_pages_fast(content, anchor_phrases_by_key, max_pages_per_key=max_pages_per_key)
+        import fitz
+        doc = fitz.open(stream=content, filetype="pdf")
+        out = {"fiscal_year": fiscal_year}
+        for key, pages in anchor_pages.items():
+            out[key] = "\n".join(doc[i].get_text() for i in sorted(pages))
+        doc.close()
+        for key in anchor_phrases_by_key:
+            out.setdefault(key, "")
+        return out
+    except Exception as e:
+        print(f"[ar_table_extractor] extract_text_near_anchors failed for {symbol}: {e}")
+        return {}
