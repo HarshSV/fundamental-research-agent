@@ -2987,8 +2987,42 @@ def compute_b1_2_management_tenure(symbol, name=None, force=False):
         {**_NSE_ANNOUNCEMENTS_GAP, "source": "NSE Corporate Announcements - board appointment/resignation announcements, to verify appointment dates"},
     ]
 
-    from tools.founder_track_record_scoring import score_management_tenure
-    result = score_management_tenure(tenure_text, fiscal_year) if tenure_text else {"average_tenure_years": None, "tenure_score": None, "executives": []}
+    # STRUCTURAL pass first: reads a real detected table by column/value
+    # pattern (tools/ar_table_extractor.py) rather than exact wording in
+    # flowing text — this generalizes across companies that disclose the
+    # SAME information with different headings/phrasing than the sample
+    # filings the regex patterns below were tuned against. Falls back to
+    # the regex-window pass only when no table-based match is found (the
+    # two strategies catch different, overlapping subsets of companies —
+    # confirmed live neither alone covers every filing format).
+    result = {"average_tenure_years": None, "tenure_score": None, "executives": []}
+    try:
+        from tools.ar_table_extractor import extract_tables_near_anchors
+        from tools.founder_track_record_scoring import extract_key_executive_tenure_from_tables, score_management_tenure
+        anchors = {
+            "tenure": ["date of appointment", "appointment", "designation"],
+            "roles": ["non-executive director", "independent,", "executive director", "managing director"],
+        }
+        tabs = extract_tables_near_anchors(sym, name, anchors, fiscal_year=fiscal_year)
+        tbl_fy = tabs.get("fiscal_year") or fiscal_year
+        if tbl_fy:
+            execs = extract_key_executive_tenure_from_tables(tabs.get("tenure", []), tbl_fy, role_tables=tabs.get("roles", []))
+            if execs:
+                avg = round(sum(e["tenure_years"] for e in execs) / len(execs), 1)
+                score = 5 if avg > 10 else 4 if avg >= 7 else 3 if avg >= 4 else 2 if avg >= 2 else 1
+                result = {"average_tenure_years": avg, "tenure_score": score, "executives": execs}
+                pathway_results.insert(0, {
+                    "pathway_id": "AR-06-TABLE",
+                    "source": "Corporate Governance Report — structural table extraction (pdfplumber)",
+                    "result": "CHECKED",
+                    "note": f"{len(execs)} executive(s) found via real table structure, cross-referenced against a board-role table.",
+                })
+    except Exception as e:
+        print(f"[qualitative_engine] B.1.2 structural table pass failed for {sym}: {e}")
+
+    if result["tenure_score"] is None:
+        from tools.founder_track_record_scoring import score_management_tenure
+        result = score_management_tenure(tenure_text, fiscal_year) if tenure_text else {"average_tenure_years": None, "tenure_score": None, "executives": []}
 
     if result["tenure_score"] is None:
         reason = (ft.get("error") or "No director appointment/tenure detail was located in the latest Annual Report PDF this run.") if not tenure_text else (

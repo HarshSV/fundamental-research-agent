@@ -142,7 +142,10 @@ def _tenure_bucket_for(years):
 _ROLE_PATTERNS = [
     ("CEO", re.compile(r"\bChief Executive Officer\b|\bCEO\b")),
     ("CFO", re.compile(r"\bChief Financial Officer\b|\bCFO\b")),
-    ("Managing Director", re.compile(r"\bManaging Director\b")),
+    # "Non Managing Director" / "Non-Managing Director" (opposite meaning)
+    # excluded the same way as "Non-Executive Director" below - confirmed
+    # real false-positive (WIPRO).
+    ("Managing Director", re.compile(r"(?<!non-)(?<!non )(?<!non\s)Managing Director")),
     # Negative lookbehind excludes "Non-Executive Director" - a board
     # classification meaning NOT part of day-to-day management, the
     # opposite of what this role label is meant to capture. Confirmed real
@@ -158,7 +161,12 @@ _ROLE_PATTERNS = [
 _SINCE_YEAR = re.compile(r"\bsince\s+(?:\w+\s+)?(\d{4})\b", re.I)
 _WEF_DATE = re.compile(r"\bw\.?e\.?f\.?\s*(?:\d{1,2}(?:st|nd|rd|th)?\s+\w+,?\s+)?(\d{4})\b", re.I)
 _APPOINTED_YEAR = re.compile(r"\bappointed\b[^.]{0,60}?\b(?:on|in|w\.?e\.?f\.?)?\s*(?:\w+\s+)?(\d{4})\b", re.I)
-_NAME_NEAR = re.compile(r"\b(?:Mr\.?|Ms\.?|Mrs\.?|Shri|Smt\.?|Dr\.?)\s+([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,3})")
+# [ \t]+ (not \s+) between words - a bare \s+ lets this swallow the NEXT
+# LINE's text across a newline in PDF-linearized tables (confirmed real
+# bug: "Ms. Tulsi Naidu\nNon-Executive..." matched "Ms. Tulsi Naidu\nNon"
+# as one name, pulling in the next row's leading word). Same fix already
+# applied to _PLAIN_NAME below.
+_NAME_NEAR = re.compile(r"\b(?:Mr\.?|Ms\.?|Mrs\.?|Shri|Smt\.?|Dr\.?)[ \t]+([A-Z][A-Za-z.]+(?:[ \t]+[A-Z][A-Za-z.]+){0,3})")
 
 # A Board of Directors / KMP table routinely lists a bare date (16/02/2020,
 # "16th February, 2020", OR month-first "June 1, 2023" - confirmed all three
@@ -259,10 +267,17 @@ def _closest_name(window, role_pos_in_window):
     `window`, whichever is closest (by character distance) to the role
     mention wins - guards against a window with two directors' names both
     present picking up the WRONG one (e.g. the CFO's name when scoring the
-    CEO's row)."""
+    CEO's row). A candidate BEFORE the role match is preferred over one
+    AFTER it at the same distance (a director listing's own name routinely
+    precedes its role/designation text; a long multi-title designation
+    string - e.g. "Executive Director, Chief Executive Officer and
+    Managing Director" - can push the row's OWN name further back than
+    the NEXT row's name sitting just after the match, which would
+    otherwise win purely on raw distance - confirmed real bug live)."""
     candidates = []
     for m in _NAME_NEAR.finditer(window):
-        candidates.append((abs(m.start() - role_pos_in_window), m.group(0).strip()))
+        before = m.start() < role_pos_in_window
+        candidates.append((abs(m.start() - role_pos_in_window), 0 if before else 1, m.group(0).strip()))
     for m in _PLAIN_NAME.finditer(window):
         cand = m.group(1).strip()
         low = cand.lower()
@@ -272,9 +287,11 @@ def _closest_name(window, role_pos_in_window):
             continue
         if _NAME_ENTITY_SUFFIX.search(cand):
             continue
-        candidates.append((abs(m.start() - role_pos_in_window), cand))
+        before = m.start() < role_pos_in_window
+        candidates.append((abs(m.start() - role_pos_in_window), 0 if before else 1, cand))
     if not candidates:
         return None
+    candidates = [(dist + (300 if side else 0), c) for dist, side, c in candidates]
     candidates.sort(key=lambda x: x[0])
     return candidates[0][1]
 
@@ -324,10 +341,12 @@ def extract_key_executive_tenure(tenure_text, fiscal_year):
             # counting them once avoids double-weighting one executive's
             # tenure in the average (the spec's denominator is "Number of
             # Key Executives", not number of role mentions).
+            tenure_years = round(max(0.0, fiscal_year - year), 1)
+            if tenure_years > _MAX_PLAUSIBLE_TENURE_YEARS:
+                continue
             if name in seen_names:
                 continue
             seen_names.add(name)
-            tenure_years = round(max(0.0, fiscal_year - year), 1)
             out.append({
                 "name": name, "role": role_label, "tenure_years": tenure_years,
                 "bucket": _tenure_bucket_for(tenure_years),
@@ -435,3 +454,230 @@ def score_strategy_alignment(strategy_text):
         "strategy_alignment_pct": pct, "alignment_score": score, "alignment": label,
         "strategic_priorities": priorities, "matched_areas": matched,
     }
+
+
+# ---------------------------------------------------------------------------
+# B.1.2 STRUCTURAL variant - reads a real detected table (pdfplumber) by
+# COLUMN HEADER KEYWORD instead of matching exact wording in flowing text.
+# This is the fix for the core limitation of the regex-window approach
+# above: a company that titles its column "Appointed On" instead of "Date
+# of Appointment" simply won't match _APPOINTED_YEAR/_BARE_DATE_* patterns
+# wherever that phrase sits relative to a role mention, but WILL be found
+# here via find_column's substring match on the actual header cell -
+# generalizes across differently-worded filings far better, since it keys
+# off table STRUCTURE (a real column exists) rather than exact phrasing.
+# ---------------------------------------------------------------------------
+
+_DATE_CELL_NUMERIC = re.compile(r"\b\d{1,2}[/\-.]\d{1,2}[/\-.](\d{4})\b")
+_DATE_CELL_YEAR_ONLY = re.compile(r"\b(19|20)\d{2}\b")
+
+
+def _year_from_date_cell(cell, fiscal_year):
+    if not cell:
+        return None
+    for pat in (_DATE_CELL_NUMERIC, _BARE_DATE_DAY_MONTH, _BARE_DATE_MONTH_DAY):
+        m = pat.search(cell)
+        if m:
+            y = int(m.group(1))
+            if 1950 <= y <= fiscal_year:
+                return y
+    m = _DATE_CELL_YEAR_ONLY.search(cell)
+    if m:
+        y = int(m.group(0))
+        if 1950 <= y <= fiscal_year:
+            return y
+    return None
+
+
+_ROLE_CELL_PATTERNS = [
+    ("CEO", re.compile(r"chief executive officer|\bceo\b", re.I)),
+    ("CFO", re.compile(r"chief financial officer|\bcfo\b", re.I)),
+    # "Non Managing Director" / "Non-Managing Director" is a real board
+    # classification (opposite meaning) - confirmed real false-positive
+    # (WIPRO: a Non-Managing Director was counted as a Managing Director).
+    ("Managing Director", re.compile(r"(?<!non-)(?<!non )managing director", re.I)),
+    ("Executive Director", re.compile(r"(?<!non-)(?<!non )executive director", re.I)),
+]
+
+
+_NAME_STRIP = re.compile(r"\([^)]*\)")
+_HONORIFIC_STRIP = re.compile(r"\b(?:Mr|Mrs|Ms|Dr|Shri|Smt|Prof)\.?\b", re.I)
+_NAME_JUNK = re.compile(r"[^A-Za-z\s]")
+
+
+def _normalize_name_words(name):
+    """A person's name reduced to its significant lowercase words - strips
+    parenthetical annotations ("(NED)", "(i)"), honorifics, and punctuation,
+    so the SAME person can be matched across two differently-formatted
+    tables (e.g. "N Chandrasekaran, Chairman(i)" in one table vs "N.
+    Chandrasekaran" in another)."""
+    name = _NAME_STRIP.sub(" ", name or "")
+    name = _HONORIFIC_STRIP.sub(" ", name)
+    name = _NAME_JUNK.sub(" ", name)
+    return {w.lower() for w in name.split() if len(w) > 1}
+
+
+# A job-TITLE cell ("Executive Vice President & Head - Integrated Supply
+# Chain") is often more alphabetic than the actual name cell in the same
+# row, so a naive "most alphabetic cell = name" heuristic picks the title
+# instead - confirmed real bug (JUBLFOOD: SVP-level titles were shown as
+# if they were CEO/CFO people's names). A real person's name is short (1-5
+# words) and never contains these role/function words.
+_JOB_TITLE_WORDS = re.compile(
+    r"\b(?:vice president|president|officer|head|manager|chief|business|strategy|"
+    r"supply chain|human resources|operations|finance|legal|marketing|sales|"
+    r"technology|information|corporate|director|division|department)\b", re.I
+)
+
+
+def _looks_like_person_name(cell):
+    """Cheap shape check: a real name is a handful of short, mostly-
+    alphabetic words with no job-title/function vocabulary in it."""
+    if not cell or len(cell) > 40:
+        return False
+    if _JOB_TITLE_WORDS.search(cell):
+        return False
+    words = cell.split()
+    if not (1 <= len(words) <= 5):
+        return False
+    return sum(ch.isalpha() or ch.isspace() for ch in cell) / max(len(cell), 1) > 0.7
+
+
+# No realistic CEO/CFO/Managing/Executive Director tenure exceeds this -
+# a value above it means the "date" cell almost certainly wasn't an
+# appointment date at all (e.g. a date of birth or company-founding year
+# grabbed by mistake) - confirmed real bug (a 58-year "tenure" was clearly
+# a misread, not a real appointment-to-date span).
+_MAX_PLAUSIBLE_TENURE_YEARS = 40
+
+
+def _names_match(a, b):
+    wa, wb = _normalize_name_words(a), _normalize_name_words(b)
+    if not wa or not wb:
+        return False
+    overlap = wa & wb
+    return len(overlap) >= 1 and len(overlap) / min(len(wa), len(wb)) >= 0.5
+
+
+# A board-attendance/sitting-fee table routinely tags each director's row
+# with a short category code in parentheses - NED (Non-Executive Director),
+# ED (Executive Director), ID (Independent Director), MD (Managing
+# Director) - a reliable, compact ROLE signal even when the table has no
+# proper header row at all (confirmed real format live on TCS).
+_ROLE_CODE = re.compile(r"\((NED|ED|ID|MD|CEO|CFO)\)")
+_ROLE_CODE_LABEL = {"ED": "Executive Director", "MD": "Managing Director", "CEO": "CEO", "CFO": "CFO"}
+_NON_EXEC_CODES = {"NED", "ID"}
+
+
+def _extract_role_map_from_tables(tables):
+    """Scans every row of every table for a name-like cell paired with
+    either an explicit CEO/CFO/Managing/Executive Director phrase (see
+    _ROLE_CELL_PATTERNS) or a parenthetical role code (see _ROLE_CODE) IN
+    THE SAME ROW. Returns [{'name','role'}] for every row that resolves to
+    an executive (non-NED/ID) role - used to cross-reference against a
+    separate, cleaner appointment-date table that itself carries no role
+    column (a very common real-world split across two different AR
+    tables)."""
+    out = []
+    for table in tables or []:
+        for row in table or []:
+            cells = [(c or "").strip() for c in row]
+            row_text = " ".join(cells)
+            if not row_text.strip():
+                continue
+            role = None
+            for role_label, pat in _ROLE_CELL_PATTERNS:
+                if pat.search(row_text):
+                    role = role_label
+                    break
+            if role is None:
+                m = _ROLE_CODE.search(row_text)
+                if m and m.group(1) not in _NON_EXEC_CODES:
+                    role = _ROLE_CODE_LABEL.get(m.group(1))
+            if role is None:
+                continue
+            name_candidates = [c for c in cells if _looks_like_person_name(c)]
+            if not name_candidates:
+                continue
+            name_cell = max(name_candidates, key=lambda c: sum(ch.isalpha() for ch in c))
+            if len(_normalize_name_words(name_cell)) >= 1:
+                out.append({"name": name_cell, "role": role})
+    return out
+
+
+def extract_key_executive_tenure_from_tables(tables, fiscal_year, role_tables=None):
+    """Structural counterpart to extract_key_executive_tenure: finds a
+    Name+Date-of-Appointment table by VALUE PATTERN (not header wording -
+    works even when pdfplumber fails to detect a proper header row, a
+    confirmed real gap: TCS's own appointment table starts directly at
+    data row 1). If that table carries no role/designation column itself
+    (also common - role info is routinely on a SEPARATE page/table), cross-
+    references names against `role_tables` (any tables scanned for role
+    signals, e.g. a board-attendance table with (NED)/(ED)/(ID) tags) via
+    fuzzy name matching. Returns a list of {'name','role','tenure_years',
+    'bucket','detail'} - empty if no table yields a name+date pair that
+    also resolves to a confirmed executive role."""
+    from tools.ar_table_extractor import find_column
+    role_map = _extract_role_map_from_tables(role_tables) if role_tables else []
+
+    out = []
+    seen_names = set()
+    for table in tables or []:
+        if not table or len(table) < 2:
+            continue
+        header = table[0]
+        name_col = find_column(header, ["name"])
+        date_col = find_column(header, ["date of appointment", "appointment", "date"])
+        role_col = find_column(header, ["designation", "position", "role", "category"])
+        header_has_names = name_col is not None and date_col is not None
+        rows = table[1:] if header_has_names else table
+
+        for row in rows:
+            cells = [(c or "").strip() for c in row]
+            if header_has_names:
+                if max(name_col, date_col) >= len(cells):
+                    continue
+                name = cells[name_col]
+                date_cell = cells[date_col]
+                role_cell = cells[role_col] if role_col is not None and role_col < len(cells) else ""
+            else:
+                # No usable header - value-pattern fallback: the date cell
+                # is whichever cell parses as a date, the name cell is
+                # whichever OTHER cell is mostly alphabetic.
+                date_cell = next((c for c in cells if _year_from_date_cell(c, fiscal_year) is not None), "")
+                if not date_cell:
+                    continue
+                name_candidates = [c for c in cells if c != date_cell and _looks_like_person_name(c)]
+                name = max(name_candidates, key=lambda c: sum(ch.isalpha() for ch in c)) if name_candidates else ""
+                role_cell = ""
+
+            if not name or len(name) < 3 or not date_cell:
+                continue
+            year = _year_from_date_cell(date_cell, fiscal_year)
+            if year is None:
+                continue
+            tenure_years = round(max(0.0, fiscal_year - year), 1)
+            if tenure_years > _MAX_PLAUSIBLE_TENURE_YEARS:
+                continue
+
+            role = None
+            for role_label, pat in _ROLE_CELL_PATTERNS:
+                if role_cell and pat.search(role_cell):
+                    role = role_label
+                    break
+            if role is None and role_map:
+                match = next((rm for rm in role_map if _names_match(name, rm["name"])), None)
+                if match:
+                    role = match["role"]
+            if role is None:
+                continue
+
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+            out.append({
+                "name": name, "role": role, "tenure_years": tenure_years,
+                "bucket": _tenure_bucket_for(tenure_years),
+                "detail": f"Table row: {name} | {role_cell or '(role via cross-reference)'} | {date_cell}",
+            })
+    return out[:10]
