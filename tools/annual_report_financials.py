@@ -2252,24 +2252,26 @@ _GOVERNANCE_SECTION_ANCHORS = {
 }
 
 
-def fetch_governance_text_sections(symbol, name):
-    """Real, grounded text excerpts from the company's OWN latest Annual
-    Report PDF for the governance sub-points (B.2 remuneration/ESOP, B.3 KMP
-    changes) that need AR-02/AR-03/AR-06 content — not a business-description
-    proxy, the actual filing. Scans every page for the section anchors above
-    (case-insensitive) and returns up to ~1500 chars of real page text around
-    each first match found. Returns {'pdf_url', 'fiscal_year', 'remuneration_text',
-    'esop_text', 'kmp_changes_text'} (each text field None if that section
-    wasn't located) or {'error': reason}. Never raises. Reuses the same
-    PDF-fetch plumbing as the ratio extractors (BSE/NSE lookup, retry, cache),
-    so a company already visited for its ratios pays no extra download cost."""
+def _fetch_ar_text_sections(symbol, name, anchors, cache_key_prefix):
+    """Shared plumbing behind fetch_governance_text_sections and
+    fetch_founder_track_record_text: downloads the company's latest Annual
+    Report PDF once (cached) and returns the best-scoring real page-text
+    window per anchor-dict key (`<key>_text`). An anchor phrase can appear
+    many times incidentally (AGM notice text, cross-references) before the
+    real disclosure — each candidate is scored by digit density in its
+    window (a genuine table/annexure is numbers-heavy; a passing prose
+    mention isn't), and the best-scoring candidate per key is kept. Returns
+    {'pdf_url', 'fiscal_year', <key>_text: ...} or {'error': reason}. Never
+    raises. Reuses the same PDF-fetch plumbing as the ratio extractors
+    (BSE/NSE lookup, retry, cache), so a company already visited for its
+    ratios pays no extra download cost."""
     try:
         sym = symbol.strip().upper().replace(".NS", "")
         years = list_annual_report_years(sym, name)
         if not years:
             return {"error": _no_annual_report_message(sym)}
         fiscal_year = years[0]
-        ckey = f"ar_gov_text_v1_{sym}_{fiscal_year}"
+        ckey = f"{cache_key_prefix}_{sym}_{fiscal_year}"
         cached = _read_cache(ckey)
         if cached is not None:
             return cached
@@ -2293,7 +2295,7 @@ def fetch_governance_text_sections(symbol, name):
                     content = _sess().get(pdf_url, timeout=90).content
                 break
             except Exception as e:
-                print(f"[annual_report_financials] governance-text PDF download failed for {sym}: {e}")
+                print(f"[annual_report_financials] AR text-section download failed for {sym}: {e}")
         if content is None or len(content) < 50000:
             return {"error": "Could not download the Annual Report right now.", "source_url": pdf_url}
 
@@ -2306,21 +2308,15 @@ def fetch_governance_text_sections(symbol, name):
         except Exception as e:
             return {"error": f"PDF read failed: {e}"}
 
-        # Collect EVERY candidate match per section (an anchor phrase can
-        # appear many times incidentally — AGM notice text, cross-references —
-        # before the real data table/annexure). Score each by digit density in
-        # its window: a genuine remuneration table or ESOP disclosure annexure
-        # is numbers-heavy; a passing prose mention isn't. Keep the best-scoring
-        # candidate per section rather than just the first occurrence.
-        best = {k: (None, -1) for k in _GOVERNANCE_SECTION_ANCHORS}
+        best = {k: (None, -1) for k in anchors}
         for page in doc:
             try:
                 t = _page_text(page)
             except Exception:
                 continue
             tl = t.lower()
-            for key, anchors in _GOVERNANCE_SECTION_ANCHORS.items():
-                for anchor in anchors:
+            for key, anchor_list in anchors.items():
+                for anchor in anchor_list:
                     idx = tl.find(anchor)
                     if idx == -1:
                         continue
@@ -2329,18 +2325,59 @@ def fetch_governance_text_sections(symbol, name):
                     if score > best[key][1]:
                         best[key] = (window, score)
 
-        out = {
-            "pdf_url": pdf_url,
-            "fiscal_year": fiscal_year,
-            "remuneration_text": best["remuneration"][0],
-            "esop_text": best["esop"][0],
-            "kmp_changes_text": best["kmp_changes"][0],
-        }
+        out = {"pdf_url": pdf_url, "fiscal_year": fiscal_year}
+        for key in anchors:
+            out[f"{key}_text"] = best[key][0]
         _write_cache(ckey, out)
         return out
     except Exception as e:
-        print(f"[annual_report_financials] fetch_governance_text_sections failed for {symbol}: {e}")
+        print(f"[annual_report_financials] _fetch_ar_text_sections failed for {symbol}: {e}")
         return {"error": f"Error: {e}"}
+
+
+def fetch_governance_text_sections(symbol, name):
+    """Real, grounded text excerpts from the company's OWN latest Annual
+    Report PDF for the governance sub-points (B.2 remuneration/ESOP, B.3 KMP
+    changes) that need AR-02/AR-03/AR-06 content — not a business-description
+    proxy, the actual filing. Returns {'pdf_url', 'fiscal_year',
+    'remuneration_text', 'esop_text', 'kmp_changes_text'} (each text field
+    None if that section wasn't located) or {'error': reason}. Never raises."""
+    return _fetch_ar_text_sections(symbol, name, _GOVERNANCE_SECTION_ANCHORS, "ar_gov_text_v1")
+
+
+# Founder/CEO track-record evidence anchors (B.1.1-B.1.3). Three independent
+# families: milestones (Chairman/MD message — B.1.1 past successes/failures),
+# tenure (Corporate Governance Report director appointment detail — B.1.2),
+# strategy (MD&A Business Strategy + director profiles — B.1.3 relevance to
+# current strategy).
+_FOUNDER_TRACK_RECORD_ANCHORS = {
+    "milestones": [
+        "chairman's message", "chairman & managing director", "chairman and managing director",
+        "message to shareholders", "managing director's message", "md's message",
+        "historical milestones", "our journey", "milestones",
+    ],
+    "tenure": [
+        "date of appointment", "appointed as director", "director since",
+        "brief profile of directors", "brief resume of directors", "brief resume of the directors",
+    ],
+    "strategy": [
+        "business strategy", "strategic priorities", "our strategy",
+        "key strategic", "growth strategy", "director profile",
+    ],
+}
+
+
+def fetch_founder_track_record_text(symbol, name):
+    """Real, grounded text excerpts from the company's OWN latest Annual
+    Report PDF for B.1's three sub-points — B.1.1 past successes/failures
+    (Chairman/MD message + historical-milestones narrative), B.1.2
+    management tenure (Corporate Governance Report director
+    appointment/tenure detail), B.1.3 relevance to current strategy (MD&A
+    Business Strategy + director profiles). Returns {'pdf_url',
+    'fiscal_year', 'milestones_text', 'tenure_text', 'strategy_text'} (each
+    text field None if that section wasn't located) or {'error': reason}.
+    Never raises. Shares PDF-fetch plumbing with fetch_governance_text_sections."""
+    return _fetch_ar_text_sections(symbol, name, _FOUNDER_TRACK_RECORD_ANCHORS, "ar_founder_text_v1")
 
 
 # Revenue-characteristics evidence anchors (A.1.2 — recurring vs cyclical
@@ -3591,20 +3628,43 @@ def _extract_segment_revenue(pdf_bytes, total_revenue_cr):
             # Bound the row-parsing window to just the Segment Revenue
             # sub-table — stop at the next sub-table caption (Result/Assets/
             # Liabilities) or reconciliation rows (inter-segment, unallocated).
+            #
+            # The FIRST stop match isn't always the real boundary: some
+            # filers' segment note opens with a preamble sentence that uses
+            # BOTH "segment revenue" (the caption match) and "segment
+            # results" (a stop keyword) back to back — e.g. HINDUNILVR's
+            # FY2025 AR: "Segment revenue relating to ... Segment results
+            # relate to profit before other income..." — which made the stop
+            # regex fire on that second phrase just ~140 characters later,
+            # long before the actual REVENUE data table (which appears
+            # further down the same page, itself correctly bounded by a
+            # later "Total Revenue" stop match). Confirmed by inspecting the
+            # extracted page text directly. Rather than trust the first stop
+            # match blindly, try each successive stop candidate in order and
+            # use the first one whose window actually parses to 2+ segment
+            # rows — a false-early stop inside descriptive prose has no real
+            # data before it, so it naturally fails this check and the next
+            # candidate (the genuine sub-table boundary) is tried instead.
             window_start = m.end()
-            stop = _SEGMENT_STOP_RE.search(t, window_start + 1)
-            window = t[window_start:stop.start() if stop else window_start + 3500]
             factor = _unit_factor(t)
-
             segments = []
-            for row_m in _SEGMENT_ROW_RE.finditer(window):
-                label = row_m.group(1).strip(" :.-")
-                if len(label) < 3 or _SEGMENT_EXCLUDE_RE.search(label):
-                    continue
-                val = _parse_num(row_m.group(2))
-                if val is None:
-                    continue
-                segments.append((label, val * factor))
+            search_from = window_start + 1
+            while True:
+                stop = _SEGMENT_STOP_RE.search(t, search_from)
+                window = t[window_start:stop.start() if stop else window_start + 3500]
+                candidate = []
+                for row_m in _SEGMENT_ROW_RE.finditer(window):
+                    label = row_m.group(1).strip(" :.-")
+                    if len(label) < 3 or _SEGMENT_EXCLUDE_RE.search(label):
+                        continue
+                    val = _parse_num(row_m.group(2))
+                    if val is None:
+                        continue
+                    candidate.append((label, val * factor))
+                if len(candidate) >= 2 or not stop:
+                    segments = candidate
+                    break
+                search_from = stop.end()
 
             if len(segments) < 2 and re.search(r"(primary\s+segment\s+information|segment\s+information|"
                                                 r"operating\s+segments?\b)", t, re.I):
@@ -4713,7 +4773,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     cache after acquiring the lock (not just before), since another thread
     may have already finished the fetch while this one was waiting."""
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_extract_v15_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    ckey = f"ar_extract_v17_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -4747,7 +4807,29 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # pre-v15 cache entries don't have these keys at all (dict.get returns
     # None either way, but bumping avoids ever conflating "not computed in
     # this older cache entry" with "genuinely not found in the filing").
-    ckey = f"ar_extract_v15_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    # "_v16" (bumped from "_v15") — `parsed["segments"]` (Ind AS 108 segment
+    # revenue, added below) was wired into this function WITHOUT a matching
+    # version bump at the time, so every fiscal year cached under "_v15"
+    # before that change silently has no "segments" key at all. That's what
+    # made A.4 (Product lifecycle stage) show 100% Unclassified for
+    # HINDUNILVR: fetch_multi_year_segment_revenue found segments for only
+    # the one most-recently-fetched year (FY2026), and
+    # compute_segment_cagr_from_multi_year requires 2+ years to compute any
+    # CAGR at all — so with 3 of the 4 requested years serving stale
+    # pre-segment cache entries, every segment came back unclassified, not
+    # because HUL actually renamed its segments across the window.
+    # "_v17" (bumped from "_v16") — `_extract_segment_revenue`'s stop-boundary
+    # search picked the FIRST "segment result/assets/liabilit/..." match as
+    # the sub-table's end, but some filers' segment note opens with a
+    # preamble sentence mentioning both "segment revenue" (the caption) and
+    # "segment results" (a stop keyword) back to back — confirmed on
+    # HINDUNILVR's FY2025 AR, where that preamble sentence made the window
+    # end ~140 characters after the caption, before ever reaching the real
+    # REVENUE data table further down the same page. Now retries successive
+    # stop candidates until one whose window actually parses to 2+ segment
+    # rows. Pre-v17 cache entries may have `segments: None` purely from this
+    # false-early-stop bug, not a genuine "couldn't find/reconcile" case.
+    ckey = f"ar_extract_v17_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached

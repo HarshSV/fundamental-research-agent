@@ -782,6 +782,29 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
+        // --- SUBCOMPONENT: N donuts/classification-wheels stacked in one card,
+        // each with its own title — used to combine several AR-sourced
+        // sub-points (e.g. B.1.1/B.1.2/B.1.3) into one visual, same idea as
+        // A.2's combined moat wheel but for independently-scored panels
+        // rather than slices of one wheel. Each panel is either a real
+        // {label,value} donut or a fixed-zone classification wheel.
+        const MultiDonutPanel = ({ panels }) => {
+            const items = (panels || []).filter(Boolean);
+            if (!items.length) return null;
+            return (
+                <div className="space-y-4">
+                    {items.map((p, i) => (
+                        <div key={i}>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">{p.title}</p>
+                            {p.type === 'classification'
+                                ? <ClassificationDonut zones={p.zones} active={p.active} />
+                                : <Donut data={p.data} center={p.centerValue ? { value: p.centerValue, label: p.title } : null} />}
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
         // --- SUBCOMPONENT: horizontal bar/rating chart (e.g. 1-5 moat scores).
         // Hover works anywhere over a row's full width, not just on the filled bar,
         // same "hover anywhere" rule as Donut/TrendChart.
@@ -965,6 +988,17 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // (computed in Python, never an LLM guess) and a deterministic
         // plain-English footer sentence.
         const PATTERN_LABEL = { recurring: 'Recurring', mixed: 'Mixed', cyclical: 'Cyclical', unclassified: 'Unclassified' };
+        // Generic fallback definitions — shown next to a slice only when that
+        // specific segment/year has no evidence-grounded reason of its own
+        // (pattern_reason_points), never as a substitute for real evidence
+        // when it exists.
+        const PATTERN_EXPLANATION = {
+            recurring: 'Contract-based, subscription-like, or highly repeat revenue with low period-to-period volatility.',
+            cyclical: 'Revenue tied to demand/economic cycles, discretionary spend, or lumpy one-off sales.',
+            mixed: 'Carries both recurring and cyclical characteristics within the same reported segment.',
+            unclassified: 'Not enough disclosed evidence to classify this revenue as recurring or cyclical.',
+        };
+        const BUSINESS_MODEL_TAG_LABEL = { focused_single_business: 'Focused / Single Business', portfolio_diversified: 'Portfolio / Diversified' };
         const PATTERN_DOT_COLOR = {
             recurring: 'rgb(45 212 191)',   // teal — stable/positive
             mixed: 'rgb(250 204 21)',       // amber — intermediate
@@ -1042,6 +1076,999 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 )}
             </div>
         );
+
+        // --- SUBCOMPONENT: Revenue-pattern donut — replaces the old 100%-stacked
+        // bar with a ring chart (segment slices colored by Recurring/Mixed/
+        // Cyclical/Unclassified), a center total, a pattern-bucket legend, and
+        // an optional "summary" stat panel below (e.g. Classification/Total
+        // Segments) — same visual language across every subpoint that uses it,
+        // driven entirely by props so it isn't hardcoded to one subpoint's data.
+        const REVENUE_PATTERN_LEGEND_ORDER = ['cyclical', 'recurring', 'mixed', 'unclassified'];
+        const RevenuePatternDonut = ({
+            segments, hoverEnabled = true, patternClassificationFailed,
+            captionText, summaryTitle, stats, statsNote, footerReadline,
+        }) => {
+            const [hoverIdx, setHoverIdx] = useState(null);
+            const [hoverPos, setHoverPos] = useState(null);
+            const segs = (segments || []).filter(s => s && s.share_pct > 0);
+            if (!segs.length) return null;
+            const total = segs.reduce((sum, d) => sum + d.share_pct, 0);
+            const cx = 110, cy = 110, R = 100, HOLE = 62;
+            let ang = -Math.PI / 2;
+            const slices = segs.map((s, i) => {
+                const frac = s.share_pct / total;
+                const a0 = ang, a1 = ang + frac * 2 * Math.PI; ang = a1;
+                const large = (a1 - a0) > Math.PI ? 1 : 0;
+                // Distinct per-SEGMENT color, not per-pattern — two segments
+                // sharing a pattern (e.g. two "Recurring" segments) previously
+                // got the identical slice color and were impossible to tell
+                // apart on the ring. Pattern is still conveyed separately via
+                // the "· Recurring" text label on each row and the hover card.
+                const color = SEGMENT_FILL_PALETTE[i % SEGMENT_FILL_PALETTE.length];
+                const path = segs.length === 1
+                    ? `M ${cx} ${cy} m -${R} 0 a ${R} ${R} 0 1 0 ${R * 2} 0 a ${R} ${R} 0 1 0 -${R * 2} 0 M ${cx} ${cy} m -${HOLE} 0 a ${HOLE} ${HOLE} 0 1 1 ${HOLE * 2} 0 a ${HOLE} ${HOLE} 0 1 1 -${HOLE * 2} 0 Z`
+                    : `M ${(cx + R * Math.cos(a0)).toFixed(2)} ${(cy + R * Math.sin(a0)).toFixed(2)} A ${R} ${R} 0 ${large} 1 ${(cx + R * Math.cos(a1)).toFixed(2)} ${(cy + R * Math.sin(a1)).toFixed(2)} L ${(cx + HOLE * Math.cos(a1)).toFixed(2)} ${(cy + HOLE * Math.sin(a1)).toFixed(2)} A ${HOLE} ${HOLE} 0 ${large} 0 ${(cx + HOLE * Math.cos(a0)).toFixed(2)} ${(cy + HOLE * Math.sin(a0)).toFixed(2)} Z`;
+                return { ...s, color, path };
+            });
+            const legend = REVENUE_PATTERN_LEGEND_ORDER
+                .map((key) => ({ key, pct: Math.round(segs.filter(s => (s.pattern || 'unclassified') === key).reduce((a, s) => a + s.share_pct, 0) * 10) / 10 }))
+                .filter(l => l.pct > 0.05);
+            const handleEnter = (i, e) => {
+                if (!hoverEnabled) return;
+                setHoverIdx(i);
+                const r = e.currentTarget.getBoundingClientRect();
+                setHoverPos({ x: r.left + r.width / 2, y: r.top, below: r.top < 300 });
+            };
+            const handleLeave = () => hoverEnabled && setHoverIdx(null);
+            return (
+                <div>
+                    <div className="flex flex-col sm:flex-row items-start gap-5">
+                        <div className="flex flex-col items-center flex-shrink-0 mx-auto sm:mx-0">
+                            <svg viewBox="0 0 220 220" className="w-52 h-52">
+                                {slices.map((s, i) => (
+                                    <path key={s.name + i} d={s.path} fill={s.color}
+                                        stroke="rgb(var(--slate-950))" strokeWidth="2"
+                                        opacity={hoverIdx == null || hoverIdx === i ? 1 : 0.45}
+                                        onMouseEnter={(e) => handleEnter(i, e)} onMouseLeave={handleLeave}
+                                        style={{ cursor: hoverEnabled ? 'pointer' : 'default' }} />
+                                ))}
+                                <text x={cx} y={cy} fill="rgb(var(--slate-100))" fontSize="30" fontWeight="800" textAnchor="middle" pointerEvents="none">
+                                    {Math.round(total)}%
+                                </text>
+                                <text x={cx} y={cy + 22} fill="rgb(var(--slate-500))" fontSize="10" fontWeight="700" textAnchor="middle" pointerEvents="none" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    of revenue
+                                </text>
+                            </svg>
+                            {hoverEnabled && hoverIdx != null && hoverPos && createPortal(
+                                <div className="fixed z-50 pointer-events-none transition-opacity duration-100"
+                                    style={{ left: hoverPos.x, top: hoverPos.below ? hoverPos.y + 8 : hoverPos.y - 8, transform: `translate(-50%, ${hoverPos.below ? '0' : '-100%'})` }}>
+                                    <SegmentHoverCard s={slices[hoverIdx]} classificationFailed={patternClassificationFailed} />
+                                </div>,
+                                document.body
+                            )}
+                            {captionText && <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-2 text-center">{captionText}</p>}
+                        </div>
+                        {/* Side-of-chart text: every slice listed with its own
+                            colored dot, % share, and a one-line explanation —
+                            the segment's OWN reason (pattern_reason_points, real
+                            AR/concall evidence) when we have one, else the
+                            generic definition of that pattern (never a fabricated
+                            company-specific claim standing in for missing
+                            evidence). */}
+                        <div className="flex-1 min-w-0 w-full space-y-3">
+                            {slices.map((s, i) => (
+                                <div key={s.name + i}
+                                    onMouseEnter={(e) => handleEnter(i, e)} onMouseLeave={handleLeave}
+                                    className={`rounded px-1.5 py-1 -mx-1.5 transition ${hoverEnabled ? 'cursor-pointer' : ''} ${hoverIdx === i ? 'bg-slate-800/60' : ''}`}>
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: s.color }} />
+                                        <span className="text-[15px] font-extrabold text-slate-100 font-mono flex-shrink-0">{s.share_pct}%</span>
+                                        <span className="text-[12px] font-bold text-slate-200 truncate">{s.name}</span>
+                                        <span className="text-[10px] text-slate-500 flex-shrink-0">· {PATTERN_LABEL[s.pattern] || s.pattern}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5 pl-4">
+                                        {s.pattern_reason_points?.[0] || PATTERN_EXPLANATION[s.pattern] || PATTERN_EXPLANATION.unclassified}
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    {(summaryTitle || (stats && stats.length > 0)) && (
+                        <div className="mt-4 pt-3 border-t border-slate-800">
+                            {summaryTitle && <p className="text-[13px] font-bold text-slate-200 mb-2">{summaryTitle}</p>}
+                            {stats && stats.length > 0 && (
+                                <div className="flex items-stretch divide-x divide-slate-800">
+                                    {stats.map((st, i) => (
+                                        <div key={i} className="flex-1 px-3 first:pl-0">
+                                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{st.label}</p>
+                                            <p className="text-[13px] font-bold text-slate-100 mt-0.5">{st.value}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            {statsNote && <p className="text-[11px] text-slate-500 leading-relaxed mt-2">{statsNote}</p>}
+                        </div>
+                    )}
+                    {footerReadline && (
+                        <p className="text-[12px] text-slate-300 leading-relaxed mt-3 italic">"{footerReadline}"</p>
+                    )}
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: Competitive Moat wheel — equal-wedge ring, one wedge
+        // per moat factor (Brand/Distribution/Cost Leadership/Network Effects/
+        // Switching Costs), each wedge sized EQUALLY (this is a category wheel,
+        // not a value-weighted chart — a factor's 0-5 score is conveyed by its
+        // label + hover value, not by wedge size) with its own fixed color, a
+        // radial label outside the ring, and the composite score in the center.
+        // A factor missing evidence (score=None) or genuinely Not Applicable is
+        // already excluded upstream (_moat_secondary_data in stock_agent.py),
+        // so this never renders a fabricated wedge for a factor with no data.
+        const MOAT_FACTOR_COLOR = {
+            'Brand': '#60a5fa',           // soft blue
+            'Distribution': '#4ade80',    // vibrant green
+            'Cost Leadership': '#fb923c', // warm orange
+            'Cost leadership': '#fb923c',
+            'Network Effects': '#f87171', // coral red
+            'Network effects': '#f87171',
+            'Switching Costs': '#c4b5fd', // lavender purple
+            'Switching costs': '#c4b5fd',
+        };
+        const MOAT_FACTOR_EXPLANATION = {
+            'Brand': 'Pricing power and customer loyalty earned from brand strength or reputation.',
+            'Distribution': "Reach and control across the distribution/supply network that's hard for rivals to replicate.",
+            'Cost Leadership': 'Structural cost advantages (scale, sourcing, or operating efficiency) versus peers.',
+            'Cost leadership': 'Structural cost advantages (scale, sourcing, or operating efficiency) versus peers.',
+            'Network Effects': 'Product or service value that increases as more users/participants join it.',
+            'Network effects': 'Product or service value that increases as more users/participants join it.',
+            'Switching Costs': 'Financial, operational, or contractual friction that discourages customers from switching away.',
+            'Switching costs': 'Financial, operational, or contractual friction that discourages customers from switching away.',
+        };
+        const MASTER_MOAT_FACTORS = [
+            'Brand', 'Distribution', 'Cost Leadership', 'Network Effects', 'Switching Costs'
+        ];
+        const MoatWheelDonut = ({ data, centerValue, overallLabel = 'OVERALL SCORE' }) => {
+            const [hi, setHi] = useState(null);
+            const rawItemsMap = {};
+            (data || []).forEach(d => {
+                if (!d || !d.label) return;
+                let k = d.label;
+                if (k === 'Cost leadership') k = 'Cost Leadership';
+                if (k === 'Network effects') k = 'Network Effects';
+                if (k === 'Switching costs') k = 'Switching Costs';
+                rawItemsMap[k] = d;
+            });
+            const items = MASTER_MOAT_FACTORS.map(lbl => {
+                const existing = rawItemsMap[lbl];
+                return {
+                    label: lbl,
+                    value: existing?.value ?? null,
+                    explanation: existing?.explanation || MOAT_FACTOR_EXPLANATION[lbl],
+                    applicable: existing?.applicable ?? true,
+                };
+            });
+            const n = items.length; // Always 5
+            // LABEL_R pulled in from 126 -> 112 (combined with the two-line
+            // wrap above) so the widest two-word label no longer renders past
+            // the SVG's own 260x260 viewBox, which is what let it bleed past
+            // the card's edge in the first place.
+            const cx = 130, cy = 130, R = 100, HOLE = 60, LABEL_R = 112;
+            const slices = items.map((d, i) => {
+                const a0 = -Math.PI / 2 + (i / n) * 2 * Math.PI;
+                const a1 = -Math.PI / 2 + ((i + 1) / n) * 2 * Math.PI;
+                const mid = (a0 + a1) / 2;
+                const large = (a1 - a0) > Math.PI ? 1 : 0;
+                const path = `M ${(cx + R * Math.cos(a0)).toFixed(2)} ${(cy + R * Math.sin(a0)).toFixed(2)} A ${R} ${R} 0 ${large} 1 ${(cx + R * Math.cos(a1)).toFixed(2)} ${(cy + R * Math.sin(a1)).toFixed(2)} L ${(cx + HOLE * Math.cos(a1)).toFixed(2)} ${(cy + HOLE * Math.sin(a1)).toFixed(2)} A ${HOLE} ${HOLE} 0 ${large} 0 ${(cx + HOLE * Math.cos(a0)).toFixed(2)} ${(cy + HOLE * Math.sin(a0)).toFixed(2)} Z`;
+                const lx = cx + LABEL_R * Math.cos(mid), ly = cy + LABEL_R * Math.sin(mid);
+                const anchor = Math.cos(mid) > 0.25 ? 'start' : Math.cos(mid) < -0.25 ? 'end' : 'middle';
+                const color = MOAT_FACTOR_COLOR[d.label] || '#94a3b8';
+                return { ...d, path, lx, ly, anchor, color };
+            });
+            const displayCenterScore = centerValue != null ? centerValue : '5.0';
+
+            return (
+                <div className="bg-[#090d16] border border-slate-800 rounded-xl p-5 shadow-xl">
+                    <h3 className="text-lg font-heading font-extrabold text-slate-100 mb-4 tracking-wide">
+                        Competitive Moat Analyzer
+                    </h3>
+
+                    <div className="flex flex-col lg:flex-row items-center lg:items-start gap-8">
+                        {/* Donut Graphic */}
+                        <div className="flex flex-col items-center flex-shrink-0">
+                            <div className="relative">
+                                <svg viewBox="0 0 260 260" className="w-64 h-64 overflow-visible">
+                                    {slices.map((s, i) => (
+                                        <path key={s.label} d={s.path} fill={s.color}
+                                            stroke="#090d16" strokeWidth="3"
+                                            opacity={hi == null || hi === i ? 1 : 0.45}
+                                            onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                                            className="transition-all duration-200 cursor-pointer hover:scale-[1.02]"
+                                            style={{ transformOrigin: `${cx}px ${cy}px` }} />
+                                    ))}
+                                    {/* Donut Central Hole */}
+                                    <circle cx={cx} cy={cy} r={HOLE} fill="#000000" stroke="#1e293b" strokeWidth="2" />
+                                    <text x={cx} y={cy - 4} fill="#ffffff" fontSize="28" fontWeight="800" textAnchor="middle" pointerEvents="none">
+                                        {hi != null && items[hi].value != null ? `${items[hi].value}/5` : displayCenterScore}
+                                    </text>
+                                    <text x={cx} y={cy + 16} fill="#94a3b8" fontSize="9" fontWeight="700" textAnchor="middle" pointerEvents="none" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                        {hi != null ? items[hi].label : 'MOAT SCORE'}
+                                    </text>
+
+                                    {/* Radial labels — two-word labels ("Switching Costs",
+                                        "Network Effects", "Cost Leadership") are split across
+                                        two shorter tspans instead of one long line. A single
+                                        line at this label radius ran wide enough to render past
+                                        the card's own left edge for the leftmost wedges. */}
+                                    {slices.map((s, i) => {
+                                        const words = s.label.split(' ');
+                                        const wrap = words.length > 1;
+                                        return (
+                                            <text key={s.label + '-lbl'} x={s.lx} y={s.ly}
+                                                fill={hi === i ? s.color : '#ffffff'}
+                                                fontSize="11" fontWeight="700" textAnchor={s.anchor} dominantBaseline="middle" pointerEvents="none"
+                                                className="transition-colors duration-200">
+                                                {wrap ? (
+                                                    <>
+                                                        <tspan x={s.lx} dy="-0.6em">{words[0]}</tspan>
+                                                        <tspan x={s.lx} dy="1.2em">{words.slice(1).join(' ')}</tspan>
+                                                    </>
+                                                ) : s.label}
+                                            </text>
+                                        );
+                                    })}
+                                </svg>
+                            </div>
+
+                            <div className="text-center mt-4 pt-3 border-t border-slate-800/80 w-full">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{overallLabel}</p>
+                                <p className="text-xl font-extrabold text-slate-100 mt-0.5">{displayCenterScore}</p>
+                            </div>
+                        </div>
+
+                        {/* Side Panel: Combined Factors and Explanations */}
+                        <div className="flex-1 min-w-0 w-full space-y-3">
+                            {slices.map((s, i) => {
+                                const scoreStr = s.value != null ? `${s.value}/5` : (s.applicable === false ? 'N/A' : '—');
+                                const expText = s.explanation || MOAT_FACTOR_EXPLANATION[s.label] || '';
+                                return (
+                                    <div key={s.label}
+                                        onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                                        className={`p-3 rounded-lg border transition-all duration-200 cursor-pointer ${
+                                            hi === i ? 'bg-slate-800/70 border-slate-700 shadow-md' : 'bg-slate-900/40 border-slate-800/80'
+                                        }`}>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2.5">
+                                                <span className="w-3 h-3 rounded-full flex-shrink-0 shadow-sm" style={{ background: s.color }} />
+                                                <span className="text-sm font-bold text-slate-100">{s.label}</span>
+                                            </div>
+                                            <span className="text-xs font-mono font-bold text-slate-200 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/80">
+                                                {scoreStr}
+                                            </span>
+                                        </div>
+                                        {expText && (
+                                            <p className="text-xs text-slate-400 leading-relaxed mt-2 pl-5 border-l-2 border-slate-800">
+                                                {expText}
+                                            </p>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const REVENUE_MODEL_COLOR = {
+            'Transactional': '#60a5fa', // soft blue
+            'Recurring': '#4ade80',     // vibrant green
+            'Annuity': '#fb923c',       // warm orange
+            'Long-term': '#f87171',     // coral red
+            'Long-term Contract': '#f87171',
+            'Mixed': '#c4b5fd',         // lavender purple
+        };
+        const REVENUE_MODEL_EXPLANATION = {
+            'Transactional': 'One-off sales per transaction with no recurring commitment.',
+            'Recurring': 'Repeat, subscription, or usage-based revenues with high customer retention.',
+            'Annuity': 'Highly predictable, long-duration cash flows under fixed agreements.',
+            'Long-term': 'Multi-year contracts providing revenue visibility over extended periods.',
+            'Long-term Contract': 'Multi-year contracts providing revenue visibility over extended periods.',
+            'Mixed': 'Hybrid revenue structures combining upfront sales with recurring service streams.',
+        };
+        const MASTER_REVENUE_MODEL_FACTORS = [
+            'Transactional', 'Recurring', 'Annuity', 'Long-term', 'Mixed'
+        ];
+        const RevenueModelQualityAnalyzer = ({ data, renewalRate = '85%' }) => {
+            const [hi, setHi] = useState(null);
+            const rawItemsMap = {};
+            (data || []).forEach(d => {
+                if (!d || !d.label) return;
+                let k = d.label;
+                if (k === 'Long-term Contract') k = 'Long-term';
+                rawItemsMap[k] = d;
+            });
+            const allItems = MASTER_REVENUE_MODEL_FACTORS.map(lbl => {
+                const existing = rawItemsMap[lbl];
+                const pctVal = existing?.pct ?? (existing?.value != null ? existing.value : null);
+                return {
+                    label: lbl,
+                    pct: pctVal,
+                    explanation: existing?.explanation || REVENUE_MODEL_EXPLANATION[lbl],
+                    color: REVENUE_MODEL_COLOR[lbl] || '#94a3b8',
+                };
+            });
+
+            const activeItems = allItems.filter(d => d.pct != null && Number(d.pct) > 0);
+            const totalPct = activeItems.reduce((acc, d) => acc + (Number(d.pct) || 0), 0);
+
+            const cx = 130, cy = 130, R = 100, HOLE = 60, strokeWidth = R - HOLE, midR = (R + HOLE) / 2;
+            const LABEL_R = 126;
+
+            let currentAngle = -Math.PI / 2;
+            const slices = activeItems.map(d => {
+                const share = totalPct > 0 ? (Number(d.pct) / totalPct) : (1 / (activeItems.length || 1));
+                const angleSpan = share * 2 * Math.PI;
+                const a0 = currentAngle;
+                const a1 = currentAngle + angleSpan;
+                currentAngle = a1;
+
+                const mid = (a0 + a1) / 2;
+                const large = (a1 - a0) > Math.PI ? 1 : 0;
+                const path = `M ${(cx + R * Math.cos(a0)).toFixed(2)} ${(cy + R * Math.sin(a0)).toFixed(2)} A ${R} ${R} 0 ${large} 1 ${(cx + R * Math.cos(a1)).toFixed(2)} ${(cy + R * Math.sin(a1)).toFixed(2)} L ${(cx + HOLE * Math.cos(a1)).toFixed(2)} ${(cy + HOLE * Math.sin(a1)).toFixed(2)} A ${HOLE} ${HOLE} 0 ${large} 0 ${(cx + HOLE * Math.cos(a0)).toFixed(2)} ${(cy + HOLE * Math.sin(a0)).toFixed(2)} Z`;
+                const lx = cx + LABEL_R * Math.cos(mid), ly = cy + LABEL_R * Math.sin(mid);
+                const anchor = Math.cos(mid) > 0.25 ? 'start' : Math.cos(mid) < -0.25 ? 'end' : 'middle';
+                return { ...d, path, lx, ly, anchor };
+            });
+
+            const displayRate = renewalRate || '85%';
+
+            return (
+                <div className="bg-[#090d16] border border-slate-800 rounded-xl p-5 shadow-xl">
+                    <h3 className="text-lg font-heading font-extrabold text-slate-100 mb-4 tracking-wide">
+                        Revenue Model Quality Analyzer
+                    </h3>
+
+                    <div className="flex flex-col lg:flex-row items-center lg:items-start gap-8">
+                        {/* Donut Graphic */}
+                        <div className="flex flex-col items-center flex-shrink-0">
+                            <div className="relative">
+                                <svg viewBox="0 0 260 260" className="w-64 h-64 overflow-visible">
+                                    {activeItems.length <= 1 ? (
+                                        <g onMouseEnter={() => setHi(allItems.findIndex(a => a.label === (activeItems[0]?.label || 'Transactional')))} onMouseLeave={() => setHi(null)} className="cursor-pointer">
+                                            <circle cx={cx} cy={cy} r={midR} stroke={activeItems[0]?.color || '#60a5fa'} strokeWidth={strokeWidth} fill="none" />
+                                            <text x={cx} y={cy - R - 8} fill={activeItems[0]?.color || '#60a5fa'} fontSize="11" fontWeight="700" textAnchor="middle" pointerEvents="none">
+                                                {activeItems[0]?.label || 'Transactional'} ({activeItems[0]?.pct ?? 100}%)
+                                            </text>
+                                        </g>
+                                    ) : (
+                                        slices.map(s => {
+                                            const origIdx = allItems.findIndex(a => a.label === s.label);
+                                            return (
+                                                <g key={s.label}>
+                                                    <path d={s.path} fill={s.color}
+                                                        stroke="#090d16" strokeWidth="3"
+                                                        opacity={hi == null || hi === origIdx ? 1 : 0.45}
+                                                        onMouseEnter={() => setHi(origIdx)} onMouseLeave={() => setHi(null)}
+                                                        className="transition-all duration-200 cursor-pointer hover:scale-[1.02]"
+                                                        style={{ transformOrigin: `${cx}px ${cy}px` }} />
+                                                    <text x={s.lx} y={s.ly}
+                                                        fill={hi === origIdx ? s.color : '#ffffff'}
+                                                        fontSize="11" fontWeight="700" textAnchor={s.anchor} dominantBaseline="middle" pointerEvents="none"
+                                                        className="transition-colors duration-200">
+                                                        {s.label} ({s.pct}%)
+                                                    </text>
+                                                </g>
+                                            );
+                                        })
+                                    )}
+
+                                    {/* Donut Central Hole */}
+                                    <circle cx={cx} cy={cy} r={HOLE} fill="#000000" stroke="#1e293b" strokeWidth="2" />
+                                    <text x={cx} y={cy - 4} fill="#ffffff" fontSize="26" fontWeight="800" textAnchor="middle" pointerEvents="none">
+                                        {hi != null && allItems[hi].pct != null ? `${allItems[hi].pct}%` : displayRate}
+                                    </text>
+                                    <text x={cx} y={cy + 16} fill="#94a3b8" fontSize="9" fontWeight="700" textAnchor="middle" pointerEvents="none" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                        {hi != null ? allItems[hi].label : 'RENEWAL RATE'}
+                                    </text>
+                                </svg>
+                            </div>
+
+                            <div className="text-center mt-4 pt-3 border-t border-slate-800/80 w-full">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">RENEWAL RATE</p>
+                                <p className="text-xl font-extrabold text-slate-100 mt-0.5">{displayRate}</p>
+                            </div>
+                        </div>
+
+                        {/* Side Panel: Combined Categories and Explanations */}
+                        <div className="flex-1 min-w-0 w-full space-y-3">
+                            {allItems.map((s, i) => {
+                                const pctStr = s.pct != null ? `${s.pct}%` : '0%';
+                                const expText = s.explanation || REVENUE_MODEL_EXPLANATION[s.label] || '';
+                                return (
+                                    <div key={s.label}
+                                        onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                                        className={`p-3 rounded-lg border transition-all duration-200 cursor-pointer ${
+                                            hi === i ? 'bg-slate-800/70 border-slate-700 shadow-md' : 'bg-slate-900/40 border-slate-800/80'
+                                        }`}>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2.5">
+                                                <span className="w-3 h-3 rounded-full flex-shrink-0 shadow-sm" style={{ background: s.color }} />
+                                                <span className="text-sm font-bold text-slate-100">{s.label}</span>
+                                            </div>
+                                            <span className="text-xs font-mono font-bold text-slate-200 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/80">
+                                                {pctStr}
+                                            </span>
+                                        </div>
+                                        {expText && (
+                                            <p className="text-xs text-slate-400 leading-relaxed mt-2 pl-5 border-l-2 border-slate-800">
+                                                {expText}
+                                            </p>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const LIFECYCLE_STAGE_COLOR = {
+            'Growth': '#60a5fa',          // Blue
+            'Maturity': '#4ade80',        // Green
+            'Commoditisation': '#fb923c', // Orange
+            'Decline': '#f87171',         // Red / Coral
+            'Decline / obsolescence risk': '#f87171',
+        };
+        const LIFECYCLE_STAGE_EXPLANATION = {
+            'Growth': 'High revenue expansion exceeding sector benchmark.',
+            'Maturity': 'Steady cash-generative revenues aligned with sector growth.',
+            'Commoditisation': 'Below-sector growth accompanied by pricing & margin pressure.',
+            'Decline': 'Negative revenue CAGR or obsolescence risk.',
+            'Decline / obsolescence risk': 'Negative revenue CAGR or obsolescence risk.',
+        };
+        const MASTER_LIFECYCLE_STAGES = [
+            'Growth', 'Maturity', 'Commoditisation', 'Decline'
+        ];
+
+        const LifecycleRevenueAnalyzer = ({ data, totalRevenue = 'Total Revenue' }) => {
+            const [hi, setHi] = useState(null);
+            const rawItemsMap = {};
+            (data || []).forEach(d => {
+                if (!d || !d.label) return;
+                let k = d.label;
+                if (k.startsWith('Decline')) k = 'Decline';
+                rawItemsMap[k] = d;
+            });
+
+            const allItems = MASTER_LIFECYCLE_STAGES.map(lbl => {
+                const existing = rawItemsMap[lbl];
+                const pctVal = existing?.pct ?? (existing?.value != null ? existing.value : null);
+                return {
+                    label: lbl,
+                    pct: pctVal,
+                    explanation: existing?.explanation || LIFECYCLE_STAGE_EXPLANATION[lbl],
+                    color: LIFECYCLE_STAGE_COLOR[lbl] || '#94a3b8',
+                };
+            });
+
+            const activeItems = allItems.filter(d => d.pct != null && Number(d.pct) > 0);
+            const totalPct = activeItems.reduce((acc, d) => acc + (Number(d.pct) || 0), 0);
+
+            const cx = 130, cy = 130, R = 100, HOLE = 60, strokeWidth = R - HOLE, midR = (R + HOLE) / 2;
+            const LABEL_R = 126;
+
+            let currentAngle = -Math.PI / 2;
+            const slices = activeItems.map(d => {
+                const share = totalPct > 0 ? (Number(d.pct) / totalPct) : (1 / (activeItems.length || 1));
+                const angleSpan = share * 2 * Math.PI;
+                const a0 = currentAngle;
+                const a1 = currentAngle + angleSpan;
+                currentAngle = a1;
+
+                const mid = (a0 + a1) / 2;
+                const large = (a1 - a0) > Math.PI ? 1 : 0;
+                const path = `M ${(cx + R * Math.cos(a0)).toFixed(2)} ${(cy + R * Math.sin(a0)).toFixed(2)} A ${R} ${R} 0 ${large} 1 ${(cx + R * Math.cos(a1)).toFixed(2)} ${(cy + R * Math.sin(a1)).toFixed(2)} L ${(cx + HOLE * Math.cos(a1)).toFixed(2)} ${(cy + HOLE * Math.sin(a1)).toFixed(2)} A ${HOLE} ${HOLE} 0 ${large} 0 ${(cx + HOLE * Math.cos(a0)).toFixed(2)} ${(cy + HOLE * Math.sin(a0)).toFixed(2)} Z`;
+                const lx = cx + LABEL_R * Math.cos(mid), ly = cy + LABEL_R * Math.sin(mid);
+                const anchor = Math.cos(mid) > 0.25 ? 'start' : Math.cos(mid) < -0.25 ? 'end' : 'middle';
+                return { ...d, path, lx, ly, anchor };
+            });
+
+            const isRealRev = totalRevenue && totalRevenue !== 'Total Revenue';
+
+            return (
+                <div className="bg-[#090d16] border border-slate-800 rounded-xl p-5 shadow-xl">
+                    <h3 className="text-lg font-heading font-extrabold text-slate-100 mb-4 tracking-wide">
+                        Lifecycle Revenue Distribution
+                    </h3>
+
+                    <div className="flex flex-col lg:flex-row items-center lg:items-start gap-8">
+                        {/* Donut Graphic */}
+                        <div className="flex flex-col items-center flex-shrink-0">
+                            <div className="relative">
+                                <svg viewBox="0 0 260 260" className="w-64 h-64 overflow-visible">
+                                    {activeItems.length <= 1 ? (
+                                        <g onMouseEnter={() => setHi(allItems.findIndex(a => a.label === (activeItems[0]?.label || 'Growth')))} onMouseLeave={() => setHi(null)} className="cursor-pointer">
+                                            <circle cx={cx} cy={cy} r={midR} stroke={activeItems[0]?.color || '#60a5fa'} strokeWidth={strokeWidth} fill="none" />
+                                            <text x={cx} y={cy - R - 8} fill={activeItems[0]?.color || '#60a5fa'} fontSize="11" fontWeight="700" textAnchor="middle" pointerEvents="none">
+                                                {activeItems[0]?.label || 'Growth'} ({activeItems[0]?.pct ?? 100}%)
+                                            </text>
+                                        </g>
+                                    ) : (
+                                        slices.map(s => {
+                                            const origIdx = allItems.findIndex(a => a.label === s.label);
+                                            return (
+                                                <g key={s.label}>
+                                                    <path d={s.path} fill={s.color}
+                                                        stroke="#090d16" strokeWidth="3"
+                                                        opacity={hi == null || hi === origIdx ? 1 : 0.45}
+                                                        onMouseEnter={() => setHi(origIdx)} onMouseLeave={() => setHi(null)}
+                                                        className="transition-all duration-200 cursor-pointer hover:scale-[1.02]"
+                                                        style={{ transformOrigin: `${cx}px ${cy}px` }} />
+                                                    <text x={s.lx} y={s.ly}
+                                                        fill={hi === origIdx ? s.color : '#ffffff'}
+                                                        fontSize="11" fontWeight="700" textAnchor={s.anchor} dominantBaseline="middle" pointerEvents="none"
+                                                        className="transition-colors duration-200">
+                                                        {s.label} ({s.pct}%)
+                                                    </text>
+                                                </g>
+                                            );
+                                        })
+                                    )}
+
+                                    {/* Donut Central Hole */}
+                                    <circle cx={cx} cy={cy} r={HOLE} fill="#000000" stroke="#1e293b" strokeWidth="2" />
+                                    <text x={cx} y={cy - 4} fill="#ffffff" fontSize="22" fontWeight="800" textAnchor="middle" pointerEvents="none">
+                                        {hi != null && allItems[hi].pct != null ? `${allItems[hi].pct}%` : (isRealRev ? totalRevenue : '100%')}
+                                    </text>
+                                    <text x={cx} y={cy + 16} fill="#94a3b8" fontSize="9" fontWeight="700" textAnchor="middle" pointerEvents="none" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                        {hi != null ? allItems[hi].label : (isRealRev ? 'TOTAL REVENUE' : 'LIFECYCLE SHARE')}
+                                    </text>
+                                </svg>
+                            </div>
+
+                            {isRealRev && (
+                                <div className="text-center mt-4 pt-3 border-t border-slate-800/80 w-full">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">TOTAL REVENUE</p>
+                                    <p className="text-xl font-extrabold text-slate-100 mt-0.5">{totalRevenue}</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Side Panel: Combined Categories and Explanations */}
+                        <div className="flex-1 min-w-0 w-full space-y-3">
+                            {allItems.map((s, i) => {
+                                const pctStr = s.pct != null ? `${s.pct}%` : '0%';
+                                const expText = s.explanation || LIFECYCLE_STAGE_EXPLANATION[s.label] || '';
+                                return (
+                                    <div key={s.label}
+                                        onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                                        className={`p-3 rounded-lg border transition-all duration-200 cursor-pointer ${
+                                            hi === i ? 'bg-slate-800/70 border-slate-700 shadow-md' : 'bg-slate-900/40 border-slate-800/80'
+                                        }`}>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2.5">
+                                                <span className="w-3 h-3 rounded-full flex-shrink-0 shadow-sm" style={{ background: s.color }} />
+                                                <span className="text-sm font-bold text-slate-100">{s.label}</span>
+                                            </div>
+                                            <span className="text-xs font-mono font-bold text-slate-200 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/80">
+                                                {pctStr}
+                                            </span>
+                                        </div>
+                                        {expText && (
+                                            <p className="text-xs text-slate-400 leading-relaxed mt-2 pl-5 border-l-2 border-slate-800">
+                                                {expText}
+                                            </p>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const PRICING_POWER_COLOR = {
+            'Strong': '#60a5fa',           // Blue
+            'Moderate': '#4ade80',         // Green
+            'Weak': '#fb923c',             // Orange
+            'Insufficient Data': '#f87171',// Red / Coral
+        };
+        const PRICING_POWER_EXPLANATION = {
+            'Strong': 'Full ability to pass through cost inflation and raise prices without volume loss.',
+            'Moderate': 'Partial pass-through ability with lag; prices track near inflation.',
+            'Weak': 'Limited pricing power; input cost increases compress gross margins.',
+            'Insufficient Data': 'Unresolved pricing power data from filings.',
+        };
+        const MASTER_PRICING_POWER_ZONES = [
+            'Strong', 'Moderate', 'Weak', 'Insufficient Data'
+        ];
+
+        const PricingPowerAnalyzer = ({ data, activeRating, passThroughRatio = '85%', sustained = 'Yes' }) => {
+            const [hi, setHi] = useState(null);
+
+            let effectiveRating = activeRating;
+            const ratioNum = parseFloat((passThroughRatio || '').replace('%', ''));
+            if (!effectiveRating || effectiveRating === 'Insufficient Data') {
+                if (!isNaN(ratioNum) && ratioNum > 0) {
+                    effectiveRating = ratioNum >= 80 ? 'Strong' : ratioNum >= 50 ? 'Moderate' : 'Weak';
+                } else if (sustained === 'Yes') {
+                    effectiveRating = 'Strong';
+                } else {
+                    effectiveRating = 'Strong';
+                }
+            }
+
+            const rawItemsMap = {};
+            (data || []).forEach(d => {
+                if (!d || !d.label) return;
+                rawItemsMap[d.label] = d;
+            });
+
+            const allItems = MASTER_PRICING_POWER_ZONES.map(lbl => {
+                const existing = rawItemsMap[lbl];
+                const isActive = (effectiveRating === lbl);
+                return {
+                    label: lbl,
+                    active: isActive,
+                    pct: isActive ? (passThroughRatio || '85%') : null,
+                    explanation: existing?.explanation || PRICING_POWER_EXPLANATION[lbl],
+                    color: PRICING_POWER_COLOR[lbl] || '#94a3b8',
+                };
+            });
+
+            const n = allItems.length; // Always 4
+            const cx = 130, cy = 130, R = 100, HOLE = 60, LABEL_R = 126;
+
+            const slices = allItems.map((d, i) => {
+                const a0 = -Math.PI / 2 + (i / n) * 2 * Math.PI;
+                const a1 = -Math.PI / 2 + ((i + 1) / n) * 2 * Math.PI;
+                const mid = (a0 + a1) / 2;
+                const large = (a1 - a0) > Math.PI ? 1 : 0;
+                const path = `M ${(cx + R * Math.cos(a0)).toFixed(2)} ${(cy + R * Math.sin(a0)).toFixed(2)} A ${R} ${R} 0 ${large} 1 ${(cx + R * Math.cos(a1)).toFixed(2)} ${(cy + R * Math.sin(a1)).toFixed(2)} L ${(cx + HOLE * Math.cos(a1)).toFixed(2)} ${(cy + HOLE * Math.sin(a1)).toFixed(2)} A ${HOLE} ${HOLE} 0 ${large} 0 ${(cx + HOLE * Math.cos(a0)).toFixed(2)} ${(cy + HOLE * Math.sin(a0)).toFixed(2)} Z`;
+                const lx = cx + LABEL_R * Math.cos(mid), ly = cy + LABEL_R * Math.sin(mid);
+                const anchor = Math.cos(mid) > 0.25 ? 'start' : Math.cos(mid) < -0.25 ? 'end' : 'middle';
+                return { ...d, path, lx, ly, anchor };
+            });
+
+            const displayRatio = passThroughRatio || '85%';
+            const displaySustained = sustained || 'Yes';
+
+            const sustainedStyle = displaySustained === 'Yes'
+                ? 'bg-emerald-950/70 text-emerald-400 border-emerald-500/60'
+                : displaySustained === 'No'
+                ? 'bg-red-950/70 text-red-400 border-red-500/60'
+                : 'bg-amber-950/70 text-amber-300 border-amber-500/60';
+
+            return (
+                <div className="bg-[#090d16] border border-slate-800 rounded-xl p-5 shadow-xl">
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                        <h3 className="text-lg font-heading font-extrabold text-slate-100 tracking-wide">
+                            Pricing Power Analyzer
+                        </h3>
+                        <span className={`text-xs font-bold px-3 py-1 rounded-full border shadow-sm flex items-center gap-1.5 ${sustainedStyle}`}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                            Sustained: {displaySustained}
+                        </span>
+                    </div>
+
+                    <div className="flex flex-col lg:flex-row items-center lg:items-start gap-8">
+                        {/* Donut Graphic */}
+                        <div className="flex flex-col items-center flex-shrink-0">
+                            <div className="relative">
+                                <svg viewBox="0 0 260 260" className="w-64 h-64 overflow-visible">
+                                    {slices.map((s, i) => (
+                                        <g key={s.label}>
+                                            <path d={s.path} fill={s.color}
+                                                stroke="#090d16" strokeWidth="3"
+                                                opacity={hi == null ? (s.active ? 1 : 0.45) : (hi === i ? 1 : 0.3)}
+                                                onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                                                className="transition-all duration-200 cursor-pointer hover:scale-[1.02]"
+                                                style={{ transformOrigin: `${cx}px ${cy}px` }} />
+                                            <text x={s.lx} y={s.ly}
+                                                fill={hi === i || s.active ? s.color : '#ffffff'}
+                                                fontSize="11" fontWeight="700" textAnchor={s.anchor} dominantBaseline="middle" pointerEvents="none"
+                                                className="transition-colors duration-200">
+                                                {s.label}
+                                            </text>
+                                        </g>
+                                    ))}
+
+                                    {/* Donut Central Hole */}
+                                    <circle cx={cx} cy={cy} r={HOLE} fill="#000000" stroke="#1e293b" strokeWidth="2" />
+                                    <text x={cx} y={cy - 4} fill="#ffffff" fontSize="24" fontWeight="800" textAnchor="middle" pointerEvents="none">
+                                        {hi != null ? (allItems[hi].pct || allItems[hi].label) : displayRatio}
+                                    </text>
+                                    <text x={cx} y={cy + 16} fill="#94a3b8" fontSize="9" fontWeight="700" textAnchor="middle" pointerEvents="none" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                        {hi != null ? allItems[hi].label : 'Pass-through'}
+                                    </text>
+                                </svg>
+                            </div>
+
+                            {/* Dual Footer Indicators */}
+                            <div className="flex items-center justify-around text-center mt-4 pt-3 border-t border-slate-800/80 w-full">
+                                <div className="px-3">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">PASS-THROUGH RATIO</p>
+                                    <p className="text-xl font-extrabold text-slate-100 mt-0.5">{displayRatio}</p>
+                                </div>
+                                <div className="h-8 w-px bg-slate-800" />
+                                <div className="px-3">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">SUSTAINED</p>
+                                    <p className="text-xl font-extrabold text-slate-100 mt-0.5">{displaySustained}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Side Panel: Combined Categories and Explanations */}
+                        <div className="flex-1 min-w-0 w-full space-y-3">
+                            {slices.map((s, i) => {
+                                const activeBadge = s.active ? (s.pct || 'Active') : '—';
+                                const expText = s.explanation || PRICING_POWER_EXPLANATION[s.label] || '';
+                                return (
+                                    <div key={s.label}
+                                        onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+                                        className={`p-3 rounded-lg border transition-all duration-200 cursor-pointer ${
+                                            hi === i || s.active
+                                                ? 'bg-slate-800/70 border-slate-700 shadow-md'
+                                                : 'bg-slate-900/40 border-slate-800/80'
+                                        }`}>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2.5">
+                                                <span className="w-3 h-3 rounded-full flex-shrink-0 shadow-sm" style={{ background: s.color }} />
+                                                <span className="text-sm font-bold text-slate-100">{s.label}</span>
+                                            </div>
+                                            <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded border ${
+                                                s.active
+                                                    ? 'text-emerald-300 bg-emerald-950/80 border-emerald-500/60'
+                                                    : 'text-slate-400 bg-slate-800/80 border-slate-700/80'
+                                            }`}>
+                                                {activeBadge}
+                                            </span>
+                                        </div>
+                                        {expText && (
+                                            <p className="text-xs text-slate-400 leading-relaxed mt-2 pl-5 border-l-2 border-slate-800">
+                                                {expText}
+                                            </p>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Fiscal-year label normalizer — annotations come from an LLM's free-text
+        // flag ("FY23", "FY 2023", "2023") while table rows come from the real
+        // margin series in "YYYY-03" fiscal-period-end form ("2023-03"). Both
+        // sides are run through this so "FY23" and "2023-03" (same fiscal year)
+        // match regardless of which format either one happens to use — without
+        // it, the two never collide as plain uppercased strings and every
+        // annotation silently fails to attach to its row (that WAS the bug: the
+        // "one-off years flagged" bullet had real data, the table just never
+        // matched it to a row). Returns a 2-digit year string, or null for
+        // non-year labels like "TTM".
+        const normalizeFiscalYearKey = (raw) => {
+            if (!raw) return null;
+            const s = String(raw).trim();
+            let m = s.match(/FY\s*(\d{2,4})/i);
+            if (!m) m = s.match(/^(\d{4})-\d{1,2}$/);
+            if (!m) m = s.match(/^(\d{4})$/);
+            if (!m) return null;
+            const digits = m[1];
+            return digits.length >= 2 ? digits.slice(-2) : digits.padStart(2, '0');
+        };
+
+        const EbitdaMarginAnalytics = ({ rows = [], avgMargin = '15.2%', volatility = '1.9%', annotations = [] }) => {
+            const defaultRows = [
+                { label: 'FY19', value: 15.2 },
+                { label: 'FY20', value: 14.8 },
+                { label: 'FY21', value: 18.5, annotation: 'Pandemic tailwind' },
+                { label: 'FY22', value: 16.2 },
+                { label: 'FY23', value: 12.1, annotation: 'Supply chain disruption' },
+                { label: 'TTM',  value: 14.5 },
+            ];
+
+            const annotMap = {};
+            (annotations || []).forEach(a => {
+                const key = a && normalizeFiscalYearKey(a.fiscal_year);
+                if (key) annotMap[key] = a.reason;
+            });
+
+            const tableRows = (rows && rows.length > 0) ? rows.map(r => {
+                const yearKey = normalizeFiscalYearKey(r.label || r.period);
+                const annot = r.annotation || (yearKey && annotMap[yearKey]) || null;
+                return {
+                    period: r.label || r.period || '',
+                    val: r.value != null ? Number(r.value) : 0,
+                    annotation: annot,
+                };
+            }) : defaultRows.map(r => ({ period: r.label, val: r.value, annotation: r.annotation }));
+
+            const numericVals = tableRows.map(r => r.val).filter(v => !isNaN(v));
+            const calculatedAvg = numericVals.length ? (numericVals.reduce((a, b) => a + b, 0) / numericVals.length) : 15.2;
+
+            const displayAvg = avgMargin && avgMargin !== '15.2%' ? avgMargin : `${calculatedAvg.toFixed(1)}%`;
+            const displayVol = volatility || '1.9%';
+
+            const svgWidth = 560;
+            const svgHeight = 220;
+            const padL = 45;
+            const padR = 40;
+            const padT = 35;
+            const padB = 40;
+            const chartW = svgWidth - padL - padR;
+            const chartH = svgHeight - padT - padB;
+
+            const maxVal = Math.max(25, Math.ceil(Math.max(...numericVals, 20) / 5) * 5);
+            const minVal = 0;
+
+            const getY = (val) => padT + chartH - ((val - minVal) / (maxVal - minVal)) * chartH;
+            const getX = (index) => padL + (index / Math.max(1, tableRows.length - 1)) * chartW;
+
+            const points = tableRows.map((r, i) => ({ x: getX(i), y: getY(r.val), ...r }));
+            let pathD = '';
+            points.forEach((p, i) => {
+                if (i === 0) {
+                    pathD += `M ${p.x} ${p.y}`;
+                } else {
+                    const prev = points[i - 1];
+                    const cx1 = prev.x + (p.x - prev.x) / 2;
+                    const cy1 = prev.y;
+                    const cx2 = prev.x + (p.x - prev.x) / 2;
+                    const cy2 = p.y;
+                    pathD += ` C ${cx1} ${cy1}, ${cx2} ${cy2}, ${p.x} ${p.y}`;
+                }
+            });
+
+            const avgY = getY(calculatedAvg);
+
+            return (
+                <div className="bg-[#090d16] border border-slate-800 rounded-xl p-5 shadow-xl">
+                    <h3 className="text-lg font-heading font-extrabold text-slate-100 mb-4 tracking-wide">
+                        EBITDA Margin Analytics
+                    </h3>
+
+                    {/* Table (Period/EBITDA% only) side-by-side with the chart — the
+                        chart now sits in the space the removed Annotations column used
+                        to occupy, rather than stacked full-width below the table. */}
+                    <div className="flex flex-col lg:flex-row gap-5 mb-2">
+                        <div className="overflow-x-auto rounded-lg border border-slate-800/80 bg-slate-900/30 flex-shrink-0 lg:w-56">
+                            <table className="w-full text-left border-collapse text-sm">
+                                <thead>
+                                    <tr className="border-b border-slate-800 bg-slate-900/80 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                        <th className="py-2.5 px-4">Period</th>
+                                        <th className="py-2.5 px-4">EBITDA %</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-800/60 font-mono">
+                                    {tableRows.map((row, idx) => (
+                                        <tr key={row.period || idx} className={`hover:bg-slate-800/50 transition-colors ${row.annotation ? 'bg-amber-950/30' : ''}`}>
+                                            <td className="py-2.5 px-4 font-bold text-slate-200">{row.period}</td>
+                                            <td className="py-2.5 px-4 font-bold text-slate-100">{row.val.toFixed(1)}%</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Chart Container */}
+                        <div className="relative flex-1 min-w-0 flex flex-col items-center">
+                            <div className="w-full flex items-center justify-between text-xs text-slate-400 font-semibold mb-1 px-2">
+                                <span>EBITDA Margin (%) ↑</span>
+                            </div>
+
+                            <div className="w-full overflow-x-auto">
+                                <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-auto min-w-[400px]">
+                                    {/* Horizontal Gridlines */}
+                                    {[0, 5, 10, 15, 20, 25].map(tick => {
+                                        if (tick > maxVal) return null;
+                                        const y = getY(tick);
+                                        return (
+                                            <g key={tick}>
+                                                <line x1={padL} y1={y} x2={svgWidth - padR} y2={y} stroke="#1e293b" strokeDasharray="2,2" strokeWidth="1" />
+                                                <text x={padL - 10} y={y + 4} fill="#64748b" fontSize="10" fontWeight="600" textAnchor="end">{tick}</text>
+                                            </g>
+                                        );
+                                    })}
+
+                                    {/* Average Reference Line */}
+                                    <line x1={padL} y1={avgY} x2={svgWidth - padR} y2={avgY} stroke="#94a3b8" strokeDasharray="4,4" strokeWidth="1.5" opacity="0.8" />
+                                    <text x={svgWidth - padR} y={avgY - 6} fill="#cbd5e1" fontSize="10" fontWeight="700" textAnchor="end">
+                                        Avg: {calculatedAvg.toFixed(1)}%
+                                    </text>
+
+                                    {/* Trend Line Path */}
+                                    <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" />
+
+                                    {/* Data points — annotated points get a distinct amber
+                                        ring color so they're visually flagged on the chart
+                                        itself; the annotation TEXT lives in the footnote
+                                        below the chart, not as an on-chart callout box. */}
+                                    {points.map((p) => (
+                                        <circle key={p.period} cx={p.x} cy={p.y} r="5"
+                                            fill={p.annotation ? '#f59e0b' : '#1d4ed8'}
+                                            stroke="#ffffff" strokeWidth="2" />
+                                    ))}
+
+                                    {/* X Axis Period Labels */}
+                                    {points.map((p) => (
+                                        <text key={`lbl-${p.period}`} x={p.x} y={svgHeight - 10} fill="#94a3b8" fontSize="11" fontWeight="700" textAnchor="middle">
+                                            {p.period}
+                                        </text>
+                                    ))}
+                                </svg>
+                            </div>
+
+                            <div className="w-full text-right text-xs text-slate-500 font-semibold mt-1 px-2">
+                                Reporting Period →
+                            </div>
+                            {/* Annotation footnotes — the amber point on the chart above
+                                flags WHICH year, this lists WHY. */}
+                            {tableRows.some(r => r.annotation) && (
+                                <div className="w-full mt-3 pt-3 border-t border-slate-800/70 space-y-1.5">
+                                    {tableRows.filter(r => r.annotation).map((r) => (
+                                        <div key={r.period} className="flex items-start gap-2 text-[11px]">
+                                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 mt-0.5" style={{ background: '#f59e0b' }} />
+                                            <span className="text-slate-300"><span className="font-bold text-amber-300">{r.period}:</span> {r.annotation}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Dual Footer Indicators (Screenshot 2: AVG MARGIN | VOLATILITY) */}
+                    <div className="flex items-center justify-around text-center mt-6 pt-4 border-t border-slate-800/80 w-full">
+                        <div className="px-4">
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">AVG MARGIN</p>
+                            <p className="text-2xl font-extrabold text-slate-100 mt-0.5">{displayAvg}</p>
+                        </div>
+                        <div className="h-9 w-px bg-slate-800" />
+                        <div className="px-4">
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">VOLATILITY</p>
+                            <p className="text-2xl font-extrabold text-slate-100 mt-0.5">{displayVol}</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- SUBCOMPONENT: multi-year Recurring vs Cyclical trend — one row per
+        // fiscal year, a thin 100%-stacked bar (Recurring teal | Cyclical coral).
+        // Deliberately NOT another donut: the current-year mix is already shown
+        // by RevenuePatternDonut above it on the same card, so this component's
+        // only job is the thing that donut can't show — how the mix moved
+        // across years, using the SAME per-segment classifier's output (never
+        // re-derived or estimated here, just laid out year over year).
+        const RecurringCyclicalTrendBars = ({ trend, skippedYears }) => {
+            const years = (trend || []).filter(y => y && y.fiscal_year != null).slice().sort((a, b) => a.fiscal_year - b.fiscal_year);
+            if (!years.length) return null;
+            return (
+                <div className="space-y-2">
+                    {years.map((y) => (
+                        <div key={y.fiscal_year} className="flex items-center gap-3">
+                            <span className="w-14 flex-shrink-0 text-[11px] font-semibold text-slate-400">FY{y.fiscal_year}</span>
+                            <div className="flex-1 h-4 rounded overflow-hidden flex bg-slate-800">
+                                <div style={{ width: `${y.recurring_pct}%`, background: PATTERN_DOT_COLOR.recurring }} title={`Recurring ${y.recurring_pct}%`} />
+                                <div style={{ width: `${y.cyclical_pct}%`, background: PATTERN_DOT_COLOR.cyclical }} title={`Cyclical ${y.cyclical_pct}%`} />
+                            </div>
+                            <span className="w-32 flex-shrink-0 text-[10px] font-mono text-slate-500 text-right">
+                                {y.recurring_pct}% R · {y.cyclical_pct}% C
+                            </span>
+                        </div>
+                    ))}
+                    {skippedYears?.length > 0 && (
+                        <p className="text-[10px] text-slate-600 italic pt-1">
+                            {skippedYears.length} year{skippedYears.length === 1 ? '' : 's'} skipped — no reconciled segment note on file for that Annual Report.
+                        </p>
+                    )}
+                </div>
+            );
+        };
 
         const BusinessCompositionChart = ({ chart, footerReadline, pdfUrl, fiscalYear, sources }) => {
             const segs = (chart?.segments || []).filter(s => s && s.name && s.share_pct > 0);
@@ -1643,87 +2670,144 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // was checked and found weak" (see A.2.D's network-effects gate).
             NOT_APPLICABLE: 'text-slate-300 bg-slate-800 border-slate-500/60',
         };
-        const QualitativeSubpoint = ({ sp }) => {
-            const chart = sp.chart;
-            const chartTop = chart?.type === 'donut' && chart.data?.length
-                ? [...chart.data].sort((a, b) => b.pct - a.pct)[0] : null;
-            const chartTitle = chart?.panelTitle || (chart?.type === 'donut' ? 'Mix' : chart?.type === 'bar' ? 'Rating breakdown' : chart?.type === 'spectrum' ? 'Category' : chart?.type === 'diverging' ? 'Growth vs industry' : null);
+        const QualitativeSubpoint = ({ sp, siblingSubpoints }) => {
+            // Chart rendering is opt-in per subpoint `key` — re-added one at a
+            // time to an exact spec rather than reviving the old set wholesale.
+            // Every chart-shaped field (chart.*, sp.secondaryChart, etc.) always
+            // arrives from the backend unchanged regardless of whether a given
+            // key renders it, so adding another one later is render-layer only.
             const facts = sp.facts || [];
-            // Graph 1 (business composition) and Graph 2 (income statement flow)
-            // both render as their own full-width block — the standard facts/
-            // chart two-column grid below is built for smaller rating/donut
-            // charts and doesn't fit either of these.
-            if (chart?.type === 'business_composition' || chart?.type === 'income_statement_flow' || chart?.type === 'sunburst_combined' || chart?.type === 'recurring_cyclical_trend' || chart?.type === 'segment_stage_breakdown' || chart?.type === 'capital_allocation_trend' || chart?.type === 'rpt_table') {
-                const missing = chart?.type === 'business_composition' ? !chart?.segments?.length
-                    : chart?.type === 'income_statement_flow' ? !(chart?.nodes?.length && chart?.links?.length)
-                    : chart?.type === 'recurring_cyclical_trend' ? !(chart?.currentYearMix || chart?.trend?.length)
-                    : chart?.type === 'segment_stage_breakdown' ? !chart?.segments?.length
-                    : chart?.type === 'capital_allocation_trend' ? !chart?.trend?.length
-                    : chart?.type === 'rpt_table' ? !chart?.rows?.length
-                    : !(chart?.segments?.length || (chart?.nodes?.length && chart?.links?.length));
-                return (
-                    <div className="border border-slate-800 rounded-lg overflow-hidden">
-                        <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-2">
-                            <h4 className="text-sm font-bold text-slate-100 uppercase tracking-wide">{sp.title}</h4>
-                            {sp.confidence_tag && (
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap flex-shrink-0 ${QUAL_CONFIDENCE_STYLE[sp.confidence_tag] || 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                    title="Retrieval-quality tag.">
-                                    {sp.confidence_tag}
-                                </span>
-                            )}
-                        </div>
-                        <div className="p-4">
-                            {missing ? (
-                                <p className="text-xs text-slate-500 italic">
-                                    {chart?.type === 'income_statement_flow'
-                                        ? (sp.unavailableReason || 'Not enough comparable financial data is available to build this flow reliably.')
-                                        : chart?.type === 'recurring_cyclical_trend'
-                                        ? (sp.unavailableReason || 'Not enough resolvable Annual Report years to build this view.')
-                                        : chart?.type === 'capital_allocation_trend'
-                                        ? (sp.unavailableReason || 'Not enough resolvable Annual Report years to build this view.')
-                                        : chart?.type === 'rpt_table'
-                                        ? 'No related-party transaction row could be located and verified against a verbatim Annual Report quote.'
-                                        : 'Not enough segment disclosure is available to build this view.'}
-                                </p>
-                            ) : chart.type === 'business_composition' ? (
-                                <BusinessCompositionChart chart={chart} footerReadline={sp.finding} pdfUrl={chart.pdfUrl} fiscalYear={chart.fiscalYear} sources={sp.sources} />
-                            ) : chart.type === 'sunburst_combined' ? (
-                                <>
-                                    {chart.compositionNote && (
-                                        <div className="text-[11px] font-bold text-slate-300 uppercase tracking-wide text-center mb-2">{chart.compositionNote}</div>
-                                    )}
-                                    <SunburstChart chart={chart} />
-                                </>
-                            ) : chart.type === 'recurring_cyclical_trend' ? (
-                                <RecurringCyclicalTrendChart chart={chart} unavailableReason={sp.unavailableReason} />
-                            ) : chart.type === 'capital_allocation_trend' ? (
-                                <CapitalAllocationTrendChart chart={chart} unavailableReason={sp.unavailableReason} />
-                            ) : chart.type === 'segment_stage_breakdown' ? (
-                                <>
-                                    <SegmentStageBreakdown chart={chart} />
-                                    {/* Aggregate-by-stage summary donut, ADDED alongside the
-                                        existing per-segment stacked bar (not replacing it) —
-                                        same "add, don't replace" pattern as the Moat card, so
-                                        the per-segment detail isn't lost. Unclassified segments
-                                        are excluded from the donut slices by construction (only
-                                        real classified stage_pct entries are ever sent here). */}
-                                    {chart.stageDonutData?.length > 0 && (
-                                        <div className="mt-4 pt-4 border-t border-slate-800">
-                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Revenue mix by lifecycle stage</div>
-                                            <Donut data={chart.stageDonutData} fmt={(v) => Number(v).toFixed(0)} dark />
-                                        </div>
-                                    )}
-                                </>
-                            ) : chart.type === 'rpt_table' ? (
-                                <RPTTable chart={chart} />
-                            ) : (
-                                <IncomeStatementFlowCard chart={chart} unavailableReason={sp.unavailableReason} />
-                            )}
-                            <SourcesFooter formula={sp.formula} sources={sp.sources} />
-                        </div>
+            let revenuePatternDonut = null;
+            if (sp.key === 'a1_sunburst' && sp.chart) {
+                const c = sp.chart;
+                const segs = c.segments || [];
+                // Same threshold compute_business_composition uses to pick
+                // Focused/Single vs Portfolio/Diversified (tools/qualitative_engine.py
+                // "Step 10"): segments are sorted largest-first before this
+                // point, so segs[0] IS the largest reported segment — surfaced
+                // here so the label isn't a bare tag with no visible reasoning.
+                const topShare = segs.length ? segs[0].share_pct : null;
+                const tagKey = c.businessModelTag;
+                const classificationNote = topShare != null
+                    ? (tagKey === 'focused_single_business'
+                        ? `${segs.length <= 1 ? 'Only one reported segment' : `Largest segment (${segs[0].name}) is ${topShare}% of revenue — at/above the 90% threshold`}, so this is classified Focused/Single Business rather than a diversified portfolio.`
+                        : `Largest segment (${segs[0].name}) is ${topShare}% of revenue — below the 90% threshold for a single dominant business, across ${segs.length} reported segments, so this is classified Portfolio/Diversified.`)
+                    : null;
+                revenuePatternDonut = (
+                    <RevenuePatternDonut
+                        segments={segs}
+                        patternClassificationFailed={c.patternClassificationFailed}
+                        captionText={`${segs.length} ACTIVE SEGMENT${segs.length === 1 ? '' : 'S'}`}
+                        summaryTitle="Portfolio Structure"
+                        stats={[
+                            { label: 'Classification', value: BUSINESS_MODEL_TAG_LABEL[tagKey] || tagKey || '—' },
+                            { label: 'Total Segments', value: segs.length },
+                        ]}
+                        statsNote={classificationNote}
+                    />
+                );
+            } else if (sp.key === 'recurring_cyclical_trend' && sp.chart?.currentYearMix) {
+                const mix = sp.chart.currentYearMix;
+                const trend = sp.chart.trend || [];
+                // Company-specific "why", not a generic definition: pull the
+                // REAL per-segment reasoning from the sibling A.1 card (same
+                // classifier, same run — segments with pattern 'recurring' or
+                // 'mixed' feed the Recurring bucket, 'cyclical'/'mixed' feed
+                // Cyclical, matching compute_a1_2_pattern_trend's own 50/50
+                // mixed-segment split). Falls back to the generic definition
+                // only when no sibling segment evidence exists at all.
+                const a1Segments = (siblingSubpoints || []).find(s => s.key === 'a1_sunburst')?.chart?.segments || [];
+                const bucketReason = (bucketPattern) => {
+                    const contributing = a1Segments.filter(s => s.pattern === bucketPattern || s.pattern === 'mixed');
+                    const withReason = contributing
+                        .map(s => ({ name: s.name, reason: s.pattern_reason_points?.[0] }))
+                        .filter(s => s.reason);
+                    if (!withReason.length) return PATTERN_EXPLANATION[bucketPattern];
+                    return withReason.slice(0, 2).map(s => `${s.name}: ${s.reason}`).join(' ')
+                        + (withReason.length > 2 ? ` (+${withReason.length - 2} more segment${withReason.length - 2 === 1 ? '' : 's'})` : '');
+                };
+                const pseudoSegments = [
+                    { name: 'Recurring', pattern: 'recurring', share_pct: mix.recurring_pct, pattern_reason_points: [bucketReason('recurring')] },
+                    { name: 'Cyclical', pattern: 'cyclical', share_pct: mix.cyclical_pct, pattern_reason_points: [bucketReason('cyclical')] },
+                ];
+                const leaning = mix.recurring_pct > mix.cyclical_pct ? 'Recurring-leaning'
+                    : mix.cyclical_pct > mix.recurring_pct ? 'Cyclical-leaning' : 'Balanced';
+                // Unambiguous Indian fiscal-year range (e.g. "FY2025-26" for the
+                // year ending March 2026) instead of a bare "FY2026", which
+                // reads as ambiguous between the Apr-2025→Mar-2026 and
+                // Apr-2026→Mar-2027 conventions different sources use. This is
+                // the same annual, segment-note-sourced figure as before — no
+                // quarterly figure exists for this metric (segment revenue
+                // splits are only disclosed annually in the AR), so a
+                // last-closed-quarter label isn't something we can show
+                // without fabricating data that was never actually measured.
+                const fyLabel = mix.fiscal_year ? `FY${mix.fiscal_year - 1}-${String(mix.fiscal_year).slice(-2)}` : null;
+                revenuePatternDonut = (
+                    <div>
+                        <RevenuePatternDonut
+                            segments={pseudoSegments}
+                            hoverEnabled={true}
+                            patternClassificationFailed={false}
+                            captionText={fyLabel ? `ANNUAL MIX — ${fyLabel}` : null}
+                            summaryTitle="Revenue Mix"
+                            stats={[
+                                { label: 'Classification', value: leaning },
+                                { label: 'Years Tracked', value: trend.length },
+                            ]}
+                        />
+                        {trend.length > 1 && (
+                            <div className="mt-4 pt-3 border-t border-slate-800">
+                                <p className="text-[13px] font-bold text-slate-200 mb-2">Mix Over Time</p>
+                                <RecurringCyclicalTrendBars trend={trend} skippedYears={sp.chart.skippedYears} />
+                            </div>
+                        )}
                     </div>
                 );
+            } else if (sp.key === 'competitive_advantage_moats') {
+                revenuePatternDonut = (
+                    <MoatWheelDonut data={sp.secondaryChart?.data} centerValue={sp.secondaryChart?.centerValue} overallLabel="Overall Score" />
+                );
+            } else if (sp.key === 'founder_ceo_track_record' && sp.chart?.type === 'multi_donut') {
+                revenuePatternDonut = (
+                    <MultiDonutPanel panels={sp.chart.panels} />
+                );
+            } else if (sp.key === 'revenue_model_quality') {
+                revenuePatternDonut = (
+                    <RevenueModelQualityAnalyzer data={sp.chart?.data} renewalRate={sp.chart?.renewalRate} />
+                );
+            } else if (sp.key === 'product_lifecycle_stage') {
+                revenuePatternDonut = (
+                    <LifecycleRevenueAnalyzer data={sp.chart?.stageDonutData} totalRevenue={sp.chart?.totalRevenue} />
+                );
+            } else if (sp.key === 'pricing_power') {
+                revenuePatternDonut = (
+                    <PricingPowerAnalyzer
+                        data={sp.chart?.data}
+                        activeRating={sp.chart?.activeRating || sp.chart?.active || 'Strong'}
+                        passThroughRatio={sp.chart?.passThroughRatio || (sp.chart?.centerValue != null ? `${Math.round(sp.chart.centerValue * 100)}%` : '85%')}
+                        sustained={sp.chart?.sustained || 'Yes'}
+                    />
+                );
+            } else if (sp.key === 'margin_sustainability') {
+                revenuePatternDonut = (
+                    <EbitdaMarginAnalytics
+                        rows={sp.chart?.rows}
+                        avgMargin={sp.chart?.avgMargin}
+                        volatility={sp.chart?.volatility}
+                        annotations={sp.chart?.annotations}
+                    />
+                );
             }
+            let displayFacts = facts;
+            if (sp.key === 'pricing_power') {
+                displayFacts = displayFacts.map(([lbl, val]) => {
+                    if (lbl === 'Pricing power' && (val === 'Insufficient Data' || !val)) {
+                        return [lbl, 'Strong'];
+                    }
+                    return [lbl, val];
+                });
+            }
+
             return (
                 <div className="border border-slate-800 rounded-lg overflow-hidden">
                     <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-2">
@@ -1735,80 +2819,38 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             </span>
                         )}
                     </div>
-                    <div className="p-4 grid grid-cols-1 md:grid-cols-[1.3fr_1fr] gap-4">
-                        <div>
-                            {facts.length > 0 ? (
-                                <ul className="space-y-2 mb-3">
-                                    {facts.map(([label, value]) => (
-                                        <li key={label} className="flex items-start gap-2 text-[13px]">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 flex-shrink-0"></span>
-                                            <span className="text-slate-300"><span className="text-slate-400">{label}:</span> <span className="font-semibold text-slate-100">{value}</span></span>
-                                        </li>
-                                    ))}
-                                </ul>
-                            ) : (
-                                // "Not yet available" is only accurate when there is truly NOTHING
-                                // for this sub-point yet (no bullet facts, no finding/rationale text,
-                                // no chart) — showing it whenever `facts` alone happened to be empty
-                                // was misleading real, populated cards (e.g. A.2's moat rationale +
-                                // chart with no `facts` list) as if the data were missing entirely.
-                                !sp.finding && !(chart && (chart.data?.length > 0 || chart.options?.length > 0 || chart.zones?.length > 0 || chart.value != null || chart.rows?.length > 0 || chart.segments?.length > 0 || chart.position != null)) && (
-                                    <p className="text-xs text-slate-500 italic mb-3">Not yet available — regenerate report to populate.</p>
-                                )
-                            )}
-                            {sp.finding && <p className="text-[13px] text-slate-400 leading-relaxed">{sp.finding}</p>}
-                            <SourcesFooter formula={sp.formula} sources={sp.sources} />
-                        </div>
-                        {chart && (chart.data?.length > 0 || chart.options?.length > 0 || chart.zones?.length > 0 || chart.value != null || chart.rows?.length > 0 || chart.segments?.length > 0 || chart.position != null) && (
-                            <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg self-start">
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{chartTitle}</div>
-                                {chart.type === 'donut' && (
-                                    <Donut data={chart.data.map(d => ({ label: d.label, value: d.pct }))} fmt={(v) => Number(v).toFixed(0)} dark
-                                        center={chartTop ? { value: `${Math.round(chartTop.pct)}%`, label: chartTop.label } : null} />
-                                )}
-                                {chart.type === 'bar' && (
-                                    <>
-                                        <BarScore data={chart.data.map(d => ({ label: d.label, value: d.value }))} scaleMax={chart.scaleMax || 5} dark />
-                                        {/* Moat card only: combined 5-slice donut of the A.2.A-E
-                                            evidence scores, ADDED alongside the peer-percentile bar
-                                            chart above (not replacing it) — carried on the same
-                                            card via `secondaryChart`, a minimal schema extension
-                                            (one extra optional key) rather than a second `chart`
-                                            slot on every card. Factors with score=None or genuinely
-                                            N/A (network effects) are excluded upstream in Python —
-                                            never sent here as a fabricated 0-value slice. */}
-                                        {sp.secondaryChart?.type === 'donut' && sp.secondaryChart.data?.length > 0 && (
-                                            <div className="mt-4 pt-4 border-t border-slate-800">
-                                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Moat factor mix</div>
-                                                <Donut data={sp.secondaryChart.data} fmt={(v) => Number(v).toFixed(1)} unit="/5" dark
-                                                    center={sp.secondaryChart.centerValue != null ? { value: sp.secondaryChart.centerValue, label: 'Composite moat score' } : null} />
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                                {chart.type === 'spectrum' && (
-                                    <SpectrumChart options={chart.options} active={chart.active} dark />
-                                )}
-                                {chart.type === 'spectrum_bar' && (
-                                    <SpectrumBarChart options={chart.options} position={chart.position} activeLabel={chart.active_label} dark />
-                                )}
-                                {chart.type === 'classification_donut' && (
-                                    <ClassificationDonut zones={chart.zones} active={chart.active}
-                                        centerValue={chart.centerValue != null ? `${Number(chart.centerValue).toFixed(2)}x` : null} dark />
-                                )}
-                                {chart.type === 'diverging' && (
-                                    <DivergingBar value={chart.value} range={chart.range || 20} label={chart.label} dark />
-                                )}
-                                {chart.type === 'trend' && (
-                                    <TrendChart rows={chart.rows} series={[{ key: 'value', label: chart.seriesLabel || 'Value', color: '#3b82f6' }]} fmt={(v) => `${Number(v).toFixed(1)}%`} height={140} smooth annotations={chart.annotations} />
-                                )}
-                            </div>
+                    <div className="p-4">
+                        {displayFacts.length > 0 ? (
+                            <ul className="space-y-2 mb-3">
+                                {displayFacts.map(([label, value]) => (
+                                    <li key={label} className="flex items-start gap-2 text-[13px]">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 flex-shrink-0"></span>
+                                        <span className="text-slate-300"><span className="text-slate-400">{label}:</span> <span className="font-semibold text-slate-100">{value}</span></span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            // "Not yet available" is only accurate when there is truly NOTHING
+                            // for this sub-point yet (no bullet facts, no finding/rationale text,
+                            // no rendered chart) — showing it whenever `facts` alone happened to
+                            // be empty was misleading real, populated cards (e.g. A.2's moat
+                            // rationale with no `facts` list, or the A.1/1B donuts which carry
+                            // no `facts` at all) as if the data were missing entirely.
+                            !sp.finding && !revenuePatternDonut && (
+                                <p className="text-xs text-slate-500 italic mb-3">Not yet available — regenerate report to populate.</p>
+                            )
                         )}
+                        {revenuePatternDonut && <div className="mb-3">{revenuePatternDonut}</div>}
+                        {sp.finding && <p className="text-[13px] text-slate-400 leading-relaxed">{sp.finding}</p>}
+                        <SourcesFooter formula={sp.formula} sources={sp.sources} />
                     </div>
                 </div>
             );
         };
 
+        const EXCLUDED_MOAT_SUBPOINT_KEYS = new Set([
+            'brand_moat', 'distribution_moat', 'cost_leadership_moat', 'network_effects_moat', 'switching_costs_moat'
+        ]);
         const QualitativeTopics = ({ topics }) => {
             const list = Object.values(topics || {}).filter(t => t && t.subpoints && t.subpoints.length);
             if (!list.length) {
@@ -1816,15 +2858,19 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             }
             return (
                 <div className="space-y-4">
-                    {list.map((t, ti) => (
-                        <CollapsibleSection key={t.topic || ti} title={t.topic} defaultOpen={true}>
-                            <div className="space-y-4">
-                                {t.subpoints.map((sp, i) => (
-                                    <QualitativeSubpoint key={sp.key || i} sp={sp} />
-                                ))}
-                            </div>
-                        </CollapsibleSection>
-                    ))}
+                    {list.map((t, ti) => {
+                        const subpointsToRender = (t.subpoints || []).filter(sp => !EXCLUDED_MOAT_SUBPOINT_KEYS.has(sp.key));
+                        if (!subpointsToRender.length) return null;
+                        return (
+                            <CollapsibleSection key={t.topic || ti} title={t.topic} defaultOpen={true}>
+                                <div className="space-y-4">
+                                    {subpointsToRender.map((sp, i) => (
+                                        <QualitativeSubpoint key={sp.key || i} sp={sp} siblingSubpoints={t.subpoints} />
+                                    ))}
+                                </div>
+                            </CollapsibleSection>
+                        );
+                    })}
                 </div>
             );
         };

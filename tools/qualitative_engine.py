@@ -1574,7 +1574,7 @@ def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr
             "peer_set": breakdown.get("peer_set"),
             "qualitative_evidence": breakdown["qualitative_evidence"],
             "rationale": (
-                "QUANT_PROXY_ONLY — the qualitative-evidence score could not be sourced from CRISIL/ICRA "
+                "QUANT_PROXY_ONLY - the qualitative-evidence score could not be sourced from CRISIL/ICRA "
                 "or management commentary this run, so per the hard rule no composite moat rating is shown, "
                 "only the peer-relative quant pillars."
                 if breakdown["quant_proxy_only"] else
@@ -2832,34 +2832,32 @@ def compute_a6_margin_sustainability(symbol, name=None, description="", force=Fa
     return payload
 
 
-def compute_b1_founder_ceo_track_record(symbol, name=None, description="", force=False):
-    """B.1 — Founders / CEO track record: past successes/failures, tenure,
-    relevance to current strategy. N/A formula — a qualitative track record score
-    per the spec.
+def _score_1_5(good_count, total_count):
+    """Shared 1-5 scaling for a good/total ratio (e.g. successful/total
+    initiatives, long-tenured/total directors) - 1 at 0% good, 5 at 100%
+    good, linear in between. Returns None if total_count is 0 (nothing to
+    score, not a 0/failing score)."""
+    if not total_count:
+        return None
+    return round(1 + 4 * (good_count / total_count), 1)
 
-    Sourcing Sequence: AR-01 (bio/tenure, AR only — THIN, compliance-level only) ->
-    FOUNDER-01 (full directorship + company-status history) -> FOUNDER-02
-    (disqualification check) -> FOUNDER-03 (SEBI/exchange debarment, by individual
-    name) -> FOUNDER-04 (loan default check) -> FOUNDER-05 (litigation, by
-    individual name) -> FOUNDER-06 (structured negative-news search) -> FOUNDER-07
-    (cross-board reputation) -> QUAL-01 (LinkedIn/general news, corroborative only).
 
-    NONE of FOUNDER-01 through FOUNDER-07 or QUAL-01 have fetchers in this
-    codebase — no MCA director-master-data scraper, no SEBI/exchange debarred-
-    entity search by individual name, no Experian/CRIF defaulter search, no
-    eCourts/NCLT litigation search, no structured news-keyword search, no LinkedIn/
-    proxy-advisory access. Per the Document Pathway Reference notes, AR-01 alone
-    (a compliance-disclosure bio paragraph) is explicitly NOT sufficient for an
-    investment decision on management quality — so unlike A.1-A.6, this sub-point
-    does NOT synthesize a track-record RATING from an ungrounded LLM guess (that
-    would misrepresent an unperformed background check as a completed one). It
-    only reports a CEO/MD name+context IF one is explicitly named in the grounded
-    business description, and otherwise surfaces the full 8-pathway gap list so an
-    analyst knows exactly what still needs to be manually checked before this
-    factors into an investment decision (human sign-off gate).
+def compute_b1_1_past_track_record(symbol, name=None, force=False):
+    """B.1.1 - Past successes/failures: the Chairman/MD message +
+    historical-milestones narrative in the latest Annual Report is scanned
+    for EXPLICITLY stated strategic initiatives (expansions, turnarounds,
+    new launches, divestments, write-offs, plant/capacity commissioning,
+    discontinued operations) and each is classified successful or failed
+    strictly per what the text itself says - never inferred or guessed.
+    Execution Score (1-5) = 1 + 4 x (successful / total classified
+    initiatives); None if the narrative names no concrete outcome this year
+    (a marketing-style message with no measurable initiative is not the
+    same as a clean record, and must not be scored as one).
+
+    Sourcing Sequence: AR-13 (Chairman & MD message / MD&A milestones).
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "B.1"
+    subpoint_id = "B.1.1"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -2871,92 +2869,364 @@ def compute_b1_founder_ceo_track_record(symbol, name=None, description="", force
             except Exception:
                 return cached
 
-    pathway_results = []
-    ar01_checked = bool(description)
-    pathway_results.append({
-        "pathway_id": "AR-01",
-        "source": "Director bios inside Corporate Governance Report (business description proxy)",
-        "result": "CHECKED" if ar01_checked else "NOT_DISCLOSED",
-        "note": "Compliance-disclosure level only — a company-stated resume, not an independently verified background check.",
-    })
-    _founder_gaps = [
-        ("FOUNDER-01", "MCA — full directorship + company-status history", "No MCA director-master-data scraper wired (needs a free MCA account + persistent session)."),
-        ("FOUNDER-02", "MCA — Disqualified Directors list (Sec. 164(2)(a))", "No fetcher wired for this public list."),
-        ("FOUNDER-03", "SEBI Enforcement Orders + exchange debarred-entities list, by individual name", "No fetcher wired."),
-        ("FOUNDER-04", "Wilful/large defaulter search (Experian primary, CRIF secondary)", "No fetcher wired."),
-        ("FOUNDER-05", "eCourts / NCLT litigation search, by individual name", "No fetcher wired (CAPTCHA-protected portals)."),
-        ("FOUNDER-06", "Structured negative-keyword news search", "No news-search API wired."),
-        ("FOUNDER-07", "Proxy advisory cross-board commentary (IiAS/InGovern)", "No fetcher wired (paid subscription product)."),
-    ]
-    for pid, src, note in _founder_gaps:
-        pathway_results.append({"pathway_id": pid, "source": src, "result": "NOT_DISCLOSED", "note": note})
-    pathway_results.append({
-        "pathway_id": "QUAL-01",
-        "source": "LinkedIn / general news (corroborative only)",
-        "result": "NOT_DISCLOSED",
-        "note": "No LinkedIn/news-search fetcher wired (LinkedIn specifically blocks scraping).",
-    })
+    try:
+        from tools.annual_report_financials import fetch_founder_track_record_text
+        ft = fetch_founder_track_record_text(sym, name) or {}
+    except Exception as e:
+        print(f"[qualitative_engine] B.1.1 AR text fetch failed for {sym}: {e}")
+        ft = {"error": str(e)}
 
-    if not ar01_checked:
+    milestones_text = ft.get("milestones_text")
+    pdf_url = ft.get("pdf_url")
+    pathway_results = [{
+        "pathway_id": "AR-13",
+        "source": "Chairman & MD message / MD&A historical milestones",
+        "result": "CHECKED" if milestones_text else "NOT_DISCLOSED",
+        "note": None if milestones_text else "Chairman/MD message section not located in the latest Annual Report PDF this run.",
+    }]
+
+    def _unavailable(reason, tag):
         payload = {
-            "subpoint_id": subpoint_id,
-            "title": "Founders / CEO track record: past successes/failures, tenure, relevance to current strategy",
-            "available": False,
-            "reason": "No business description available to ground even the thin AR-01 bio proxy.",
-            "pathway_results": pathway_results,
+            "subpoint_id": subpoint_id, "title": "Past successes / failures",
+            "available": True, "execution_score": None, "initiatives": [],
+            "successful_count": 0, "failed_count": 0,
+            "rationale": reason, "pathway_results": pathway_results, "source_pdf_url": pdf_url,
         }
-        write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
-        payload["confidence_tag"] = "NOT_FOUND"
+        if tag:
+            write_qualitative(sym, subpoint_id, payload, tag)
+        else:
+            print(f"[qualitative_engine] B.1.1 NOT cached for {sym} - LLM call did not run; will retry next request.")
+        payload["confidence_tag"] = tag or "SEARCH_INCONCLUSIVE"
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
+    if not milestones_text:
+        return _unavailable(ft.get("error") or "No Chairman/MD message or historical-milestones section was located in the latest Annual Report PDF this run.", "SEARCH_INCONCLUSIVE")
+
     prompt = (
-        "You are extracting ONLY what is EXPLICITLY stated in the context below about the company's "
-        "CEO/MD/founder — do not infer, guess, or rate their track record. If no individual is named, "
-        "say so.\n\n"
+        "The excerpt below is real Annual Report page text (Chairman/MD message or historical-milestones "
+        "narrative). Extract ONLY concrete strategic initiatives EXPLICITLY described with a stated outcome "
+        "(e.g. a plant commissioned, an expansion completed, a turnaround achieved, a divestment, a "
+        "discontinued/written-off operation, a failed/delayed project) - do not infer outcomes that aren't "
+        "stated, and ignore generic aspirational language with no concrete initiative or outcome.\n\n"
         "Return ONLY JSON:\n"
         "{\n"
-        '  "ceo_name": "name if explicitly stated, else null",\n'
-        '  "ceo_title": "title/role if stated, else null",\n'
-        '  "context_note": "1-2 sentences quoting/paraphrasing ONLY what the text explicitly says about this person or leadership, or empty string if nothing is named"\n'
+        '  "initiatives": [{"label": "short description", "outcome": "success" | "failure"}],\n'
+        '  "summary": "1-2 sentences on what the excerpt actually describes"\n'
         "}\n\n"
-        f"=== CONTEXT ===\nCOMPANY: {name or sym}\n\nBUSINESS DESCRIPTION:\n{description[:2500]}\n"
+        f"=== EXCERPT ===\n{milestones_text}"
     )
     data, llm_failed = _llm_json(
-        sym, "B.1", "You are a precise extraction assistant. Reply with strict JSON only. Never infer or invent a name.",
-        prompt, max_tokens=300, temperature=0.0,
+        sym, "B.1.1", "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never invent an outcome the text doesn't state.",
+        prompt, max_tokens=500, temperature=0.0,
     )
+    if llm_failed:
+        return _unavailable("Could not be classified on this run - reload to try again.", None)
 
-    ceo_name = str(data.get("ceo_name") or "").strip() or None
-    ceo_title = str(data.get("ceo_title") or "").strip() or None
-    context_note = str(data.get("context_note") or "").strip()
+    initiatives = [
+        {"label": str(it.get("label") or "").strip(), "outcome": it.get("outcome")}
+        for it in (data.get("initiatives") or [])
+        if isinstance(it, dict) and str(it.get("label") or "").strip() and it.get("outcome") in ("success", "failure")
+    ][:10]
+    summary = str(data.get("summary") or "").strip()
+
+    if not initiatives:
+        return _unavailable(
+            "The Chairman/MD message was read, but it does not describe any concrete strategic initiative "
+            "with a stated outcome this year (" + (summary or "aspirational language only") + ") - "
+            "no track-record evidence was located this run, not a clean record.",
+            "SEARCH_INCONCLUSIVE",
+        )
+
+    successful = sum(1 for it in initiatives if it["outcome"] == "success")
+    failed = sum(1 for it in initiatives if it["outcome"] == "failure")
+    execution_score = _score_1_5(successful, successful + failed)
 
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Founders / CEO track record: past successes/failures, tenure, relevance to current strategy",
-        "available": True,
-        "ceo_name": ceo_name,
-        "ceo_title": ceo_title,
-        "context_note": context_note,
-        "track_record_rating": None,  # deliberately not scored — see docstring; needs FOUNDER-01..07
-        "rationale": (
-            (context_note + " " if context_note else "") +
-            "No independently verified background check has been run (MCA directorship history, "
-            "disqualification/debarment status, defaulter search, litigation search, and negative-news "
-            "search are all unchecked — see pathway detail). This must not be treated as a clean or "
-            "rated track record; route to an analyst for manual FOUNDER-01..07 checks before it "
-            "factors into an investment decision."
-        ),
-        "pathway_results": pathway_results,
+        "subpoint_id": subpoint_id, "title": "Past successes / failures",
+        "available": True, "execution_score": execution_score, "initiatives": initiatives,
+        "successful_count": successful, "failed_count": failed,
+        "rationale": summary or f"{successful} successful and {failed} failed initiative(s) explicitly described in the Chairman/MD message.",
+        "pathway_results": pathway_results, "source_pdf_url": pdf_url,
     }
-    confidence_tag = "SEARCH_INCONCLUSIVE"
-    if not llm_failed:
-        write_qualitative(sym, subpoint_id, payload, confidence_tag)
-    else:
-        print(f"[qualitative_engine] B.1 NOT cached for {sym} — LLM call did not run; will retry next request.")
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
+
+
+def compute_b1_2_management_tenure(symbol, name=None, force=False):
+    """B.1.2 - Management tenure: the Corporate Governance Report's Board of
+    Directors / KMP section is scanned for EXPLICITLY stated appointment
+    dates or tenure duration per named director/KMP, each classified
+    Long-tenured (>=5 years as of the report's own fiscal year) or
+    Short-tenured (<5 years) strictly from what the text states. Tenure
+    Stability Score (1-5) = 1 + 4 x (long-tenured / total classified);
+    None if no director's tenure is explicitly stated.
+
+    Sourcing Sequence: AR-06 (Corporate Governance Report - Board of
+    Directors / Key Managerial Personnel).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import fetch_founder_track_record_text
+        ft = fetch_founder_track_record_text(sym, name) or {}
+    except Exception as e:
+        print(f"[qualitative_engine] B.1.2 AR text fetch failed for {sym}: {e}")
+        ft = {"error": str(e)}
+
+    tenure_text = ft.get("tenure_text")
+    fiscal_year = ft.get("fiscal_year")
+    pdf_url = ft.get("pdf_url")
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "Corporate Governance Report - Board of Directors / Key Managerial Personnel",
+        "result": "CHECKED" if tenure_text else "NOT_DISCLOSED",
+        "note": None if tenure_text else "Director appointment/tenure detail not located in the latest Annual Report PDF this run.",
+    }]
+
+    def _unavailable(reason, tag):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Management tenure",
+            "available": True, "tenure_score": None, "directors": [],
+            "long_tenured_count": 0, "short_tenured_count": 0,
+            "rationale": reason, "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+        }
+        if tag:
+            write_qualitative(sym, subpoint_id, payload, tag)
+        else:
+            print(f"[qualitative_engine] B.1.2 NOT cached for {sym} - LLM call did not run; will retry next request.")
+        payload["confidence_tag"] = tag or "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    if not tenure_text:
+        return _unavailable(ft.get("error") or "No director appointment/tenure detail was located in the latest Annual Report PDF this run.", "SEARCH_INCONCLUSIVE")
+
+    prompt = (
+        "The excerpt below is real Annual Report page text (Corporate Governance Report - Board of Directors "
+        f"/ KMP section, fiscal year ending {fiscal_year or 'unknown'}). Extract ONLY named directors/KMP whose "
+        "appointment date or tenure duration is EXPLICITLY stated, and classify each as \"long\" (tenure as of "
+        f"this report is 5 years or more) or \"short\" (less than 5 years) based strictly on the stated date "
+        "relative to this report's fiscal year - do not guess a date that isn't given.\n\n"
+        "Return ONLY JSON:\n"
+        "{\n"
+        '  "directors": [{"name": "name", "tenure_bucket": "long" | "short", "detail": "the stated date/duration"}],\n'
+        '  "summary": "1-2 sentences on what the excerpt actually contains"\n'
+        "}\n\n"
+        f"=== EXCERPT ===\n{tenure_text}"
+    )
+    data, llm_failed = _llm_json(
+        sym, "B.1.2", "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never invent a date that isn't stated.",
+        prompt, max_tokens=500, temperature=0.0,
+    )
+    if llm_failed:
+        return _unavailable("Could not be classified on this run - reload to try again.", None)
+
+    directors = [
+        {"name": str(d.get("name") or "").strip(), "tenure_bucket": d.get("tenure_bucket"), "detail": str(d.get("detail") or "").strip()}
+        for d in (data.get("directors") or [])
+        if isinstance(d, dict) and str(d.get("name") or "").strip() and d.get("tenure_bucket") in ("long", "short")
+    ][:15]
+    summary = str(data.get("summary") or "").strip()
+
+    if not directors:
+        return _unavailable(
+            "A director/KMP section was found in the Annual Report, but no explicit appointment date or "
+            "tenure duration was stated for a named individual (" + (summary or "different context") + ") - "
+            "no tenure evidence was located this run.",
+            "SEARCH_INCONCLUSIVE",
+        )
+
+    long_n = sum(1 for d in directors if d["tenure_bucket"] == "long")
+    short_n = sum(1 for d in directors if d["tenure_bucket"] == "short")
+    tenure_score = _score_1_5(long_n, long_n + short_n)
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Management tenure",
+        "available": True, "tenure_score": tenure_score, "directors": directors,
+        "long_tenured_count": long_n, "short_tenured_count": short_n,
+        "rationale": summary or f"{long_n} long-tenured (>=5y) and {short_n} short-tenured (<5y) director(s)/KMP explicitly dated in the Corporate Governance Report.",
+        "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b1_3_strategy_relevance(symbol, name=None, force=False):
+    """B.1.3 - Relevance to current strategy: the MD&A Business Strategy
+    section + director profiles are scanned for an EXPLICIT connection
+    between director/leadership background (domain experience, prior role)
+    and the company's stated current strategy. Classified High/Moderate/Low
+    alignment strictly from what the text states - never a guess from a
+    generic bio. No score/classification when the connection isn't
+    explicitly drawn in the text.
+
+    Sourcing Sequence: AR-13 (MD&A Business Strategy) + AR-01 (director profiles).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.1.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import fetch_founder_track_record_text
+        ft = fetch_founder_track_record_text(sym, name) or {}
+    except Exception as e:
+        print(f"[qualitative_engine] B.1.3 AR text fetch failed for {sym}: {e}")
+        ft = {"error": str(e)}
+
+    strategy_text = ft.get("strategy_text")
+    pdf_url = ft.get("pdf_url")
+    pathway_results = [{
+        "pathway_id": "AR-13",
+        "source": "MD&A Business Strategy + director profiles",
+        "result": "CHECKED" if strategy_text else "NOT_DISCLOSED",
+        "note": None if strategy_text else "Business Strategy / director-profile section not located in the latest Annual Report PDF this run.",
+    }]
+
+    def _unavailable(reason, tag):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Relevance to current strategy",
+            "available": True, "alignment": None,
+            "rationale": reason, "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+        }
+        if tag:
+            write_qualitative(sym, subpoint_id, payload, tag)
+        else:
+            print(f"[qualitative_engine] B.1.3 NOT cached for {sym} - LLM call did not run; will retry next request.")
+        payload["confidence_tag"] = tag or "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    if not strategy_text:
+        return _unavailable(ft.get("error") or "No Business Strategy or director-profile section was located in the latest Annual Report PDF this run.", "SEARCH_INCONCLUSIVE")
+
+    prompt = (
+        "The excerpt below is real Annual Report page text (MD&A Business Strategy section and/or director "
+        "profiles). Judge ONLY whether the text EXPLICITLY connects leadership/director background (domain "
+        "experience, prior role) to the company's stated current strategy - do not infer a connection from a "
+        "generic bio that lists qualifications without tying them to the strategy.\n\n"
+        "Return ONLY JSON:\n"
+        "{\n"
+        '  "is_relevant_content": true | false,\n'
+        '  "alignment": "High" | "Moderate" | "Low",   // only meaningful if is_relevant_content is true\n'
+        '  "evidence": "1-2 sentences quoting/paraphrasing the explicit connection, or empty string"\n'
+        "}\n\n"
+        f"=== EXCERPT ===\n{strategy_text}"
+    )
+    data, llm_failed = _llm_json(
+        sym, "B.1.3", "You are a precise, skeptical extraction assistant. Reply with strict JSON only. Never infer a connection the text doesn't explicitly draw.",
+        prompt, max_tokens=400, temperature=0.0,
+    )
+    if llm_failed:
+        return _unavailable("Could not be classified on this run - reload to try again.", None)
+
+    is_relevant = bool(data.get("is_relevant_content"))
+    alignment = data.get("alignment") if is_relevant and data.get("alignment") in ("High", "Moderate", "Low") else None
+    evidence = str(data.get("evidence") or "").strip()
+
+    if not alignment:
+        return _unavailable(
+            "A Business Strategy / director-profile section was found, but it does not explicitly connect "
+            "leadership background to the current strategy - no alignment evidence was located this run.",
+            "SEARCH_INCONCLUSIVE",
+        )
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Relevance to current strategy",
+        "available": True, "alignment": alignment,
+        "rationale": evidence or f"{alignment} alignment between leadership background and stated strategy, per the Annual Report.",
+        "pathway_results": pathway_results, "source_pdf_url": pdf_url,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b1_founder_ceo_track_record(symbol, name=None, description="", force=False):
+    """B.1 - Founders / CEO track record: combines the three sub-points
+    (B.1.1 past successes/failures, B.1.2 management tenure, B.1.3 relevance
+    to current strategy) into a single grounded payload, each sourced from
+    real Annual Report text (see fetch_founder_track_record_text) rather than
+    an ungrounded LLM guess - every score/classification traces back to an
+    explicit statement in the filing, and any sub-point the AR doesn't
+    explicitly cover is surfaced as unavailable rather than defaulted.
+
+    This does NOT run the FOUNDER-01..07 independent background-check
+    pathways (MCA directorship history, disqualification/debarment,
+    defaulter, litigation, negative-news search) - none have fetchers wired
+    in this codebase. Those remain a human-analyst gap noted in the combined
+    rationale; this sub-point's AR-sourced scores must not be read as a
+    substitute for that verification before an investment decision.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    b11 = compute_b1_1_past_track_record(sym, name, force=force)
+    b12 = compute_b1_2_management_tenure(sym, name, force=force)
+    b13 = compute_b1_3_strategy_relevance(sym, name, force=force)
+
+    parts = []
+    if b11.get("execution_score") is not None:
+        parts.append(f"Execution: {b11['successful_count']} successful vs {b11['failed_count']} failed initiative(s) explicitly described (score {b11['execution_score']}/5).")
+    if b12.get("tenure_score") is not None:
+        parts.append(f"Tenure: {b12['long_tenured_count']} long-tenured vs {b12['short_tenured_count']} short-tenured director(s) (score {b12['tenure_score']}/5).")
+    if b13.get("alignment"):
+        parts.append(f"Strategy alignment: {b13['alignment']}.")
+    if not parts:
+        parts.append("None of the three sub-points (past initiatives, director tenure, strategy alignment) were explicitly covered in the latest Annual Report this run.")
+    parts.append(
+        "Independent background verification (MCA directorship history, disqualification/debarment status, "
+        "defaulter search, litigation search, negative-news search) has not been run - route to an analyst "
+        "before this factors into an investment decision."
+    )
+
+    _tags = [t.get("confidence_tag") for t in (b11, b12, b13)]
+    if all(t == "SEARCH_INCONCLUSIVE" for t in _tags):
+        combined_tag = "SEARCH_INCONCLUSIVE"
+    elif any(t == "SINGLE_SOURCE" for t in _tags):
+        combined_tag = "SINGLE_SOURCE"
+    else:
+        combined_tag = "SEARCH_INCONCLUSIVE"
+
+    retrieved_ats = [t.get("retrieved_at") for t in (b11, b12, b13) if t.get("retrieved_at")]
+    payload = {
+        "subpoint_id": "B.1",
+        "title": "Founders / CEO track record: past successes/failures, tenure, relevance to current strategy",
+        "available": True,
+        "b1_1": b11, "b1_2": b12, "b1_3": b13,
+        "rationale": " ".join(parts),
+        "pathway_results": (b11.get("pathway_results") or []) + (b12.get("pathway_results") or []) + (b13.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
 
 
 def compute_b2_management_incentives(symbol, name=None, force=False):

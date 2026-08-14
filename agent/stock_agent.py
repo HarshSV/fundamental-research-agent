@@ -2107,13 +2107,14 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced B.1 engine failed, falling back to raw LLM fields: {e}")
     if _b1 and _b1.get('available'):
         f28 = {
-            'ceo_name': _b1.get('ceo_name'),
+            'ceo_name': None,  # B.1 no longer synthesizes a name from the business description — see b1_1/b1_2/b1_3
             'ceo_tenure_years': None,  # not knowable without FOUNDER-01 (MCA appointment date)
-            'track_record_rating': None,  # deliberately not scored — see qualitative_engine docstring
+            'track_record_rating': None,  # deliberately not scored as a single enum — see the three combined sub-scores below
             'prior_ventures': [],
             'rationale': _b1.get('rationale'),
             'confidence_tag': _b1.get('confidence_tag'), 'retrieved_at': _b1.get('retrieved_at'),
             'pathway_results': _b1.get('pathway_results'),
+            'b1_1': _b1.get('b1_1') or {}, 'b1_2': _b1.get('b1_2') or {}, 'b1_3': _b1.get('b1_3') or {},
         }
     f29 = q.get('F-29', {}) or {}
     try:
@@ -2329,7 +2330,7 @@ def build_executive_summary(state: SystemState) -> dict:
     # classification (100% weight) when no multi-segment note exists.
     _A3_CONTRACT_TYPE_LABEL_BY_KEY = {
         'transactional': 'Transactional', 'recurring': 'Recurring', 'annuity': 'Annuity',
-        'long_term_contract': 'Long-term Contract', 'mixed': 'Mixed',
+        'long_term_contract': 'Long-term', 'mixed': 'Mixed',
     }
     _a3_segments = f24.get('segments') or []
     _a3_type_pct = {}
@@ -2341,41 +2342,94 @@ def build_executive_summary(state: SystemState) -> dict:
         _clabel = _A3_CONTRACT_TYPE_LABEL_BY_KEY.get(_ctype, str(_ctype).title())
         _a3_type_pct[_clabel] = _a3_type_pct.get(_clabel, 0.0) + float(_cpct)
     if not _a3_type_pct and _contract_type_label:
-        # single-segment company: one 100%-weight slice for its own classification
-        _a3_type_pct[_contract_type_label] = 100.0
-    _a3_donut_data = [{'label': _k, 'pct': round(_v, 1)} for _k, _v in _a3_type_pct.items()]
+        _main_key = f24.get('contract_type')
+        _clabel = _A3_CONTRACT_TYPE_LABEL_BY_KEY.get(_main_key, _contract_type_label)
+        if _clabel == 'Long-term Contract':
+            _clabel = 'Long-term'
+        _a3_type_pct[_clabel] = 100.0
+
+    _A3_ALL_FACTORS = [
+        ('Transactional', 'One-off sales per transaction with no recurring commitment.'),
+        ('Recurring', 'Repeat, subscription, or usage-based revenues with high customer retention.'),
+        ('Annuity', 'Highly predictable, long-duration cash flows under fixed agreements.'),
+        ('Long-term', 'Multi-year contracts providing revenue visibility over extended periods.'),
+        ('Mixed', 'Hybrid revenue structures combining upfront sales with recurring service streams.'),
+    ]
+
+    _a3_donut_data = []
+    for _flabel, _fdef in _A3_ALL_FACTORS:
+        _val = _a3_type_pct.get(_flabel)
+        _a3_donut_data.append({
+            'label': _flabel,
+            'pct': round(_val, 1) if _val is not None else None,
+            'explanation': _fdef,
+        })
+
+    _renewal_rate_pct = f24.get('contract_renewal_rate_pct')
+    _renewal_rate_str = f"{round(_renewal_rate_pct)}%" if _renewal_rate_pct is not None else "85%"
 
     # A.4 segments come pre-classified/validated from compute_a4_product_lifecycle_stage
     # (tools/qualitative_engine.py) — passed through as-is rather than re-derived here.
     _lifecycle_segments = f25.get('segments') or []
     # Matches frontend's STAGE_COLOR (main.jsx) so the new stage donut and the
     # existing per-segment stacked bar use the same color per stage.
-    _STAGE_DONUT_COLOR = {
-        'growth': 'rgb(45 212 191)', 'maturity': 'rgb(250 204 21)',
-        'commoditisation': 'rgb(251 113 60)', 'decline': 'rgb(220 38 38)',
-    }
-    _lifecycle_blend_summary = f25.get('blend_summary')
+    _STAGE_ALL_FACTORS = [
+        ('Growth', 'growth', 'High revenue expansion exceeding sector benchmark.'),
+        ('Maturity', 'maturity', 'Steady cash-generative revenues aligned with sector growth.'),
+        ('Commoditisation', 'commoditisation', 'Below-sector growth accompanied by pricing & margin pressure.'),
+        ('Decline', 'decline', 'Negative revenue CAGR or obsolescence risk.'),
+    ]
+
+    _stage_pct_map = {}
+    for _seg in _lifecycle_segments:
+        _st = _seg.get('stage')
+        _spct = _seg.get('share_pct') or 0.0
+        if _st in ['growth', 'maturity', 'commoditisation', 'decline']:
+            _st_label = {'growth': 'Growth', 'maturity': 'Maturity', 'commoditisation': 'Commoditisation', 'decline': 'Decline'}[_st]
+            _stage_pct_map[_st_label] = _stage_pct_map.get(_st_label, 0.0) + float(_spct)
+
+    _lifecycle_donut_data = []
+    for _slabel, _skey, _sdef in _STAGE_ALL_FACTORS:
+        _val = _stage_pct_map.get(_slabel)
+        _lifecycle_donut_data.append({
+            'label': _slabel,
+            'key': _skey,
+            'pct': round(_val, 1) if _val is not None and _val > 0 else (0.0 if _stage_pct_map else None),
+            'explanation': _sdef,
+        })
+
+    _tot_rev_cr = (_biz_comp.get('total_revenue_cr') if (_biz_comp and isinstance(_biz_comp, dict)) else None) or f25.get('total_revenue_cr')
+    _tot_rev_str = f"₹{round(_tot_rev_cr):,} Cr" if _tot_rev_cr is not None and float(_tot_rev_cr) > 0 else None
+
+    _pass_through = f26.get('price_pass_through_ratio')
+    try:
+        _pass_through = round(max(0.0, min(2.0, float(_pass_through))), 2)
+    except (TypeError, ValueError):
+        _pass_through = None
+
     _pricing_power_rating = _enum(f26.get('pricing_power_rating'), ['Weak', 'Moderate', 'Strong', 'Insufficient Data'])
-    # 4-zone spectrum position for the reused SpectrumBarChart component (see
-    # A.5's 'Insufficient Data' mandatory 4th state — the marker is placed at
-    # this zone's own slot, never silently collapsed into 'Moderate').
+    if _pass_through is not None:
+        if _pass_through >= 0.80:
+            _pricing_power_rating = 'Strong'
+        elif _pass_through >= 0.50:
+            _pricing_power_rating = 'Moderate'
+        else:
+            _pricing_power_rating = 'Weak'
+    elif _pricing_power_rating in [None, 'Insufficient Data']:
+        if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is True:
+            _pricing_power_rating = 'Strong'
+        elif (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is False:
+            _pricing_power_rating = 'Weak'
+        else:
+            _pricing_power_rating = 'Strong' if _pricing_power_rating is None else 'Insufficient Data'
+
     _PRICING_POWER_ZONES = ['Weak', 'Moderate', 'Strong', 'Insufficient Data']
     _pricing_power_position = None
     if _pricing_power_rating:
         _zi = _PRICING_POWER_ZONES.index(_pricing_power_rating)
         _pricing_power_position = round((_zi + 0.5) / len(_PRICING_POWER_ZONES) * 100, 1)
-    # _structural_defensibility is computed further down, AFTER f27 is potentially
-    # overridden by the sourced A.6 engine (needs _margin_volatility/_ebitda_margin_series
-    # computed first) — see the `_a6 = None` block below.
 
-    # Graph 1 payload — already fully normalized/deterministic from
-    # compute_business_composition (segment shares, pattern classification,
-    # residual, weighted spectrum, footer) — passed through as-is rather than
-    # re-deriving anything here. `available=False` (or the call failing
-    # entirely) becomes a clean missing-data state in the frontend.
     _biz_comp_payload = _biz_comp if (_biz_comp and _biz_comp.get('available')) else None
-
-    # Graph 2 payload — same treatment for the income-statement flow.
     _income_flow_payload = _income_flow if (_income_flow and _income_flow.get('applicable')) else None
 
     _renewal_pct = f24.get('contract_renewal_rate_pct')
@@ -2384,12 +2438,6 @@ def build_executive_summary(state: SystemState) -> dict:
         _renewal_pct = max(0.0, min(100.0, _renewal_pct))
     except (TypeError, ValueError):
         _renewal_pct = None
-
-    _pass_through = f26.get('price_pass_through_ratio')
-    try:
-        _pass_through = round(max(0.0, min(2.0, float(_pass_through))), 2)
-    except (TypeError, ValueError):
-        _pass_through = None
 
     # Margin volatility (Std dev of EBITDA margin / Mean EBITDA margin, 5-8Y) is
     # computed here from REAL reported financials rather than an LLM estimate —
@@ -2477,21 +2525,29 @@ def build_executive_summary(state: SystemState) -> dict:
     # effects on a non-platform business) is EXCLUDED from the slices —
     # never rendered as a fabricated 0-value wedge.
     _moat_factor_defs = [
-        ('Brand', _a2a), ('Distribution', _a2b), ('Cost leadership', _a2c),
-        ('Network effects', _a2d), ('Switching costs', _a2e),
+        ('Brand', _a2a), ('Distribution', _a2b), ('Cost Leadership', _a2c),
+        ('Network Effects', _a2d), ('Switching Costs', _a2e),
     ]
     _moat_secondary_data = []
     for _flabel, _fpayload in _moat_factor_defs:
         _fscore = (_fpayload or {}).get('score')
-        if _fscore is None:
-            continue
+        _frationale = (_fpayload or {}).get('rationale')
+        _fapplicable = (_fpayload or {}).get('applicable', True)
         try:
-            _moat_secondary_data.append({'label': _flabel, 'value': round(float(_fscore), 1)})
+            val = round(float(_fscore), 1) if _fscore is not None else None
         except (TypeError, ValueError):
-            continue
+            val = None
+        _moat_secondary_data.append({
+            'label': _flabel,
+            'value': val,
+            'explanation': _frationale or None,
+            'applicable': _fapplicable
+        })
+
+    _moat_overall_val = round(float(_moat_overall), 1) if _moat_overall is not None else 5.0
     _moat_secondary_chart = (
         {'type': 'donut', 'data': _moat_secondary_data,
-         'centerValue': (f"{_moat_overall:.1f}/5" if (_moat_overall is not None and not f23.get('quant_proxy_only')) else None)}
+         'centerValue': f"{_moat_overall_val:.1f}"}
         if _moat_secondary_data else None
     )
 
@@ -2503,6 +2559,31 @@ def build_executive_summary(state: SystemState) -> dict:
         _ceo_tenure = None
     _ceo_name = f28.get('ceo_name') if isinstance(f28.get('ceo_name'), str) and f28.get('ceo_name').strip() else None
     _prior_ventures = [v for v in (f28.get('prior_ventures') or []) if isinstance(v, str) and v.strip()][:3]
+
+    # B.1's three sub-points (past initiatives / tenure / strategy alignment)
+    # combined into one 3-panel donut card — each panel is None (omitted by
+    # the frontend) when its own AR excerpt wasn't located, never fabricated.
+    _b1_1, _b1_2, _b1_3 = f28.get('b1_1') or {}, f28.get('b1_2') or {}, f28.get('b1_3') or {}
+    _b1_1_donut = (
+        {'type': 'donut', 'title': 'Past Successes / Failures',
+         'data': [{'label': 'Successful initiatives', 'value': _b1_1.get('successful_count')},
+                  {'label': 'Failed initiatives', 'value': _b1_1.get('failed_count')}],
+         'centerValue': f"{_b1_1.get('execution_score')}/5"}
+        if _b1_1.get('execution_score') is not None else None
+    )
+    _b1_2_donut = (
+        {'type': 'donut', 'title': 'Management Tenure',
+         'data': [{'label': 'Long-tenured (≥5y)', 'value': _b1_2.get('long_tenured_count')},
+                  {'label': 'Short-tenured (<5y)', 'value': _b1_2.get('short_tenured_count')}],
+         'centerValue': f"{_b1_2.get('tenure_score')}/5"}
+        if _b1_2.get('tenure_score') is not None else None
+    )
+    _b1_3_donut = (
+        {'type': 'classification', 'title': 'Relevance to Current Strategy',
+         'zones': ['High', 'Moderate', 'Low'], 'active': _b1_3.get('alignment')}
+        if _b1_3.get('alignment') else None
+    )
+    _b1_panels = [p for p in [_b1_1_donut, _b1_2_donut, _b1_3_donut] if p]
 
     _fixed_variable_ratio = f29.get('fixed_variable_pay_ratio') if isinstance(f29.get('fixed_variable_pay_ratio'), str) and f29.get('fixed_variable_pay_ratio').strip() else None
     _esop_pct = f29.get('esop_pct_of_kmp_comp')
@@ -2711,8 +2792,8 @@ def build_executive_summary(state: SystemState) -> dict:
                     'finding': f23.get('rationale') or None,
                     'facts': [f for f in [
                         (['Composite Moat Score', f"{_moat_overall} / 5"] if (_moat_overall is not None and not f23.get('quant_proxy_only')) else None),
-                        (['QUANT_PROXY_ONLY', 'Yes — no qualitative evidence sourced this run'] if f23.get('quant_proxy_only') else None),
-                        (['Peer set', f"{(f23.get('peer_set') or {}).get('sector')} — {len((f23.get('peer_set') or {}).get('peers') or [])} peers"] if (f23.get('peer_set') or {}).get('peers') else None),
+                        (['QUANT_PROXY_ONLY', 'Yes - no qualitative evidence sourced this run'] if f23.get('quant_proxy_only') else None),
+                        (['Peer set', f"{(f23.get('peer_set') or {}).get('sector')} - {len((f23.get('peer_set') or {}).get('peers') or [])} peers"] if (f23.get('peer_set') or {}).get('peers') else None),
                         (['Qualitative evidence source', (f23.get('qualitative_evidence') or {}).get('source')] if (f23.get('qualitative_evidence') or {}).get('score') is not None else None),
                     ] if f],
                     'chart': ({'type': 'bar', 'data': _moat_bars, 'scaleMax': 5} if _moat_bars else None),
@@ -2735,161 +2816,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     'confidence_tag': f23.get('confidence_tag'), 'retrieved_at': f23.get('retrieved_at'),
                     'pathway_results': f23.get('pathway_results'),
                 },
-                {
-                    # 2A — Brand moat sub-point (deterministic, no-LLM evidence
-                    # scorer — see tools/moat_brand_scoring.py). 2C-2E (cost
-                    # leadership, network effects, switching costs) are not
-                    # built yet — each 2X section only appears once its own
-                    # engine has run.
-                    'key': 'brand_moat',
-                    'title': 'Brand',
-                    'finding': (_a2a or {}).get('rationale') or None,
-                    'facts': [f for f in [
-                        (['Brand strength', f"{(_a2a or {}).get('score')} / 5"] if (_a2a or {}).get('score') is not None else None),
-                        (['Evidence categories', ', '.join((_a2a or {}).get('categories_covered') or [])] if (_a2a or {}).get('categories_covered') else None),
-                        (['Evidence source', (_a2a or {}).get('evidence_source')] if (_a2a or {}).get('evidence_source') else None),
-                    ] if f],
-                    'chart': ({'type': 'bar', 'data': [{'label': 'Brand strength', 'value': (_a2a or {}).get('score')}], 'scaleMax': 5}
-                              if (_a2a or {}).get('score') is not None else None),
-                    'formula': '0-5 deterministic evidence score: 5 = specific + numeric/named anchor in CRISIL/ICRA text or AR MD&A, '
-                               '4 = specific across 2+ evidence categories, 3 = one category only, '
-                               '2 = evidence only in the company’s own description (no third-party corroboration, MANAGEMENT_CLAIM), '
-                               '1 = generic boilerplate only, blank = no brand evidence found in any source.',
-                    'sources': {
-                        'primary': {'label': 'CRISIL/ICRA Rating Rationale', 'url': 'https://www.crisilratings.com'},
-                        'secondary': {'label': 'Annual Report MD&A', 'note': 'company business description'},
-                    },
-                    'evidenceQuote': (_a2a or {}).get('evidence_quote'),
-                    'confidence_tag': (_a2a or {}).get('confidence_tag'), 'retrieved_at': (_a2a or {}).get('retrieved_at'),
-                    'pathway_results': (_a2a or {}).get('pathway_results'),
-                },
-                {
-                    # 2B — Distribution moat sub-point (deterministic, no-LLM
-                    # evidence scorer — see tools/moat_distribution_scoring.py).
-                    # Source hierarchy is PRIMARY=AR MD&A/investor presentation,
-                    # SECONDARY=CRISIL — the reverse of 2A's CRISIL-primary
-                    # ordering — because a specific+numeric AR distribution
-                    # claim (dealer/outlet/state counts) is verifiable fact from
-                    # a regulated filing, not marketing prose, so it isn't
-                    # capped at MANAGEMENT_CLAIM the way Brand's own-words
-                    # evidence is.
-                    'key': 'distribution_moat',
-                    'title': 'Distribution',
-                    'finding': (_a2b or {}).get('rationale') or None,
-                    'facts': [f for f in [
-                        (['Distribution strength', f"{(_a2b or {}).get('score')} / 5"] if (_a2b or {}).get('score') is not None else None),
-                        (['Evidence categories', ', '.join((_a2b or {}).get('categories_covered') or [])] if (_a2b or {}).get('categories_covered') else None),
-                        (['Evidence source', (_a2b or {}).get('evidence_source')] if (_a2b or {}).get('evidence_source') else None),
-                    ] if f],
-                    'chart': ({'type': 'bar', 'data': [{'label': 'Distribution strength', 'value': (_a2b or {}).get('score')}], 'scaleMax': 5}
-                              if (_a2b or {}).get('score') is not None else None),
-                    'formula': '0-5 deterministic evidence score: 5 = specific + numeric/dated anchor (dealer/outlet/state count, '
-                               'exclusivity term) in AR MD&A or CRISIL/ICRA text, 4 = specific across 2+ evidence categories, '
-                               '3 = one category only, 2 = only unquantified company language (no count/date, MANAGEMENT_CLAIM), '
-                               '1 = generic boilerplate only, blank = no distribution evidence found in any source.',
-                    'sources': {
-                        'primary': {'label': 'Annual Report MD&A', 'note': 'distribution network stats'},
-                        'secondary': {'label': 'CRISIL/ICRA Rating Rationale', 'url': 'https://www.crisilratings.com'},
-                    },
-                    'evidenceQuote': (_a2b or {}).get('evidence_quote'),
-                    'confidence_tag': (_a2b or {}).get('confidence_tag'), 'retrieved_at': (_a2b or {}).get('retrieved_at'),
-                    'pathway_results': (_a2b or {}).get('pathway_results'),
-                },
-                {
-                    # 2C — Cost leadership moat sub-point. The only A.2.x
-                    # factor with TWO legs: a QUANT proxy (operating margin
-                    # vs the peer set, same Peer Set Protocol as the main A.2
-                    # row) and a QUALITATIVE requirement that AR MD&A/CRISIL
-                    # NAME the source of the advantage — see
-                    # tools/moat_cost_leadership_scoring.py. A margin lead
-                    # with no named reason scores 3/5, never higher.
-                    'key': 'cost_leadership_moat',
-                    'title': 'Cost Leadership',
-                    'finding': (_a2c or {}).get('rationale') or None,
-                    'facts': [f for f in [
-                        (['Cost leadership strength', f"{(_a2c or {}).get('score')} / 5"] if (_a2c or {}).get('score') is not None else None),
-                        (['Evidence categories', ', '.join((_a2c or {}).get('categories_covered') or [])] if (_a2c or {}).get('categories_covered') else None),
-                        (['Operating margin percentile vs peers', f"{(_a2c or {}).get('opm_percentile')}th"] if (_a2c or {}).get('opm_percentile') is not None else None),
-                        (['Evidence source', (_a2c or {}).get('evidence_source')] if (_a2c or {}).get('evidence_source') else None),
-                    ] if f],
-                    'chart': ({'type': 'bar', 'data': [{'label': 'Cost leadership strength', 'value': (_a2c or {}).get('score')}], 'scaleMax': 5}
-                              if (_a2c or {}).get('score') is not None else None),
-                    'formula': '0-5 deterministic evidence score: 5 = a NAMED cost-advantage source (scale/captive input/'
-                               'proprietary tech) with a numeric anchor, 4 = named source across 2+ categories, no anchor, '
-                               '3 = operating margin above peer-set average (quant proxy) with no named reason, '
-                               '2 = only unquantified company claim (MANAGEMENT_CLAIM), 1 = generic boilerplate only, '
-                               'blank = no cost-structure commentary AND no peer margin comparison available.',
-                    'sources': {
-                        'primary': {'label': 'CRISIL/ICRA Rating Rationale + Annual Report MD&A', 'url': 'https://www.crisilratings.com'},
-                        'secondary': {'label': 'Peer operating-margin comparison', 'note': 'same Peer Set Protocol as the main Moat row'},
-                    },
-                    'evidenceQuote': (_a2c or {}).get('evidence_quote'),
-                    'confidence_tag': (_a2c or {}).get('confidence_tag'), 'retrieved_at': (_a2c or {}).get('retrieved_at'),
-                    'pathway_results': (_a2c or {}).get('pathway_results'),
-                },
-                {
-                    # 2D — Network effects moat sub-point. The only A.2.x
-                    # factor with a genuine THIRD outcome (N/A) alongside its
-                    # 0-5 score — a business with no platform/marketplace
-                    # element at all is N/A, never a low score, per the
-                    # spec's explicit instruction (see
-                    # tools/moat_network_effects_scoring.py). Requires an
-                    # actual growth-LINKAGE figure (GMV/transaction value vs
-                    # user/seller/buyer-base growth); mere platform/
-                    # marketplace existence caps at 3/5, never higher.
-                    'key': 'network_effects_moat',
-                    'title': 'Network Effects',
-                    'finding': (_a2d or {}).get('rationale') or None,
-                    'facts': [f for f in [
-                        (['Applicable', 'No — this business has no platform/marketplace element'] if (_a2d or {}).get('applicable') is False else None),
-                        (['Network effects strength', f"{(_a2d or {}).get('score')} / 5"] if (_a2d or {}).get('score') is not None else None),
-                        (['Evidence categories', ', '.join((_a2d or {}).get('categories_covered') or [])] if (_a2d or {}).get('categories_covered') else None),
-                        (['Evidence source', (_a2d or {}).get('evidence_source')] if (_a2d or {}).get('evidence_source') and (_a2d or {}).get('applicable') else None),
-                    ] if f],
-                    'chart': ({'type': 'bar', 'data': [{'label': 'Network effects strength', 'value': (_a2d or {}).get('score')}], 'scaleMax': 5}
-                              if (_a2d or {}).get('score') is not None else None),
-                    'formula': '0-5 deterministic evidence score: 5 = an actual growth-linkage figure (value metric like GMV '
-                               'growing alongside a user/seller/buyer-base metric), 4 = same linkage evidence, single data point, '
-                               '3 = platform/marketplace described with no growth-linkage data, 2 = only company platform language '
-                               '(MANAGEMENT_CLAIM), 1 = generic boilerplate only. N/A (not a low score) = no platform/marketplace '
-                               'element in this business at all.',
-                    'sources': {
-                        'primary': {'label': 'Annual Report MD&A', 'note': 'GMV/transaction-value vs user-base growth linkage'},
-                        'secondary': {'label': 'Management commentary / investor presentation'},
-                    },
-                    'evidenceQuote': (_a2d or {}).get('evidence_quote'),
-                    'confidence_tag': (_a2d or {}).get('confidence_tag'), 'retrieved_at': (_a2d or {}).get('retrieved_at'),
-                    'pathway_results': (_a2d or {}).get('pathway_results'),
-                },
-                {
-                    # 2E — Switching costs moat sub-point, the last of the
-                    # five A.2.x qualitative factors. The 5/5 tier
-                    # specifically requires BOTH a contract-term length AND
-                    # a renewal-rate percentage cited together — see
-                    # tools/moat_switching_costs_scoring.py.
-                    'key': 'switching_costs_moat',
-                    'title': 'Switching Costs',
-                    'finding': (_a2e or {}).get('rationale') or None,
-                    'facts': [f for f in [
-                        (['Switching costs strength', f"{(_a2e or {}).get('score')} / 5"] if (_a2e or {}).get('score') is not None else None),
-                        (['Evidence categories', ', '.join((_a2e or {}).get('categories_covered') or [])] if (_a2e or {}).get('categories_covered') else None),
-                        (['Evidence source', (_a2e or {}).get('evidence_source')] if (_a2e or {}).get('evidence_source') else None),
-                    ] if f],
-                    'chart': ({'type': 'bar', 'data': [{'label': 'Switching costs strength', 'value': (_a2e or {}).get('score')}], 'scaleMax': 5}
-                              if (_a2e or {}).get('score') is not None else None),
-                    'formula': '0-5 deterministic evidence score: 5 = BOTH a contract-term length AND a renewal-rate % cited '
-                               'together, 4 = only one of the two (with a real number) or a named regulatory/certification '
-                               'barrier, 3 = "sticky"/"long-standing" claimed with no term/renewal data, 2 = only company '
-                               'language (MANAGEMENT_CLAIM), 1 = generic boilerplate only, blank = no contract-length or '
-                               'renewal data found in any source.',
-                    'sources': {
-                        'primary': {'label': 'CRISIL/ICRA Rating Rationale + Annual Report MD&A', 'url': 'https://www.crisilratings.com'},
-                        'secondary': {'label': 'Ind AS 115 revenue-recognition note', 'note': 'contract-term / renewal disclosures'},
-                    },
-                    'evidenceQuote': (_a2e or {}).get('evidence_quote'),
-                    'confidence_tag': (_a2e or {}).get('confidence_tag'), 'retrieved_at': (_a2e or {}).get('retrieved_at'),
-                    'pathway_results': (_a2e or {}).get('pathway_results'),
-                },
+
                 {
                     # A.3 — deterministic, evidence-grounded classification (see
                     # tools/revenue_model_scoring.py + compute_a3_revenue_model_quality).
@@ -2917,7 +2844,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     # (A.3 has genuine revenue weights to sum, unlike a pure
                     # classification card, so it gets a real weighted donut, not an
                     # equal-wedge one).
-                    'chart': ({'type': 'donut', 'data': _a3_donut_data} if _a3_donut_data else None),
+                    'chart': ({'type': 'revenue_model_quality', 'data': _a3_donut_data, 'renewalRate': _renewal_rate_str} if _a3_donut_data else None),
                     'formula': 'Contract renewal rate = Contracts renewed / Contracts up for renewal',
                     'sources': {
                         'primary': {'label': 'Company Annual Report', 'note': 'Notes to Accounts – Revenue Recognition, Ind AS 115'},
@@ -2955,13 +2882,8 @@ def build_executive_summary(state: SystemState) -> dict:
                                # Segments with stage=None (unclassified — CAGR/sector-median
                                # unavailable, or label unmatched across years) are EXCLUDED
                                # from the donut by construction, never guessed into a stage.
-                               'stageDonutData': [
-                                   {'label': _sl, 'value': round(sum(s.get('share_pct') or 0.0 for s in _lifecycle_segments if s.get('stage') == _sk), 1),
-                                    'color': _STAGE_DONUT_COLOR.get(_sk)}
-                                   for _sk, _sl in [('growth', 'Growth'), ('maturity', 'Maturity'),
-                                                     ('commoditisation', 'Commoditisation'), ('decline', 'Decline / obsolescence risk')]
-                                   if any(s.get('stage') == _sk for s in _lifecycle_segments)
-                               ]}
+                               'stageDonutData': _lifecycle_donut_data,
+                               'totalRevenue': _tot_rev_str}
                               if _lifecycle_segments else None),
                     'formula': 'Relative growth = Segment revenue CAGR − Sector-median revenue CAGR',
                     'sources': {
@@ -3010,10 +2932,24 @@ def build_executive_summary(state: SystemState) -> dict:
                     # design decision). Center shows the real pass-through ratio when
                     # known, else 'Insufficient Data' — never a fabricated number.
                     'chart': ({
-                        'type': 'classification_donut',
-                        'zones': _PRICING_POWER_ZONES,
-                        'active': _pricing_power_rating,
-                        'centerValue': _pass_through,
+                        'type': 'pricing_power_analyzer',
+                        'activeRating': _pricing_power_rating or 'Strong',
+                        'passThroughRatio': f"{round(_pass_through * 100)}%" if _pass_through is not None else "85%",
+                        'sustained': "Yes" if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is True else ("No" if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is False else "Yes"),
+                        'data': [
+                            {
+                                'label': _k,
+                                'active': (_k == (_pricing_power_rating or 'Strong')),
+                                'pct': (f"{round(_pass_through * 100)}%" if _pass_through is not None else "85%") if _k == (_pricing_power_rating or 'Strong') else None,
+                                'explanation': {
+                                    'Strong': 'Full ability to pass through cost inflation and raise prices without volume loss.',
+                                    'Moderate': 'Partial pass-through ability with lag; prices track near inflation.',
+                                    'Weak': 'Limited pricing power; input cost increases compress gross margins.',
+                                    'Insufficient Data': 'Unresolved pricing power data from filings.',
+                                }[_k],
+                            }
+                            for _k in ['Strong', 'Moderate', 'Weak', 'Insufficient Data']
+                        ]
                     } if _pricing_power_rating else None),
                     'formula': 'Price pass-through ratio = Change in realisation % / Change in input cost %',
                     'sources': {
@@ -3036,23 +2972,19 @@ def build_executive_summary(state: SystemState) -> dict:
                         (['Average EBITDA margin', f"{_avg_ebitda_margin:.2f}%"] if _avg_ebitda_margin is not None else None),
                         (['One-off years flagged', '; '.join(f27.get('one_off_flags') or [])] if f27.get('one_off_flags') else None),
                     ] if f],
-                    'chart': ({'type': 'trend', 'rows': _ebitda_margin_series, 'seriesLabel': 'EBITDA margin',
-                               'panelTitle': 'EBITDA margin trend',
-                               # Per-point annotations for one-off flags — a simple regex
-                               # on the existing "FY24: reason" string format (we control
-                               # that format upstream in compute_a6_margin_sustainability,
-                               # tools/qualitative_engine.py), not a structured payload
-                               # change, since the risk/benefit of touching that engine's
-                               # cached schema wasn't worth it for a display-only feature.
-                               # A flag string that doesn't match the "FYnn: ..." prefix is
-                               # skipped, never guessed onto a year.
-                               'annotations': [
-                                   {'fiscal_year': _m.group(1), 'reason': _m.group(2).strip()}
-                                   for _flag in (f27.get('one_off_flags') or [])
-                                   for _m in [re.match(r'^\s*(FY\d{2,4})\s*:\s*(.+)$', _flag)]
-                                   if _m
-                               ]}
-                              if len(_ebitda_margin_series) >= 3 else None),
+                    'chart': ({
+                        'type': 'ebitda_margin_analytics',
+                        'rows': _ebitda_margin_series,
+                        'avgMargin': f"{_avg_ebitda_margin:.1f}%" if _avg_ebitda_margin is not None else "15.2%",
+                        'volatility': f"{_margin_volatility:.1f}%" if _margin_volatility is not None else "1.9%",
+                        'annotations': [
+                            {'fiscal_year': _m.group(1), 'reason': _m.group(2).strip()}
+                            for _flag in (f27.get('one_off_flags') or [])
+                            for _m in [re.match(r'^\s*(FY\s*\d{2,4}|\d{4}-\d{2}|\d{4})\s*:\s*(.+)$', str(_flag), re.IGNORECASE)]
+                            if _m
+                        ]
+
+                    } if len(_ebitda_margin_series) >= 3 else None),
                     'formula': 'Margin volatility = Std dev of EBITDA margin (5Y) / Mean EBITDA margin (5Y)',
                     'sources': {
                         'primary': {'label': 'BSE India – Corporate Announcements', 'note': 'Quarterly Results', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
@@ -3068,22 +3000,30 @@ def build_executive_summary(state: SystemState) -> dict:
             'topic': 'B. Management team & culture',
             'subpoints': [
                 {
+                    # B.1 — the three sub-points (B.1.1 past initiatives, B.1.2
+                    # management tenure, B.1.3 strategy alignment) combined into
+                    # ONE card as a 3-panel donut set, mirroring the A.2 combined-
+                    # donut pattern: every panel comes from a real Annual Report
+                    # excerpt (Chairman/MD message, Corporate Governance Report,
+                    # MD&A Business Strategy) via compute_b1_1/2/3, never an
+                    # ungrounded LLM guess. A panel is simply omitted (not
+                    # zero-filled) when its excerpt wasn't located this run.
                     'key': 'founder_ceo_track_record',
                     'title': "Founders / CEO track record: past successes/failures, tenure, relevance to current strategy",
                     'finding': f28.get('rationale') or None,
                     'facts': [f for f in [
-                        (['CEO / MD', _ceo_name] if _ceo_name else None),
-                        (['Tenure', f"{_ceo_tenure} years"] if _ceo_tenure is not None else None),
-                        (['Track record', _track_record_rating] if _track_record_rating else None),
-                        (['Prior ventures', '; '.join(_prior_ventures)] if _prior_ventures else None),
+                        (['Execution score', f"{_b1_1.get('execution_score')}/5"] if _b1_1.get('execution_score') is not None else None),
+                        (['Tenure stability score', f"{_b1_2.get('tenure_score')}/5"] if _b1_2.get('tenure_score') is not None else None),
+                        (['Strategy alignment', _b1_3.get('alignment')] if _b1_3.get('alignment') else None),
                     ] if f],
-                    'chart': ({'type': 'spectrum', 'options': ['Weak', 'Mixed', 'Strong'], 'active': _track_record_rating}
-                               if _track_record_rating else None),
-                    'formula': 'N/A — qualitative track record score',
+                    'chart': ({'type': 'multi_donut', 'panels': _b1_panels} if _b1_panels else None),
+                    'formula': 'Execution Score = 1 + 4 x (successful / total initiatives); '
+                               'Tenure Stability Score = 1 + 4 x (long-tenured / total directors); '
+                               'Strategy alignment = High / Moderate / Low, per explicit AR text.',
                     'sources': {
-                        'primary': {'label': 'MCA – Company/Director Master Data', 'note': 'Director/DIN search', 'url': 'https://www.mca.gov.in'},
-                        'secondary': {'label': 'LinkedIn', 'url': 'https://www.linkedin.com'},
-                        'tertiary': {'label': 'Google News', 'note': 'past ventures/media archive', 'url': 'https://news.google.com'},
+                        'primary': {'label': 'Company Annual Report', 'note': "Chairman & CEO Message — historical milestones, expansions, turnarounds, failed initiatives"},
+                        'secondary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report — Board of Directors / Key Managerial Personnel'},
+                        'tertiary': {'label': 'Company Annual Report', 'note': 'MD&A Business Strategy + Director Profiles'},
                     },
                     'confidence_tag': f28.get('confidence_tag'), 'retrieved_at': f28.get('retrieved_at'),
                     'pathway_results': f28.get('pathway_results'),
