@@ -126,11 +126,29 @@ def score_initiative_success_rate(year_texts):
 # B.1.2 - Management tenure
 # ---------------------------------------------------------------------------
 
+_TENURE_BUCKETS = [(">10Y", 10, None), ("7-10Y", 7, 10), ("4-7Y", 4, 7), ("2-4Y", 2, 4), ("<2Y", 0, 2)]
+
+
+def _tenure_bucket_for(years):
+    for label, lo, hi in _TENURE_BUCKETS:
+        if hi is None:
+            if years > lo:
+                return label
+        elif (lo <= years < hi) if lo > 0 else (years < hi):
+            return label
+    return "<2Y"
+
+
 _ROLE_PATTERNS = [
     ("CEO", re.compile(r"\bChief Executive Officer\b|\bCEO\b")),
     ("CFO", re.compile(r"\bChief Financial Officer\b|\bCFO\b")),
     ("Managing Director", re.compile(r"\bManaging Director\b")),
-    ("Executive Director", re.compile(r"\bExecutive Director\b")),
+    # Negative lookbehind excludes "Non-Executive Director" - a board
+    # classification meaning NOT part of day-to-day management, the
+    # opposite of what this role label is meant to capture. Confirmed real
+    # false-positive from live testing (TCS: an Independent, Non-Executive
+    # Director was being counted as an "Executive Director").
+    ("Executive Director", re.compile(r"(?<!Non-)(?<!Non )\bExecutive Director\b")),
 ]
 
 # Deliberately restricted to an explicit APPOINTMENT DATE/YEAR pattern near
@@ -142,46 +160,147 @@ _WEF_DATE = re.compile(r"\bw\.?e\.?f\.?\s*(?:\d{1,2}(?:st|nd|rd|th)?\s+\w+,?\s+)
 _APPOINTED_YEAR = re.compile(r"\bappointed\b[^.]{0,60}?\b(?:on|in|w\.?e\.?f\.?)?\s*(?:\w+\s+)?(\d{4})\b", re.I)
 _NAME_NEAR = re.compile(r"\b(?:Mr\.?|Ms\.?|Mrs\.?|Shri|Smt\.?|Dr\.?)\s+([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,3})")
 
+# A Board of Directors / KMP table routinely lists a bare date (16/02/2020,
+# "16th February, 2020", OR month-first "June 1, 2023" - confirmed all three
+# in real filings) with NO "since"/"w.e.f."/"appoint" wording anywhere near
+# the individual row at all (that phrasing, if present, is usually only in
+# a column HEADER once, far outside any single row's proximity window). The
+# _fetch_ar_text_sections anchor that located this text already required a
+# governance/appointment-context phrase (see _FOUNDER_TRACK_RECORD_ANCHORS'
+# "tenure" anchors) to find this excerpt in the first place, so a bare full
+# date next to a named role here is not read in isolation - it's already
+# inside a section established to be about director appointments.
+_BARE_DATE_NUMERIC = re.compile(r"\b\d{1,2}[/\-.]\d{1,2}[/\-.](\d{4})\b")
+_MONTHS = r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?"
+_BARE_DATE_DAY_MONTH = re.compile(rf"\b\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTHS})\.?,?\s+(\d{{4}})\b", re.I)
+_BARE_DATE_MONTH_DAY = re.compile(rf"\b(?:{_MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+(\d{{4}})\b", re.I)
+
+# A plain (no Mr./Ms./Shri prefix) Title-Case name - the common table format
+# ("Rajesh Gopinathan  00029794  CEO & MD  16/02/2020") has no honorific,
+# and a DIN/number often sits BETWEEN the name and the role, so this is
+# searched across the whole window (not just immediately-before) and the
+# CLOSEST match to the role wins. Requires lowercase letters after the
+# first (real names are Title Case) so it can't match an all-caps table
+# header token like "DIN" or "CEO" itself, and a stopword filter excludes
+# generic table-header phrases ("Date Of", "Name Of", ...). The first token
+# may also be a bare single-letter initial ("K Krithivasan", "N
+# Chandrasekaran") - a common Indian-AR naming convention confirmed missed
+# entirely by the full-word-only version during live testing.
+_PLAIN_NAME = re.compile(r"\b([A-Z](?:[a-z]+|\.)?(?:[ \t]+[A-Z][a-z]+){1,3})\b")
+_NAME_STOPWORD_PHRASES = (
+    "date of", "name of", "chief executive", "chief financial", "managing director",
+    "executive director", "board of", "key managerial", "annual report",
+    "corporate governance", "particulars of", "listed unlisted", "limited executive",
+    # Recurring "area of expertise" / table-header phrases near director
+    # tables that are NOT names, confirmed real false-positives from live
+    # testing (INFY's "Information Technology" expertise tag matched as if
+    # it were a director's name).
+    "information technology", "human resources", "risk management",
+    "financial services", "capital markets", "term ending", "areas of",
+    "date of appointment", "date of reappointment", "areas of expertise",
+    "audit committee", "remuneration committee", "stakeholders relationship",
+)
+# A candidate ending in a company-entity suffix is a company name, not a
+# person - confirmed real false-positive (INFY: "Infosys Limited" matched
+# as if it were a director's name from a directorship-listing table).
+_NAME_ENTITY_SUFFIX = re.compile(r"\b(?:Limited|Ltd\.?|LLP|Inc\.?|Corp\.?|Pvt\.?)\b", re.I)
+_NAME_STOPWORD_FIRST_WORDS = {
+    "date", "name", "designation", "appointment", "particulars", "director",
+    "key", "board", "annual", "report", "corporate", "company", "membership",
+    "chairpersonship", "committee", "listed", "unlisted", "nominee", "din",
+}
+
+
+def _find_appointment_year(window, fiscal_year):
+    """Returns the appointment year found in `window` via any of: an
+    explicit since/w.e.f./appointed-<year> phrase, or a bare full date
+    (numeric DD/MM/YYYY, "DDth Month YYYY", or "Month DD, YYYY") near the
+    role - the caller already only scans windows around a named
+    CEO/CFO/Managing/Executive Director role INSIDE a section anchored on
+    governance/appointment context, so a bare date there is not read in
+    total isolation. Never a bare YEAR alone with no date/since/w.e.f.
+    structure (too easy to collide with an unrelated year mention)."""
+    for pat in (_SINCE_YEAR, _WEF_DATE, _APPOINTED_YEAR):
+        m = pat.search(window)
+        if m:
+            return int(m.group(1))
+    for pat in (_BARE_DATE_NUMERIC, _BARE_DATE_DAY_MONTH, _BARE_DATE_MONTH_DAY):
+        for m in pat.finditer(window):
+            y = int(m.group(1))
+            if 1950 <= y <= fiscal_year:
+                return y
+    return None
+
+
+def _closest_name(window, role_pos_in_window):
+    """Every honorific-prefixed and plain-Title-Case name candidate in
+    `window`, whichever is closest (by character distance) to the role
+    mention wins - guards against a window with two directors' names both
+    present picking up the WRONG one (e.g. the CFO's name when scoring the
+    CEO's row)."""
+    candidates = []
+    for m in _NAME_NEAR.finditer(window):
+        candidates.append((abs(m.start() - role_pos_in_window), m.group(0).strip()))
+    for m in _PLAIN_NAME.finditer(window):
+        cand = m.group(1).strip()
+        low = cand.lower()
+        if any(sw in low for sw in _NAME_STOPWORD_PHRASES):
+            continue
+        if low.split()[0] in _NAME_STOPWORD_FIRST_WORDS:
+            continue
+        if _NAME_ENTITY_SUFFIX.search(cand):
+            continue
+        candidates.append((abs(m.start() - role_pos_in_window), cand))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0])
+    return candidates[0][1]
+
 
 def extract_key_executive_tenure(tenure_text, fiscal_year):
     """Finds named individuals EXPLICITLY holding a CEO/CFO/Managing
     Director/Executive Director role with an EXPLICIT appointment
-    year/date nearby (since/w.e.f./appointed <year>) and computes their
-    tenure as (fiscal_year - appointment_year). Returns a list of
-    {'name','role','tenure_years','detail'} - empty if none found. Never
-    guesses a date, and only counts a company-tenure signal (appointment
-    date), never a bare years-of-experience phrase."""
+    year/date nearby (since/w.e.f./appointed <year>, OR a bare date next to
+    an "appoint" context word - covers a separate appointment-date TABLE,
+    not just a bio paragraph) and computes their tenure as (fiscal_year -
+    appointment_year). Returns a list of {'name','role','tenure_years',
+    'detail'} - empty if none found. Never guesses a date, and only counts
+    a company-tenure signal (appointment date), never a bare
+    years-of-experience phrase. Scans the raw text with a character-window
+    proximity search (not sentence-bound) since PDF-linearized table rows
+    routinely lack real sentence punctuation. Window is kept tight (150
+    chars) specifically to avoid pulling in an ADJACENT director's name/date
+    in a multi-row table.
+    """
     if not tenure_text or not fiscal_year:
         return []
     out = []
-    seen = set()
-    for sent in _sentences(tenure_text):
-        role = None
-        for role_label, pat in _ROLE_PATTERNS:
-            if pat.search(sent):
-                role = role_label
-                break
-        if not role:
-            continue
-        year = None
-        for pat in (_SINCE_YEAR, _WEF_DATE, _APPOINTED_YEAR):
-            m = pat.search(sent)
-            if m:
-                year = int(m.group(1))
-                break
-        if year is None or year < 1950 or year > fiscal_year:
-            continue
-        name_m = _NAME_NEAR.search(sent)
-        name = name_m.group(0).strip() if name_m else f"Unnamed {role}"
-        key = (name, role)
-        if key in seen:
-            continue
-        seen.add(key)
-        tenure_years = round(max(0.0, fiscal_year - year), 1)
-        out.append({
-            "name": name, "role": role, "tenure_years": tenure_years,
-            "detail": sent[:220].strip(),
-        })
+    seen_names = set()
+    text = tenure_text
+    for role_label, pat in _ROLE_PATTERNS:
+        for m in pat.finditer(text):
+            start, end = m.start(), m.end()
+            win_start = max(0, start - 150)
+            window = text[win_start:end + 150]
+            year = _find_appointment_year(window, fiscal_year)
+            if year is None:
+                continue
+            name = _closest_name(window, start - win_start) or f"Unnamed {role_label}"
+            # Dedup by NAME, not (name, role): a combined title like "Chief
+            # Executive Officer and Managing Director" matches BOTH the CEO
+            # and Managing Director role patterns for the SAME person - only
+            # counting them once avoids double-weighting one executive's
+            # tenure in the average (the spec's denominator is "Number of
+            # Key Executives", not number of role mentions).
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+            tenure_years = round(max(0.0, fiscal_year - year), 1)
+            out.append({
+                "name": name, "role": role_label, "tenure_years": tenure_years,
+                "bucket": _tenure_bucket_for(tenure_years),
+                "detail": window[:220].strip(),
+            })
     return out[:10]
 
 
