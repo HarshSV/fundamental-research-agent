@@ -2371,6 +2371,7 @@ def build_executive_summary(state: SystemState) -> dict:
     # A.4 segments come pre-classified/validated from compute_a4_product_lifecycle_stage
     # (tools/qualitative_engine.py) — passed through as-is rather than re-derived here.
     _lifecycle_segments = f25.get('segments') or []
+    _lifecycle_blend_summary = f25.get('blend_summary')
     # Matches frontend's STAGE_COLOR (main.jsx) so the new stage donut and the
     # existing per-segment stacked bar use the same color per stage.
     _STAGE_ALL_FACTORS = [
