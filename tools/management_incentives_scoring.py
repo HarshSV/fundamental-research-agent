@@ -145,6 +145,63 @@ def score_equity_ownership(shareholding_text):
     return {"management_ownership_pct": total_pct, "ownership_score": score}
 
 
+# STRUCTURAL variant - each director's Corporate Governance profile in a
+# standard AR carries a "Number of Equity Shares held in the Company"
+# field with an absolute share COUNT (not a %) - confirmed real, common,
+# and far more reliably disclosed than an explicit "X% of total shares"
+# figure (which many companies simply never state for individual
+# directors/KMP, per live testing). Divides the summed count by the
+# company's own total shares outstanding (tools.nse_xbrl.
+# fetch_shares_outstanding, already used elsewhere in this codebase for
+# market cap) to get the same % this sub-point needs.
+_SHARES_HELD_LABEL = re.compile(r"number\s+of\s+equity\s+shares\s+held", re.I)
+_DIRECTOR_NAME_LABEL = re.compile(r"name\s+of\s+the\s+director", re.I)
+
+
+def score_equity_ownership_from_tables(tables, total_shares_outstanding):
+    """`tables`: list of small 2-column [label, value] director-profile
+    tables (from tools.ar_table_extractor.extract_tables_near_anchors).
+    Sums each table's "Number of Equity Shares held" value (0 counted
+    explicitly if the cell states none/nil - a director profile that
+    exists but discloses zero holding is real information, not a gap).
+    Returns {'management_ownership_pct','ownership_score',
+    'director_share_count'} or all-None if no such field was found or
+    total_shares_outstanding isn't available."""
+    if not tables or not total_shares_outstanding:
+        return {"management_ownership_pct": None, "ownership_score": None, "director_share_count": None}
+    total_shares_held = 0.0
+    found = False
+    for table in tables:
+        for row in table or []:
+            cells = [(c or "").strip() for c in row]
+            if len(cells) < 2 or not cells[0]:
+                continue
+            if _SHARES_HELD_LABEL.search(cells[0]):
+                v = parse_cell_number(cells[1]) if cells[1] and cells[1].strip().lower() not in ("nil", "none", "-") else 0.0
+                if v is not None:
+                    total_shares_held += v
+                    found = True
+    if not found:
+        return {"management_ownership_pct": None, "ownership_score": None, "director_share_count": None}
+    pct = round(min(100.0, 100 * total_shares_held / total_shares_outstanding), 4)
+    score = 5 if pct >= 5 else 4 if pct >= 2 else 3 if pct >= 1 else 2 if pct >= 0.1 else 1
+    return {"management_ownership_pct": pct, "ownership_score": score, "director_share_count": round(total_shares_held)}
+
+
+def parse_cell_number(cell):
+    """Local re-export (avoids a circular import with ar_table_extractor
+    at module load time) - identical to ar_table_extractor.parse_cell_number."""
+    if not cell:
+        return None
+    m = re.search(_NUM, cell.replace("₹", ""))
+    if not m:
+        return None
+    try:
+        return float(m.group(0).replace(",", ""))
+    except ValueError:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # B.2.3 - Vesting structure: Long-term Incentive Score
 # ---------------------------------------------------------------------------

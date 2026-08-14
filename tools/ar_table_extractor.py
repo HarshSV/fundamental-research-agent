@@ -106,7 +106,13 @@ def _find_anchor_pages_fast(content, anchor_phrases_by_key, max_pages_per_key=3,
             continue
         if not t:
             continue
-        tl = t.lower()
+        # Whitespace-normalized (collapses real PDF line-wraps inside a
+        # multi-word anchor phrase) - confirmed real gap: "Number of Equity
+        # Shares held in the Company" wraps across 2-3 lines in the actual
+        # extracted text, so a literal (unnormalized) substring check for
+        # that phrase never matches even though the exact words are all
+        # present on the page.
+        tl = re.sub(r"\s+", " ", t.lower())
         for key, phrases in anchor_phrases_by_key.items():
             hit_count = sum(tl.count(p) for p in phrases)
             if hit_count == 0:
@@ -121,7 +127,7 @@ def _find_anchor_pages_fast(content, anchor_phrases_by_key, max_pages_per_key=3,
     return out
 
 
-def extract_tables_near_anchors(symbol, name, anchor_phrases_by_key, fiscal_year=None, max_tables_per_key=3, score_by="phrase_count"):
+def extract_tables_near_anchors(symbol, name, anchor_phrases_by_key, fiscal_year=None, max_tables_per_key=3, score_by="phrase_count", max_pages_per_key=3):
     """Downloads the AR PDF and, for each `key: [phrase, ...]` in
     `anchor_phrases_by_key`, finds the highest-scoring pages whose text
     contains one of the phrases (fast fitz scan) and extracts every REAL
@@ -145,7 +151,7 @@ def extract_tables_near_anchors(symbol, name, anchor_phrases_by_key, fiscal_year
         if not content:
             return {}
 
-        anchor_pages = _find_anchor_pages_fast(content, anchor_phrases_by_key, score_by=score_by)
+        anchor_pages = _find_anchor_pages_fast(content, anchor_phrases_by_key, score_by=score_by, max_pages_per_key=max_pages_per_key)
         all_page_indices = sorted({i for pages in anchor_pages.values() for i in pages})
         if not all_page_indices:
             out = {k: [] for k in anchor_phrases_by_key}

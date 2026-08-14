@@ -3316,8 +3316,41 @@ def compute_b2_2_equity_ownership(symbol, name=None, force=False):
         "note": None if shareholding_text else "Shareholding of Directors/KMP section not located in the latest Annual Report PDF this run.",
     }]
 
-    from tools.management_incentives_scoring import score_equity_ownership
-    result = score_equity_ownership(shareholding_text) if shareholding_text else {"management_ownership_pct": None, "ownership_score": None}
+    # STRUCTURAL pass first: each director's Corporate Governance profile
+    # in a standard AR carries a "Number of Equity Shares held in the
+    # Company" field with an absolute share COUNT - far more reliably
+    # disclosed than an explicit "X% of total shares" figure, which many
+    # companies simply never state per-director (confirmed live: TCS has
+    # no such % anywhere, but does disclose the per-director share count).
+    # Divides by the company's own total shares outstanding to get %.
+    result = {"management_ownership_pct": None, "ownership_score": None}
+    try:
+        from tools.ar_table_extractor import extract_tables_near_anchors
+        from tools.management_incentives_scoring import score_equity_ownership_from_tables
+        from tools.nse_xbrl import fetch_shares_outstanding
+        fiscal_year = gov.get("fiscal_year")
+        # Each director's profile is its own page, so the anchor phrase
+        # scores identically (1 hit) on every one of them — the usual
+        # top-3-pages cap would arbitrarily keep only a few directors.
+        # Raised to capture a full board (typically well under 25 people).
+        tabs = extract_tables_near_anchors(sym, name, {"profiles": ["number of equity shares held in the"]}, fiscal_year=fiscal_year, max_tables_per_key=25, max_pages_per_key=25)
+        shares_info = fetch_shares_outstanding(sym, name)
+        total_shares = shares_info.get("value") if shares_info and shares_info.get("applicable") else None
+        table_result = score_equity_ownership_from_tables(tabs.get("profiles", []), total_shares)
+        if table_result["ownership_score"] is not None:
+            result = table_result
+            pathway_results.insert(0, {
+                "pathway_id": "AR-02-TABLE",
+                "source": "Director Corporate Governance profiles — Number of Equity Shares held (structural table extraction)",
+                "result": "CHECKED",
+                "note": f"{table_result.get('director_share_count')} shares summed across director profiles, vs {total_shares} total shares outstanding.",
+            })
+    except Exception as e:
+        print(f"[qualitative_engine] B.2.2 structural table pass failed for {sym}: {e}")
+
+    if result["ownership_score"] is None:
+        from tools.management_incentives_scoring import score_equity_ownership
+        result = score_equity_ownership(shareholding_text) if shareholding_text else {"management_ownership_pct": None, "ownership_score": None}
 
     if result["ownership_score"] is None:
         payload = {
