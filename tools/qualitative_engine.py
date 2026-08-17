@@ -5106,24 +5106,168 @@ def compute_c1_promoter_shareholding(symbol, name=None, force=False):
     return payload
 
 
-def compute_c2_promoter_pledging(symbol, name=None, force=False):
-    """C.2 — Promoter pledging of shares: presence, size, trend and risk if margin
-    calls occur. Formula: Pledge % = Shares pledged / Total promoter shareholding.
+def _fetch_current_pledge(sym):
+    from tools.shareholding_scraper import get_provider
+    return get_provider().fetch_pledge(sym) or {}
 
-    Sourcing Sequence: PORTAL-02 (promoter %/pledge) -> AGG-01 (fallback/cross-
-    check only).
 
-    Same real NSE endpoint as C.1 and the existing Promoter Pledge % (Sr No 67)
-    ratio card — reuses tools/shareholding_scraper.py's fetch_pledge() directly
-    rather than re-implementing. NSE only lists pledged scrips, so an endpoint
-    response with no row overwhelmingly means a real 0% — but if the endpoint
-    itself was unreachable, that is NOT the same claim (DON'T/DO INSTEAD rule #4:
-    a blocked/failed source is ACCESS_RESTRICTED-equivalent, not a confirmed
-    clean result), so this distinguishes "status=zero" (confirmed 0%, real) from
-    "status=assumed_zero" (endpoint failure, defaulted, lower confidence).
+def compute_c2_1_presence(symbol, name=None, force=False):
+    """C.2.1 - Presence of pledging. Spec formula: Pledge Presence Score
+    (1-5). Deterministic (no LLM) - a confirmed 0% pledge scores highest;
+    any confirmed non-zero pledge is banded down by how much of the
+    promoter holding is pledged. Sourcing: NSE Corporate Filings -
+    Shareholding Pattern - Promoter and Promoter Group - Pledged /
+    Encumbered Shares.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "C.2"
+    subpoint_id = "C.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        pledge = _fetch_current_pledge(sym)
+    except Exception as e:
+        print(f"[qualitative_engine] C.2.1 fetch failed for {sym}: {e}")
+        pledge = {}
+
+    status = pledge.get("status")
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Shareholding Pattern - Promoter and Promoter Group - Pledged / Encumbered Shares",
+        "result": "CHECKED" if status in ("ok", "zero") else "NOT_DISCLOSED",
+        "note": None if status in ("ok", "zero") else "NSE's live pledge endpoint was unreachable or returned nothing this run — a real 0% cannot be confirmed, only assumed.",
+    }]
+
+    if status not in ("ok", "zero"):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Presence of pledging", "available": True,
+            "pledge_pct": None, "unpledged_pct": None, "presence_score": None,
+            "rationale": "NSE's live pledge endpoint was unreachable this run — presence of pledging cannot be confirmed.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    pledge_pct = pledge.get("promoter_pledge_pct") or 0.0
+    if pledge_pct <= 0:
+        presence_score = 5
+    elif pledge_pct <= 2:
+        presence_score = 4
+    elif pledge_pct <= 5:
+        presence_score = 3
+    elif pledge_pct <= 10:
+        presence_score = 2
+    else:
+        presence_score = 1
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Presence of pledging", "available": True,
+        "pledge_pct": round(pledge_pct, 2), "unpledged_pct": round(100 - pledge_pct, 2), "presence_score": presence_score,
+        "as_of_quarter": pledge.get("as_of_quarter"),
+        "rationale": f"{pledge_pct:.2f}% of promoter shareholding is pledged as of {pledge.get('as_of_quarter') or 'the latest quarter'} (confirmed {'zero' if status == 'zero' else 'non-zero'} — not assumed) -> score {presence_score}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c2_2_size(symbol, name=None, force=False):
+    """C.2.2 - Size of pledged shares. Spec formula: Pledge Size Score
+    (1-5). Deterministic (no LLM) - the same disclosed pledge % of
+    promoter holding, classified Low (<25%) vs High (>=25%) per the
+    common analyst threshold. Sourcing: NSE Corporate Filings -
+    Shareholding Pattern - pledged shares as % of promoter holding.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        pledge = _fetch_current_pledge(sym)
+    except Exception as e:
+        print(f"[qualitative_engine] C.2.2 fetch failed for {sym}: {e}")
+        pledge = {}
+
+    status = pledge.get("status")
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Shareholding Pattern - pledged shares as % of promoter holding",
+        "result": "CHECKED" if status in ("ok", "zero") else "NOT_DISCLOSED",
+        "note": None if status in ("ok", "zero") else "NSE's live pledge endpoint was unreachable or returned nothing this run.",
+    }]
+
+    if status not in ("ok", "zero"):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Size of pledged shares", "available": True,
+            "pledge_pct": None, "size_classification": None, "size_score": None,
+            "rationale": "NSE's live pledge endpoint was unreachable this run — pledge size cannot be confirmed.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    pledge_pct = pledge.get("promoter_pledge_pct") or 0.0
+    size_classification = "Low" if pledge_pct < 25 else "High"
+    if pledge_pct <= 5:
+        size_score = 5
+    elif pledge_pct <= 15:
+        size_score = 4
+    elif pledge_pct <= 25:
+        size_score = 3
+    elif pledge_pct <= 50:
+        size_score = 2
+    else:
+        size_score = 1
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Size of pledged shares", "available": True,
+        "pledge_pct": round(pledge_pct, 2), "size_classification": size_classification, "size_score": size_score,
+        "as_of_quarter": pledge.get("as_of_quarter"),
+        "rationale": f"{pledge_pct:.2f}% of promoter holding pledged -> {size_classification} (score {size_score}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c2_3_trend(symbol, name=None, force=False):
+    """C.2.3 - Trend in pledging. Spec formula: Pledge Trend Score (1-5).
+    Deterministic (no LLM) - compares pledged % across every quarter NSE
+    has an on-record pledge for. NSE only lists a row for quarters where
+    SOME pledge existed, so a company with no pledge history at all
+    genuinely has no trend to show — reported as unavailable, not a
+    fabricated flat-zero line. Sourcing: NSE Corporate Filings -
+    Shareholding Pattern - pledged % across multiple quarters.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.2.3"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -5137,36 +5281,94 @@ def compute_c2_promoter_pledging(symbol, name=None, force=False):
 
     try:
         from tools.shareholding_scraper import get_provider
-        pledge = get_provider().fetch_pledge(sym) or {}
+        trend = get_provider().fetch_pledge_trend(sym) or []
     except Exception as e:
-        print(f"[qualitative_engine] C.2 pledge fetch failed for {sym}: {e}")
+        print(f"[qualitative_engine] C.2.3 fetch failed for {sym}: {e}")
+        trend = []
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Shareholding Pattern - pledged % across multiple quarters",
+        "result": "CHECKED" if len(trend) >= 2 else "NOT_DISCLOSED",
+        "note": None if len(trend) >= 2 else "Fewer than 2 quarters with an on-record pledge were available from NSE's live endpoint this run — a company with no pledge history has no trend to show.",
+    }]
+
+    if len(trend) < 2:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Trend in pledging", "available": True,
+            "trend": trend or None, "net_change_pct": None, "trend_score": None,
+            "rationale": "Fewer than 2 quarters with an on-record pledge were available to compute a trend this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    net_change = round(trend[-1]["pledge_pct"] - trend[0]["pledge_pct"], 2)
+    if net_change <= 0:
+        trend_score = 5
+    elif net_change <= 2:
+        trend_score = 4
+    elif net_change <= 5:
+        trend_score = 3
+    elif net_change <= 10:
+        trend_score = 2
+    else:
+        trend_score = 1
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Trend in pledging", "available": True,
+        "trend": trend, "quarters_available": len(trend), "net_change_pct": net_change, "trend_score": trend_score,
+        "rationale": f"Pledge % moved {net_change:+.2f} percentage points across {len(trend)} quarters ({trend[0]['quarter']} -> {trend[-1]['quarter']}) -> score {trend_score}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c2_4_margin_call_risk(symbol, name=None, force=False):
+    """C.2.4 - Margin-call risk. Spec formula: Margin-call Risk Score
+    (1-5). Deterministic (no LLM) - the same disclosed pledge % of
+    promoter holding, classified Low (<25%) vs High (>=25%) margin-call
+    risk. Sourcing: NSE Corporate Filings - Shareholding Pattern -
+    pledged share disclosures and encumbrance details.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.2.4"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        pledge = _fetch_current_pledge(sym)
+    except Exception as e:
+        print(f"[qualitative_engine] C.2.4 fetch failed for {sym}: {e}")
         pledge = {}
 
     status = pledge.get("status")
-    pathway_results = [
-        {
-            "pathway_id": "PORTAL-02",
-            "source": "NSE Shareholding Pattern — Pledge/Encumbrance column (live endpoint)",
-            "result": "CHECKED" if status in ("ok", "zero") else "NOT_DISCLOSED",
-            "note": None if status in ("ok", "zero") else "NSE's live pledge endpoint was unreachable or returned nothing this run — a real 0% cannot be confirmed, only assumed.",
-        },
-        {
-            "pathway_id": "AGG-01",
-            "source": "Trendlyne — pledge trend (fallback/cross-check only)",
-            "result": "NOT_CHECKED",
-            "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
-        },
-    ]
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Shareholding Pattern - pledged share disclosures and encumbrance details",
+        "result": "CHECKED" if status in ("ok", "zero") else "NOT_DISCLOSED",
+        "note": None if status in ("ok", "zero") else "NSE's live pledge endpoint was unreachable or returned nothing this run.",
+    }]
 
     if status not in ("ok", "zero"):
         payload = {
-            "subpoint_id": subpoint_id,
-            "title": "Promoter pledging of shares: presence, size, trend and risk if margin calls occur",
-            "available": True,
-            "pledge_pct": None,
-            "risk_level": None,
-            "assumed_zero": True,
-            "rationale": "NSE's live pledge endpoint was unreachable this run — a 0% pledge is assumed but not confirmed.",
+            "subpoint_id": subpoint_id, "title": "Margin-call risk", "available": True,
+            "pledge_pct": None, "risk_level": None, "risk_score": None,
+            "rationale": "NSE's live pledge endpoint was unreachable this run — margin-call risk cannot be confirmed.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -5175,32 +5377,71 @@ def compute_c2_promoter_pledging(symbol, name=None, force=False):
         return payload
 
     pledge_pct = pledge.get("promoter_pledge_pct") or 0.0
+    risk_level = "Low" if pledge_pct < 25 else "High"
     if pledge_pct < 10:
-        risk_level = "Low"
-    elif pledge_pct <= 25:
-        risk_level = "Moderate"
+        risk_score = 5
+    elif pledge_pct < 25:
+        risk_score = 4
+    elif pledge_pct < 50:
+        risk_score = 2
     else:
-        risk_level = "High"
+        risk_score = 1
 
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Promoter pledging of shares: presence, size, trend and risk if margin calls occur",
-        "available": True,
-        "pledge_pct": pledge_pct,
+        "subpoint_id": subpoint_id, "title": "Margin-call risk", "available": True,
+        "pledge_pct": round(pledge_pct, 2), "risk_level": risk_level, "risk_score": risk_score,
         "as_of_quarter": pledge.get("as_of_quarter"),
-        "risk_level": risk_level,
-        "assumed_zero": (status == "zero" and pledge.get("promoter_pledge_pct") is None),
-        "rationale": (
-            f"{pledge_pct:.2f}% of promoter shareholding is pledged as of {pledge.get('as_of_quarter') or 'the latest quarter'} "
-            f"(NSE Shareholding Pattern, confirmed {'zero' if status == 'zero' else 'non-zero'} — not assumed). "
-            f"Risk level: {risk_level}."
-        ),
+        "rationale": f"{pledge_pct:.2f}% of promoter holding pledged -> {risk_level} margin-call risk (score {risk_score}/5).",
         "pathway_results": pathway_results,
     }
     confidence_tag = "SINGLE_SOURCE"
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c2_promoter_pledging(symbol, name=None, force=False):
+    """C.2 — Promoter pledging of shares: combines the four sub-points
+    (C.2.1 presence, C.2.2 size, C.2.3 trend, C.2.4 margin-call risk)
+    into a single grounded payload, all sourced from NSE's real
+    Shareholding Pattern pledge disclosure (tools/shareholding_scraper.py).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    c21 = compute_c2_1_presence(sym, name, force=force)
+    c22 = compute_c2_2_size(sym, name, force=force)
+    c23 = compute_c2_3_trend(sym, name, force=force)
+    c24 = compute_c2_4_margin_call_risk(sym, name, force=force)
+
+    parts = []
+    if c21.get("presence_score") is not None:
+        parts.append(f"Presence: {c21['pledge_pct']}% pledged (score {c21['presence_score']}/5).")
+    if c22.get("size_score") is not None:
+        parts.append(f"Size: {c22['size_classification']} (score {c22['size_score']}/5).")
+    if c23.get("trend_score") is not None:
+        parts.append(f"Trend: {c23['net_change_pct']:+.2f}pp over {c23['quarters_available']} quarters (score {c23['trend_score']}/5).")
+    if c24.get("risk_score") is not None:
+        parts.append(f"Margin-call risk: {c24['risk_level']} (score {c24['risk_score']}/5).")
+    if not parts:
+        parts.append("None of the four sub-points (presence, size, trend, margin-call risk) were explicitly covered this run.")
+
+    _tags = [t.get("confidence_tag") for t in (c21, c22, c23, c24)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (c21, c22, c23, c24) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "C.2",
+        "title": "Promoter pledging of shares: presence, size, trend and risk if margin calls occur",
+        "available": True,
+        "pledge_pct": c21.get("pledge_pct"),
+        "risk_level": c24.get("risk_level"),
+        "assumed_zero": False,
+        "c2_1": c21, "c2_2": c22, "c2_3": c23, "c2_4": c24,
+        "rationale": " ".join(parts),
+        "pathway_results": (c21.get("pathway_results") or []) + (c22.get("pathway_results") or []) + (c23.get("pathway_results") or []) + (c24.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 

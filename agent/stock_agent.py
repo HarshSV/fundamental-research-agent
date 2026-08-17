@@ -2217,11 +2217,12 @@ def build_executive_summary(state: SystemState) -> dict:
         if _c2 and _c2.get('available'):
             f35 = {
                 'pledge_pct': _c2.get('pledge_pct'),
-                'pledge_trend': None,  # single-quarter data — no trend computable yet
+                'pledge_trend': None,
                 'risk_level': _c2.get('risk_level'),
                 'rationale': _c2.get('rationale'),
                 'confidence_tag': _c2.get('confidence_tag'), 'retrieved_at': _c2.get('retrieved_at'),
                 'pathway_results': _c2.get('pathway_results'),
+                'c2_1': _c2.get('c2_1') or {}, 'c2_2': _c2.get('c2_2') or {}, 'c2_3': _c2.get('c2_3') or {}, 'c2_4': _c2.get('c2_4') or {},
             }
     except Exception as e:
         print(f"[qualitative_topics] sourced C.2 engine failed, falling back to raw LLM fields: {e}")
@@ -2942,13 +2943,52 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"Fewer than 2 quarters of Shareholding Pattern data were available for {_co} this run."}
     _c1_panels = [_c1_1_donut, _c1_2_panel, _c1_3_panel]
 
-    _pledge_pct = f35.get('pledge_pct')
-    try:
-        _pledge_pct = round(max(0.0, min(100.0, float(_pledge_pct))), 1)
-    except (TypeError, ValueError):
-        _pledge_pct = None
-    _pledge_trend = _enum(f35.get('pledge_trend'), ['Increasing', 'Stable', 'Decreasing'])
-    _pledge_risk_level = _enum(f35.get('risk_level'), ['Low', 'Moderate', 'High'])
+    _c2_1, _c2_2, _c2_3, _c2_4 = f35.get('c2_1') or {}, f35.get('c2_2') or {}, f35.get('c2_3') or {}, f35.get('c2_4') or {}
+
+    if _c2_1.get('presence_score') is not None:
+        _c2_1_donut = {
+            'type': 'donut', 'title': 'Presence of Pledging',
+            'data': [{'label': 'Pledged', 'value': _c2_1.get('pledge_pct')},
+                     {'label': 'Unpledged', 'value': _c2_1.get('unpledged_pct')}],
+            'centerValue': f"{_c2_1.get('pledge_pct')}%",
+            'explanation': f"{_co} has {_c2_1.get('pledge_pct')}% of promoter shareholding pledged as of {_c2_1.get('as_of_quarter') or 'the latest quarter'} (score {_c2_1.get('presence_score')}/5).",
+        }
+    else:
+        _c2_1_donut = {'type': 'unavailable', 'title': 'Presence of Pledging',
+                        'explanation': f"NSE's live pledge endpoint was unreachable for {_co} this run."}
+
+    if _c2_2.get('size_score') is not None:
+        _c2_2_panel = {
+            'type': 'classification', 'title': 'Size of Pledged Shares',
+            'zones': ['Low', 'High'], 'active': _c2_2.get('size_classification'),
+            'explanation': f"{_co}'s pledged shares are {_c2_2.get('pledge_pct')}% of promoter holding -> {_c2_2.get('size_classification')} (score {_c2_2.get('size_score')}/5).",
+        }
+    else:
+        _c2_2_panel = {'type': 'unavailable', 'title': 'Size of Pledged Shares',
+                        'explanation': f"NSE's live pledge endpoint was unreachable for {_co} this run."}
+
+    _c2_3_trend = _c2_3.get('trend') or []
+    if _c2_3.get('trend_score') is not None and _c2_3_trend:
+        _c2_3_panel = {
+            'type': 'line_trend', 'title': 'Pledge Trend',
+            'data': [{'label': _short_quarter_label(t.get('quarter')), 'value': t.get('pledge_pct')} for t in _c2_3_trend],
+            'centerValue': f"{_c2_3.get('net_change_pct'):+.2f}pp",
+            'explanation': f"{_co}'s pledge % moved {_c2_3.get('net_change_pct'):+.2f} percentage points across {_c2_3.get('quarters_available')} quarters (score {_c2_3.get('trend_score')}/5).",
+        }
+    else:
+        _c2_3_panel = {'type': 'unavailable', 'title': 'Pledge Trend',
+                        'explanation': f"Fewer than 2 quarters with an on-record pledge were available for {_co} this run — a company with no pledge history has no trend to show."}
+
+    if _c2_4.get('risk_score') is not None:
+        _c2_4_panel = {
+            'type': 'classification', 'title': 'Margin-call Risk',
+            'zones': ['Low', 'High'], 'active': _c2_4.get('risk_level'),
+            'explanation': f"{_co}'s pledged shares are {_c2_4.get('pledge_pct')}% of promoter holding -> {_c2_4.get('risk_level')} margin-call risk (score {_c2_4.get('risk_score')}/5).",
+        }
+    else:
+        _c2_4_panel = {'type': 'unavailable', 'title': 'Margin-call Risk',
+                        'explanation': f"NSE's live pledge endpoint was unreachable for {_co} this run."}
+    _c2_panels = [_c2_1_donut, _c2_2_panel, _c2_3_panel, _c2_4_panel]
 
     _rpt_intensity_pct = f36.get('rpt_intensity_pct')
     try:
@@ -3498,26 +3538,28 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f34.get('pathway_results'),
                 },
                 {
+                    # C.2 — the four sub-points (C.2.1 presence, C.2.2
+                    # size, C.2.3 trend, C.2.4 margin-call risk) combined
+                    # into ONE card as a 4-panel set, same pattern as
+                    # B.1/.../B.6, C.1.
                     'key': 'promoter_share_pledging',
                     'title': 'Promoter pledging of shares: presence, size, trend and risk if margin calls occur',
                     'finding': f35.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Pledge %', f"~{_pledge_pct}%"] if _pledge_pct is not None else None),
-                        (['Pledge trend', _pledge_trend] if _pledge_trend else None),
-                        (['Margin-call risk', _pledge_risk_level] if _pledge_risk_level else None),
+                        (['Presence', f"{_c2_1.get('pledge_pct')}% pledged"] if _c2_1.get('pledge_pct') is not None else None),
+                        (['Size', _c2_2.get('size_classification')] if _c2_2.get('size_classification') else None),
+                        (['Trend', f"{_c2_3.get('net_change_pct'):+.2f}pp"] if _c2_3.get('net_change_pct') is not None else None),
+                        (['Margin-call risk', _c2_4.get('risk_level')] if _c2_4.get('risk_level') else None),
                     ] if f],
-                    'chart': ({
-                        'type': 'donut',
-                        'data': [
-                            {'label': 'Pledged shares', 'pct': _pledge_pct},
-                            {'label': 'Unpledged shares', 'pct': round(100 - _pledge_pct, 1)},
-                        ],
-                    } if _pledge_pct is not None else None),
-                    'formula': 'Pledge % = Shares pledged / Total promoter shareholding',
+                    'chart': ({'type': 'multi_donut', 'panels': _c2_panels} if _c2_panels else None),
+                    'formula': 'Pledge Presence Score = confirmed pledge % of promoter holding, banded 1-5; '
+                               'Pledge Size Score = Low (<25%) vs High (>=25%) pledge; '
+                               'Pledge Trend Score = net change in pledge % across quarters with an on-record pledge, banded 1-5; '
+                               'Margin-call Risk Score = Low (<25%) vs High (>=25%) pledge.',
                     'sources': {
-                        'primary': {'label': 'BSE India – Shareholding Pattern', 'note': 'Pledge/Encumbrance column', 'url': 'https://www.bseindia.com/corporates/shpPromoterNGroup.aspx'},
-                        'secondary': {'label': 'NSE India – Shareholding Pattern', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
-                        'tertiary': {'label': 'Trendlyne – Shareholding Trend', 'note': 'pledge trend', 'url': 'https://trendlyne.com'},
+                        'primary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Promoter and Promoter Group — Pledged / Encumbered Shares', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'secondary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Pledged shares as % of promoter holding', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'tertiary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Pledged share disclosures and encumbrance details', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
                     },
                     'confidence_tag': f35.get('confidence_tag'), 'retrieved_at': f35.get('retrieved_at'),
                     'pathway_results': f35.get('pathway_results'),

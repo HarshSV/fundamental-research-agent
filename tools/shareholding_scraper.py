@@ -274,6 +274,34 @@ class NSEShareholdingProvider(ShareholdingProvider):
                 _write_cache(cache_key, out)
         return out
 
+    def fetch_pledge_trend(self, symbol: str) -> list:
+        """Every quarter NSE's corporate-pledgedata endpoint has an on-record
+        pledge for (same endpoint fetch_pledge uses, not truncated to
+        rows[0]) — used for C.2.3's pledge-% trend. NSE only lists a row for
+        a quarter where SOME pledge existed, so a company with no pledge
+        history at all returns [] here (a real, honest "no trend to show",
+        not a failure). Returns [{quarter, pledge_pct}, ...] oldest-first,
+        or [] on failure/no history. Never raises."""
+        sym = symbol.strip().upper().replace(".NS", "")
+        cache_key = f"pledge_trend_{sym}"
+        cached = _read_cache(cache_key, PLEDGE_TTL_SECONDS)
+        if cached is not None:
+            return cached
+        url = f"{self.HOME}/api/corporate-pledgedata?index=equities&symbol={sym}"
+        ref = f"{self.HOME}/get-quotes/equity?symbol={sym}"
+        data = self._session_get(url, ref)
+        rows = (data or {}).get("data") if isinstance(data, dict) else None
+        out = []
+        if rows:
+            for r in rows:
+                pct = _to_float(r.get("percSharesPledged"))
+                if pct is not None:
+                    out.append({"quarter": r.get("shp"), "pledge_pct": pct})
+            out.reverse()  # NSE returns newest-first; we want oldest-first for a trend
+            if out:
+                _write_cache(cache_key, out)
+        return out
+
     def fetch_market_fii_dii(self) -> list:
         cached = _read_cache("market_fiidii", FIIDII_TTL_SECONDS)
         if cached is not None:
