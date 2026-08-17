@@ -2201,15 +2201,12 @@ def build_executive_summary(state: SystemState) -> dict:
         if _c1 and _c1.get('available'):
             f34 = {
                 'promoter_holding_pct': _c1.get('promoter_holding_pct'),
-                'qoq_change_pct': _c1.get('qoq_change_pct'),
-                'holding_trend': {'increasing': 'Increasing', 'decreasing': 'Decreasing', 'stable': 'Stable'}.get(_c1.get('direction')),
-                'rationale': (
-                    f"{_c1.get('control_level')} as of {_c1.get('as_of_quarter')} — "
-                    f"real NSE Shareholding Pattern data ({_c1.get('quarters_available')} quarter(s) available "
-                    "from the live endpoint this run)."
-                ),
+                'qoq_change_pct': None,
+                'holding_trend': None,
+                'rationale': _c1.get('rationale'),
                 'confidence_tag': _c1.get('confidence_tag'), 'retrieved_at': _c1.get('retrieved_at'),
                 'pathway_results': _c1.get('pathway_results'),
+                'c1_1': _c1.get('c1_1') or {}, 'c1_2': _c1.get('c1_2') or {}, 'c1_3': _c1.get('c1_3') or {},
             }
     except Exception as e:
         print(f"[qualitative_topics] sourced C.1 engine failed, falling back to raw LLM fields: {e}")
@@ -2890,17 +2887,51 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No explicit employee turnover/attrition rate was located in {_co}'s latest Annual Report."}
     _b6_panels = [_b6_1_donut, _b6_2_donut, _b6_3_donut, _b6_4_donut]
 
-    _promoter_holding_pct = f34.get('promoter_holding_pct')
-    try:
-        _promoter_holding_pct = round(max(0.0, min(100.0, float(_promoter_holding_pct))), 1)
-    except (TypeError, ValueError):
-        _promoter_holding_pct = None
-    _qoq_change_pct = f34.get('qoq_change_pct')
-    try:
-        _qoq_change_pct = round(max(-100.0, min(100.0, float(_qoq_change_pct))), 2)
-    except (TypeError, ValueError):
-        _qoq_change_pct = None
-    _holding_trend = _enum(f34.get('holding_trend'), ['Increasing', 'Stable', 'Decreasing'])
+    _c1_1, _c1_2, _c1_3 = f34.get('c1_1') or {}, f34.get('c1_2') or {}, f34.get('c1_3') or {}
+
+    if _c1_1.get('control_score') is not None:
+        _c1_1_donut = {
+            'type': 'donut', 'title': 'Control Levels',
+            'data': [{'label': 'Promoter', 'value': _c1_1.get('promoter_pct')},
+                     {'label': 'Public', 'value': _c1_1.get('public_pct')}],
+            'centerValue': f"{_c1_1.get('promoter_pct')}%",
+            'explanation': f"{_co}'s promoter holding was {_c1_1.get('promoter_pct')}% as of {_c1_1.get('as_of_quarter')} -> {_c1_1.get('control_level')} (score {_c1_1.get('control_score')}/5).",
+        }
+    else:
+        _c1_1_donut = {'type': 'unavailable', 'title': 'Control Levels',
+                        'explanation': f"NSE's live Shareholding Pattern endpoint returned no data for {_co} this run."}
+
+    _c1_2_trend = _c1_2.get('trend') or []
+    if _c1_2.get('trend_score') is not None and _c1_2_trend:
+        _c1_2_panel = {
+            'type': 'line_trend', 'title': '8-Quarter Promoter Holding Trend',
+            'data': [{'label': t.get('quarter'), 'value': t.get('promoter_pct')} for t in _c1_2_trend],
+            'centerValue': f"{_c1_2.get('net_change_pct'):+.2f}pp",
+            'explanation': f"{_co}'s promoter holding moved {_c1_2.get('net_change_pct'):+.2f} percentage points across the last {_c1_2.get('quarters_available')} quarters (score {_c1_2.get('trend_score')}/5).",
+        }
+    else:
+        _c1_2_panel = {'type': 'unavailable', 'title': '8-Quarter Promoter Holding Trend',
+                        'explanation': f"Fewer than 2 quarters of Shareholding Pattern data were available for {_co} this run."}
+
+    if _c1_3.get('direction_score') is not None:
+        if _c1_3.get('direction') == 'Stable':
+            _c1_3_panel = {
+                'type': 'classification', 'title': 'Direction (Buying/Selling)',
+                'zones': ['Reduced', 'Stable', 'Increased'], 'active': 'Stable',
+                'explanation': f"{_co}'s promoter holding was unchanged across all available quarters -> Stable, no buying/selling signal to report (score {_c1_3.get('direction_score')}/5).",
+            }
+        else:
+            _c1_3_panel = {
+                'type': 'donut', 'title': 'Direction (Buying/Selling)',
+                'data': [{'label': 'Increased', 'value': _c1_3.get('increased_count')},
+                         {'label': 'Reduced', 'value': _c1_3.get('reduced_count')}],
+                'centerValue': _c1_3.get('direction'),
+                'explanation': f"{_co}'s promoter holding increased in {_c1_3.get('increased_count')} vs reduced in {_c1_3.get('reduced_count')} quarter-over-quarter comparisons -> {_c1_3.get('direction')} (score {_c1_3.get('direction_score')}/5).",
+            }
+    else:
+        _c1_3_panel = {'type': 'unavailable', 'title': 'Direction (Buying/Selling)',
+                        'explanation': f"Fewer than 2 quarters of Shareholding Pattern data were available for {_co} this run."}
+    _c1_panels = [_c1_1_donut, _c1_2_panel, _c1_3_panel]
 
     _pledge_pct = f35.get('pledge_pct')
     try:
@@ -3433,21 +3464,26 @@ def build_executive_summary(state: SystemState) -> dict:
             'topic': 'C. Corporate governance & promoter behavior',
             'subpoints': [
                 {
+                    # C.1 — the three sub-points (C.1.1 control levels,
+                    # C.1.2 changes over time, C.1.3 direction) combined
+                    # into ONE card as a 3-panel set, same pattern as
+                    # B.1/B.2/B.3/B.4/B.5/B.6.
                     'key': 'promoter_shareholding_pattern',
                     'title': 'Promoter shareholding patterns: control levels, changes over time, direction (buying/selling)',
                     'finding': f34.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Promoter holding', f"~{_promoter_holding_pct}%"] if _promoter_holding_pct is not None else None),
-                        (['QoQ change', f"{'+' if _qoq_change_pct and _qoq_change_pct > 0 else ''}{_qoq_change_pct} pp"] if _qoq_change_pct is not None else None),
-                        (['Holding trend', _holding_trend] if _holding_trend else None),
+                        (['Control levels', f"{_c1_1.get('promoter_pct')}% promoter"] if _c1_1.get('promoter_pct') is not None else None),
+                        (['Changes over time', f"{_c1_2.get('net_change_pct'):+.2f}pp / 8Q"] if _c1_2.get('net_change_pct') is not None else None),
+                        (['Direction', _c1_3.get('direction')] if _c1_3.get('direction') else None),
                     ] if f],
-                    'chart': ({'type': 'diverging', 'value': _qoq_change_pct, 'range': 5, 'label': 'QoQ change in promoter holding', 'panelTitle': 'Promoter holding QoQ change'}
-                               if _qoq_change_pct is not None else None),
-                    'formula': 'QoQ change in promoter holding = Promoter % (Qt) - Promoter % (Qt-1)',
+                    'chart': ({'type': 'multi_donut', 'panels': _c1_panels} if _c1_panels else None),
+                    'formula': 'Promoter Control Score = latest promoter holding %, banded 1-5; '
+                               'Promoter Trend Score = net change in promoter holding over the last 8 quarters, banded 1-5; '
+                               'Buying/Selling Direction Score = quarter-over-quarter increases vs reductions in promoter holding, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'BSE India – Shareholding Pattern', 'url': 'https://www.bseindia.com/corporates/shpPromoterNGroup.aspx'},
-                        'secondary': {'label': 'NSE India – Shareholding Pattern', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
-                        'tertiary': {'label': 'Trendlyne – Shareholding Trend', 'url': 'https://trendlyne.com'},
+                        'primary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Latest quarterly filing — Promoter and Promoter Group Holding', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'secondary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Last 8 quarters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'tertiary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Quarterly changes in promoter holding', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
                     },
                     'confidence_tag': f34.get('confidence_tag'), 'retrieved_at': f34.get('retrieved_at'),
                     'pathway_results': f34.get('pathway_results'),

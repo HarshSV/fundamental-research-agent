@@ -214,6 +214,66 @@ class NSEShareholdingProvider(ShareholdingProvider):
             _write_cache(f"pledge_{sym}", result)
         return result
 
+    def fetch_promoter_holding_trend(self, symbol: str) -> list:
+        """Every quarter NSE's corporate-pledgedata endpoint returns (same endpoint
+        `fetch_pledge` uses, just not truncated to `rows[0]`) — used for C.1's
+        promoter-shareholding trend / QoQ change, since PORTAL-02 (BSE/NSE
+        Shareholding Pattern) is the same real filing either way. Returns
+        [{quarter, promoter_holding_pct}, ...] oldest-first, or [] on failure.
+        Never raises."""
+        sym = symbol.strip().upper().replace(".NS", "")
+        cached = _read_cache(f"promoter_trend_{sym}", PLEDGE_TTL_SECONDS)
+        if cached is not None:
+            return cached
+        url = f"{self.HOME}/api/corporate-pledgedata?index=equities&symbol={sym}"
+        ref = f"{self.HOME}/get-quotes/equity?symbol={sym}"
+        data = self._session_get(url, ref)
+        rows = (data or {}).get("data") if isinstance(data, dict) else None
+        out = []
+        if rows:
+            for r in rows:
+                pct = _to_float(r.get("percPromoterHolding"))
+                if pct is not None:
+                    out.append({"quarter": r.get("shp"), "promoter_holding_pct": pct})
+            out.reverse()  # NSE returns newest-first; we want oldest-first for a trend
+            if out:
+                _write_cache(f"promoter_trend_{sym}", out)
+        return out
+
+    def fetch_promoter_holding_history(self, symbol: str, max_quarters: int = 8) -> list:
+        """Real quarter-by-quarter Promoter/Public shareholding split, straight
+        from NSE's own Shareholding Pattern master (SEBI LODR Reg. 31 filing) —
+        `corporate-share-holdings-master?index=equities&symbol=X` (confirmed
+        working, returns up to 20 historical quarters, newest-first). This is a
+        different, more reliable endpoint than fetch_promoter_holding_trend's
+        pledge-data byproduct, which only carries a promoter% row for quarters
+        where a pledge was ALSO reported — silently empty for the many
+        zero-pledge companies where this data matters most.
+
+        Returns [{quarter, promoter_pct, public_pct}, ...] oldest-first
+        (last `max_quarters`), or [] on failure. Never raises."""
+        sym = symbol.strip().upper().replace(".NS", "")
+        cache_key = f"promoter_history_{sym}_{max_quarters}"
+        cached = _read_cache(cache_key, PLEDGE_TTL_SECONDS)
+        if cached is not None:
+            return cached
+        url = f"{self.HOME}/api/corporate-share-holdings-master?index=equities&symbol={sym}"
+        ref = f"{self.HOME}/get-quotes/equity?symbol={sym}"
+        data = self._session_get(url, ref)
+        out = []
+        if isinstance(data, list):
+            for row in data:
+                promoter_pct = _to_float(row.get("pr_and_prgrp"))
+                public_pct = _to_float(row.get("public_val"))
+                quarter = row.get("date")
+                if promoter_pct is not None and quarter:
+                    out.append({"quarter": quarter, "promoter_pct": promoter_pct, "public_pct": public_pct})
+            out = out[:max_quarters]
+            out.reverse()  # NSE returns newest-first; we want oldest-first for a trend
+            if out:
+                _write_cache(cache_key, out)
+        return out
+
     def fetch_market_fii_dii(self) -> list:
         cached = _read_cache("market_fiidii", FIIDII_TTL_SECONDS)
         if cached is not None:

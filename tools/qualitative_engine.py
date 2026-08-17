@@ -4804,23 +4804,20 @@ def compute_b6_culture(symbol, name=None, force=False):
     return payload
 
 
-def compute_c1_promoter_shareholding(symbol, name=None, force=False):
-    """C.1 — Promoter shareholding patterns: control levels, changes over time,
-    direction (buying/selling). Formula: QoQ change in promoter holding =
-    Promoter % (Qt) - Promoter % (Qt-1).
+def _fetch_promoter_history(sym, max_quarters=8):
+    from tools.shareholding_scraper import get_provider
+    return get_provider().fetch_promoter_holding_history(sym, max_quarters=max_quarters) or []
 
-    Sourcing Sequence: PORTAL-02 (BSE/NSE Shareholding Pattern — promoter %/pledge)
-    -> AGG-01 (fallback/cross-check only).
 
-    PORTAL-02 IS wired (tools/shareholding_scraper.py — the same NSE endpoint that
-    already powers Promoter Pledge % / Sr No 67), real data, no LLM. QoQ change is
-    only computed when NSE's live endpoint actually returns 2+ quarters for this
-    symbol — it often returns just the current quarter, which is a genuine API
-    limitation, not a guess; when that happens, the current % is still reported
-    but the QoQ change is honestly NOT_DISCLOSED rather than assumed zero.
+def compute_c1_1_control_levels(symbol, name=None, force=False):
+    """C.1.1 - Control levels. Spec formula: Promoter Control Score (1-5).
+    Deterministic (no LLM) - the latest quarter's Promoter vs Public
+    holding split, banded by promoter %. Sourcing: NSE Corporate Filings
+    - Shareholding Pattern - latest quarterly filing - Promoter and
+    Promoter Group Holding.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "C.1"
+    subpoint_id = "C.1.1"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -4833,33 +4830,24 @@ def compute_c1_promoter_shareholding(symbol, name=None, force=False):
                 return cached
 
     try:
-        from tools.shareholding_scraper import get_provider
-        trend = get_provider().fetch_promoter_holding_trend(sym) or []
+        history = _fetch_promoter_history(sym, max_quarters=8)
     except Exception as e:
-        print(f"[qualitative_engine] C.1 shareholding fetch failed for {sym}: {e}")
-        trend = []
+        print(f"[qualitative_engine] C.1.1 fetch failed for {sym}: {e}")
+        history = []
 
-    pathway_results = [
-        {
-            "pathway_id": "PORTAL-02",
-            "source": "NSE Shareholding Pattern (promoter %, live endpoint)",
-            "result": "CHECKED" if trend else "NOT_DISCLOSED",
-            "note": None if trend else "NSE's live endpoint returned no data for this symbol this run.",
-        },
-        {
-            "pathway_id": "AGG-01",
-            "source": "Trendlyne / Screener.in — shareholding trend (fallback/cross-check only)",
-            "result": "NOT_CHECKED",
-            "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
-        },
-    ]
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Shareholding Pattern - latest quarterly filing - Promoter and Promoter Group Holding",
+        "result": "CHECKED" if history else "NOT_DISCLOSED",
+        "note": None if history else "NSE's live Shareholding Pattern endpoint returned no data for this symbol this run.",
+    }]
 
-    if not trend:
+    if not history:
         payload = {
-            "subpoint_id": subpoint_id,
-            "title": "Promoter shareholding patterns: control levels, changes over time, direction (buying/selling)",
-            "available": False,
-            "reason": "NSE's live Shareholding Pattern endpoint returned no data for this symbol.",
+            "subpoint_id": subpoint_id, "title": "Control levels", "available": True,
+            "promoter_pct": None, "public_pct": None, "as_of_quarter": None,
+            "control_level": None, "control_score": None,
+            "rationale": "NSE's live Shareholding Pattern endpoint returned no data for this symbol this run.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
@@ -4867,46 +4855,254 @@ def compute_c1_promoter_shareholding(symbol, name=None, force=False):
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    latest = trend[-1]
-    qoq_change_pct = None
-    if len(trend) >= 2:
-        prev = trend[-2]
-        qoq_change_pct = round(latest["promoter_holding_pct"] - prev["promoter_holding_pct"], 2)
-
-    holding_pct = latest["promoter_holding_pct"]
-    if holding_pct >= 50:
-        control_level = "Majority control"
-    elif holding_pct >= 25:
-        control_level = "Significant minority control"
+    latest = history[-1]
+    promoter_pct, public_pct = latest["promoter_pct"], latest.get("public_pct")
+    if promoter_pct >= 75:
+        control_level, control_score = "Majority control", 5
+    elif promoter_pct >= 50:
+        control_level, control_score = "Majority control", 4
+    elif promoter_pct >= 25:
+        control_level, control_score = "Significant minority control", 3
+    elif promoter_pct >= 10:
+        control_level, control_score = "Below significant-influence threshold", 2
     else:
-        control_level = "Below significant-influence threshold"
-
-    if qoq_change_pct is None:
-        direction = "unclear"
-    elif qoq_change_pct > 0.05:
-        direction = "increasing"
-    elif qoq_change_pct < -0.05:
-        direction = "decreasing"
-    else:
-        direction = "stable"
+        control_level, control_score = "Below significant-influence threshold", 1
 
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Promoter shareholding patterns: control levels, changes over time, direction (buying/selling)",
-        "available": True,
-        "promoter_holding_pct": holding_pct,
-        "as_of_quarter": latest.get("quarter"),
-        "control_level": control_level,
-        "qoq_change_pct": qoq_change_pct,
-        "direction": direction,
-        "quarters_available": len(trend),
-        "trend": trend,
+        "subpoint_id": subpoint_id, "title": "Control levels", "available": True,
+        "promoter_pct": promoter_pct, "public_pct": public_pct, "as_of_quarter": latest.get("quarter"),
+        "control_level": control_level, "control_score": control_score,
+        "rationale": f"Promoter holding of {promoter_pct}% as of {latest.get('quarter')} -> {control_level} (score {control_score}/5).",
         "pathway_results": pathway_results,
     }
     confidence_tag = "SINGLE_SOURCE"
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c1_2_changes_over_time(symbol, name=None, force=False):
+    """C.1.2 - Changes over time. Spec formula: Promoter Trend Score
+    (1-5). Deterministic (no LLM) - compares promoter holding across up
+    to the last 8 quarters (net change, oldest to newest); a
+    stable/non-declining trend scores higher than a declining one.
+    Sourcing: NSE Corporate Filings - Shareholding Pattern - last 8
+    quarters.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        history = _fetch_promoter_history(sym, max_quarters=8)
+    except Exception as e:
+        print(f"[qualitative_engine] C.1.2 fetch failed for {sym}: {e}")
+        history = []
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Shareholding Pattern - last 8 quarters",
+        "result": "CHECKED" if len(history) >= 2 else "NOT_DISCLOSED",
+        "note": None if len(history) >= 2 else "Fewer than 2 quarters of Shareholding Pattern data were available from NSE's live endpoint this run.",
+    }]
+
+    if len(history) < 2:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Changes over time", "available": True,
+            "trend": history or None, "net_change_pct": None, "trend_score": None,
+            "rationale": "Fewer than 2 quarters of promoter-holding data were available to compute a trend this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE" if history else "NOT_FOUND")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE" if history else "NOT_FOUND"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    net_change = round(history[-1]["promoter_pct"] - history[0]["promoter_pct"], 2)
+    if net_change >= 0:
+        trend_score = 5
+    elif net_change > -2:
+        trend_score = 4
+    elif net_change > -5:
+        trend_score = 3
+    elif net_change > -10:
+        trend_score = 2
+    else:
+        trend_score = 1
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Changes over time", "available": True,
+        "trend": history, "quarters_available": len(history), "net_change_pct": net_change, "trend_score": trend_score,
+        "rationale": f"Promoter holding moved {net_change:+.2f} percentage points across the last {len(history)} quarters ({history[0]['quarter']} -> {history[-1]['quarter']}) -> score {trend_score}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c1_3_direction(symbol, name=None, force=False):
+    """C.1.3 - Direction (buying/selling). Spec formula: Buying/Selling
+    Direction Score (1-5). Deterministic (no LLM) - counts quarter-over-
+    quarter increases vs reductions in promoter holding across up to the
+    last 8 quarters. A promoter holding perfectly unchanged across every
+    available quarter is reported as "Stable" (a real, common signal for
+    a large/mature promoter group) rather than forced into a fabricated
+    Increased/Reduced split. Sourcing: NSE Corporate Filings -
+    Shareholding Pattern - quarterly changes in promoter holding.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.1.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        history = _fetch_promoter_history(sym, max_quarters=8)
+    except Exception as e:
+        print(f"[qualitative_engine] C.1.3 fetch failed for {sym}: {e}")
+        history = []
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Shareholding Pattern - quarterly changes in promoter holding",
+        "result": "CHECKED" if len(history) >= 2 else "NOT_DISCLOSED",
+        "note": None if len(history) >= 2 else "Fewer than 2 quarters of Shareholding Pattern data were available from NSE's live endpoint this run.",
+    }]
+
+    if len(history) < 2:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Direction (buying/selling)", "available": True,
+            "increased_count": None, "reduced_count": None, "unchanged_count": None,
+            "direction": None, "direction_score": None,
+            "rationale": "Fewer than 2 quarters of promoter-holding data were available to determine a direction this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE" if history else "NOT_FOUND")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE" if history else "NOT_FOUND"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    increased = reduced = unchanged = 0
+    for i in range(1, len(history)):
+        diff = history[i]["promoter_pct"] - history[i - 1]["promoter_pct"]
+        if diff > 0.01:
+            increased += 1
+        elif diff < -0.01:
+            reduced += 1
+        else:
+            unchanged += 1
+
+    if increased + reduced == 0:
+        direction, direction_score = "Stable", 3
+        rationale = f"Promoter holding was unchanged across all {len(history)} available quarters -> Stable, no buying/selling signal to report (score 3/5)."
+    else:
+        pct_increased = round(100 * increased / (increased + reduced), 1)
+        direction = "Increased" if increased > reduced else ("Reduced" if reduced > increased else "Mixed")
+        direction_score = _band_direction_score(pct_increased)
+        rationale = f"Promoter holding increased in {increased} vs reduced in {reduced} of {increased + reduced} quarter-over-quarter comparisons ({unchanged} unchanged) -> {direction} (score {direction_score}/5)."
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Direction (buying/selling)", "available": True,
+        "increased_count": increased, "reduced_count": reduced, "unchanged_count": unchanged,
+        "direction": direction, "direction_score": direction_score,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def _band_direction_score(pct_increased):
+    if pct_increased >= 80:
+        return 5
+    if pct_increased >= 60:
+        return 4
+    if pct_increased >= 40:
+        return 3
+    if pct_increased >= 20:
+        return 2
+    return 1
+
+
+def compute_c1_promoter_shareholding(symbol, name=None, force=False):
+    """C.1 — Promoter shareholding patterns: combines the three
+    sub-points (C.1.1 control levels, C.1.2 changes over time, C.1.3
+    direction) into a single grounded payload, each sourced from NSE's
+    real Shareholding Pattern filing (corporate-share-holdings-master —
+    the actual per-quarter master, not the pledge-data byproduct
+    previously used, which was silently empty for zero-pledge
+    companies).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    c11 = compute_c1_1_control_levels(sym, name, force=force)
+    c12 = compute_c1_2_changes_over_time(sym, name, force=force)
+    c13 = compute_c1_3_direction(sym, name, force=force)
+
+    if not c11.get("promoter_pct") and not c12.get("trend") and c13.get("direction") is None:
+        payload = {
+            "subpoint_id": "C.1",
+            "title": "Promoter shareholding patterns: control levels, changes over time, direction (buying/selling)",
+            "available": False,
+            "reason": "NSE's live Shareholding Pattern endpoint returned no data for this symbol.",
+            "pathway_results": (c11.get("pathway_results") or []) + (c12.get("pathway_results") or []) + (c13.get("pathway_results") or []),
+        }
+        write_qualitative(sym, "C.1", payload, "NOT_FOUND")
+        payload["confidence_tag"] = "NOT_FOUND"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    parts = []
+    if c11.get("control_score") is not None:
+        parts.append(f"Control levels: {c11['promoter_pct']}% promoter holding ({c11['control_level']}, score {c11['control_score']}/5).")
+    if c12.get("trend_score") is not None:
+        parts.append(f"Changes over time: {c12['net_change_pct']:+.2f}pp over {c12['quarters_available']} quarters (score {c12['trend_score']}/5).")
+    if c13.get("direction_score") is not None:
+        parts.append(f"Direction: {c13['direction']} (score {c13['direction_score']}/5).")
+    if not parts:
+        parts.append("None of the three sub-points (control levels, changes over time, direction) were explicitly covered this run.")
+
+    _tags = [t.get("confidence_tag") for t in (c11, c12, c13)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (c11, c12, c13) if t.get("retrieved_at")]
+
+    # Backward-compatible top-level fields (existing callers like C.2 don't
+    # depend on these, but keep the shape stable for anything that does).
+    payload = {
+        "subpoint_id": "C.1",
+        "title": "Promoter shareholding patterns: control levels, changes over time, direction (buying/selling)",
+        "available": True,
+        "promoter_holding_pct": c11.get("promoter_pct"),
+        "as_of_quarter": c11.get("as_of_quarter"),
+        "control_level": c11.get("control_level"),
+        "c1_1": c11, "c1_2": c12, "c1_3": c13,
+        "rationale": " ".join(parts),
+        "pathway_results": (c11.get("pathway_results") or []) + (c12.get("pathway_results") or []) + (c13.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 
