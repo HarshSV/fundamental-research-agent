@@ -830,20 +830,21 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [hover, setHover] = useState(null);
             const items = (panel.data || []).filter(d => d.value != null && !isNaN(d.value));
             if (items.length < 2) return null;
-            const W = 200, H = 120, padX = 16, padY = 14;
+            const W = 200, H = 110, padX = 16, padY = 14;
             const maxVal = Math.max(...items.map(d => d.value), 1);
             const minVal = Math.min(0, ...items.map(d => d.value));
             const span = (maxVal - minVal) || 1;
             const pts = items.map((d, i) => {
                 const x = padX + (i / (items.length - 1)) * (W - 2 * padX);
-                const y = H - padY - 12 - ((d.value - minVal) / span) * (H - 2 * padY - 12);
+                const y = H - padY - ((d.value - minVal) / span) * (H - 2 * padY);
                 return { x, y, ...d };
             });
             const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
-            // Beyond ~5 points, horizontal labels at every tick overlap - thin
-            // them out (always keep first/last) and angle the rest so the
-            // text reads diagonally instead of colliding.
-            const showEvery = items.length > 6 ? 2 : 1;
+            // Beyond ~5 points, a label under every tick overlaps its
+            // neighbors - cap it at ~4 evenly-spaced labels (always
+            // including the first and last point) instead.
+            const maxLabels = 4;
+            const labelStep = items.length > maxLabels ? Math.ceil((items.length - 1) / (maxLabels - 1)) : 1;
             return (
                 <div className="flex flex-col items-center w-full">
                     {panel.centerValue && (
@@ -852,13 +853,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[200px]">
                         <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="2" />
                         {pts.map((p, i) => {
-                            const showLabel = i === 0 || i === pts.length - 1 || i % showEvery === 0;
+                            const showLabel = i === 0 || i === pts.length - 1 || i % labelStep === 0;
                             return (
                                 <g key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
                                     <circle cx={p.x} cy={p.y} r={hover === i ? 4.5 : 3} fill="#3b82f6" stroke="#0b1220" strokeWidth="1.5" style={{ cursor: 'default' }} />
                                     {showLabel && (
-                                        <text x={p.x} y={H - 4} textAnchor="end" fontSize="7.5" fill="#64748b"
-                                            transform={`rotate(-40 ${p.x} ${H - 4})`}>{p.label}</text>
+                                        <text x={p.x} y={H - 2} textAnchor="middle" fontSize="8" fill="#64748b">{p.label}</text>
                                     )}
                                     {hover === i && (
                                         <text x={p.x} y={p.y - 8} textAnchor="middle" fontSize="9" fontWeight="700" fill="#e2e8f0">{p.value}</text>
