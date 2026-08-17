@@ -790,6 +790,80 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Moderate/Low), plus an "unavailable" state that shows a dashed
         // ring + honest explanation instead of a fabricated split.
         const BIG_DONUT_PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+        // --- stacked_bar: two labeled bars (e.g. Actual vs Planned capex),
+        // scaled to the larger of the two values so the shorter bar visibly
+        // shows its shortfall/overshoot rather than a fixed max.
+        const StackedBarPanel = ({ panel }) => {
+            const items = (panel.data || []).filter(d => d.value != null && !isNaN(d.value));
+            if (!items.length) return null;
+            const maxVal = Math.max(...items.map(d => d.value), 1);
+            return (
+                <div className="flex flex-col items-center w-full">
+                    {panel.centerValue && (
+                        <div className="text-xl font-extrabold text-slate-100 mb-2">{panel.centerValue}</div>
+                    )}
+                    <div className="w-full max-w-[200px] space-y-2.5">
+                        {items.map((d, i) => (
+                            <div key={d.label}>
+                                <div className="flex items-center justify-between text-[10px] mb-1">
+                                    <span className="font-semibold text-slate-300">{d.label}</span>
+                                    <span className="font-mono font-bold text-slate-400">₹{d.value.toLocaleString('en-IN')} cr</span>
+                                </div>
+                                <div className="h-2.5 rounded-full overflow-hidden bg-slate-800">
+                                    <div className="h-full rounded-full" style={{ width: `${Math.max(2, (d.value / maxVal) * 100)}%`, background: BIG_DONUT_PALETTE[i % BIG_DONUT_PALETTE.length] }}></div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    {panel.explanation && (
+                        <p className="text-[10px] text-slate-500 text-center mt-2 max-w-[220px] leading-snug">{panel.explanation}</p>
+                    )}
+                </div>
+            );
+        };
+
+        // --- line_trend: simple polyline over N real yearly data points
+        // (e.g. Strategic Delivery Trend) — only shows the years that
+        // actually resolved, never padded to a fixed length.
+        const LineTrendPanel = ({ panel }) => {
+            const [hover, setHover] = useState(null);
+            const items = (panel.data || []).filter(d => d.value != null && !isNaN(d.value));
+            if (items.length < 2) return null;
+            const W = 200, H = 110, padX = 16, padY = 14;
+            const maxVal = Math.max(...items.map(d => d.value), 1);
+            const minVal = Math.min(0, ...items.map(d => d.value));
+            const span = (maxVal - minVal) || 1;
+            const pts = items.map((d, i) => {
+                const x = padX + (i / (items.length - 1)) * (W - 2 * padX);
+                const y = H - padY - ((d.value - minVal) / span) * (H - 2 * padY);
+                return { x, y, ...d };
+            });
+            const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+            return (
+                <div className="flex flex-col items-center w-full">
+                    {panel.centerValue && (
+                        <div className="text-xl font-extrabold text-slate-100 mb-1">{panel.centerValue}</div>
+                    )}
+                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[200px]">
+                        <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="2" />
+                        {pts.map((p, i) => (
+                            <g key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+                                <circle cx={p.x} cy={p.y} r={hover === i ? 4.5 : 3} fill="#3b82f6" stroke="#0b1220" strokeWidth="1.5" style={{ cursor: 'default' }} />
+                                <text x={p.x} y={H - 2} textAnchor="middle" fontSize="8" fill="#64748b">{p.label}</text>
+                                {hover === i && (
+                                    <text x={p.x} y={p.y - 8} textAnchor="middle" fontSize="9" fontWeight="700" fill="#e2e8f0">{p.value}</text>
+                                )}
+                            </g>
+                        ))}
+                    </svg>
+                    {panel.explanation && (
+                        <p className="text-[10px] text-slate-500 text-center mt-2 max-w-[220px] leading-snug">{panel.explanation}</p>
+                    )}
+                </div>
+            );
+        };
+
         const BigCenterDonut = ({ panel }) => {
             const cx = 100, cy = 100, R = 78, HOLE = 48;
             if (panel.type === 'unavailable') {
@@ -803,6 +877,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     </div>
                 );
             }
+            if (panel.type === 'stacked_bar') return <StackedBarPanel panel={panel} />;
+            if (panel.type === 'line_trend') return <LineTrendPanel panel={panel} />;
             let slices = [];
             if (panel.type === 'classification') {
                 const zones = panel.zones || [];
@@ -2839,7 +2915,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 revenuePatternDonut = (
                     <MoatWheelDonut data={sp.secondaryChart?.data} centerValue={sp.secondaryChart?.centerValue} overallLabel="Overall Score" />
                 );
-            } else if ((sp.key === 'founder_ceo_track_record' || sp.key === 'management_incentives' || sp.key === 'management_bench_depth' || sp.key === 'communication_quality') && sp.chart?.type === 'multi_donut') {
+            } else if ((sp.key === 'founder_ceo_track_record' || sp.key === 'management_incentives' || sp.key === 'management_bench_depth' || sp.key === 'communication_quality' || sp.key === 'execution_credibility') && sp.chart?.type === 'multi_donut') {
                 revenuePatternDonut = (
                     <MultiDonutPanel panels={sp.chart.panels} />
                 );

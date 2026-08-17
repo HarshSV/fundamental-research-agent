@@ -4234,25 +4234,41 @@ def compute_b4_communication_quality(symbol, name=None, force=False):
     return payload
 
 
-def compute_b5_execution_credibility(symbol, name=None, force=False):
-    """B.5 — Execution credibility: delivered vs stated milestones historically.
-    Formula: Guidance accuracy % = Actual metric / Guided metric (tracked per
-    quarter).
+_B5_MAX_YEARS = 5
 
-    Sourcing Sequence: PORTAL-01 (get the AR PDF) -> AGG-01 (fallback/cross-check
-    only) -> QUAL-02 (concall color).
 
-    Same shape as B.4: QUAL-02 (concall transcripts) is real and wired. The
-    quantitative Guidance accuracy % genuinely needs a structured guidance-vs-
-    actual tracker (investor-presentation guidance slides matched to each
-    quarter's delivered numbers) this codebase doesn't build — recorded
-    NOT_DISCLOSED rather than guessed. The qualitative execution_credibility
-    rating IS grounded in real concall commentary (management often explicitly
-    references prior guidance and what was delivered), so this stays useful even
-    without the numeric tracker. SINGLE_SOURCE at best — PORTAL-01 not wired.
+def _fetch_mda_by_year(sym, name, max_years=_B5_MAX_YEARS):
+    """Up to the 5 most recent Annual Reports' MD&A text, oldest->newest -
+    same multi-year-loop pattern as compute_a1_2_pattern_trend. A year with
+    no extractable MD&A text is skipped, not filled with a guess."""
+    from tools.annual_report_financials import list_annual_report_years
+    from tools.ar_table_extractor import extract_text_near_anchors
+    years = sorted((list_annual_report_years(sym, name) or [])[:max_years])
+    out = []
+    for fy in years:
+        try:
+            texts = extract_text_near_anchors(
+                sym, name, {"mda": ["management discussion and analysis", "management's discussion and analysis"]},
+                fiscal_year=fy, max_pages_per_key=8)
+            t = texts.get("mda", "")
+            if t:
+                out.append({"fiscal_year": fy, "text": t})
+        except Exception as e:
+            print(f"[qualitative_engine] B.5 MD&A fetch failed for {sym} FY{fy}: {e}")
+    return out
+
+
+def compute_b5_1_milestone_execution(symbol, name=None, force=False):
+    """B.5.1 - Delivered vs stated milestones. Spec formula: Execution
+    Ratio = Achieved / Announced. Deterministic (no LLM) - see
+    tools/execution_credibility_scoring.py's score_milestone_execution:
+    counts forward-commitment sentences across the earlier of up to 5
+    years' MD&A text as "announced" and completion-confirmation sentences
+    in later years as "achieved". Sourcing: NSE Corporate Filings -
+    Annual Reports (latest 3-5 years) - MD&A.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "B.5"
+    subpoint_id = "B.5.1"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -4264,89 +4280,212 @@ def compute_b5_execution_credibility(symbol, name=None, force=False):
             except Exception:
                 return cached
 
-    digest = _concall_digest(sym, name)
-    pathway_results = [
-        {
-            "pathway_id": "PORTAL-01",
-            "source": "BSE Corporate Announcements -> investor presentation guidance slides",
-            "result": "NOT_DISCLOSED",
-            "note": "No guidance-slide fetcher or structured guidance-vs-actual tracker is wired into this codebase yet.",
-        },
-        {
-            "pathway_id": "AGG-01",
-            "source": "Screener.in (fallback/cross-check only)",
-            "result": "NOT_CHECKED",
-            "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
-        },
-        {
-            "pathway_id": "QUAL-02",
-            "source": "Concall Transcript (grounded digest — real transcript content)",
-            "result": "CHECKED" if digest else "NOT_HELD",
-            "note": None if digest else "No transcript found for a recent quarter — do not assume one happened unseen.",
-        },
-    ]
+    try:
+        from tools.execution_credibility_scoring import score_milestone_execution
+        years_texts = _fetch_mda_by_year(sym, name)
+        result = score_milestone_execution(years_texts)
+        years_covered = [y["fiscal_year"] for y in years_texts]
+    except Exception as e:
+        print(f"[qualitative_engine] B.5.1 fetch failed for {sym}: {e}")
+        result = {"announced_count": None, "achieved_count": None, "pending_count": None,
+                   "execution_ratio": None, "execution_ratio_pct": None, "milestone_score": None}
+        years_covered = []
 
-    if not digest:
+    pathway_results = [{
+        "pathway_id": "AR-14",
+        "source": "NSE Corporate Filings - Annual Reports (latest 3-5 years) - MD&A",
+        "result": "CHECKED" if result["milestone_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["milestone_score"] is not None else "No forward-commitment / completion-confirmation milestone language was located across the available Annual Reports this run.",
+    }]
+
+    if result["milestone_score"] is None:
         payload = {
-            "subpoint_id": subpoint_id,
-            "title": "Execution credibility: delivered vs stated milestones historically",
-            "available": False,
-            "reason": "No concall transcript corpus available for this company.",
+            "subpoint_id": subpoint_id, "title": "Delivered vs stated milestones", "available": True, **result,
+            "years_covered": years_covered,
+            "rationale": "No clear announced-vs-achieved milestone signal was located across the available Annual Reports' MD&A this run.",
             "pathway_results": pathway_results,
         }
-        write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
-        payload["confidence_tag"] = "NOT_FOUND"
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    company = name or sym
-    context = f"COMPANY: {company}\n\nRECENT EARNINGS-CALL HIGHLIGHTS (newest first):\n{digest}\n"
-    prompt = (
-        "You are an equity analyst assessing EXECUTION CREDIBILITY (delivered vs stated milestones) for "
-        "an Indian listed company, using ONLY the grounded concall context below. Look for management "
-        "referencing PRIOR guidance/targets and whether they were met, missed, or exceeded. Do not invent "
-        "facts. If the context doesn't show a clear guidance-vs-actual comparison, say so rather than "
-        "guessing.\n\n"
-        "Return ONLY JSON:\n"
-        "{\n"
-        '  "execution_credibility_rating": "Strong" | "Mixed" | "Weak" | "unclear",\n'
-        '  "milestone_track_record": ["short factual items — a guided target and what was delivered, e.g. \'Guided double-digit EBITDA growth, delivered\' - 0 to 3 items, empty list if the context gives no clear guidance-vs-actual comparison"],\n'
-        '  "rationale": "2-4 sentences citing what in the context supports this"\n'
-        "}\n\n"
-        f"=== CONTEXT ===\n{context}"
-    )
-    data, llm_failed = _llm_json(
-        sym, "B.5", "You are a precise equity analyst. Reply with strict JSON only. Never fabricate.",
-        prompt, max_tokens=600, temperature=0.1,
-    )
-
-    execution_credibility_rating = str(data.get("execution_credibility_rating") or "unclear").strip()
-    if execution_credibility_rating.lower() not in ("strong", "mixed", "weak"):
-        execution_credibility_rating = "unclear"
-    else:
-        execution_credibility_rating = execution_credibility_rating.capitalize()
-    milestone_track_record = [str(x).strip() for x in (data.get("milestone_track_record") or []) if str(x).strip()][:3]
-    rationale = str(data.get("rationale") or "").strip()
-
-    confidence_tag = "SINGLE_SOURCE" if rationale else "SEARCH_INCONCLUSIVE"
-
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Execution credibility: delivered vs stated milestones historically",
-        "available": True,
-        "execution_credibility_rating": execution_credibility_rating,
-        "milestone_track_record": milestone_track_record,
-        "guidance_accuracy_pct": None,  # requires structured guidance-vs-actual tracker — not wired
-        "rationale": rationale,
+        "subpoint_id": subpoint_id, "title": "Delivered vs stated milestones", "available": True, **result,
+        "years_covered": years_covered,
+        "rationale": f"{result['achieved_count']} of {result['announced_count']} stated milestone(s) explicitly confirmed delivered across FY{years_covered[0] if years_covered else '?'}-FY{years_covered[-1] if years_covered else '?'} (Execution Ratio {result['execution_ratio']}).",
         "pathway_results": pathway_results,
-        "grounded": True,
     }
-    if not llm_failed:
-        write_qualitative(sym, subpoint_id, payload, confidence_tag)
-    else:
-        print(f"[qualitative_engine] B.5 NOT cached for {sym} — LLM call did not run; will retry next request.")
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b5_2_capital_execution(symbol, name=None, force=False):
+    """B.5.2 - Capital allocation execution. Spec formula: Capital
+    Execution Score (1-5). Deterministic (no LLM) - see
+    tools/execution_credibility_scoring.py's score_capital_execution:
+    compares an explicitly-stated actual capex figure (Cash Flow
+    Statement) against an explicitly-stated planned/budgeted capex figure
+    (Board's Report). Sourcing: NSE Corporate Filings - Annual Reports -
+    Cash Flow Statement / Board's Report.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.5.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.execution_credibility_scoring import score_capital_execution
+        texts = extract_text_near_anchors(sym, name, {
+            "cashflow": ["cash flow from investing activities", "purchase of property, plant and equipment"],
+            "board_report": ["board's report", "directors' report", "capital expenditure"],
+        }, max_pages_per_key=6)
+        result = score_capital_execution(texts.get("cashflow", ""), texts.get("board_report", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] B.5.2 fetch failed for {sym}: {e}")
+        result = {"actual_capex_cr": None, "planned_capex_cr": None, "execution_pct": None, "capital_execution_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-15",
+        "source": "NSE Corporate Filings - Annual Reports - Cash Flow Statement / Board's Report - Capex & Acquisition Updates",
+        "result": "CHECKED" if result["capital_execution_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["capital_execution_score"] is not None else "No explicitly-stated planned capex figure (Board's Report) alongside an actual capex figure (Cash Flow Statement) was located this run — most companies don't disclose a specific capex plan/budget number.",
+    }]
+
+    if result["capital_execution_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Capital allocation execution", "available": True, **result,
+            "rationale": "No explicitly-stated planned-vs-actual capex comparison was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Capital allocation execution", "available": True, **result,
+        "rationale": f"Actual capex of ₹{result['actual_capex_cr']} cr vs planned ₹{result['planned_capex_cr']} cr ({result['execution_pct']}% of plan) -> score {result['capital_execution_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b5_3_strategic_consistency(symbol, name=None, force=False):
+    """B.5.3 - Strategic execution consistency. Spec formula: Consistency
+    Score (1-5). Deterministic (no LLM) - see
+    tools/execution_credibility_scoring.py's score_strategic_consistency:
+    detects a fixed set of generic strategic-priority themes in each of up
+    to 5 years' MD&A text, then bands year-over-year theme overlap.
+    Sourcing: NSE Corporate Filings - Annual Reports (latest 3-5 years) -
+    MD&A (strategy statements compared across years).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.5.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.execution_credibility_scoring import score_strategic_consistency
+        years_texts = _fetch_mda_by_year(sym, name)
+        result = score_strategic_consistency(years_texts)
+    except Exception as e:
+        print(f"[qualitative_engine] B.5.3 fetch failed for {sym}: {e}")
+        result = {"theme_trend": None, "avg_overlap_pct": None, "consistency_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-14",
+        "source": "NSE Corporate Filings - Annual Reports (latest 3-5 years) - MD&A (strategy statements compared across years)",
+        "result": "CHECKED" if result["consistency_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["consistency_score"] is not None else "Fewer than 2 years of MD&A with an identifiable strategic-priority theme were located this run.",
+    }]
+
+    if result["consistency_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Strategic execution consistency", "available": True, **result,
+            "rationale": "No year-over-year strategic-theme comparison was possible across the available Annual Reports this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Strategic execution consistency", "available": True, **result,
+        "rationale": f"Strategic priority themes overlapped {result['avg_overlap_pct']}% year-over-year across {len(result['theme_trend'])} year(s) of MD&A -> score {result['consistency_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b5_execution_credibility(symbol, name=None, force=False):
+    """B.5 — Execution credibility: combines the three sub-points (B.5.1
+    delivered vs stated milestones, B.5.2 capital allocation execution,
+    B.5.3 strategic execution consistency) into a single grounded payload,
+    each sourced from real, multi-year Annual Report text and scored
+    deterministically (no LLM call - see
+    tools/execution_credibility_scoring.py). Any sub-point the source text
+    doesn't explicitly cover is surfaced as unavailable rather than
+    defaulted.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    b51 = compute_b5_1_milestone_execution(sym, name, force=force)
+    b52 = compute_b5_2_capital_execution(sym, name, force=force)
+    b53 = compute_b5_3_strategic_consistency(sym, name, force=force)
+
+    parts = []
+    if b51.get("milestone_score") is not None:
+        parts.append(f"Delivered vs stated milestones: {b51['achieved_count']}/{b51['announced_count']} confirmed (Execution Ratio {b51['execution_ratio']}, score {b51['milestone_score']}/5).")
+    if b52.get("capital_execution_score") is not None:
+        parts.append(f"Capital allocation execution: {b52['execution_pct']}% of planned capex (score {b52['capital_execution_score']}/5).")
+    if b53.get("consistency_score") is not None:
+        parts.append(f"Strategic execution consistency: {b53['avg_overlap_pct']}% year-over-year theme overlap (score {b53['consistency_score']}/5).")
+    if not parts:
+        parts.append("None of the three sub-points (delivered vs stated milestones, capital allocation execution, strategic execution consistency) were explicitly covered this run.")
+
+    _tags = [t.get("confidence_tag") for t in (b51, b52, b53)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+
+    retrieved_ats = [t.get("retrieved_at") for t in (b51, b52, b53) if t.get("retrieved_at")]
+    payload = {
+        "subpoint_id": "B.5",
+        "title": "Execution credibility: delivered vs stated milestones historically",
+        "available": True,
+        "b5_1": b51, "b5_2": b52, "b5_3": b53,
+        "rationale": " ".join(parts),
+        "pathway_results": (b51.get("pathway_results") or []) + (b52.get("pathway_results") or []) + (b53.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 

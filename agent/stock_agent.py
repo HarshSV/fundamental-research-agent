@@ -2168,12 +2168,13 @@ def build_executive_summary(state: SystemState) -> dict:
         _b5 = compute_b5_execution_credibility(symbol, name)
         if _b5 and _b5.get('available'):
             f32 = {
-                'execution_credibility_rating': _b5.get('execution_credibility_rating'),
-                'guidance_accuracy_pct': _b5.get('guidance_accuracy_pct'),
-                'milestone_track_record': _b5.get('milestone_track_record') or [],
+                'execution_credibility_rating': None,
+                'guidance_accuracy_pct': None,
+                'milestone_track_record': [],
                 'rationale': _b5.get('rationale'),
                 'confidence_tag': _b5.get('confidence_tag'), 'retrieved_at': _b5.get('retrieved_at'),
                 'pathway_results': _b5.get('pathway_results'),
+                'b5_1': _b5.get('b5_1') or {}, 'b5_2': _b5.get('b5_2') or {}, 'b5_3': _b5.get('b5_3') or {},
             }
     except Exception as e:
         print(f"[qualitative_topics] sourced B.5 engine failed, falling back to raw LLM fields: {e}")
@@ -2796,13 +2797,43 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No earnings-call transcript Q&A section with named analysts was located for {_co} this run."}
     _b4_panels = [_b4_1_donut, _b4_2_donut, _b4_3_donut]
 
-    _execution_credibility_rating = _enum(f32.get('execution_credibility_rating'), ['Strong', 'Mixed', 'Weak'])
-    _guidance_accuracy_pct = f32.get('guidance_accuracy_pct')
-    try:
-        _guidance_accuracy_pct = round(max(0.0, min(200.0, float(_guidance_accuracy_pct))), 1)
-    except (TypeError, ValueError):
-        _guidance_accuracy_pct = None
-    _milestone_track_record = [v for v in (f32.get('milestone_track_record') or []) if isinstance(v, str) and v.strip()][:3]
+    _b5_1, _b5_2, _b5_3 = f32.get('b5_1') or {}, f32.get('b5_2') or {}, f32.get('b5_3') or {}
+
+    if _b5_1.get('milestone_score') is not None:
+        _b5_1_donut = {
+            'type': 'donut', 'title': 'Delivered vs Stated Milestones',
+            'data': [{'label': 'Achieved', 'value': _b5_1.get('achieved_count')},
+                     {'label': 'Pending', 'value': _b5_1.get('pending_count')}],
+            'centerValue': f"{_b5_1.get('execution_ratio_pct')}%",
+            'explanation': f"{_co}'s Annual Reports explicitly confirmed {_b5_1.get('achieved_count')} of {_b5_1.get('announced_count')} stated milestone(s) delivered (Execution Ratio {_b5_1.get('execution_ratio')}, score {_b5_1.get('milestone_score')}/5).",
+        }
+    else:
+        _b5_1_donut = {'type': 'unavailable', 'title': 'Delivered vs Stated Milestones',
+                        'explanation': f"No announced-vs-achieved milestone language was located across {_co}'s available Annual Reports."}
+
+    if _b5_2.get('capital_execution_score') is not None:
+        _b5_2_panel = {
+            'type': 'stacked_bar', 'title': 'Capex vs Planned Capex',
+            'data': [{'label': 'Actual', 'value': _b5_2.get('actual_capex_cr')},
+                     {'label': 'Planned', 'value': _b5_2.get('planned_capex_cr')}],
+            'centerValue': f"{_b5_2.get('execution_pct')}%",
+            'explanation': f"{_co} incurred ₹{_b5_2.get('actual_capex_cr')} cr actual capex vs ₹{_b5_2.get('planned_capex_cr')} cr planned ({_b5_2.get('execution_pct')}% of plan, score {_b5_2.get('capital_execution_score')}/5).",
+        }
+    else:
+        _b5_2_panel = {'type': 'unavailable', 'title': 'Capex vs Planned Capex',
+                        'explanation': f"No explicitly-stated planned capex figure (Board's Report) alongside an actual capex figure (Cash Flow Statement) was located for {_co} this run — most companies don't disclose a specific capex plan/budget number."}
+
+    if _b5_3.get('consistency_score') is not None:
+        _b5_3_panel = {
+            'type': 'line_trend', 'title': 'Strategic Delivery Trend',
+            'data': [{'label': f"FY{str(t.get('fiscal_year'))[-2:]}", 'value': t.get('theme_count')} for t in (_b5_3.get('theme_trend') or [])],
+            'centerValue': f"{_b5_3.get('avg_overlap_pct')}%",
+            'explanation': f"{_co}'s stated strategic priorities overlapped {_b5_3.get('avg_overlap_pct')}% year-over-year across {len(_b5_3.get('theme_trend') or [])} year(s) of MD&A (score {_b5_3.get('consistency_score')}/5).",
+        }
+    else:
+        _b5_3_panel = {'type': 'unavailable', 'title': 'Strategic Delivery Trend',
+                        'explanation': f"Fewer than 2 years of MD&A with an identifiable strategic-priority theme were located for {_co} this run."}
+    _b5_panels = [_b5_1_donut, _b5_2_panel, _b5_3_panel]
 
     _culture_rating = _enum(f33.get('culture_rating'), ['Strong', 'Moderate', 'Weak'])
     _employee_attrition_pct = f33.get('employee_attrition_rate_pct')
@@ -3298,21 +3329,26 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f31.get('pathway_results'),
                 },
                 {
+                    # B.5 — the three sub-points (B.5.1 delivered vs stated
+                    # milestones, B.5.2 capital allocation execution, B.5.3
+                    # strategic execution consistency) combined into ONE
+                    # card as a 3-panel set, same pattern as B.1/B.2/B.3/B.4.
                     'key': 'execution_credibility',
                     'title': 'Execution credibility: delivered vs stated milestones historically',
                     'finding': f32.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Execution credibility', _execution_credibility_rating] if _execution_credibility_rating else None),
-                        (['Guidance accuracy', f"~{_guidance_accuracy_pct}%"] if _guidance_accuracy_pct is not None else None),
-                        (['Milestone track record', '; '.join(_milestone_track_record)] if _milestone_track_record else None),
+                        (['Execution ratio', f"{_b5_1.get('execution_ratio_pct')}%"] if _b5_1.get('execution_ratio_pct') is not None else None),
+                        (['Capital execution', f"{_b5_2.get('execution_pct')}% of plan"] if _b5_2.get('execution_pct') is not None else None),
+                        (['Strategic consistency', f"{_b5_3.get('avg_overlap_pct')}% overlap"] if _b5_3.get('avg_overlap_pct') is not None else None),
                     ] if f],
-                    'chart': ({'type': 'spectrum', 'options': ['Weak', 'Mixed', 'Strong'], 'active': _execution_credibility_rating}
-                               if _execution_credibility_rating else None),
-                    'formula': 'Guidance accuracy % = Actual metric / Guided metric (tracked per quarter)',
+                    'chart': ({'type': 'multi_donut', 'panels': _b5_panels} if _b5_panels else None),
+                    'formula': 'Execution Ratio = Achieved / Announced milestones, banded 1-5; '
+                               'Capital Execution Score = actual capex vs planned/budgeted capex, banded 1-5 on deviation from 100%; '
+                               'Consistency Score = year-over-year strategic-priority theme overlap in MD&A, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page, guidance slides'},
-                        'secondary': {'label': 'BSE India – Corporate Announcements', 'note': 'Quarterly Results', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
-                        'tertiary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab'},
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Latest 3-5 Annual Reports — MD&A', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': "Cash Flow Statement / Board's Report — Capex & Acquisition Updates", 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — strategy statements compared across years', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': f32.get('confidence_tag'), 'retrieved_at': f32.get('retrieved_at'),
                     'pathway_results': f32.get('pathway_results'),
