@@ -4062,16 +4062,29 @@ def compute_b4_2_guidance_clarity(symbol, name=None, force=False):
                 return cached
 
     try:
+        from tools.nse_announcements import fetch_transcript_url, download_pdf_text
         from tools.screener_scraper import fetch_concall_list, download_transcript
         from tools.communication_quality_scoring import score_guidance_clarity
-        lst = fetch_concall_list(sym, name)
         prepared = ""
-        transcript_url = None
-        if lst:
-            transcript_url = lst[0].get("url")
-            full = download_transcript(transcript_url, max_chars=40000, max_pages=30)
-            qa_idx = full.lower().find("question-and-answer")
-            prepared = full[:qa_idx] if qa_idx > 0 else full[:8000]
+        transcript_url = fetch_transcript_url(sym, name)
+        full = download_pdf_text(transcript_url, max_chars=40000, max_pages=30) if transcript_url else ""
+        if not full:
+            # NSE corporate-filings-announcements had no locatable transcript
+            # this run (or the PDF didn't extract) - fall back to the same
+            # real BSE-filed transcript via Screener's Concalls index rather
+            # than surfacing N/A when a usable filing does exist elsewhere.
+            lst = fetch_concall_list(sym, name)
+            if lst:
+                transcript_url = lst[0].get("url")
+                full = download_transcript(transcript_url, max_chars=40000, max_pages=30)
+        if full:
+            # Split on the actual Q&A-session transition ("...begin the
+            # question-and-answer session"), not an earlier generic mention
+            # of "Q&A session" in the moderator's opening remarks (e.g. "45
+            # minutes for the Q&A session") which would truncate prepared
+            # remarks before management's outlook commentary.
+            qa_m = re.search(r"question[-\s]*and[-\s]*answer\s+session", full, re.I)
+            prepared = full[:qa_m.start()] if qa_m else full[:8000]
         result = score_guidance_clarity(prepared)
     except Exception as e:
         print(f"[qualitative_engine] B.4.2 fetch failed for {sym}: {e}")
@@ -4131,14 +4144,18 @@ def compute_b4_3_investor_openness(symbol, name=None, force=False):
                 return cached
 
     try:
+        from tools.nse_announcements import fetch_transcript_url, download_pdf_text
         from tools.screener_scraper import fetch_concall_list, download_transcript
         from tools.communication_quality_scoring import score_investor_openness
-        lst = fetch_concall_list(sym, name)
         full = ""
-        transcript_url = None
-        if lst:
-            transcript_url = lst[0].get("url")
-            full = download_transcript(transcript_url, max_chars=40000, max_pages=30)
+        transcript_url = fetch_transcript_url(sym, name)
+        if transcript_url:
+            full = download_pdf_text(transcript_url, max_chars=40000, max_pages=30)
+        if not full:
+            lst = fetch_concall_list(sym, name)
+            if lst:
+                transcript_url = lst[0].get("url")
+                full = download_transcript(transcript_url, max_chars=40000, max_pages=30)
         result = score_investor_openness(full)
     except Exception as e:
         print(f"[qualitative_engine] B.4.3 fetch failed for {sym}: {e}")

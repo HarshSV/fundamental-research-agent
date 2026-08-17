@@ -90,7 +90,8 @@ _QUANTIFIED_OUTLOOK = re.compile(
 )
 _VAGUE_OUTLOOK = re.compile(
     r"remain(?:s)? optimistic|several (?:growth )?opportunit|continue to focus|"
-    r"cautiously optimistic|well[- ]positioned|confident (?:about|in) (?:the|our)", re.I
+    r"cautiously optimistic|well[- ]positioned|confident (?:about|in) (?:the|our)|"
+    r"remain (?:around|in line with|steady|stable)|current guided range", re.I
 )
 
 
@@ -121,8 +122,8 @@ def score_guidance_clarity(prepared_remarks_text):
 # B.4.3 - Openness in investor communication (earnings-call Q&A section).
 # ---------------------------------------------------------------------------
 
-_QA_SECTION_MARKER = re.compile(r"question[- ]and[- ]answer|q\s*&\s*a\s+session", re.I)
-_ANALYST_INTRO = re.compile(r"from the line of ([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,2})\s+from", re.I)
+_QA_SECTION_MARKER = re.compile(r"question[-\s]*and[-\s]*answer|q\s*&\s*a\s+session", re.I)
+_ANALYST_INTRO = re.compile(r"from the line of ([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,2})\s+(?:from|with)\b", re.I)
 _EVASIVE_ANSWER = re.compile(
     r"(?:don'?t|do not|won'?t|will not|can'?t|cannot)\s+(?:comment|share|disclose|quantify|provide)|"
     r"not\s+(?:in a position|able)\s+to\s+(?:comment|share|disclose|quantify)|"
