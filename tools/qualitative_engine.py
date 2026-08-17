@@ -6239,25 +6239,21 @@ def compute_c4_group_structural_complexity(symbol, name=None, force=False):
     return payload
 
 
-def compute_c5_board_composition(symbol, name=None, force=False):
-    """C.5 — Board composition & independence: independent directors' quality,
-    committee activity. Formula: Independent director % = Independent directors /
-    Total board size.
+def _fetch_governance_filing(sym):
+    from tools.governance_scraper import fetch_latest_governance_filing
+    return fetch_latest_governance_filing(sym) or {}
 
-    Sourcing Sequence: AR-06 (Report on Corporate Governance) -> PORTAL-01 (get
-    the AR PDF).
 
-    No AR-06 Corporate Governance Report parser is wired into this codebase. The
-    PREVIOUS implementation of this field explicitly instructed the LLM to "give
-    your best ESTIMATE — never null" for independent_director_pct/board_size —
-    exactly the kind of fabrication the sourcing-pathway guardrails prohibit
-    (DON'T/DO INSTEAD rule #12: a guessed number is worse than a visible gap).
-    This sub-point does not do that: board size and independent-director % are
-    real, structured facts a filing either states or doesn't — never appropriate
-    to estimate from general knowledge. Honest full gap, no LLM call.
+def compute_c5_1_independent_director_quality(symbol, name=None, force=False):
+    """C.5.1 - Independent directors' quality. Spec formula: Independent
+    Director Quality Score (1-5). Deterministic (no LLM) - see
+    tools/board_governance_scoring.py's score_independent_director_quality:
+    real board-composition data from NSE's quarterly Corporate Governance
+    filing (SEBI LODR Reg. 27), never estimated. Sourcing: NSE Corporate
+    Filings - Corporate Governance - Composition of Board of Directors.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "C.5"
+    subpoint_id = "C.5.1"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -6269,36 +6265,241 @@ def compute_c5_board_composition(symbol, name=None, force=False):
             except Exception:
                 return cached
 
-    pathway_results = [
-        {
-            "pathway_id": "AR-06",
-            "source": "Report on Corporate Governance (board composition, committee attendance)",
-            "result": "NOT_DISCLOSED",
-            "note": "No AR-06 Corporate Governance Report parser is wired into this codebase yet.",
-        },
-        {
-            "pathway_id": "PORTAL-01",
-            "source": "BSE Corporate Announcements -> Annual Report PDF",
-            "result": "NOT_DISCLOSED",
-            "note": "Fetching the PDF alone doesn't help without a structured AR-06 section parser to read it.",
-        },
-    ]
+    try:
+        from tools.board_governance_scoring import score_independent_director_quality
+        filing = _fetch_governance_filing(sym)
+        result = score_independent_director_quality(filing.get("cobod"))
+        as_of_quarter = filing.get("as_of_quarter")
+    except Exception as e:
+        print(f"[qualitative_engine] C.5.1 fetch failed for {sym}: {e}")
+        result = {"high_quality_count": None, "standard_count": None, "independent_count": None, "total_directors": None, "quality_pct": None, "quality_score": None}
+        as_of_quarter = None
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-03",
+        "source": "NSE Corporate Filings - Corporate Governance - Composition of Board of Directors",
+        "result": "CHECKED" if result["quality_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["quality_score"] is not None else "NSE's live Corporate Governance filing endpoint returned no board-composition data for this symbol this run.",
+    }]
+
+    if result["quality_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Independent directors' quality", "available": True, **result,
+            "as_of_quarter": as_of_quarter,
+            "rationale": "NSE's live Corporate Governance filing endpoint returned no board-composition data for this symbol this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
 
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Board composition & independence: independent directors' quality, committee activity",
-        "available": True,
-        "independent_director_pct": None,
-        "board_size": None,
-        "committee_activity_rating": None,
-        "governance_flags": [],
-        "rationale": "Not computed — AR-06 (Report on Corporate Governance) has no parser wired. Board size and independent-director % are structured facts that must be read from the filing, never estimated.",
+        "subpoint_id": subpoint_id, "title": "Independent directors' quality", "available": True, **result,
+        "as_of_quarter": as_of_quarter,
+        "rationale": f"{result['high_quality_count']} of {result['independent_count']} independent director(s) (as of {as_of_quarter}) hold both a committee membership and an independent directorship elsewhere -> score {result['quality_score']}/5.",
         "pathway_results": pathway_results,
     }
-    confidence_tag = "SEARCH_INCONCLUSIVE"
+    confidence_tag = "SINGLE_SOURCE"
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def _compute_committee_subpoint(sym, subpoint_id, title, committee_name, pathway_source, force):
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.board_governance_scoring import score_committee_effectiveness
+        filing = _fetch_governance_filing(sym)
+        composition = (filing.get("coc") or {}).get(committee_name) or []
+        meetings = [m for m in (filing.get("meetingcomm") or []) if m.get("commName") == committee_name]
+        result = score_committee_effectiveness(composition, meetings)
+        as_of_quarter = filing.get("as_of_quarter")
+    except Exception as e:
+        print(f"[qualitative_engine] {subpoint_id} fetch failed for {sym}: {e}")
+        result = {"independent_members": None, "total_members": None, "independence_pct": None,
+                  "meetings_held": None, "meetings_quorum_met": None, "quorum_met_pct": None, "effectiveness_score": None}
+        as_of_quarter = None
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-03",
+        "source": pathway_source,
+        "result": "CHECKED" if result["effectiveness_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["effectiveness_score"] is not None else f"NSE's live Corporate Governance filing endpoint had no {committee_name} composition or meeting data for this quarter.",
+    }]
+
+    if result["effectiveness_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": title, "available": True, **result,
+            "as_of_quarter": as_of_quarter,
+            "rationale": f"No {committee_name} composition or meeting data was located in NSE's live Corporate Governance filing this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    parts = []
+    if result["independence_pct"] is not None:
+        parts.append(f"{result['independent_members']}/{result['total_members']} members independent ({result['independence_pct']}%)")
+    if result["quorum_met_pct"] is not None:
+        parts.append(f"quorum met in {result['meetings_quorum_met']}/{result['meetings_held']} meeting(s) ({result['quorum_met_pct']}%)")
+    payload = {
+        "subpoint_id": subpoint_id, "title": title, "available": True, **result,
+        "as_of_quarter": as_of_quarter,
+        "rationale": f"{title} as of {as_of_quarter}: " + "; ".join(parts) + f" -> score {result['effectiveness_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c5_2_audit_committee_activity(symbol, name=None, force=False):
+    """C.5.2 - Audit committee activity. Spec formula: Audit Committee
+    Effectiveness Score (1-5). Deterministic (no LLM) - see
+    tools/board_governance_scoring.py's score_committee_effectiveness,
+    real Audit Committee composition + meeting-attendance data from
+    NSE's quarterly Corporate Governance filing. Sourcing: NSE Corporate
+    Filings - Corporate Governance - Audit Committee.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _compute_committee_subpoint(
+        sym, "C.5.2", "Audit committee activity", "Audit Committee",
+        "NSE Corporate Filings - Corporate Governance - Audit Committee", force)
+
+
+def compute_c5_3_nrc_activity(symbol, name=None, force=False):
+    """C.5.3 - Nomination & remuneration committee activity. Spec
+    formula: NRC Effectiveness Score (1-5). Deterministic (no LLM) - see
+    tools/board_governance_scoring.py's score_committee_effectiveness,
+    real NRC composition + meeting-attendance data from NSE's quarterly
+    Corporate Governance filing. Sourcing: NSE Corporate Filings -
+    Corporate Governance - Nomination and Remuneration Committee.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _compute_committee_subpoint(
+        sym, "C.5.3", "Nomination & remuneration committee activity", "Nomination and Remuneration Committee",
+        "NSE Corporate Filings - Corporate Governance - Nomination and Remuneration Committee", force)
+
+
+def compute_c5_4_board_attendance(symbol, name=None, force=False):
+    """C.5.4 - Board attendance and committee participation. Spec
+    formula: Board Participation Score = meetings attended / meetings
+    held. Deterministic (no LLM) - see
+    tools/board_governance_scoring.py's score_board_attendance: real
+    per-meeting director-present / board-roster-size data from NSE's
+    quarterly Corporate Governance filing. Sourcing: NSE Corporate
+    Filings - Annual Reports - Corporate Governance Report - Board
+    Meetings / Attendance.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.5.4"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.board_governance_scoring import score_board_attendance
+        filing = _fetch_governance_filing(sym)
+        result = score_board_attendance(filing.get("bodmeeting"))
+        as_of_quarter = filing.get("as_of_quarter")
+    except Exception as e:
+        print(f"[qualitative_engine] C.5.4 fetch failed for {sym}: {e}")
+        result = {"total_present": None, "total_possible": None, "attendance_pct": None, "meetings_count": None, "participation_score": None}
+        as_of_quarter = None
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-03",
+        "source": "NSE Corporate Filings - Corporate Governance - Board Meetings / Attendance",
+        "result": "CHECKED" if result["participation_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["participation_score"] is not None else "NSE's live Corporate Governance filing endpoint had no board-meeting attendance data for this symbol this run.",
+    }]
+
+    if result["participation_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Board attendance and committee participation", "available": True, **result,
+            "as_of_quarter": as_of_quarter,
+            "rationale": "No board-meeting attendance data was located in NSE's live Corporate Governance filing this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Board attendance and committee participation", "available": True, **result,
+        "as_of_quarter": as_of_quarter,
+        "rationale": f"{result['total_present']} of {result['total_possible']} director-attendances explicitly recorded across {result['meetings_count']} board meeting(s) as of {as_of_quarter} ({result['attendance_pct']}%) -> score {result['participation_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c5_board_composition(symbol, name=None, force=False):
+    """C.5 — Board composition & independence: combines the four sub-
+    points (C.5.1 independent directors' quality, C.5.2 audit committee
+    activity, C.5.3 NRC activity, C.5.4 board attendance) into a single
+    grounded payload, all sourced from NSE's real quarterly Corporate
+    Governance filing (tools/governance_scraper.py) - never estimated.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    c51 = compute_c5_1_independent_director_quality(sym, name, force=force)
+    c52 = compute_c5_2_audit_committee_activity(sym, name, force=force)
+    c53 = compute_c5_3_nrc_activity(sym, name, force=force)
+    c54 = compute_c5_4_board_attendance(sym, name, force=force)
+
+    parts = []
+    if c51.get("quality_score") is not None:
+        parts.append(f"Independent director quality: {c51['quality_pct']}% high-quality (score {c51['quality_score']}/5).")
+    if c52.get("effectiveness_score") is not None:
+        parts.append(f"Audit committee: score {c52['effectiveness_score']}/5.")
+    if c53.get("effectiveness_score") is not None:
+        parts.append(f"NRC: score {c53['effectiveness_score']}/5.")
+    if c54.get("participation_score") is not None:
+        parts.append(f"Board attendance: {c54['attendance_pct']}% (score {c54['participation_score']}/5).")
+    if not parts:
+        parts.append("None of the four sub-points (independent director quality, audit committee, NRC, board attendance) were explicitly covered this run.")
+
+    _tags = [t.get("confidence_tag") for t in (c51, c52, c53, c54)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (c51, c52, c53, c54) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "C.5",
+        "title": "Board composition & independence: independent directors' quality, committee activity",
+        "available": True,
+        "c5_1": c51, "c5_2": c52, "c5_3": c53, "c5_4": c54,
+        "rationale": " ".join(parts),
+        "pathway_results": (c51.get("pathway_results") or []) + (c52.get("pathway_results") or []) + (c53.get("pathway_results") or []) + (c54.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 

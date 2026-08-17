@@ -2268,6 +2268,7 @@ def build_executive_summary(state: SystemState) -> dict:
                 'rationale': _c5.get('rationale'),
                 'confidence_tag': _c5.get('confidence_tag'), 'retrieved_at': _c5.get('retrieved_at'),
                 'pathway_results': _c5.get('pathway_results'),
+                'c5_1': _c5.get('c5_1') or {}, 'c5_2': _c5.get('c5_2') or {}, 'c5_3': _c5.get('c5_3') or {}, 'c5_4': _c5.get('c5_4') or {},
             }
     except Exception as e:
         print(f"[qualitative_topics] sourced C.5 engine failed, falling back to raw LLM fields: {e}")
@@ -3089,18 +3090,56 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No Subsidiaries (Extent of holding) listing with named entities was located for {_co} this run."}
     _c4_panels = [_c4_1_donut, _c4_2_donut, _c4_3_donut, _c4_4_panel]
 
-    _independent_director_pct = f38.get('independent_director_pct')
-    try:
-        _independent_director_pct = round(max(0.0, min(100.0, float(_independent_director_pct))), 1)
-    except (TypeError, ValueError):
-        _independent_director_pct = None
-    _board_size = f38.get('board_size')
-    try:
-        _board_size = max(0, int(_board_size))
-    except (TypeError, ValueError):
-        _board_size = None
-    _committee_activity_rating = _enum(f38.get('committee_activity_rating'), ['Inadequate', 'Adequate', 'Strong'])
-    _governance_flags = [v for v in (f38.get('governance_flags') or []) if isinstance(v, str) and v.strip()][:3]
+    _c5_1, _c5_2, _c5_3, _c5_4 = f38.get('c5_1') or {}, f38.get('c5_2') or {}, f38.get('c5_3') or {}, f38.get('c5_4') or {}
+
+    if _c5_1.get('quality_score') is not None:
+        _c5_1_donut = {
+            'type': 'donut', 'title': 'Independent Directors by Quality Tier',
+            'data': [{'label': 'High Quality', 'value': _c5_1.get('high_quality_count')},
+                     {'label': 'Standard', 'value': _c5_1.get('standard_count')}],
+            'centerValue': f"{_c5_1.get('quality_pct')}%",
+            'explanation': f"{_co} explicitly named {_c5_1.get('high_quality_count')} of {_c5_1.get('independent_count')} independent director(s) (of {_c5_1.get('total_directors')} total) as holding both a committee membership and an independent directorship elsewhere, as of {_c5_1.get('as_of_quarter')} (score {_c5_1.get('quality_score')}/5).",
+        }
+    else:
+        _c5_1_donut = {'type': 'unavailable', 'title': 'Independent Directors by Quality Tier',
+                        'explanation': f"NSE's live Corporate Governance filing endpoint returned no board-composition data for {_co} this run."}
+
+    if _c5_2.get('effectiveness_score') is not None:
+        _c5_2_donut = {
+            'type': 'donut', 'title': 'Audit Committee Attendance / Effectiveness',
+            'data': [{'label': 'Quorum Met', 'value': _c5_2.get('meetings_quorum_met')},
+                     {'label': 'Quorum Not Met', 'value': max(0, (_c5_2.get('meetings_held') or 0) - (_c5_2.get('meetings_quorum_met') or 0))}],
+            'centerValue': f"{_c5_2.get('quorum_met_pct')}%" if _c5_2.get('quorum_met_pct') is not None else f"{_c5_2.get('independence_pct')}%",
+            'explanation': f"{_co}'s Audit Committee ({_c5_2.get('independent_members')}/{_c5_2.get('total_members')} independent) met quorum in {_c5_2.get('meetings_quorum_met')}/{_c5_2.get('meetings_held')} meeting(s) as of {_c5_2.get('as_of_quarter')} (score {_c5_2.get('effectiveness_score')}/5).",
+        }
+    else:
+        _c5_2_donut = {'type': 'unavailable', 'title': 'Audit Committee Attendance / Effectiveness',
+                        'explanation': f"NSE's live Corporate Governance filing endpoint had no Audit Committee data for {_co} this run."}
+
+    if _c5_3.get('effectiveness_score') is not None:
+        _c5_3_donut = {
+            'type': 'donut', 'title': 'NRC Effectiveness Distribution',
+            'data': [{'label': 'Independent Members', 'value': _c5_3.get('independent_members')},
+                     {'label': 'Other Members', 'value': max(0, (_c5_3.get('total_members') or 0) - (_c5_3.get('independent_members') or 0))}],
+            'centerValue': f"{_c5_3.get('independence_pct')}%",
+            'explanation': f"{_co}'s Nomination & Remuneration Committee had {_c5_3.get('independent_members')}/{_c5_3.get('total_members')} independent members as of {_c5_3.get('as_of_quarter')} (score {_c5_3.get('effectiveness_score')}/5).",
+        }
+    else:
+        _c5_3_donut = {'type': 'unavailable', 'title': 'NRC Effectiveness Distribution',
+                        'explanation': f"NSE's live Corporate Governance filing endpoint had no Nomination & Remuneration Committee data for {_co} this run."}
+
+    if _c5_4.get('participation_score') is not None:
+        _c5_4_donut = {
+            'type': 'donut', 'title': 'Attended vs Missed Meetings',
+            'data': [{'label': 'Attended', 'value': _c5_4.get('total_present')},
+                     {'label': 'Missed', 'value': max(0, (_c5_4.get('total_possible') or 0) - (_c5_4.get('total_present') or 0))}],
+            'centerValue': f"{_c5_4.get('attendance_pct')}%",
+            'explanation': f"{_co}'s directors recorded {_c5_4.get('total_present')} of {_c5_4.get('total_possible')} possible attendances across {_c5_4.get('meetings_count')} board meeting(s) as of {_c5_4.get('as_of_quarter')} (score {_c5_4.get('participation_score')}/5).",
+        }
+    else:
+        _c5_4_donut = {'type': 'unavailable', 'title': 'Attended vs Missed Meetings',
+                        'explanation': f"NSE's live Corporate Governance filing endpoint had no board-meeting attendance data for {_co} this run."}
+    _c5_panels = [_c5_1_donut, _c5_2_donut, _c5_3_donut, _c5_4_donut]
 
     _auditor_name = f39.get('auditor_name') if isinstance(f39.get('auditor_name'), str) and f39.get('auditor_name').strip() else None
     _auditor_tenure = f39.get('auditor_tenure_years')
@@ -3690,27 +3729,27 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f37.get('pathway_results'),
                 },
                 {
+                    # C.5 — the four sub-points (C.5.1 independent
+                    # director quality, C.5.2 audit committee, C.5.3 NRC,
+                    # C.5.4 board attendance) combined into ONE card as a
+                    # 4-panel donut set, same pattern as B.1/.../C.4.
                     'key': 'board_composition_independence',
                     'title': "Board composition & independence: independent directors' quality, committee activity",
                     'finding': f38.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Independent directors', f"~{_independent_director_pct}%"] if _independent_director_pct is not None else None),
-                        (['Board size', str(_board_size)] if _board_size is not None else None),
-                        (['Committee activity', _committee_activity_rating] if _committee_activity_rating else None),
-                        (['Governance concerns', '; '.join(_governance_flags)] if _governance_flags else None),
+                        (['Independent director quality', f"{_c5_1.get('quality_pct')}% high-quality"] if _c5_1.get('quality_pct') is not None else None),
+                        (['Audit committee', f"score {_c5_2.get('effectiveness_score')}/5"] if _c5_2.get('effectiveness_score') is not None else None),
+                        (['NRC', f"score {_c5_3.get('effectiveness_score')}/5"] if _c5_3.get('effectiveness_score') is not None else None),
+                        (['Board attendance', f"{_c5_4.get('attendance_pct')}%"] if _c5_4.get('attendance_pct') is not None else None),
                     ] if f],
-                    'chart': ({
-                        'type': 'donut',
-                        'data': [
-                            {'label': 'Independent directors', 'pct': _independent_director_pct},
-                            {'label': 'Other directors', 'pct': round(100 - _independent_director_pct, 1)},
-                        ],
-                    } if _independent_director_pct is not None else None),
-                    'formula': 'Independent director % = Independent directors / Total board size',
+                    'chart': ({'type': 'multi_donut', 'panels': _c5_panels} if _c5_panels else None),
+                    'formula': 'Independent Director Quality Score = independent directors holding both a committee membership and an outside independent directorship, banded 1-5; '
+                               'Audit/NRC Effectiveness Score = independence % x quorum-met rate, banded 1-5; '
+                               'Board Participation Score = director-attendances / possible attendances across board meetings held.',
                     'sources': {
-                        'primary': {'label': 'Annual Report – Corporate Governance Report', 'note': 'via BSE announcement above'},
-                        'secondary': {'label': 'NSE India – Corporate Governance Filings', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-corporate-governance'},
-                        'tertiary': {'label': 'BSE India – Corporate Announcements', 'note': 'Corporate Governance Report filing', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
+                        'primary': {'label': 'NSE India — Corporate Governance Filings', 'note': 'Composition of Board of Directors', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-governance'},
+                        'secondary': {'label': 'NSE India — Corporate Governance Filings', 'note': 'Audit Committee / Nomination and Remuneration Committee', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-governance'},
+                        'tertiary': {'label': 'NSE India — Corporate Governance Filings', 'note': 'Board Meetings / Committee Meetings / Attendance', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-governance'},
                     },
                     'confidence_tag': f38.get('confidence_tag'), 'retrieved_at': f38.get('retrieved_at'),
                     'pathway_results': f38.get('pathway_results'),
