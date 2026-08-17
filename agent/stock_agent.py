@@ -2901,11 +2901,20 @@ def build_executive_summary(state: SystemState) -> dict:
         _c1_1_donut = {'type': 'unavailable', 'title': 'Control Levels',
                         'explanation': f"NSE's live Shareholding Pattern endpoint returned no data for {_co} this run."}
 
+    def _short_quarter_label(q):
+        # NSE quarter strings look like "30-SEP-2024" - compress to "Sep'24"
+        # so 8 labels fit the line-chart's fixed width without overlapping.
+        try:
+            _d, _mon, _yr = (q or '').split('-')
+            return f"{_mon.capitalize()}'{_yr[-2:]}"
+        except (ValueError, AttributeError):
+            return q
+
     _c1_2_trend = _c1_2.get('trend') or []
     if _c1_2.get('trend_score') is not None and _c1_2_trend:
         _c1_2_panel = {
             'type': 'line_trend', 'title': '8-Quarter Promoter Holding Trend',
-            'data': [{'label': t.get('quarter'), 'value': t.get('promoter_pct')} for t in _c1_2_trend],
+            'data': [{'label': _short_quarter_label(t.get('quarter')), 'value': t.get('promoter_pct')} for t in _c1_2_trend],
             'centerValue': f"{_c1_2.get('net_change_pct'):+.2f}pp",
             'explanation': f"{_co}'s promoter holding moved {_c1_2.get('net_change_pct'):+.2f} percentage points across the last {_c1_2.get('quarters_available')} quarters (score {_c1_2.get('trend_score')}/5).",
         }
