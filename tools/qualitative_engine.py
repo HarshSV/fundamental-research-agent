@@ -5645,11 +5645,15 @@ def _compute_c3_rpt_records(symbol, name=None, force=False):
 
 def compute_c3_1_frequency(symbol, name=None, force=False):
     """C.3.1 - Frequency of RPTs. Spec formula: RPT Frequency Score
-    (1-5). Deterministic aggregation (LLM only touched row extraction,
-    in _compute_c3_rpt_records) over verbatim-quote-verified RPT rows -
-    fewer/limited RPTs bands higher than many/frequent ones. Sourcing:
-    NSE Corporate Filings - Annual Reports - Notes to Accounts - Related
-    Party Disclosures (Ind AS 24).
+    (1-5). Deterministic (no LLM) - see tools/rpt_disclosure_scoring.py's
+    score_rpt_frequency: counts how many DISTINCT canonical Ind AS 24
+    transaction-type labels (purchase/sale of goods, remuneration,
+    rent, dividends, loans, etc.) appear in the Related Party
+    Disclosures note text - a real proxy for RPT frequency/breadth that
+    doesn't need per-row counterparty attribution (unlike C.3.2, which
+    still needs the LLM row extraction). Sourcing: NSE Corporate Filings
+    - Annual Reports - Notes to Accounts - Related Party Disclosures
+    (Ind AS 24).
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "C.3.1"
@@ -5665,24 +5669,26 @@ def compute_c3_1_frequency(symbol, name=None, force=False):
                 return cached
 
     try:
-        c3rec = _compute_c3_rpt_records(sym, name, force=force)
+        from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report
+        from tools.rpt_disclosure_scoring import score_rpt_frequency
+        evidence = fetch_rpt_evidence_from_annual_report(sym, name)
+        excerpt_text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_rpt_frequency(excerpt_text)
     except Exception as e:
         print(f"[qualitative_engine] C.3.1 fetch failed for {sym}: {e}")
-        c3rec = {}
+        result = {"distinct_transaction_types": None, "matched_types": None, "frequency_bucket": None, "frequency_score": None}
 
-    row_count = c3rec.get("rpt_row_count") or 0
     pathway_results = [{
         "pathway_id": "AR-04",
         "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Related Party Disclosures (Ind AS 24)",
-        "result": "CHECKED" if row_count > 0 else "NOT_DISCLOSED",
-        "note": None if row_count > 0 else "No verbatim-quote-verified related-party transaction row was located this run.",
+        "result": "CHECKED" if result["frequency_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["frequency_score"] is not None else "No Related Party Disclosures note with an identifiable Ind AS 24 transaction-type label was located in the latest Annual Report this run.",
     }]
 
-    if row_count == 0:
+    if result["frequency_score"] is None:
         payload = {
-            "subpoint_id": subpoint_id, "title": "Frequency of RPTs", "available": True,
-            "rpt_row_count": 0, "frequency_bucket": None, "frequency_score": None,
-            "rationale": c3rec.get("rationale") or "No verbatim-quote-verified related-party transaction row was located this run.",
+            "subpoint_id": subpoint_id, "title": "Frequency of RPTs", "available": True, **result,
+            "rationale": "No Related Party Disclosures note with an identifiable Ind AS 24 transaction-type label was located in the latest Annual Report this run.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -5690,21 +5696,9 @@ def compute_c3_1_frequency(symbol, name=None, force=False):
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    if row_count <= 3:
-        frequency_bucket, frequency_score = "Limited", 5
-    elif row_count <= 7:
-        frequency_bucket, frequency_score = "Frequent", 4
-    elif row_count <= 15:
-        frequency_bucket, frequency_score = "Frequent", 3
-    elif row_count <= 30:
-        frequency_bucket, frequency_score = "Frequent", 2
-    else:
-        frequency_bucket, frequency_score = "Frequent", 1
-
     payload = {
-        "subpoint_id": subpoint_id, "title": "Frequency of RPTs", "available": True,
-        "rpt_row_count": row_count, "frequency_bucket": frequency_bucket, "frequency_score": frequency_score,
-        "rationale": f"{row_count} verbatim-quote-verified related-party transaction row(s) -> {frequency_bucket} (score {frequency_score}/5).",
+        "subpoint_id": subpoint_id, "title": "Frequency of RPTs", "available": True, **result,
+        "rationale": f"{result['distinct_transaction_types']} distinct Ind AS 24 transaction-type(s) explicitly disclosed -> {result['frequency_bucket']} (score {result['frequency_score']}/5).",
         "pathway_results": pathway_results,
     }
     confidence_tag = "SINGLE_SOURCE"
@@ -5921,7 +5915,7 @@ def compute_c3_related_party_transactions(symbol, name=None, force=False):
 
     parts = []
     if c31.get("frequency_score") is not None:
-        parts.append(f"Frequency: {c31['rpt_row_count']} row(s) -> {c31['frequency_bucket']} (score {c31['frequency_score']}/5).")
+        parts.append(f"Frequency: {c31['distinct_transaction_types']} transaction type(s) -> {c31['frequency_bucket']} (score {c31['frequency_score']}/5).")
     if c32.get("counterparty_risk_score") is not None:
         parts.append(f"Counterparty identity: {c32['independent_count']} independent vs {c32['promoter_group_count']} promoter-adjacent (score {c32['counterparty_risk_score']}/5).")
     if c33.get("pricing_fairness_score") is not None:

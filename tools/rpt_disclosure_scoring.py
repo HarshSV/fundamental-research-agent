@@ -31,6 +31,59 @@ def _band_score_pct(pct):
 
 
 # ---------------------------------------------------------------------------
+# C.3.1 - Frequency of RPTs (distinct Ind AS 24 transaction-type count).
+# ---------------------------------------------------------------------------
+
+# Canonical Ind AS 24 transaction-type labels - the standard categories every
+# Indian filer's Related Party Disclosures note is built from (generic
+# vocabulary, not any one company's specific wording, per CLAUDE.md). Counting
+# how many DISTINCT types a company discloses is a real, deterministic proxy
+# for RPT frequency/breadth, without needing per-row counterparty attribution
+# (which score_pricing_fairness's sibling sub-point, C.3.2, still needs an
+# LLM extraction pass for).
+_RPT_TRANSACTION_TYPES = [
+    "purchase of goods", "sale of goods", "rendering of services", "receiving of services",
+    "interest paid", "interest received", "interest income", "interest expense",
+    "short-term employee benefits", "post-employment benefits", "share-based payments",
+    "commission paid", "commission received", "rent paid", "rent received", "rent expense", "rent income",
+    "dividend paid", "dividend received", "loans given", "loans taken", "loans granted", "loans availed",
+    "investments made", "investments sold", "guarantee",
+    "reimbursement of expenses", "sale of fixed assets", "purchase of fixed assets",
+    "sale of assets", "purchase of assets", "professional fees", "sitting fees",
+    "trade receivables", "trade payables", "intellectual property rights",
+    "corporate social responsibility", "donation", "managerial remuneration",
+]
+_RPT_NOTE_HEADING = re.compile(r"related party disclosures?", re.I)
+
+
+def score_rpt_frequency(rpt_text):
+    """Counts how many DISTINCT canonical Ind AS 24 transaction-type labels
+    appear in the Related Party Disclosures note text - a real, fully
+    deterministic proxy for RPT frequency/breadth (no LLM row-extraction
+    needed). Returns {'distinct_transaction_types','matched_types',
+    'frequency_bucket','frequency_score'} or all-None if the Related
+    Party Disclosures note itself can't be confirmed present in the text."""
+    if not rpt_text or not _RPT_NOTE_HEADING.search(rpt_text):
+        return {"distinct_transaction_types": None, "matched_types": None, "frequency_bucket": None, "frequency_score": None}
+    lowered = rpt_text.lower()
+    matched = [t for t in _RPT_TRANSACTION_TYPES if t in lowered]
+    n = len(matched)
+    if n == 0:
+        return {"distinct_transaction_types": None, "matched_types": None, "frequency_bucket": None, "frequency_score": None}
+    if n <= 3:
+        bucket, score = "Limited", 5
+    elif n <= 6:
+        bucket, score = "Frequent", 4
+    elif n <= 10:
+        bucket, score = "Frequent", 3
+    elif n <= 15:
+        bucket, score = "Frequent", 2
+    else:
+        bucket, score = "Frequent", 1
+    return {"distinct_transaction_types": n, "matched_types": matched, "frequency_bucket": bucket, "frequency_score": score}
+
+
+# ---------------------------------------------------------------------------
 # C.3.3 - Pricing and commercial rationale (arm's-length disclosure).
 # ---------------------------------------------------------------------------
 

@@ -2993,7 +2993,7 @@ def build_executive_summary(state: SystemState) -> dict:
         _c3_1_panel = {
             'type': 'classification', 'title': 'Frequency of RPTs',
             'zones': ['Limited', 'Frequent'], 'active': _c3_1.get('frequency_bucket'),
-            'explanation': f"{_co} has {_c3_1.get('rpt_row_count')} verbatim-quote-verified related-party transaction row(s) -> {_c3_1.get('frequency_bucket')} (score {_c3_1.get('frequency_score')}/5).",
+            'explanation': f"{_co}'s Related Party Disclosures note explicitly named {_c3_1.get('distinct_transaction_types')} distinct Ind AS 24 transaction-type(s) -> {_c3_1.get('frequency_bucket')} (score {_c3_1.get('frequency_score')}/5).",
         }
     else:
         _c3_1_panel = {'type': 'unavailable', 'title': 'Frequency of RPTs',
