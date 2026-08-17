@@ -3187,6 +3187,76 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No Key Audit Matters or Emphasis of Matter section was located for {_co} this run."}
     _c6_panels = [_c6_1_panel, _c6_2_panel, _c6_3_panel, _c6_4_panel]
 
+    _c7_1, _c7_2, _c7_3, _c7_4, _c7_5 = (
+        (_c7 or {}).get('c7_1') or {}, (_c7 or {}).get('c7_2') or {}, (_c7 or {}).get('c7_3') or {},
+        (_c7 or {}).get('c7_4') or {}, (_c7 or {}).get('c7_5') or {},
+    )
+
+    if _c7_1.get('capex_execution_score') is not None:
+        _c7_1_donut = {
+            'type': 'donut', 'title': 'Growth vs Maintenance / Other Capex',
+            'data': [{'label': 'Growth Capex', 'value': _c7_1.get('growth_count')},
+                     {'label': 'Maintenance / Other', 'value': _c7_1.get('maintenance_count')}],
+            'centerValue': f"{_c7_1.get('growth_pct')}%",
+            'explanation': f"{_co}'s MD&A explicitly named {_c7_1.get('growth_count')} growth-oriented vs {_c7_1.get('maintenance_count')} maintenance/other capex statement(s) (score {_c7_1.get('capex_execution_score')}/5).",
+        }
+    else:
+        _c7_1_donut = {'type': 'unavailable', 'title': 'Growth vs Maintenance / Other Capex',
+                        'explanation': f"No capex-related MD&A text with a clear growth/maintenance signal was located for {_co} this run."}
+
+    if _c7_2.get('acquisition_discipline_score') is not None:
+        _c7_2_donut = {
+            'type': 'donut', 'title': 'Strategic vs Non-core / Related-party Acquisitions',
+            'data': [{'label': 'Strategic', 'value': _c7_2.get('strategic_count')},
+                     {'label': 'Non-core / Related-party', 'value': _c7_2.get('noncore_count')}],
+            'centerValue': f"{_c7_2.get('strategic_pct')}%",
+            'explanation': f"{_co}'s acquisition note(s) explicitly named {_c7_2.get('strategic_count')} strategic vs {_c7_2.get('noncore_count')} non-core/related-party statement(s) (score {_c7_2.get('acquisition_discipline_score')}/5).",
+        }
+    else:
+        _c7_2_donut = {'type': 'unavailable', 'title': 'Strategic vs Non-core / Related-party Acquisitions',
+                        'explanation': f"No acquisition-note text with a clear strategic/non-core signal was located for {_co} this run."}
+
+    if _c7_3.get('buyback_score') is not None:
+        _c7_3_donut = {
+            'type': 'donut', 'title': 'Buyback vs Other Capital Returns',
+            'data': [{'label': 'Buybacks', 'value': _c7_3.get('total_buyback_cr')},
+                     {'label': 'Other (Dividends)', 'value': _c7_3.get('total_other_returns_cr')}],
+            'centerValue': f"{_c7_3.get('buyback_pct')}%",
+            'explanation': f"{_co} deployed ₹{_c7_3.get('total_buyback_cr')} cr on buybacks vs ₹{_c7_3.get('total_other_returns_cr')} cr on dividends across the window (score {_c7_3.get('buyback_score')}/5).",
+        }
+    elif _c7_3.get('buyback_years') == []:
+        _c7_3_donut = {'type': 'unavailable', 'title': 'Buyback vs Other Capital Returns',
+                        'explanation': f"No share buyback outflow was found for {_co} in the available window — capital was returned via dividends only."}
+    else:
+        _c7_3_donut = {'type': 'unavailable', 'title': 'Buyback vs Other Capital Returns',
+                        'explanation': f"No Cash Flow Statement data was available for {_co} this run."}
+
+    if _c7_4.get('dividend_consistency_score') is not None:
+        _c7_4_donut = {
+            'type': 'donut', 'title': 'Dividends vs Reinvestment / Other Uses',
+            'data': [{'label': 'Dividends', 'value': _c7_4.get('total_dividend_cr')},
+                     {'label': 'Reinvestment (Capex + M&A)', 'value': _c7_4.get('total_reinvestment_cr')}],
+            'centerValue': f"{_c7_4.get('consistency_pct')}%",
+            'explanation': f"{_co} paid dividends in {_c7_4.get('years_paid') and len(_c7_4.get('years_paid'))} of {_c7_4.get('years_covered')} year(s) ({_c7_4.get('consistency_pct')}% consistency, score {_c7_4.get('dividend_consistency_score')}/5).",
+        }
+    else:
+        _c7_4_donut = {'type': 'unavailable', 'title': 'Dividends vs Reinvestment / Other Uses',
+                        'explanation': f"No Cash Flow Statement data was available for {_co} this run."}
+
+    if _c7_5.get('capital_allocation_quality_score') is not None:
+        _c7_5_donut = {
+            'type': 'donut', 'title': 'Growth Investment vs Shareholder Return vs Debt Reduction',
+            'data': [{'label': 'Growth Investment', 'value': _c7_5.get('growth_investment_cr')},
+                     {'label': 'Shareholder Return', 'value': _c7_5.get('shareholder_return_cr')},
+                     {'label': 'Debt Reduction', 'value': _c7_5.get('debt_reduction_cr')}],
+            'centerValue': f"FY{_c7_5.get('fiscal_year')}",
+            'explanation': f"{_co}'s FY{_c7_5.get('fiscal_year')} cash deployment: ₹{_c7_5.get('growth_investment_cr')} cr growth investment, ₹{_c7_5.get('shareholder_return_cr')} cr shareholder return, ₹{_c7_5.get('debt_reduction_cr')} cr debt reduction (score {_c7_5.get('capital_allocation_quality_score')}/5).",
+        }
+    else:
+        _c7_5_donut = {'type': 'unavailable', 'title': 'Growth Investment vs Shareholder Return vs Debt Reduction',
+                        'explanation': f"No Cash Flow Statement data was available for {_co}'s latest fiscal year this run."}
+    _c7_panels = [_c7_1_donut, _c7_2_donut, _c7_3_donut, _c7_4_donut, _c7_5_donut]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -3820,44 +3890,29 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f39.get('pathway_results'),
                 },
                 {
+                    # C.7 — the five sub-points (C.7.1 capex, C.7.2
+                    # acquisitions, C.7.3 buybacks, C.7.4 dividends, C.7.5
+                    # capital allocation rationale) combined into ONE card
+                    # as a 5-panel donut set, same pattern as B.1/.../C.6.
                     'key': 'capital_allocation',
                     'title': 'Capital allocation decisions: history of cash deployment and rationale',
                     'finding': (_c7 or {}).get('rationale') or None,
                     'facts': [f for f in [
-                        (['Years covered', ', '.join(f'FY{y}' for y in (_c7 or {}).get('years_covered') or [])]
-                         if (_c7 or {}).get('years_covered') else None),
-                        (['Avg. capex share', f"{(_c7 or {}).get('avg_mix_pct', {}).get('Capex')}%"]
-                         if (_c7 or {}).get('avg_mix_pct', {}).get('Capex') is not None else None),
-                        (['Avg. dividend share', f"{(_c7 or {}).get('avg_mix_pct', {}).get('Dividends')}%"]
-                         if (_c7 or {}).get('avg_mix_pct', {}).get('Dividends') is not None else None),
-                        (['Buyback years', ', '.join(f'FY{y}' for y in (_c7 or {}).get('buyback_years') or [])]
-                         if (_c7 or {}).get('buyback_years') else None),
-                        (['M&A years', ', '.join(f'FY{y}' for y in (_c7 or {}).get('acquisition_years') or [])]
-                         if (_c7 or {}).get('acquisition_years') else None),
+                        (['Capex', f"{_c7_1.get('growth_pct')}% growth"] if _c7_1.get('growth_pct') is not None else None),
+                        (['Acquisitions', f"{_c7_2.get('strategic_pct')}% strategic"] if _c7_2.get('strategic_pct') is not None else None),
+                        (['Buybacks', f"₹{_c7_3.get('total_buyback_cr')} cr"] if _c7_3.get('total_buyback_cr') is not None else None),
+                        (['Dividends', f"{_c7_4.get('consistency_pct')}% consistency"] if _c7_4.get('consistency_pct') is not None else None),
                     ] if f],
-                    # Reuses the RecurringCyclicalTrendChart visual pattern (stacked
-                    # bars, gap-honest — a year missing a category is disclosed via
-                    # `missingCategories`, never silently zeroed) — recolored/relabeled
-                    # for the 4 capital-allocation categories instead of Recurring/
-                    # Cyclical. See frontend/src/components/CapitalAllocationTrendChart.jsx.
-                    'chart': ({
-                        'type': 'capital_allocation_trend',
-                        'trend': [
-                            {
-                                'fiscal_year': row.get('fiscal_year'),
-                                'mixPct': row.get('mix_pct') or {},
-                                'amountsCr': row.get('amounts_cr') or {},
-                                'totalDeployedCr': row.get('total_deployed_cr'),
-                                'missingCategories': row.get('missing_categories') or [],
-                            }
-                            for row in ((_c7 or {}).get('capital_allocation_mix') or [])
-                        ],
-                    } if (_c7 or {}).get('capital_allocation_mix') else None),
-                    'formula': 'Capital allocation mix % = Each use of cash / Total cash deployed',
+                    'chart': ({'type': 'multi_donut', 'panels': _c7_panels} if _c7_panels else None),
+                    'formula': 'Capex Execution Score = growth vs maintenance/other capex statements, banded 1-5; '
+                               'Acquisition Discipline Score = strategic vs non-core/related-party acquisition statements, banded 1-5; '
+                               'Buyback Policy Score = buybacks as a share of total shareholder returns, banded 1-5; '
+                               'Dividend Consistency Score = years with a disclosed dividend / years covered, banded 1-5; '
+                               'Capital Allocation Quality Score = completeness of the growth/return/debt-reduction split disclosed for the latest year.',
                     'sources': {
-                        'primary': {'label': 'Company Annual Report', 'note': 'Cash Flow Statement, sourced via BSE announcement / company IR page'},
-                        'secondary': {'label': 'Company Investor Presentation', 'note': 'Company website – Investors page'},
-                        'tertiary': {'label': 'Screener.in – Documents/Financials tab', 'note': 'Cash Flow tab', 'url': 'https://www.screener.in'},
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Cash Flow Statement / Board\'s Report / MD&A — capex plans and rationale', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'Acquisition / Business Transfer', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'tertiary': {'label': 'NSE Corporate Filings — Corporate Actions', 'note': 'Buyback / Dividend', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-actions'},
                     },
                     'confidence_tag': (_c7 or {}).get('confidence_tag'), 'retrieved_at': (_c7 or {}).get('retrieved_at'),
                     'pathway_results': (_c7 or {}).get('pathway_results'),

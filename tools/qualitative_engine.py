@@ -6826,9 +6826,13 @@ def compute_c6_auditor_relationships(symbol, name=None, force=False):
 _C7_SCHEMA_VERSION = 1  # v1: real deterministic multi-year capital-allocation-mix build, replacing the "Not computed" stub
 
 
-def compute_c7_capital_allocation(symbol, name=None, force=False):
-    """C.7 — Capital allocation decisions: history of cash deployment and
-    rationale. Formula: Capital allocation mix % = Each use of cash / Total cash
+def _compute_c7_cash_flow_mix(symbol, name=None, force=False):
+    """Internal: the real multi-year capex/M&A/buyback/dividend cash-flow
+    mix, shared by C.7.1-C.7.5 so all five sub-points reuse the SAME
+    multi-year fetch (and its DB cache) instead of re-downloading Annual
+    Report PDFs five times per report.
+
+    Formula: Capital allocation mix % = Each use of cash / Total cash
     deployed, over a 5-8 year table of capex, M&A spend, buybacks and dividends
     from the Cash Flow Statement.
 
@@ -6853,7 +6857,7 @@ def compute_c7_capital_allocation(symbol, name=None, force=False):
     explicit rather than hiding it.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "C.7"
+    subpoint_id = "C.7.mix"
     title = "Capital allocation decisions: history of cash deployment and rationale"
 
     if not force:
@@ -6983,6 +6987,420 @@ def compute_c7_capital_allocation(symbol, name=None, force=False):
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c7_1_capex(symbol, name=None, force=False):
+    """C.7.1 - Capital expenditure (capex). Spec formula: Capex
+    Execution Score (1-5). Deterministic (no LLM) - see
+    tools/capital_allocation_scoring.py's score_capex_type: an MD&A
+    capex sentence is "Growth" if it names expansion/new-capacity
+    language, "Maintenance/Other" otherwise. Sourcing: NSE Corporate
+    Filings - Annual Reports - Cash Flow Statement / Board's Report /
+    MD&A - capex plans and rationale.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.7.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.capital_allocation_scoring import score_capex_type
+        texts = extract_text_near_anchors(sym, name, {"capex": ["capital expenditure", "expansion", "greenfield", "de-bottlenecking", "new factory"]}, max_pages_per_key=6)
+        result = score_capex_type(texts.get("capex", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] C.7.1 fetch failed for {sym}: {e}")
+        result = {"growth_count": None, "maintenance_count": None, "growth_pct": None, "capex_execution_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-08",
+        "source": "NSE Corporate Filings - Annual Reports - Cash Flow Statement / Board's Report / MD&A - capex plans and rationale",
+        "result": "CHECKED" if result["capex_execution_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["capex_execution_score"] is not None else "No capex-related MD&A text with a clear growth/maintenance signal was located in the latest Annual Report this run.",
+    }]
+
+    if result["capex_execution_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Capital expenditure (capex)", "available": True, **result,
+            "rationale": "No capex-related MD&A text with a clear growth/maintenance signal was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Capital expenditure (capex)", "available": True, **result,
+        "rationale": f"{result['growth_count']} growth-oriented vs {result['maintenance_count']} maintenance/other capex statement(s) explicitly found -> score {result['capex_execution_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c7_2_acquisitions(symbol, name=None, force=False):
+    """C.7.2 - Acquisitions. Spec formula: Acquisition Discipline Score
+    (1-5). Deterministic (no LLM) - see
+    tools/capital_allocation_scoring.py's score_acquisition_discipline:
+    an acquisition-note sentence is "Strategic" if it names strategic-
+    fit/synergy language, "Non-core/Related-party" if it names a
+    related-party or divestment signal. Sourcing: NSE Corporate Filings
+    - Annual Reports - Business Combination / Acquisition Note.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.7.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.capital_allocation_scoring import score_acquisition_discipline
+        texts = extract_text_near_anchors(sym, name, {"acquisition": ["acquisition", "business combination", "acquired"]}, max_pages_per_key=6)
+        result = score_acquisition_discipline(texts.get("acquisition", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] C.7.2 fetch failed for {sym}: {e}")
+        result = {"strategic_count": None, "noncore_count": None, "strategic_pct": None, "acquisition_discipline_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-09",
+        "source": "NSE Corporate Filings - Annual Reports - Business Combination / Acquisition Note",
+        "result": "CHECKED" if result["acquisition_discipline_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["acquisition_discipline_score"] is not None else "No acquisition-note text with a clear strategic/non-core signal was located in the latest Annual Report this run — many years have no acquisition activity at all.",
+    }]
+
+    if result["acquisition_discipline_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Acquisitions", "available": True, **result,
+            "rationale": "No acquisition-note text with a clear strategic/non-core signal was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Acquisitions", "available": True, **result,
+        "rationale": f"{result['strategic_count']} strategic vs {result['noncore_count']} non-core/related-party acquisition statement(s) explicitly found -> score {result['acquisition_discipline_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c7_3_buybacks(symbol, name=None, force=False):
+    """C.7.3 - Buybacks. Spec formula: Buyback Policy Score (1-5).
+    Deterministic (no LLM) - real buyback vs dividend cash outflow mix
+    from _compute_c7_cash_flow_mix's multi-year Cash Flow Statement
+    data. Sourcing: NSE Corporate Filings - Corporate Actions - Buyback
+    / Annual Report - Equity / Buyback disclosures.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.7.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        mix = _compute_c7_cash_flow_mix(sym, name, force=force)
+        by_year = mix.get("capital_allocation_mix") or []
+        total_buyback = sum(r["amounts_cr"].get("Buybacks", 0) or 0 for r in by_year)
+        total_dividend = sum(r["amounts_cr"].get("Dividends", 0) or 0 for r in by_year)
+        buyback_years = mix.get("buyback_years") or []
+    except Exception as e:
+        print(f"[qualitative_engine] C.7.3 fetch failed for {sym}: {e}")
+        total_buyback = total_dividend = 0
+        buyback_years = []
+        by_year = []
+
+    pathway_results = [{
+        "pathway_id": "AR-08",
+        "source": "NSE Corporate Filings - Corporate Actions - Buyback / Annual Report - Equity / Buyback disclosures",
+        "result": "CHECKED" if by_year else "NOT_DISCLOSED",
+        "note": None if by_year else "No Cash Flow Statement data was available across the available Annual Reports this run.",
+    }]
+
+    if not by_year:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Buybacks", "available": True,
+            "total_buyback_cr": None, "total_other_returns_cr": None, "buyback_years": None, "buyback_score": None,
+            "rationale": "No Cash Flow Statement data was available across the available Annual Reports this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    if not buyback_years:
+        # A real, confirmed absence (the multi-year Cash Flow Statement
+        # data was checked and no buyback outflow was found) - not the
+        # same as "couldn't check". No universal "good/bad" direction:
+        # many disciplined capital allocators simply never buy back
+        # shares, so this is reported as a fact, not penalized.
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Buybacks", "available": True,
+            "total_buyback_cr": 0.0, "total_other_returns_cr": round(total_dividend, 2), "buyback_years": [], "buyback_score": None,
+            "rationale": f"No share buyback outflow was found across the {len(by_year)}-year Cash Flow Statement window on file — {sym} returned capital via dividends only in this window.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SINGLE_SOURCE")
+        payload["confidence_tag"] = "SINGLE_SOURCE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    total_returns = total_buyback + total_dividend
+    buyback_pct = round(100 * total_buyback / total_returns, 1) if total_returns else None
+    # Real, disclosed buyback activity with at least one executed round is
+    # itself a policy-consistency signal - banded on how much of total
+    # shareholder-return spend it represents.
+    buyback_score = _band_score_pct(buyback_pct) if buyback_pct is not None else None
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Buybacks", "available": True,
+        "total_buyback_cr": round(total_buyback, 2), "total_other_returns_cr": round(total_dividend, 2),
+        "buyback_years": buyback_years, "buyback_pct": buyback_pct, "buyback_score": buyback_score,
+        "rationale": f"₹{round(total_buyback, 2)} cr in buybacks (FY{', FY'.join(str(y) for y in buyback_years)}) vs ₹{round(total_dividend, 2)} cr in dividends over the window -> score {buyback_score}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c7_4_dividends(symbol, name=None, force=False):
+    """C.7.4 - Dividends. Spec formula: Dividend Consistency Score (1-5).
+    Deterministic (no LLM) - real dividend-paid vs reinvestment/other-
+    uses cash outflow mix from _compute_c7_cash_flow_mix's multi-year
+    Cash Flow Statement data; consistency = fraction of years in the
+    window with a disclosed non-zero dividend payment. Sourcing: NSE
+    Corporate Filings - Corporate Actions - Dividend / Annual Report -
+    Board's Report - Dividend / Dividend Policy.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.7.4"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        mix = _compute_c7_cash_flow_mix(sym, name, force=force)
+        by_year = mix.get("capital_allocation_mix") or []
+    except Exception as e:
+        print(f"[qualitative_engine] C.7.4 fetch failed for {sym}: {e}")
+        by_year = []
+
+    pathway_results = [{
+        "pathway_id": "AR-08",
+        "source": "NSE Corporate Filings - Corporate Actions - Dividend / Annual Report - Board's Report - Dividend / Dividend Policy",
+        "result": "CHECKED" if by_year else "NOT_DISCLOSED",
+        "note": None if by_year else "No Cash Flow Statement data was available across the available Annual Reports this run.",
+    }]
+
+    if not by_year:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Dividends", "available": True,
+            "total_dividend_cr": None, "total_reinvestment_cr": None, "years_paid": None, "years_covered": None,
+            "consistency_pct": None, "dividend_consistency_score": None,
+            "rationale": "No Cash Flow Statement data was available across the available Annual Reports this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    total_dividend = sum(r["amounts_cr"].get("Dividends", 0) or 0 for r in by_year)
+    total_reinvestment = sum((r["amounts_cr"].get("Capex", 0) or 0) + (r["amounts_cr"].get("M&A", 0) or 0) for r in by_year)
+    years_paid = [r["fiscal_year"] for r in by_year if (r["amounts_cr"].get("Dividends") or 0) > 0]
+    consistency_pct = round(100 * len(years_paid) / len(by_year), 1) if by_year else None
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Dividends", "available": True,
+        "total_dividend_cr": round(total_dividend, 2), "total_reinvestment_cr": round(total_reinvestment, 2),
+        "years_paid": years_paid, "years_covered": len(by_year),
+        "consistency_pct": consistency_pct, "dividend_consistency_score": _band_score_pct(consistency_pct),
+        "rationale": f"Dividends paid in {len(years_paid)} of {len(by_year)} year(s) ({consistency_pct}%) -> score {_band_score_pct(consistency_pct)}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c7_5_capital_allocation_rationale(symbol, name=None, force=False):
+    """C.7.5 - Capital allocation rationale. Spec formula: Capital
+    Allocation Quality Score (1-5). Deterministic (no LLM) - real
+    latest-year Growth Investment (capex + M&A) vs Shareholder Return
+    (dividends + buybacks) vs Debt Reduction (Cash Flow Statement's own
+    "Repayment of borrowings" line) split. Sourcing: NSE Corporate
+    Filings - Annual Reports - Board's Report / MD&A - Capital
+    Allocation / Dividend / Expansion / Acquisition commentary.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.7.5"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.capital_allocation_scoring import extract_debt_repayment_cr
+        mix = _compute_c7_cash_flow_mix(sym, name, force=force)
+        by_year = mix.get("capital_allocation_mix") or []
+        latest = by_year[-1] if by_year else None
+        growth_investment = None
+        shareholder_return = None
+        if latest:
+            growth_investment = (latest["amounts_cr"].get("Capex", 0) or 0) + (latest["amounts_cr"].get("M&A", 0) or 0)
+            shareholder_return = (latest["amounts_cr"].get("Dividends", 0) or 0) + (latest["amounts_cr"].get("Buybacks", 0) or 0)
+        texts = extract_text_near_anchors(sym, name, {"debt": ["repayment of borrowings", "repayment of long-term borrowings", "proceeds from borrowings"]}, max_pages_per_key=6)
+        debt_reduction = extract_debt_repayment_cr(texts.get("debt", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] C.7.5 fetch failed for {sym}: {e}")
+        growth_investment = shareholder_return = debt_reduction = None
+        latest = None
+
+    pathway_results = [{
+        "pathway_id": "AR-08",
+        "source": "NSE Corporate Filings - Annual Reports - Board's Report / MD&A - Capital Allocation / Dividend / Expansion / Acquisition commentary",
+        "result": "CHECKED" if latest else "NOT_DISCLOSED",
+        "note": None if latest else "No Cash Flow Statement data was available for the latest fiscal year this run.",
+    }]
+
+    if latest is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Capital allocation rationale", "available": True,
+            "growth_investment_cr": None, "shareholder_return_cr": None, "debt_reduction_cr": None,
+            "fiscal_year": None, "capital_allocation_quality_score": None,
+            "rationale": "No Cash Flow Statement data was available for the latest fiscal year this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    # Quality banded on how many of the three real categories were
+    # actually disclosed/computable this year - completeness of the
+    # capital-allocation picture, not a judgement on the allocation
+    # itself (there's no universal "right" split across growth/returns/
+    # debt reduction).
+    categories_found = sum(1 for v in (growth_investment, shareholder_return, debt_reduction) if v is not None and v > 0)
+    completeness_pct = round(100 * categories_found / 3, 1)
+    quality_score = _band_score_pct(completeness_pct)
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Capital allocation rationale", "available": True,
+        "growth_investment_cr": round(growth_investment, 2) if growth_investment is not None else None,
+        "shareholder_return_cr": round(shareholder_return, 2) if shareholder_return is not None else None,
+        "debt_reduction_cr": debt_reduction,
+        "fiscal_year": latest["fiscal_year"], "capital_allocation_quality_score": quality_score,
+        "rationale": f"FY{latest['fiscal_year']}: ₹{round(growth_investment, 2) if growth_investment is not None else 'N/A'} cr growth investment, ₹{round(shareholder_return, 2) if shareholder_return is not None else 'N/A'} cr shareholder return, ₹{debt_reduction if debt_reduction is not None else 'N/A'} cr debt reduction -> score {quality_score}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c7_capital_allocation(symbol, name=None, force=False):
+    """C.7 — Capital allocation decisions: combines the five sub-points
+    (C.7.1 capex, C.7.2 acquisitions, C.7.3 buybacks, C.7.4 dividends,
+    C.7.5 capital allocation rationale) into a single grounded payload,
+    all sourced from real Annual Report text and the real multi-year
+    Cash Flow Statement mix (_compute_c7_cash_flow_mix), scored
+    deterministically (no LLM call - see
+    tools/capital_allocation_scoring.py).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    c71 = compute_c7_1_capex(sym, name, force=force)
+    c72 = compute_c7_2_acquisitions(sym, name, force=force)
+    c73 = compute_c7_3_buybacks(sym, name, force=force)
+    c74 = compute_c7_4_dividends(sym, name, force=force)
+    c75 = compute_c7_5_capital_allocation_rationale(sym, name, force=force)
+
+    parts = []
+    if c71.get("capex_execution_score") is not None:
+        parts.append(f"Capex: {c71['growth_pct']}% growth-oriented (score {c71['capex_execution_score']}/5).")
+    if c72.get("acquisition_discipline_score") is not None:
+        parts.append(f"Acquisitions: {c72['strategic_pct']}% strategic (score {c72['acquisition_discipline_score']}/5).")
+    if c73.get("buyback_score") is not None:
+        parts.append(f"Buybacks: {c73.get('buyback_pct')}% of shareholder returns (score {c73['buyback_score']}/5).")
+    elif c73.get("buyback_years") == []:
+        parts.append("Buybacks: none in the available window (dividends only).")
+    if c74.get("dividend_consistency_score") is not None:
+        parts.append(f"Dividends: paid in {c74['consistency_pct']}% of years (score {c74['dividend_consistency_score']}/5).")
+    if c75.get("capital_allocation_quality_score") is not None:
+        parts.append(f"Rationale: FY{c75['fiscal_year']} split disclosed (score {c75['capital_allocation_quality_score']}/5).")
+    if not parts:
+        parts.append("None of the five sub-points (capex, acquisitions, buybacks, dividends, rationale) were explicitly covered this run.")
+
+    _tags = [t.get("confidence_tag") for t in (c71, c72, c73, c74, c75)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (c71, c72, c73, c74, c75) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "C.7",
+        "title": "Capital allocation decisions: history of cash deployment and rationale",
+        "available": True,
+        "c7_1": c71, "c7_2": c72, "c7_3": c73, "c7_4": c74, "c7_5": c75,
+        "rationale": " ".join(parts),
+        "pathway_results": (c71.get("pathway_results") or []) + (c72.get("pathway_results") or []) + (c73.get("pathway_results") or []) + (c74.get("pathway_results") or []) + (c75.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 

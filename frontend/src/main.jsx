@@ -2959,7 +2959,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 revenuePatternDonut = (
                     <MoatWheelDonut data={sp.secondaryChart?.data} centerValue={sp.secondaryChart?.centerValue} overallLabel="Overall Score" />
                 );
-            } else if ((sp.key === 'founder_ceo_track_record' || sp.key === 'management_incentives' || sp.key === 'management_bench_depth' || sp.key === 'communication_quality' || sp.key === 'execution_credibility' || sp.key === 'culture' || sp.key === 'promoter_shareholding_pattern' || sp.key === 'promoter_share_pledging' || sp.key === 'related_party_transactions' || sp.key === 'group_structural_complexity' || sp.key === 'board_composition_independence' || sp.key === 'auditor_relationships') && sp.chart?.type === 'multi_donut') {
+            } else if ((sp.key === 'founder_ceo_track_record' || sp.key === 'management_incentives' || sp.key === 'management_bench_depth' || sp.key === 'communication_quality' || sp.key === 'execution_credibility' || sp.key === 'culture' || sp.key === 'promoter_shareholding_pattern' || sp.key === 'promoter_share_pledging' || sp.key === 'related_party_transactions' || sp.key === 'group_structural_complexity' || sp.key === 'board_composition_independence' || sp.key === 'auditor_relationships' || sp.key === 'capital_allocation') && sp.chart?.type === 'multi_donut') {
                 revenuePatternDonut = (
                     <MultiDonutPanel panels={sp.chart.panels} />
                 );
