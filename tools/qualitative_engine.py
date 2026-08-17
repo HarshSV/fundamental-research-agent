@@ -5942,22 +5942,31 @@ def compute_c3_related_party_transactions(symbol, name=None, force=False):
     return payload
 
 
-def compute_c4_group_structural_complexity(symbol, name=None, force=False):
-    """C.4 — Use of complex group entities: off-balance-sheet vehicles, SPVs,
-    subsidiaries abroad. N/A formula — a structural complexity score (count of
-    entities, layers), per the spec.
+def _fetch_group_entities(sym, name):
+    """Internal: the Related Party Disclosures note's own "Subsidiaries
+    (Extent of holding)" listing, shared by C.4.2/C.4.3/C.4.4 so all
+    three reuse the same AR fetch instead of re-downloading the PDF
+    three times per report."""
+    from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report
+    from tools.group_structure_scoring import extract_group_entities
+    evidence = fetch_rpt_evidence_from_annual_report(sym, name)
+    text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+    return extract_group_entities(text)
 
-    Sourcing Sequence: AR-05 (group structure) -> PORTAL-05 (director registry,
-    NOT bio) -> AGG-01 (Tofler, fallback/cross-check only).
 
-    Same gap as C.3: no AR-05 subsidiary-list parser, no PORTAL-05 MCA fetcher,
-    no Tofler fetcher. Subsidiary counts, entity layers, and unclear-purpose flags
-    don't legitimately appear in a generic business-description paragraph or
-    concall transcript — same guardrail as B.2/B.3/B.6/C.3, that text is not used
-    as a stand-in here. Honest full gap, no LLM call.
+def compute_c4_1_offbalance_sheet_vehicles(symbol, name=None, force=False):
+    """C.4.1 - Off-balance-sheet vehicles. Spec formula: Off-balance-
+    sheet Risk Score (1-5): 5 = no material opaque arrangements
+    identified. Deterministic (no LLM) - see
+    tools/group_structure_scoring.py's score_offbalance_sheet_risk:
+    contingent-liability/commitment/guarantee sentences that name a
+    quantified figure are "Disclosed", ones explicitly stating the
+    amount cannot be estimated are "Opaque". Sourcing: NSE Corporate
+    Filings - Annual Reports - Notes to Accounts - Contingent
+    Liabilities & Commitments / Guarantees.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "C.4"
+    subpoint_id = "C.4.1"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -5969,41 +5978,264 @@ def compute_c4_group_structural_complexity(symbol, name=None, force=False):
             except Exception:
                 return cached
 
-    pathway_results = [
-        {
-            "pathway_id": "AR-05",
-            "source": "Subsidiaries / group structure (Form AOC-1 + Consolidated Notes)",
-            "result": "NOT_DISCLOSED",
-            "note": "No AR-05 group-structure parser is wired into this codebase yet.",
-        },
-        {
-            "pathway_id": "PORTAL-05",
-            "source": "MCA Company/Director Master Data (group/company master data, NOT bio)",
-            "result": "NOT_DISCLOSED",
-            "note": "No MCA director-master-data fetcher is wired into this codebase yet.",
-        },
-        {
-            "pathway_id": "AGG-01",
-            "source": "Tofler — group structure mapping (fallback/cross-check only)",
-            "result": "NOT_CHECKED",
-            "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
-        },
-    ]
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.group_structure_scoring import score_offbalance_sheet_risk
+        texts = extract_text_near_anchors(sym, name, {"contingent": ["contingent liabilities and commitments", "corporate guarantee", "capital commitments"]}, max_pages_per_key=6)
+        result = score_offbalance_sheet_risk(texts.get("contingent", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] C.4.1 fetch failed for {sym}: {e}")
+        result = {"disclosed_count": None, "opaque_count": None, "transparency_pct": None, "offbalance_risk_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-08",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Contingent Liabilities & Commitments / Guarantees",
+        "result": "CHECKED" if result["offbalance_risk_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["offbalance_risk_score"] is not None else "No Contingent Liabilities & Commitments note with a quantified or explicitly-unquantifiable figure was located in the latest Annual Report this run.",
+    }]
+
+    if result["offbalance_risk_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Off-balance-sheet vehicles", "available": True, **result,
+            "rationale": "No Contingent Liabilities & Commitments note with a clear disclosed/opaque signal was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
 
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Use of complex group entities: off-balance-sheet vehicles, SPVs, subsidiaries abroad",
-        "available": True,
-        "subsidiary_count": None,
-        "structural_layers": None,
-        "unclear_purpose_flags": [],
-        "rationale": "Not computed — AR-05 (subsidiary/group-structure list) and PORTAL-05 (MCA group/company master data) both require fetchers this codebase doesn't have yet.",
+        "subpoint_id": subpoint_id, "title": "Off-balance-sheet vehicles", "available": True, **result,
+        "rationale": f"{result['disclosed_count']} quantified vs {result['opaque_count']} explicitly-unquantifiable off-balance-sheet item(s) found -> score {result['offbalance_risk_score']}/5.",
         "pathway_results": pathway_results,
     }
-    confidence_tag = "SEARCH_INCONCLUSIVE"
+    confidence_tag = "SINGLE_SOURCE"
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c4_2_spvs(symbol, name=None, force=False):
+    """C.4.2 - Special purpose vehicles (SPVs). Spec formula: SPV
+    Complexity Score (1-5). Deterministic (no LLM) - see
+    tools/group_structure_scoring.py's score_spv_complexity: classifies
+    each named group entity in the Subsidiaries listing as an operating
+    entity vs an SPV-like Trust/Foundation/Fund. Sourcing: NSE Corporate
+    Filings - Annual Reports - List of Subsidiaries / Related Party
+    Disclosures - SPV / special-purpose entities.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.group_structure_scoring import score_spv_complexity
+        entities = _fetch_group_entities(sym, name)
+        result = score_spv_complexity(entities)
+    except Exception as e:
+        print(f"[qualitative_engine] C.4.2 fetch failed for {sym}: {e}")
+        result = {"operating_count": None, "spv_count": None, "operating_pct": None, "spv_complexity_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-05",
+        "source": "NSE Corporate Filings - Annual Reports - List of Subsidiaries / Related Party Disclosures - SPV / special-purpose entities",
+        "result": "CHECKED" if result["spv_complexity_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["spv_complexity_score"] is not None else "No Subsidiaries (Extent of holding) listing with named entities was located in the latest Annual Report this run.",
+    }]
+
+    if result["spv_complexity_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Special purpose vehicles (SPVs)", "available": True, **result,
+            "rationale": "No Subsidiaries listing with named entities was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Special purpose vehicles (SPVs)", "available": True, **result,
+        "rationale": f"{result['operating_count']} operating entities vs {result['spv_count']} SPV-like (Trust/Foundation/Fund) entities explicitly named -> score {result['spv_complexity_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c4_3_subsidiaries_abroad(symbol, name=None, force=False):
+    """C.4.3 - Subsidiaries abroad. Spec formula: Offshore Structure
+    Score (1-5). Deterministic (no LLM) - see
+    tools/group_structure_scoring.py's score_offshore_structure:
+    classifies each named group entity as domestic vs overseas (country-
+    name hint or a distinctly non-Indian corporate suffix). Sourcing:
+    NSE Corporate Filings - Annual Reports - List of Subsidiaries -
+    foreign subsidiaries, country of incorporation.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.4.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.group_structure_scoring import score_offshore_structure
+        entities = _fetch_group_entities(sym, name)
+        result = score_offshore_structure(entities)
+    except Exception as e:
+        print(f"[qualitative_engine] C.4.3 fetch failed for {sym}: {e}")
+        result = {"domestic_count": None, "overseas_count": None, "domestic_pct": None, "offshore_structure_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-05",
+        "source": "NSE Corporate Filings - Annual Reports - List of Subsidiaries - foreign subsidiaries, country of incorporation",
+        "result": "CHECKED" if result["offshore_structure_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["offshore_structure_score"] is not None else "No Subsidiaries (Extent of holding) listing with named entities was located in the latest Annual Report this run.",
+    }]
+
+    if result["offshore_structure_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Subsidiaries abroad", "available": True, **result,
+            "rationale": "No Subsidiaries listing with named entities was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Subsidiaries abroad", "available": True, **result,
+        "rationale": f"{result['domestic_count']} domestic vs {result['overseas_count']} overseas group entities explicitly named -> score {result['offshore_structure_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c4_4_group_complexity(symbol, name=None, force=False):
+    """C.4.4 - Complexity / transparency of group structure. Spec
+    formula: Group Structure Complexity Score (1-5), banded on entity
+    count (per tools/group_structure_scoring.py's
+    score_group_complexity). Sourcing: NSE Corporate Filings - Annual
+    Reports - Corporate Information / Notes to Accounts - Group
+    Structure / Subsidiaries / Associates / JVs.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.4.4"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.group_structure_scoring import score_group_complexity
+        entities = _fetch_group_entities(sym, name)
+        result = score_group_complexity(entities)
+    except Exception as e:
+        print(f"[qualitative_engine] C.4.4 fetch failed for {sym}: {e}")
+        result = {"entity_count": None, "domestic_count": None, "overseas_count": None, "trust_count": None, "group_complexity_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-05",
+        "source": "NSE Corporate Filings - Annual Reports - Corporate Information / Notes to Accounts - Group Structure / Subsidiaries / Associates / JVs",
+        "result": "CHECKED" if result["group_complexity_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["group_complexity_score"] is not None else "No Subsidiaries (Extent of holding) listing with named entities was located in the latest Annual Report this run.",
+    }]
+
+    if result["group_complexity_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Complexity / transparency of group structure", "available": True, **result,
+            "rationale": "No Subsidiaries listing with named entities was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Complexity / transparency of group structure", "available": True, **result,
+        "rationale": f"{result['entity_count']} distinct group entities explicitly named ({result['domestic_count']} domestic, {result['overseas_count']} overseas, {result['trust_count']} trust/foundation) -> score {result['group_complexity_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c4_group_structural_complexity(symbol, name=None, force=False):
+    """C.4 — Use of complex group entities: combines the four sub-points
+    (C.4.1 off-balance-sheet vehicles, C.4.2 SPVs, C.4.3 subsidiaries
+    abroad, C.4.4 group structure complexity) into a single grounded
+    payload, each sourced from real Annual Report text and scored
+    deterministically (no LLM call - see
+    tools/group_structure_scoring.py).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    c41 = compute_c4_1_offbalance_sheet_vehicles(sym, name, force=force)
+    c42 = compute_c4_2_spvs(sym, name, force=force)
+    c43 = compute_c4_3_subsidiaries_abroad(sym, name, force=force)
+    c44 = compute_c4_4_group_complexity(sym, name, force=force)
+
+    parts = []
+    if c41.get("offbalance_risk_score") is not None:
+        parts.append(f"Off-balance-sheet vehicles: {c41['transparency_pct']}% disclosed/quantified (score {c41['offbalance_risk_score']}/5).")
+    if c42.get("spv_complexity_score") is not None:
+        parts.append(f"SPVs: {c42['operating_pct']}% operating entities (score {c42['spv_complexity_score']}/5).")
+    if c43.get("offshore_structure_score") is not None:
+        parts.append(f"Subsidiaries abroad: {c43['domestic_pct']}% domestic (score {c43['offshore_structure_score']}/5).")
+    if c44.get("group_complexity_score") is not None:
+        parts.append(f"Group structure: {c44['entity_count']} entities (score {c44['group_complexity_score']}/5).")
+    if not parts:
+        parts.append("None of the four sub-points (off-balance-sheet vehicles, SPVs, subsidiaries abroad, group structure complexity) were explicitly covered this run.")
+
+    _tags = [t.get("confidence_tag") for t in (c41, c42, c43, c44)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (c41, c42, c43, c44) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "C.4",
+        "title": "Use of complex group entities: off-balance-sheet vehicles, SPVs, subsidiaries abroad",
+        "available": True,
+        "c4_1": c41, "c4_2": c42, "c4_3": c43, "c4_4": c44,
+        "rationale": " ".join(parts),
+        "pathway_results": (c41.get("pathway_results") or []) + (c42.get("pathway_results") or []) + (c43.get("pathway_results") or []) + (c44.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 

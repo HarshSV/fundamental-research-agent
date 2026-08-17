@@ -823,6 +823,39 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
+        // --- category_bar: N-category horizontal bar of raw counts (e.g.
+        // Group Entities by Type and Jurisdiction) — unlike stacked_bar
+        // (currency-formatted, fixed 2 categories), this shows a plain
+        // integer count per category, any number of categories.
+        const CategoryBarPanel = ({ panel }) => {
+            const items = (panel.data || []).filter(d => d.value != null && !isNaN(d.value));
+            if (!items.length) return null;
+            const maxVal = Math.max(...items.map(d => d.value), 1);
+            return (
+                <div className="flex flex-col items-center w-full">
+                    {panel.centerValue && (
+                        <div className="text-lg font-extrabold text-slate-100 mb-2">{panel.centerValue}</div>
+                    )}
+                    <div className="w-full max-w-[200px] space-y-2.5">
+                        {items.map((d, i) => (
+                            <div key={d.label}>
+                                <div className="flex items-center justify-between text-[10px] mb-1">
+                                    <span className="font-semibold text-slate-300">{d.label}</span>
+                                    <span className="font-mono font-bold text-slate-400">{d.value}</span>
+                                </div>
+                                <div className="h-2.5 rounded-full overflow-hidden bg-slate-800">
+                                    <div className="h-full rounded-full" style={{ width: `${Math.max(2, (d.value / maxVal) * 100)}%`, background: BIG_DONUT_PALETTE[i % BIG_DONUT_PALETTE.length] }}></div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    {panel.explanation && (
+                        <p className="text-[10px] text-slate-500 text-center mt-2 max-w-[220px] leading-snug">{panel.explanation}</p>
+                    )}
+                </div>
+            );
+        };
+
         // --- line_trend: simple polyline over N real yearly data points
         // (e.g. Strategic Delivery Trend) — only shows the years that
         // actually resolved, never padded to a fixed length.
@@ -888,6 +921,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 );
             }
             if (panel.type === 'stacked_bar') return <StackedBarPanel panel={panel} />;
+            if (panel.type === 'category_bar') return <CategoryBarPanel panel={panel} />;
             if (panel.type === 'line_trend') return <LineTrendPanel panel={panel} />;
             let slices = [];
             if (panel.type === 'classification') {
@@ -2925,7 +2959,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 revenuePatternDonut = (
                     <MoatWheelDonut data={sp.secondaryChart?.data} centerValue={sp.secondaryChart?.centerValue} overallLabel="Overall Score" />
                 );
-            } else if ((sp.key === 'founder_ceo_track_record' || sp.key === 'management_incentives' || sp.key === 'management_bench_depth' || sp.key === 'communication_quality' || sp.key === 'execution_credibility' || sp.key === 'culture' || sp.key === 'promoter_shareholding_pattern' || sp.key === 'promoter_share_pledging' || sp.key === 'related_party_transactions') && sp.chart?.type === 'multi_donut') {
+            } else if ((sp.key === 'founder_ceo_track_record' || sp.key === 'management_incentives' || sp.key === 'management_bench_depth' || sp.key === 'communication_quality' || sp.key === 'execution_credibility' || sp.key === 'culture' || sp.key === 'promoter_shareholding_pattern' || sp.key === 'promoter_share_pledging' || sp.key === 'related_party_transactions' || sp.key === 'group_structural_complexity') && sp.chart?.type === 'multi_donut') {
                 revenuePatternDonut = (
                     <MultiDonutPanel panels={sp.chart.panels} />
                 );

@@ -2251,6 +2251,7 @@ def build_executive_summary(state: SystemState) -> dict:
                 'rationale': _c4.get('rationale'),
                 'confidence_tag': _c4.get('confidence_tag'), 'retrieved_at': _c4.get('retrieved_at'),
                 'pathway_results': _c4.get('pathway_results'),
+                'c4_1': _c4.get('c4_1') or {}, 'c4_2': _c4.get('c4_2') or {}, 'c4_3': _c4.get('c4_3') or {}, 'c4_4': _c4.get('c4_4') or {},
             }
     except Exception as e:
         print(f"[qualitative_topics] sourced C.4 engine failed, falling back to raw LLM fields: {e}")
@@ -3036,18 +3037,57 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No explicit RPT-approval-process disclosure was located for {_co} this run."}
     _c3_panels = [_c3_1_panel, _c3_2_donut, _c3_3_donut, _c3_4_donut]
 
-    _subsidiary_count = f37.get('subsidiary_count')
-    try:
-        _subsidiary_count = max(0, int(_subsidiary_count))
-    except (TypeError, ValueError):
-        _subsidiary_count = None
-    _structural_layers = f37.get('structural_layers')
-    try:
-        _structural_layers = max(0, int(_structural_layers))
-    except (TypeError, ValueError):
-        _structural_layers = None
-    _group_complexity_rating = _enum(f37.get('complexity_rating'), ['Low', 'Moderate', 'High'])
-    _unclear_purpose_flags = [v for v in (f37.get('unclear_purpose_flags') or []) if isinstance(v, str) and v.strip()][:3]
+    _c4_1, _c4_2, _c4_3, _c4_4 = f37.get('c4_1') or {}, f37.get('c4_2') or {}, f37.get('c4_3') or {}, f37.get('c4_4') or {}
+
+    if _c4_1.get('offbalance_risk_score') is not None:
+        _c4_1_donut = {
+            'type': 'donut', 'title': 'Off-balance-sheet Exposure',
+            'data': [{'label': 'On-balance-sheet (Disclosed)', 'value': _c4_1.get('disclosed_count')},
+                     {'label': 'Off-balance-sheet (Opaque)', 'value': _c4_1.get('opaque_count')}],
+            'centerValue': f"{_c4_1.get('transparency_pct')}%",
+            'explanation': f"{_co}'s Contingent Liabilities & Commitments note explicitly quantified {_c4_1.get('disclosed_count')} vs left {_c4_1.get('opaque_count')} item(s) unquantifiable (score {_c4_1.get('offbalance_risk_score')}/5).",
+        }
+    else:
+        _c4_1_donut = {'type': 'unavailable', 'title': 'Off-balance-sheet Exposure',
+                        'explanation': f"No Contingent Liabilities & Commitments note with a clear disclosed/opaque signal was located for {_co} this run."}
+
+    if _c4_2.get('spv_complexity_score') is not None:
+        _c4_2_donut = {
+            'type': 'donut', 'title': 'Operating Entities vs SPVs',
+            'data': [{'label': 'Operating Entities', 'value': _c4_2.get('operating_count')},
+                     {'label': 'SPVs', 'value': _c4_2.get('spv_count')}],
+            'centerValue': f"{_c4_2.get('operating_pct')}%",
+            'explanation': f"{_co}'s Subsidiaries listing explicitly named {_c4_2.get('operating_count')} operating entities vs {_c4_2.get('spv_count')} SPV-like (Trust/Foundation/Fund) entities (score {_c4_2.get('spv_complexity_score')}/5).",
+        }
+    else:
+        _c4_2_donut = {'type': 'unavailable', 'title': 'Operating Entities vs SPVs',
+                        'explanation': f"No Subsidiaries (Extent of holding) listing with named entities was located for {_co} this run."}
+
+    if _c4_3.get('offshore_structure_score') is not None:
+        _c4_3_donut = {
+            'type': 'donut', 'title': 'Domestic vs Overseas Entities',
+            'data': [{'label': 'Domestic', 'value': _c4_3.get('domestic_count')},
+                     {'label': 'Overseas', 'value': _c4_3.get('overseas_count')}],
+            'centerValue': f"{_c4_3.get('domestic_pct')}%",
+            'explanation': f"{_co}'s Subsidiaries listing explicitly named {_c4_3.get('domestic_count')} domestic vs {_c4_3.get('overseas_count')} overseas group entities (score {_c4_3.get('offshore_structure_score')}/5).",
+        }
+    else:
+        _c4_3_donut = {'type': 'unavailable', 'title': 'Domestic vs Overseas Entities',
+                        'explanation': f"No Subsidiaries (Extent of holding) listing with named entities was located for {_co} this run."}
+
+    if _c4_4.get('group_complexity_score') is not None:
+        _c4_4_panel = {
+            'type': 'category_bar', 'title': 'Group Entities by Type and Jurisdiction',
+            'data': [{'label': 'Domestic', 'value': _c4_4.get('domestic_count')},
+                     {'label': 'Overseas', 'value': _c4_4.get('overseas_count')},
+                     {'label': 'Trust/Foundation', 'value': _c4_4.get('trust_count')}],
+            'centerValue': f"{_c4_4.get('entity_count')} entities",
+            'explanation': f"{_co} explicitly named {_c4_4.get('entity_count')} distinct group entities ({_c4_4.get('domestic_count')} domestic, {_c4_4.get('overseas_count')} overseas, {_c4_4.get('trust_count')} trust/foundation) -> score {_c4_4.get('group_complexity_score')}/5.",
+        }
+    else:
+        _c4_4_panel = {'type': 'unavailable', 'title': 'Group Entities by Type and Jurisdiction',
+                        'explanation': f"No Subsidiaries (Extent of holding) listing with named entities was located for {_co} this run."}
+    _c4_panels = [_c4_1_donut, _c4_2_donut, _c4_3_donut, _c4_4_panel]
 
     _independent_director_pct = f38.get('independent_director_pct')
     try:
@@ -3623,25 +3663,28 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f36.get('pathway_results'),
                 },
                 {
+                    # C.4 — the four sub-points (C.4.1 off-balance-sheet
+                    # vehicles, C.4.2 SPVs, C.4.3 subsidiaries abroad,
+                    # C.4.4 group structure complexity) combined into ONE
+                    # card as a 4-panel set (3 donuts + 1 category bar).
                     'key': 'group_structural_complexity',
                     'title': 'Use of complex group entities: off-balance-sheet vehicles, SPVs, subsidiaries abroad',
                     'finding': f37.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Subsidiary count', str(_subsidiary_count)] if _subsidiary_count is not None else None),
-                        (['Structural layers', str(_structural_layers)] if _structural_layers is not None else None),
-                        (['Complexity', _group_complexity_rating] if _group_complexity_rating else None),
-                        (['Unclear-purpose entities', '; '.join(_unclear_purpose_flags)] if _unclear_purpose_flags else None),
+                        (['Off-balance-sheet vehicles', f"{_c4_1.get('transparency_pct')}% disclosed"] if _c4_1.get('transparency_pct') is not None else None),
+                        (['SPVs', f"{_c4_2.get('operating_pct')}% operating"] if _c4_2.get('operating_pct') is not None else None),
+                        (['Subsidiaries abroad', f"{_c4_3.get('domestic_pct')}% domestic"] if _c4_3.get('domestic_pct') is not None else None),
+                        (['Group structure', f"{_c4_4.get('entity_count')} entities"] if _c4_4.get('entity_count') is not None else None),
                     ] if f],
-                    'chart': ({'type': 'bar', 'data': [
-                                  {'label': 'Subsidiaries', 'value': _subsidiary_count},
-                                  {'label': 'Structural layers', 'value': _structural_layers},
-                              ], 'scaleMax': max(10, (_subsidiary_count or 0), (_structural_layers or 0))}
-                               if _subsidiary_count is not None and _structural_layers is not None else None),
-                    'formula': 'N/A - structural complexity score (count of entities, layers)',
+                    'chart': ({'type': 'multi_donut', 'panels': _c4_panels} if _c4_panels else None),
+                    'formula': 'Off-balance-sheet Risk Score = quantified vs unquantifiable contingent-liability/commitment items, banded 1-5; '
+                               'SPV Complexity Score = operating vs SPV-like (Trust/Foundation) entities, banded 1-5; '
+                               'Offshore Structure Score = domestic vs overseas entity concentration, banded 1-5; '
+                               'Group Structure Complexity Score = total distinct named group entities, banded 1-5 (fewer = simpler).',
                     'sources': {
-                        'primary': {'label': 'MCA – Company/Director Master Data', 'note': 'group/company master data', 'url': 'https://www.mca.gov.in'},
-                        'secondary': {'label': 'Company Annual Report', 'note': 'subsidiaries/associates list, sourced via BSE announcement / company IR page'},
-                        'tertiary': {'label': 'Tofler – Company/Director Search', 'note': 'group structure mapping', 'url': 'https://www.tofler.in'},
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Contingent Liabilities & Commitments / Guarantees', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'List of Subsidiaries / Associates / Joint Ventures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Corporate Information / Group Structure', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': f37.get('confidence_tag'), 'retrieved_at': f37.get('retrieved_at'),
                     'pathway_results': f37.get('pathway_results'),
