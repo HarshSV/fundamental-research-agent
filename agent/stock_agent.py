@@ -2232,13 +2232,10 @@ def build_executive_summary(state: SystemState) -> dict:
         _c3 = compute_c3_related_party_transactions(symbol, name)
         if _c3 and _c3.get('available'):
             f36 = {
-                'rpt_intensity_pct': _c3.get('rpt_intensity_pct'),
-                'rpt_frequency': _c3.get('rpt_frequency'),
-                'counterparty_flags': _c3.get('counterparty_flags') or [],
-                'records': _c3.get('records') or [],
                 'rationale': _c3.get('rationale'),
                 'confidence_tag': _c3.get('confidence_tag'), 'retrieved_at': _c3.get('retrieved_at'),
                 'pathway_results': _c3.get('pathway_results'),
+                'c3_1': _c3.get('c3_1') or {}, 'c3_2': _c3.get('c3_2') or {}, 'c3_3': _c3.get('c3_3') or {}, 'c3_4': _c3.get('c3_4') or {},
             }
     except Exception as e:
         print(f"[qualitative_topics] sourced C.3 engine failed, falling back to raw LLM fields: {e}")
@@ -2990,20 +2987,54 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"NSE's live pledge endpoint was unreachable for {_co} this run."}
     _c2_panels = [_c2_1_donut, _c2_2_panel, _c2_3_panel, _c2_4_panel]
 
-    _rpt_intensity_pct = f36.get('rpt_intensity_pct')
-    try:
-        _rpt_intensity_pct = round(max(0.0, min(100.0, float(_rpt_intensity_pct))), 2)
-    except (TypeError, ValueError):
-        _rpt_intensity_pct = None
-    _rpt_frequency = _enum(f36.get('rpt_frequency'), ['None', 'Occasional', 'Frequent'])
-    _counterparty_flags = [v for v in (f36.get('counterparty_flags') or []) if isinstance(v, str) and v.strip()][:3]
-    # Full row list for the RPT table component — each row already carries
-    # its own verbatim quote (validated in tools/rpt_extractor.py), so no
-    # further sanitization is needed beyond a defensive type/shape check.
-    _rpt_records = [
-        r for r in (f36.get('records') or [])
-        if isinstance(r, dict) and r.get('counterparty') and r.get('quote')
-    ][:50]
+    _c3_1, _c3_2, _c3_3, _c3_4 = f36.get('c3_1') or {}, f36.get('c3_2') or {}, f36.get('c3_3') or {}, f36.get('c3_4') or {}
+
+    if _c3_1.get('frequency_score') is not None:
+        _c3_1_panel = {
+            'type': 'classification', 'title': 'Frequency of RPTs',
+            'zones': ['Limited', 'Frequent'], 'active': _c3_1.get('frequency_bucket'),
+            'explanation': f"{_co} has {_c3_1.get('rpt_row_count')} verbatim-quote-verified related-party transaction row(s) -> {_c3_1.get('frequency_bucket')} (score {_c3_1.get('frequency_score')}/5).",
+        }
+    else:
+        _c3_1_panel = {'type': 'unavailable', 'title': 'Frequency of RPTs',
+                        'explanation': f"No verbatim-quote-verified related-party transaction row was located for {_co} this run."}
+
+    if _c3_2.get('counterparty_risk_score') is not None:
+        _c3_2_donut = {
+            'type': 'donut', 'title': 'Counterparty Identity',
+            'data': [{'label': 'Promoter-group', 'value': _c3_2.get('promoter_group_count')},
+                     {'label': 'Independent', 'value': _c3_2.get('independent_count')}],
+            'centerValue': f"{_c3_2.get('counterparty_risk_pct')}%",
+            'explanation': f"{_co}'s related-party rows named {_c3_2.get('independent_count')} independent vs {_c3_2.get('promoter_group_count')} promoter/KMP-adjacent counterpart(y/ies) (score {_c3_2.get('counterparty_risk_score')}/5).",
+        }
+    else:
+        _c3_2_donut = {'type': 'unavailable', 'title': 'Counterparty Identity',
+                        'explanation': f"No verbatim-quote-verified related-party transaction row was located for {_co} this run."}
+
+    if _c3_3.get('pricing_fairness_score') is not None:
+        _c3_3_donut = {
+            'type': 'donut', 'title': 'Pricing and Commercial Rationale',
+            'data': [{'label': "Arm's Length", 'value': _c3_3.get('arms_length_count')},
+                     {'label': "Non-arm's Length", 'value': _c3_3.get('non_arms_length_count')}],
+            'centerValue': f"{_c3_3.get('pricing_fairness_pct')}%",
+            'explanation': f"{_co}'s Related Party Disclosures note explicitly confirmed {_c3_3.get('arms_length_count')} arm's-length vs {_c3_3.get('non_arms_length_count')} non-arm's-length statement(s) (score {_c3_3.get('pricing_fairness_score')}/5).",
+        }
+    else:
+        _c3_3_donut = {'type': 'unavailable', 'title': 'Pricing and Commercial Rationale',
+                        'explanation': f"No explicit arm's-length pricing statement was located for {_co} this run — most RPT notes don't restate the pricing basis in prose per line item."}
+
+    if _c3_4.get('disclosure_quality_score') is not None:
+        _c3_4_donut = {
+            'type': 'donut', 'title': 'Disclosure Quality of RPTs',
+            'data': [{'label': 'Transparent', 'value': _c3_4.get('transparent_count')},
+                     {'label': 'Opaque', 'value': _c3_4.get('opaque_count')}],
+            'centerValue': f"{_c3_4.get('disclosure_quality_pct')}%",
+            'explanation': f"{_co}'s Audit Committee Report explicitly named {_c3_4.get('transparent_count')} transparent (approval-process) vs {_c3_4.get('opaque_count')} opaque (red flag) statement(s) (score {_c3_4.get('disclosure_quality_score')}/5).",
+        }
+    else:
+        _c3_4_donut = {'type': 'unavailable', 'title': 'Disclosure Quality of RPTs',
+                        'explanation': f"No explicit RPT-approval-process disclosure was located for {_co} this run."}
+    _c3_panels = [_c3_1_panel, _c3_2_donut, _c3_3_donut, _c3_4_donut]
 
     _subsidiary_count = f37.get('subsidiary_count')
     try:
@@ -3565,21 +3596,28 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f35.get('pathway_results'),
                 },
                 {
+                    # C.3 — the four sub-points (C.3.1 frequency, C.3.2
+                    # counterparty identity, C.3.3 pricing fairness, C.3.4
+                    # disclosure quality) combined into ONE card as a
+                    # 4-panel set, same pattern as B.1/.../B.6, C.1, C.2.
                     'key': 'related_party_transactions',
                     'title': 'Related-party transactions (RPTs): frequency, counterparty identity, pricing and rationale',
                     'finding': f36.get('rationale') or None,
                     'facts': [f for f in [
-                        (['RPT intensity', f"~{_rpt_intensity_pct}%"] if _rpt_intensity_pct is not None else None),
-                        (['RPT frequency', _rpt_frequency] if _rpt_frequency else None),
-                        (['Counterparties', '; '.join(_counterparty_flags)] if _counterparty_flags else None),
+                        (['Frequency', _c3_1.get('frequency_bucket')] if _c3_1.get('frequency_bucket') else None),
+                        (['Counterparty identity', f"{_c3_2.get('counterparty_risk_pct')}% independent"] if _c3_2.get('counterparty_risk_pct') is not None else None),
+                        (['Pricing fairness', f"{_c3_3.get('pricing_fairness_pct')}% arm's length"] if _c3_3.get('pricing_fairness_pct') is not None else None),
+                        (['Disclosure quality', f"{_c3_4.get('disclosure_quality_pct')}% transparent"] if _c3_4.get('disclosure_quality_pct') is not None else None),
                     ] if f],
-                    'chart': ({'type': 'rpt_table', 'frequency': _rpt_frequency, 'rows': _rpt_records}
-                               if _rpt_records else None),
-                    'formula': 'RPT intensity = Total RPT value / Total revenue',
+                    'chart': ({'type': 'multi_donut', 'panels': _c3_panels} if _c3_panels else None),
+                    'formula': 'RPT Frequency Score = verified transaction row count, banded 1-5; '
+                               'Counterparty Risk Score = independent vs promoter/KMP-adjacent counterparty share, banded 1-5; '
+                               "Pricing Fairness Score = arm's-length vs non-arm's-length pricing statements, banded 1-5; "
+                               'RPT Disclosure Score = transparent (approval-process named) vs opaque (red flag) statements, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'Company Annual Report', 'note': 'RPT note, sourced via BSE announcement / company IR page'},
-                        'secondary': {'label': 'MCA – Company/Director Master Data', 'note': 'counterparty cross-check', 'url': 'https://www.mca.gov.in'},
-                        'tertiary': {'label': 'Tofler – Company/Director Search', 'url': 'https://www.tofler.in'},
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Related Party Disclosures (Ind AS 24)', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Related Party Disclosures — transaction descriptions and pricing basis', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Audit Committee Report — Related Party Approval Process', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': f36.get('confidence_tag'), 'retrieved_at': f36.get('retrieved_at'),
                     'pathway_results': f36.get('pathway_results'),

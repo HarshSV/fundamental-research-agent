@@ -5460,10 +5460,12 @@ _C3_PROMOTER_KMP_RELATIONSHIP_MARKERS = [
 ]
 
 
-def compute_c3_related_party_transactions(symbol, name=None, force=False):
-    """C.3 — Related-party transactions (RPTs): frequency, counterparty identity,
-    pricing and rationale. Formula: RPT intensity = Total RPT value / Total
-    revenue.
+def _compute_c3_rpt_records(symbol, name=None, force=False):
+    """Internal: LLM-extracted + verbatim-verified RPT rows, shared by
+    C.3.1 (frequency) and C.3.2 (counterparty identity) so both sub-
+    points reuse the SAME extraction run (and its DB cache) instead of
+    re-invoking the LLM row-extraction step twice per report. Formula
+    context: RPT intensity = Total RPT value / Total revenue.
 
     Sourcing Sequence: AR-04 (RPT note) -> AR-05 (group structure) -> PORTAL-05
     (director registry, NOT bio — counterparty cross-check) -> AGG-01 (Tofler,
@@ -5492,7 +5494,7 @@ def compute_c3_related_party_transactions(symbol, name=None, force=False):
     invoked, same as every other fallback-only pathway in this codebase.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "C.3"
+    subpoint_id = "C.3.records"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -5638,6 +5640,311 @@ def compute_c3_related_party_transactions(symbol, name=None, force=False):
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c3_1_frequency(symbol, name=None, force=False):
+    """C.3.1 - Frequency of RPTs. Spec formula: RPT Frequency Score
+    (1-5). Deterministic aggregation (LLM only touched row extraction,
+    in _compute_c3_rpt_records) over verbatim-quote-verified RPT rows -
+    fewer/limited RPTs bands higher than many/frequent ones. Sourcing:
+    NSE Corporate Filings - Annual Reports - Notes to Accounts - Related
+    Party Disclosures (Ind AS 24).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        c3rec = _compute_c3_rpt_records(sym, name, force=force)
+    except Exception as e:
+        print(f"[qualitative_engine] C.3.1 fetch failed for {sym}: {e}")
+        c3rec = {}
+
+    row_count = c3rec.get("rpt_row_count") or 0
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Related Party Disclosures (Ind AS 24)",
+        "result": "CHECKED" if row_count > 0 else "NOT_DISCLOSED",
+        "note": None if row_count > 0 else "No verbatim-quote-verified related-party transaction row was located this run.",
+    }]
+
+    if row_count == 0:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Frequency of RPTs", "available": True,
+            "rpt_row_count": 0, "frequency_bucket": None, "frequency_score": None,
+            "rationale": c3rec.get("rationale") or "No verbatim-quote-verified related-party transaction row was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    if row_count <= 3:
+        frequency_bucket, frequency_score = "Limited", 5
+    elif row_count <= 7:
+        frequency_bucket, frequency_score = "Frequent", 4
+    elif row_count <= 15:
+        frequency_bucket, frequency_score = "Frequent", 3
+    elif row_count <= 30:
+        frequency_bucket, frequency_score = "Frequent", 2
+    else:
+        frequency_bucket, frequency_score = "Frequent", 1
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Frequency of RPTs", "available": True,
+        "rpt_row_count": row_count, "frequency_bucket": frequency_bucket, "frequency_score": frequency_score,
+        "rationale": f"{row_count} verbatim-quote-verified related-party transaction row(s) -> {frequency_bucket} (score {frequency_score}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c3_2_counterparty_identity(symbol, name=None, force=False):
+    """C.3.2 - Counterparty identity. Spec formula: Counterparty Risk
+    Score (1-5). Deterministic aggregation over the same verified RPT
+    rows - flags each row's relationship type as promoter/KMP-adjacent
+    (per Ind AS 24 vocabulary) vs an independent (subsidiary/associate/
+    other) counterparty; a higher independent share bands higher.
+    Sourcing: NSE Corporate Filings - Annual Reports - Related Party
+    Disclosures - promoter group / subsidiaries / associates.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        c3rec = _compute_c3_rpt_records(sym, name, force=force)
+    except Exception as e:
+        print(f"[qualitative_engine] C.3.2 fetch failed for {sym}: {e}")
+        c3rec = {}
+
+    records = c3rec.get("records") or []
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Related Party Disclosures - promoter group / subsidiaries / associates",
+        "result": "CHECKED" if records else "NOT_DISCLOSED",
+        "note": None if records else "No verbatim-quote-verified related-party transaction row was located this run.",
+    }]
+
+    if not records:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Counterparty identity", "available": True,
+            "promoter_group_count": None, "independent_count": None, "counterparty_risk_pct": None, "counterparty_risk_score": None,
+            "rationale": c3rec.get("rationale") or "No verbatim-quote-verified related-party transaction row was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    promoter_group = len(c3rec.get("counterparty_flags") or [])
+    independent = max(0, len(records) - promoter_group)
+    pct_independent = round(100 * independent / len(records), 1)
+    counterparty_risk_score = _band_score_pct(pct_independent)
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Counterparty identity", "available": True,
+        "promoter_group_count": promoter_group, "independent_count": independent,
+        "counterparty_risk_pct": pct_independent, "counterparty_risk_score": counterparty_risk_score,
+        "rationale": f"{independent} independent vs {promoter_group} promoter/KMP-adjacent counterpart(y/ies) among {len(records)} verified row(s) -> score {counterparty_risk_score}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c3_3_pricing_fairness(symbol, name=None, force=False):
+    """C.3.3 - Pricing and commercial rationale. Spec formula: Pricing
+    Fairness Score (1-5). Deterministic (no LLM) - see
+    tools/rpt_disclosure_scoring.py's score_pricing_fairness: counts
+    sentences in the Related Party Disclosures note explicitly confirming
+    arm's-length pricing vs explicitly stating otherwise. Sourcing: NSE
+    Corporate Filings - Annual Reports - Related Party Disclosures -
+    transaction descriptions and pricing basis.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.3.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report
+        from tools.rpt_disclosure_scoring import score_pricing_fairness
+        evidence = fetch_rpt_evidence_from_annual_report(sym, name)
+        excerpt_text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_pricing_fairness(excerpt_text)
+    except Exception as e:
+        print(f"[qualitative_engine] C.3.3 fetch failed for {sym}: {e}")
+        result = {"arms_length_count": None, "non_arms_length_count": None, "pricing_fairness_pct": None, "pricing_fairness_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Related Party Disclosures - transaction descriptions and pricing basis",
+        "result": "CHECKED" if result["pricing_fairness_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["pricing_fairness_score"] is not None else "No explicit arm's-length pricing confirmation or contradiction was located in the Related Party Disclosures note this run — most notes don't restate the pricing basis in prose per line item.",
+    }]
+
+    if result["pricing_fairness_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Pricing and commercial rationale", "available": True, **result,
+            "rationale": "No explicit arm's-length pricing statement was located in the Related Party Disclosures note this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Pricing and commercial rationale", "available": True, **result,
+        "rationale": f"{result['arms_length_count']} statement(s) explicitly confirmed arm's-length pricing vs {result['non_arms_length_count']} stating otherwise -> score {result['pricing_fairness_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c3_4_disclosure_quality(symbol, name=None, force=False):
+    """C.3.4 - Disclosure quality of RPTs. Spec formula: RPT Disclosure
+    Score (1-5). Deterministic (no LLM) - see
+    tools/rpt_disclosure_scoring.py's score_disclosure_quality: an Audit
+    Committee / RPT-approval sentence is "Transparent" if it explicitly
+    names an approval process (omnibus approval, RPT materiality policy),
+    "Opaque" if it flags a red flag (no policy, delayed/missing
+    approval). Sourcing: NSE Corporate Filings - Annual Reports - Audit
+    Committee Report - Related Party Approval Process.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.3.4"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.rpt_disclosure_scoring import score_disclosure_quality
+        texts = extract_text_near_anchors(sym, name, {"governance": ["audit committee", "related party transactions policy", "omnibus approval"]}, max_pages_per_key=6)
+        result = score_disclosure_quality(texts.get("governance", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] C.3.4 fetch failed for {sym}: {e}")
+        result = {"transparent_count": None, "opaque_count": None, "disclosure_quality_pct": None, "disclosure_quality_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - Audit Committee Report - Related Party Approval Process",
+        "result": "CHECKED" if result["disclosure_quality_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["disclosure_quality_score"] is not None else "No explicit RPT-approval-process confirmation or red flag was located in the Audit Committee Report this run.",
+    }]
+
+    if result["disclosure_quality_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Disclosure quality of RPTs", "available": True, **result,
+            "rationale": "No explicit RPT-approval-process disclosure was located in the Audit Committee Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Disclosure quality of RPTs", "available": True, **result,
+        "rationale": f"{result['transparent_count']} transparent (approval-process named) vs {result['opaque_count']} opaque (red flag) statement(s) explicitly found -> score {result['disclosure_quality_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c3_related_party_transactions(symbol, name=None, force=False):
+    """C.3 — Related-party transactions (RPTs): combines the four
+    sub-points (C.3.1 frequency, C.3.2 counterparty identity, C.3.3
+    pricing fairness, C.3.4 disclosure quality) into a single grounded
+    payload. C.3.1/C.3.2 reuse the same LLM-extracted, verbatim-quote-
+    verified RPT rows (_compute_c3_rpt_records); C.3.3/C.3.4 are fully
+    deterministic regex scorers over real Annual Report text (no LLM).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    c31 = compute_c3_1_frequency(sym, name, force=force)
+    c32 = compute_c3_2_counterparty_identity(sym, name, force=force)
+    c33 = compute_c3_3_pricing_fairness(sym, name, force=force)
+    c34 = compute_c3_4_disclosure_quality(sym, name, force=force)
+
+    parts = []
+    if c31.get("frequency_score") is not None:
+        parts.append(f"Frequency: {c31['rpt_row_count']} row(s) -> {c31['frequency_bucket']} (score {c31['frequency_score']}/5).")
+    if c32.get("counterparty_risk_score") is not None:
+        parts.append(f"Counterparty identity: {c32['independent_count']} independent vs {c32['promoter_group_count']} promoter-adjacent (score {c32['counterparty_risk_score']}/5).")
+    if c33.get("pricing_fairness_score") is not None:
+        parts.append(f"Pricing fairness: {c33['pricing_fairness_pct']}% confirmed arm's length (score {c33['pricing_fairness_score']}/5).")
+    if c34.get("disclosure_quality_score") is not None:
+        parts.append(f"Disclosure quality: {c34['disclosure_quality_pct']}% transparent (score {c34['disclosure_quality_score']}/5).")
+    if not parts:
+        parts.append("None of the four sub-points (frequency, counterparty identity, pricing fairness, disclosure quality) were explicitly covered this run.")
+
+    _tags = [t.get("confidence_tag") for t in (c31, c32, c33, c34)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (c31, c32, c33, c34) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "C.3",
+        "title": "Related-party transactions (RPTs): frequency, counterparty identity, pricing and rationale",
+        "available": True,
+        "c3_1": c31, "c3_2": c32, "c3_3": c33, "c3_4": c34,
+        "rationale": " ".join(parts),
+        "pathway_results": (c31.get("pathway_results") or []) + (c32.get("pathway_results") or []) + (c33.get("pathway_results") or []) + (c34.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 
