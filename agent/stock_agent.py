@@ -2285,6 +2285,7 @@ def build_executive_summary(state: SystemState) -> dict:
                 'rationale': _c6.get('rationale'),
                 'confidence_tag': _c6.get('confidence_tag'), 'retrieved_at': _c6.get('retrieved_at'),
                 'pathway_results': _c6.get('pathway_results'),
+                'c6_1': _c6.get('c6_1') or {}, 'c6_2': _c6.get('c6_2') or {}, 'c6_3': _c6.get('c6_3') or {}, 'c6_4': _c6.get('c6_4') or {},
             }
     except Exception as e:
         print(f"[qualitative_topics] sourced C.6 engine failed, falling back to raw LLM fields: {e}")
@@ -3141,14 +3142,50 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"NSE's live Corporate Governance filing endpoint had no board-meeting attendance data for {_co} this run."}
     _c5_panels = [_c5_1_donut, _c5_2_donut, _c5_3_donut, _c5_4_donut]
 
-    _auditor_name = f39.get('auditor_name') if isinstance(f39.get('auditor_name'), str) and f39.get('auditor_name').strip() else None
-    _auditor_tenure = f39.get('auditor_tenure_years')
-    try:
-        _auditor_tenure = round(max(0.0, min(60.0, float(_auditor_tenure))), 1)
-    except (TypeError, ValueError):
-        _auditor_tenure = None
-    _qualification_rating = _enum(f39.get('qualification_rating'), ['Clean', 'Emphasis of Matter', 'Qualified'])
-    _auditor_flags = [v for v in (f39.get('auditor_flags') or []) if isinstance(v, str) and v.strip()][:3]
+    _c6_1, _c6_2, _c6_3, _c6_4 = f39.get('c6_1') or {}, f39.get('c6_2') or {}, f39.get('c6_3') or {}, f39.get('c6_4') or {}
+
+    if _c6_1.get('tenure_score') is not None:
+        _c6_1_panel = {
+            'type': 'classification', 'title': 'Auditor Tenure Distribution',
+            'zones': ['Short', 'Moderate', 'Long'], 'active': _c6_1.get('tenure_classification'),
+            'explanation': f"{_co}'s current statutory auditor ({_c6_1.get('current_auditor')}) has served {_c6_1.get('tenure_years')} consecutive year(s) -> {_c6_1.get('tenure_classification')} (score {_c6_1.get('tenure_score')}/5).",
+        }
+    else:
+        _c6_1_panel = {'type': 'unavailable', 'title': 'Auditor Tenure Distribution',
+                        'explanation': f"No auditor signature block was located across {_co}'s available Annual Reports this run."}
+
+    _c6_2_by_year = _c6_2.get('switch_by_year') or []
+    if _c6_2.get('switch_score') is not None and _c6_2_by_year:
+        _c6_2_panel = {
+            'type': 'category_bar', 'title': 'Auditor Changes by Year',
+            'data': [{'label': f"FY{str(y.get('fiscal_year'))[-2:]}", 'value': 1 if y.get('changed') else 0} for y in _c6_2_by_year],
+            'centerValue': f"{_c6_2.get('switch_count')} change(s)",
+            'explanation': f"{_co} changed statutory auditors {_c6_2.get('switch_count')} time(s) across {_c6_2.get('years_covered')} year(s) (score {_c6_2.get('switch_score')}/5).",
+        }
+    else:
+        _c6_2_panel = {'type': 'unavailable', 'title': 'Auditor Changes by Year',
+                        'explanation': f"Fewer than 2 years of resolvable auditor-name data were available for {_co} this run."}
+
+    if _c6_3.get('audit_qualification_score') is not None:
+        _c6_3_panel = {
+            'type': 'classification', 'title': 'Unmodified vs Modified Audit Opinion',
+            'zones': ['Modified', 'Unmodified'], 'active': _c6_3.get('opinion_type'),
+            'explanation': f"{_co}'s Independent Auditor's Report opinion was explicitly classified as {_c6_3.get('opinion_type')} (score {_c6_3.get('audit_qualification_score')}/5).",
+        }
+    else:
+        _c6_3_panel = {'type': 'unavailable', 'title': 'Unmodified vs Modified Audit Opinion',
+                        'explanation': f"No explicit opinion-type heading was located for {_co} this run."}
+
+    if _c6_4.get('audit_observation_score') is not None:
+        _c6_4_panel = {
+            'type': 'classification', 'title': 'No Material Observation vs Recurring Observation',
+            'zones': ['Recurring Observation', 'No Material Observation'], 'active': _c6_4.get('observation_classification'),
+            'explanation': f"{_co} explicitly identified {_c6_4.get('kam_count')} Key Audit Matter(s); Emphasis of Matter {'present' if _c6_4.get('has_emphasis_of_matter') else 'not present'} -> {_c6_4.get('observation_classification')} (score {_c6_4.get('audit_observation_score')}/5).",
+        }
+    else:
+        _c6_4_panel = {'type': 'unavailable', 'title': 'No Material Observation vs Recurring Observation',
+                        'explanation': f"No Key Audit Matters or Emphasis of Matter section was located for {_co} this run."}
+    _c6_panels = [_c6_1_panel, _c6_2_panel, _c6_3_panel, _c6_4_panel]
 
     qualitative_topics = {
         'strategy_business_model': {
@@ -3755,22 +3792,29 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f38.get('pathway_results'),
                 },
                 {
+                    # C.6 — the four sub-points (C.6.1 auditor tenure,
+                    # C.6.2 auditor switches, C.6.3 audit qualifications,
+                    # C.6.4 reservations/emphasis of matter) combined
+                    # into ONE card as a 4-panel set, same pattern as
+                    # B.1/.../C.5.
                     'key': 'auditor_relationships',
                     'title': 'Auditor relationships: long/short tenure, auditor switches, qualifications/reservations',
                     'finding': f39.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Auditor', _auditor_name] if _auditor_name else None),
-                        (['Auditor tenure', f"{_auditor_tenure} years"] if _auditor_tenure is not None else None),
-                        (['Qualification', _qualification_rating] if _qualification_rating else None),
-                        (['Auditor flags', '; '.join(_auditor_flags)] if _auditor_flags else None),
+                        (['Auditor tenure', f"{_c6_1.get('tenure_years')}y ({_c6_1.get('tenure_classification')})"] if _c6_1.get('tenure_years') is not None else None),
+                        (['Auditor switches', f"{_c6_2.get('switch_count')} over {_c6_2.get('years_covered')}y"] if _c6_2.get('switch_count') is not None else None),
+                        (['Opinion', _c6_3.get('opinion_type')] if _c6_3.get('opinion_type') else None),
+                        (['Observations', _c6_4.get('observation_classification')] if _c6_4.get('observation_classification') else None),
                     ] if f],
-                    'chart': ({'type': 'spectrum', 'options': ['Qualified', 'Emphasis of Matter', 'Clean'], 'active': _qualification_rating}
-                               if _qualification_rating else None),
-                    'formula': 'Auditor tenure (years) = Current year - Year of appointment',
+                    'chart': ({'type': 'multi_donut', 'panels': _c6_panels} if _c6_panels else None),
+                    'formula': 'Auditor Tenure = consecutive years with the same statutory auditor, classified Long/Moderate/Short; '
+                               'Auditor Switch Frequency = auditor-name changes over the available multi-year window; '
+                               'Audit Qualification Score = Unmodified (clean) vs Modified (qualified/adverse/disclaimer) opinion; '
+                               'Audit Observation Score = Key Audit Matters + explicit Emphasis of Matter / Material Uncertainty presence.',
                     'sources': {
-                        'primary': {'label': 'Company Annual Report', 'note': "Auditor's Report, sourced via BSE announcement / company IR page"},
-                        'secondary': {'label': 'BSE India – Corporate Announcements', 'note': 'auditor appointment/resignation filing', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
-                        'tertiary': {'label': 'MCA – Company/Director Master Data', 'note': 'Form ADT-1/ADT-3', 'url': 'https://www.mca.gov.in'},
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': "Independent Auditor's Report — Auditor name", 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': "Independent Auditor's Report — Opinion / Basis for Opinion", 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Emphasis of Matter / Material Uncertainty / Key Audit Matters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': f39.get('confidence_tag'), 'retrieved_at': f39.get('retrieved_at'),
                     'pathway_results': f39.get('pathway_results'),

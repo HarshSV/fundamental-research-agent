@@ -6503,22 +6503,49 @@ def compute_c5_board_composition(symbol, name=None, force=False):
     return payload
 
 
-def compute_c6_auditor_relationships(symbol, name=None, force=False):
-    """C.6 — Auditor relationships: long/short tenure, auditor switches,
-    qualifications/reservations. Formula: Auditor tenure (years) = Current year -
-    Year of appointment.
+_C6_MAX_YEARS = 5
 
-    Sourcing Sequence: AR-07 (Independent Auditor's Report — opinion type, Key
-    Audit Matters, Emphasis of Matter) -> PORTAL-01 (get the AR PDF) -> PORTAL-05
-    (director registry, NOT bio — Form ADT-1/ADT-3 appointment filings).
 
-    No AR-07 Auditor's Report parser is wired into this codebase, and no MCA
-    ADT-1/ADT-3 fetcher exists either. Auditor name, appointment year, opinion
-    type (clean/qualified/emphasis of matter) are all structured facts that must
-    be read from the filing — never estimated. Honest full gap, no LLM call.
+def _fetch_years_auditors(sym, name, max_years=_C6_MAX_YEARS):
+    """Up to the 5 most recent Annual Reports' auditor signature (the
+    Independent Auditor's Report's own "For <Firm>\\nChartered
+    Accountants" block), oldest->newest. Shared by C.6.1/C.6.2 so both
+    reuse the same multi-year fetch. A year with no resolvable auditor
+    name is skipped, not filled with a guess."""
+    from tools.annual_report_financials import list_annual_report_years
+    from tools.ar_table_extractor import extract_text_near_anchors
+    from tools.auditor_scoring import extract_auditor_name
+    years = sorted((list_annual_report_years(sym, name) or [])[:max_years])
+    out = []
+    for fy in years:
+        try:
+            texts = extract_text_near_anchors(sym, name, {"audit": ["independent auditors report", "chartered accountants", "opinion"]}, fiscal_year=fy, max_pages_per_key=8)
+            aname = extract_auditor_name(texts.get("audit", ""))
+            if aname:
+                out.append({"fiscal_year": fy, "auditor_name": aname})
+        except Exception as e:
+            print(f"[qualitative_engine] C.6 auditor-name fetch failed for {sym} FY{fy}: {e}")
+    return out
+
+
+def _fetch_latest_audit_opinion_text(sym, name):
+    from tools.ar_table_extractor import extract_text_near_anchors
+    texts = extract_text_near_anchors(sym, name, {"audit_opinion": ["independent auditors report", "opinion", "basis for opinion", "emphasis of matter", "key audit matters"]}, max_pages_per_key=8)
+    return texts.get("audit_opinion", "")
+
+
+def compute_c6_1_auditor_tenure(symbol, name=None, force=False):
+    """C.6.1 - Auditor tenure. Spec formula: Auditor Tenure = continuous
+    years of current statutory auditor engagement; classify Long /
+    Moderate / Short. Deterministic (no LLM) - see
+    tools/auditor_scoring.py's score_auditor_tenure: counts consecutive
+    most-recent years with the same auditor firm name in the Independent
+    Auditor's Report's own signature block. Sourcing: NSE Corporate
+    Filings - Annual Reports - Independent Auditor's Report - Auditor
+    name.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "C.6"
+    subpoint_id = "C.6.1"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -6530,42 +6557,269 @@ def compute_c6_auditor_relationships(symbol, name=None, force=False):
             except Exception:
                 return cached
 
-    pathway_results = [
-        {
-            "pathway_id": "AR-07",
-            "source": "Independent Auditor's Report (opinion type, Key Audit Matters, Emphasis of Matter)",
-            "result": "NOT_DISCLOSED",
-            "note": "No AR-07 Auditor's Report parser is wired into this codebase yet.",
-        },
-        {
-            "pathway_id": "PORTAL-01",
-            "source": "BSE Corporate Announcements -> Annual Report PDF",
-            "result": "NOT_DISCLOSED",
-            "note": "Fetching the PDF alone doesn't help without a structured AR-07 section parser to read it.",
-        },
-        {
-            "pathway_id": "PORTAL-05",
-            "source": "MCA Company/Director Master Data (Form ADT-1/ADT-3 auditor appointment filings, NOT bio)",
-            "result": "NOT_DISCLOSED",
-            "note": "No MCA director-master-data fetcher is wired into this codebase yet.",
-        },
-    ]
+    try:
+        from tools.auditor_scoring import score_auditor_tenure
+        years_auditors = _fetch_years_auditors(sym, name)
+        result = score_auditor_tenure(years_auditors)
+    except Exception as e:
+        print(f"[qualitative_engine] C.6.1 fetch failed for {sym}: {e}")
+        result = {"current_auditor": None, "tenure_years": None, "tenure_classification": None, "tenure_score": None}
+        years_auditors = []
+
+    pathway_results = [{
+        "pathway_id": "AR-07",
+        "source": "NSE Corporate Filings - Annual Reports - Independent Auditor's Report - Auditor name",
+        "result": "CHECKED" if result["tenure_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["tenure_score"] is not None else "No auditor signature block was located across the available Annual Reports this run.",
+    }]
+
+    if result["tenure_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Auditor tenure", "available": True, **result,
+            "years_covered": [y["fiscal_year"] for y in years_auditors],
+            "rationale": "No auditor signature block was located across the available Annual Reports this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
 
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Auditor relationships: long/short tenure, auditor switches, qualifications/reservations",
-        "available": True,
-        "auditor_name": None,
-        "auditor_tenure_years": None,
-        "qualification_rating": None,
-        "auditor_flags": [],
-        "rationale": "Not computed — AR-07 (Independent Auditor's Report) has no parser wired, and no MCA ADT-1/ADT-3 fetcher exists either. Auditor name, tenure and opinion type are structured facts that must be read from the filing, never estimated.",
+        "subpoint_id": subpoint_id, "title": "Auditor tenure", "available": True, **result,
+        "years_covered": [y["fiscal_year"] for y in years_auditors],
+        "rationale": f"{result['current_auditor']} has been the statutory auditor for {result['tenure_years']} consecutive year(s) -> {result['tenure_classification']} (score {result['tenure_score']}/5).",
         "pathway_results": pathway_results,
     }
-    confidence_tag = "SEARCH_INCONCLUSIVE"
+    confidence_tag = "SINGLE_SOURCE"
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c6_2_auditor_switches(symbol, name=None, force=False):
+    """C.6.2 - Auditor switches. Spec formula: Auditor Switch Frequency =
+    number of statutory auditor changes over the available multi-year
+    window. Deterministic (no LLM) - see tools/auditor_scoring.py's
+    score_auditor_switches: counts year-over-year auditor-name changes
+    across up to 5 years (a real, if shorter than the spec's 10-year
+    ask, window — NSE's Annual Report archive doesn't reliably go back
+    further). Sourcing: NSE Corporate Filings - Annual Reports -
+    Independent Auditor's Report - Auditor name across years.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.6.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.auditor_scoring import score_auditor_switches
+        years_auditors = _fetch_years_auditors(sym, name)
+        result = score_auditor_switches(years_auditors)
+    except Exception as e:
+        print(f"[qualitative_engine] C.6.2 fetch failed for {sym}: {e}")
+        result = {"switch_count": None, "years_covered": None, "switch_by_year": None, "switch_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-07",
+        "source": "NSE Corporate Filings - Annual Reports - Independent Auditor's Report - Auditor name across years",
+        "result": "CHECKED" if result["switch_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["switch_score"] is not None else "Fewer than 2 years of resolvable auditor-name data were available across the available Annual Reports this run.",
+    }]
+
+    if result["switch_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Auditor switches", "available": True, **result,
+            "rationale": "Fewer than 2 years of resolvable auditor-name data were available to detect switches this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Auditor switches", "available": True, **result,
+        "rationale": f"{result['switch_count']} auditor change(s) detected across {result['years_covered']} year(s) -> score {result['switch_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c6_3_audit_qualifications(symbol, name=None, force=False):
+    """C.6.3 - Qualifications in audit reports. Spec formula: Audit
+    Qualification Score (1-5): unmodified opinion = highest. Deterministic
+    (no LLM) - see tools/auditor_scoring.py's score_audit_opinion:
+    classifies the Independent Auditor's Report's own opinion section
+    heading ("Basis for Opinion" = clean vs "Basis for Qualified/
+    Adverse Opinion" / "Disclaimer of Opinion" = modified). Sourcing:
+    NSE Corporate Filings - Annual Reports - Independent Auditor's
+    Report - Opinion / Basis for Opinion.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.6.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.auditor_scoring import score_audit_opinion
+        opinion_text = _fetch_latest_audit_opinion_text(sym, name)
+        result = score_audit_opinion(opinion_text)
+    except Exception as e:
+        print(f"[qualitative_engine] C.6.3 fetch failed for {sym}: {e}")
+        result = {"opinion_type": None, "audit_qualification_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-07",
+        "source": "NSE Corporate Filings - Annual Reports - Independent Auditor's Report - Opinion / Basis for Opinion",
+        "result": "CHECKED" if result["audit_qualification_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["audit_qualification_score"] is not None else "No 'Basis for Opinion'-type heading was located in the latest Annual Report this run.",
+    }]
+
+    if result["audit_qualification_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Qualifications in audit reports", "available": True, **result,
+            "rationale": "No explicit opinion-type heading was located in the latest Annual Report's Independent Auditor's Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Qualifications in audit reports", "available": True, **result,
+        "rationale": f"Independent Auditor's Report opinion explicitly classified as {result['opinion_type']} -> score {result['audit_qualification_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c6_4_audit_observations(symbol, name=None, force=False):
+    """C.6.4 - Reservations / emphasis of matter. Spec formula: Audit
+    Observation Score (1-5): frequency, materiality and recurrence of
+    emphasis/reservation matters. Deterministic (no LLM) - see
+    tools/auditor_scoring.py's score_audit_observations: counts Key
+    Audit Matters and flags an explicit Emphasis of Matter / Material
+    Uncertainty paragraph. Sourcing: NSE Corporate Filings - Annual
+    Reports - Independent Auditor's Report - Emphasis of Matter /
+    Material Uncertainty / Key Audit Matters.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.6.4"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.auditor_scoring import score_audit_observations
+        opinion_text = _fetch_latest_audit_opinion_text(sym, name)
+        result = score_audit_observations(opinion_text)
+    except Exception as e:
+        print(f"[qualitative_engine] C.6.4 fetch failed for {sym}: {e}")
+        result = {"kam_count": None, "has_emphasis_of_matter": None, "observation_classification": None, "audit_observation_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-07",
+        "source": "NSE Corporate Filings - Annual Reports - Independent Auditor's Report - Emphasis of Matter / Material Uncertainty / Key Audit Matters",
+        "result": "CHECKED" if result["audit_observation_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["audit_observation_score"] is not None else "No Key Audit Matters or Emphasis of Matter section was located in the latest Annual Report this run.",
+    }]
+
+    if result["audit_observation_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Reservations / emphasis of matter", "available": True, **result,
+            "rationale": "No Key Audit Matters or Emphasis of Matter section was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Reservations / emphasis of matter", "available": True, **result,
+        "rationale": f"{result['kam_count']} Key Audit Matter(s) explicitly identified; Emphasis of Matter {'present' if result['has_emphasis_of_matter'] else 'not present'} -> {result['observation_classification']} (score {result['audit_observation_score']}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c6_auditor_relationships(symbol, name=None, force=False):
+    """C.6 — Auditor relationships: combines the four sub-points (C.6.1
+    auditor tenure, C.6.2 auditor switches, C.6.3 audit qualifications,
+    C.6.4 reservations/emphasis of matter) into a single grounded
+    payload, each sourced from real, multi-year Annual Report text and
+    scored deterministically (no LLM call - see tools/auditor_scoring.py).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    c61 = compute_c6_1_auditor_tenure(sym, name, force=force)
+    c62 = compute_c6_2_auditor_switches(sym, name, force=force)
+    c63 = compute_c6_3_audit_qualifications(sym, name, force=force)
+    c64 = compute_c6_4_audit_observations(sym, name, force=force)
+
+    parts = []
+    if c61.get("tenure_score") is not None:
+        parts.append(f"Auditor tenure: {c61['tenure_years']} year(s) ({c61['tenure_classification']}, score {c61['tenure_score']}/5).")
+    if c62.get("switch_score") is not None:
+        parts.append(f"Auditor switches: {c62['switch_count']} over {c62['years_covered']} years (score {c62['switch_score']}/5).")
+    if c63.get("audit_qualification_score") is not None:
+        parts.append(f"Opinion: {c63['opinion_type']} (score {c63['audit_qualification_score']}/5).")
+    if c64.get("audit_observation_score") is not None:
+        parts.append(f"Observations: {c64['observation_classification']} (score {c64['audit_observation_score']}/5).")
+    if not parts:
+        parts.append("None of the four sub-points (auditor tenure, switches, qualifications, observations) were explicitly covered this run.")
+
+    _tags = [t.get("confidence_tag") for t in (c61, c62, c63, c64)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (c61, c62, c63, c64) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "C.6",
+        "title": "Auditor relationships: long/short tenure, auditor switches, qualifications/reservations",
+        "available": True,
+        "c6_1": c61, "c6_2": c62, "c6_3": c63, "c6_4": c64,
+        "rationale": " ".join(parts),
+        "pathway_results": (c61.get("pathway_results") or []) + (c62.get("pathway_results") or []) + (c63.get("pathway_results") or []) + (c64.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 
