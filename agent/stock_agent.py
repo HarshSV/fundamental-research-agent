@@ -2190,6 +2190,7 @@ def build_executive_summary(state: SystemState) -> dict:
                 'rationale': _b6.get('rationale'),
                 'confidence_tag': _b6.get('confidence_tag'), 'retrieved_at': _b6.get('retrieved_at'),
                 'pathway_results': _b6.get('pathway_results'),
+                'b6_1': _b6.get('b6_1') or {}, 'b6_2': _b6.get('b6_2') or {}, 'b6_3': _b6.get('b6_3') or {}, 'b6_4': _b6.get('b6_4') or {},
             }
     except Exception as e:
         print(f"[qualitative_topics] sourced B.6 engine failed, falling back to raw LLM fields: {e}")
@@ -2838,13 +2839,56 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"Fewer than 2 years of MD&A with an identifiable strategic-priority theme were located for {_co} this run."}
     _b5_panels = [_b5_1_donut, _b5_2_panel, _b5_3_panel]
 
-    _culture_rating = _enum(f33.get('culture_rating'), ['Strong', 'Moderate', 'Weak'])
-    _employee_attrition_pct = f33.get('employee_attrition_rate_pct')
-    try:
-        _employee_attrition_pct = round(max(0.0, min(100.0, float(_employee_attrition_pct))), 1)
-    except (TypeError, ValueError):
-        _employee_attrition_pct = None
-    _culture_flags = [v for v in (f33.get('culture_flags') or []) if isinstance(v, str) and v.strip()][:3]
+    _b6_1, _b6_2, _b6_3, _b6_4 = f33.get('b6_1') or {}, f33.get('b6_2') or {}, f33.get('b6_3') or {}, f33.get('b6_4') or {}
+
+    if _b6_1.get('innovation_score') is not None:
+        _b6_1_donut = {
+            'type': 'donut', 'title': 'Innovation Focus',
+            'data': [{'label': 'Innovation-led', 'value': _b6_1.get('innovation_led_count')},
+                     {'label': 'Traditional', 'value': _b6_1.get('traditional_count')}],
+            'centerValue': f"{_b6_1.get('innovation_pct')}%",
+            'explanation': f"{_co}'s Annual Report explicitly named {_b6_1.get('innovation_led_count')} innovation-led (quantified) vs {_b6_1.get('traditional_count')} traditional (generic) innovation statement(s) (score {_b6_1.get('innovation_score')}/5).",
+        }
+    else:
+        _b6_1_donut = {'type': 'unavailable', 'title': 'Innovation Focus',
+                        'explanation': f"No innovation-focus text with a clear innovation-led/traditional signal was located in {_co}'s latest Annual Report."}
+
+    if _b6_2.get('compliance_score') is not None:
+        _b6_2_donut = {
+            'type': 'donut', 'title': 'Compliance Orientation',
+            'data': [{'label': 'Strong', 'value': _b6_2.get('strong_count')},
+                     {'label': 'Weak', 'value': _b6_2.get('weak_count')}],
+            'centerValue': f"{_b6_2.get('compliance_pct')}%",
+            'explanation': f"{_co}'s Annual Report explicitly named {_b6_2.get('strong_count')} strong (established/operating) vs {_b6_2.get('weak_count')} weak (deficiency/weakness) compliance statement(s) (score {_b6_2.get('compliance_score')}/5).",
+        }
+    else:
+        _b6_2_donut = {'type': 'unavailable', 'title': 'Compliance Orientation',
+                        'explanation': f"No vigil-mechanism/internal-controls text with a clear strong/weak signal was located in {_co}'s latest Annual Report."}
+
+    if _b6_3.get('engagement_score') is not None:
+        _b6_3_donut = {
+            'type': 'donut', 'title': 'Employee Morale',
+            'data': [{'label': 'Engaged', 'value': _b6_3.get('engaged_count')},
+                     {'label': 'Disengaged', 'value': _b6_3.get('disengaged_count')}],
+            'centerValue': f"{_b6_3.get('engagement_pct')}%",
+            'explanation': f"{_co}'s Annual Report explicitly named {_b6_3.get('engaged_count')} evidence-backed (quantified) vs {_b6_3.get('disengaged_count')} generic employee-culture statement(s) (score {_b6_3.get('engagement_score')}/5).",
+        }
+    else:
+        _b6_3_donut = {'type': 'unavailable', 'title': 'Employee Morale',
+                        'explanation': f"No HR/employee-engagement text with a clear engaged/disengaged signal was located in {_co}'s latest Annual Report."}
+
+    if _b6_4.get('attrition_stability_score') is not None:
+        _b6_4_donut = {
+            'type': 'donut', 'title': 'Attrition Evidence',
+            'data': [{'label': 'Retained', 'value': _b6_4.get('retained_pct')},
+                     {'label': 'Attrited', 'value': _b6_4.get('turnover_rate_pct')}],
+            'centerValue': f"{_b6_4.get('turnover_rate_pct')}%",
+            'explanation': f"{_co} explicitly disclosed a {_b6_4.get('turnover_rate_pct')}% employee turnover rate -> {_b6_4.get('retained_pct')}% retained (score {_b6_4.get('attrition_stability_score')}/5).",
+        }
+    else:
+        _b6_4_donut = {'type': 'unavailable', 'title': 'Attrition Evidence',
+                        'explanation': f"No explicit employee turnover/attrition rate was located in {_co}'s latest Annual Report."}
+    _b6_panels = [_b6_1_donut, _b6_2_donut, _b6_3_donut, _b6_4_donut]
 
     _promoter_holding_pct = f34.get('promoter_holding_pct')
     try:
@@ -3357,21 +3401,28 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f32.get('pathway_results'),
                 },
                 {
+                    # B.6 — the four sub-points (B.6.1 innovation focus,
+                    # B.6.2 compliance orientation, B.6.3 employee morale,
+                    # B.6.4 attrition evidence) combined into ONE card as a
+                    # 4-panel donut set, same pattern as B.1/B.2/B.3/B.4.
                     'key': 'culture',
                     'title': 'Culture: innovation focus, compliance orientation, employee morale, attrition evidence',
                     'finding': f33.get('rationale') or None,
                     'facts': [f for f in [
-                        (['Culture', _culture_rating] if _culture_rating else None),
-                        (['Employee attrition rate', f"~{_employee_attrition_pct}%"] if _employee_attrition_pct is not None else None),
-                        (['Culture signals', '; '.join(_culture_flags)] if _culture_flags else None),
+                        (['Innovation focus', f"{_b6_1.get('innovation_pct')}% innovation-led"] if _b6_1.get('innovation_pct') is not None else None),
+                        (['Compliance orientation', f"{_b6_2.get('compliance_pct')}% strong"] if _b6_2.get('compliance_pct') is not None else None),
+                        (['Employee morale', f"{_b6_3.get('engagement_pct')}% evidence-backed"] if _b6_3.get('engagement_pct') is not None else None),
+                        (['Attrition evidence', f"{_b6_4.get('turnover_rate_pct')}% turnover"] if _b6_4.get('turnover_rate_pct') is not None else None),
                     ] if f],
-                    'chart': ({'type': 'spectrum', 'options': ['Weak', 'Moderate', 'Strong'], 'active': _culture_rating}
-                               if _culture_rating else None),
-                    'formula': 'Employee attrition rate = Employees exited / Average employee headcount',
+                    'chart': ({'type': 'multi_donut', 'panels': _b6_panels} if _b6_panels else None),
+                    'formula': 'Innovation Score = innovation-led (quantified) vs traditional (generic) statements, banded 1-5; '
+                               'Compliance Score = strong (established/operating) vs weak (deficiency) vigil-mechanism/internal-controls statements, banded 1-5; '
+                               'Employee Engagement Score = evidence-backed vs generic employee-culture statements, banded 1-5; '
+                               'Attrition Stability Score = disclosed employee turnover rate, banded 1-5 (lower = more stable).',
                     'sources': {
-                        'primary': {'label': 'Glassdoor', 'url': 'https://www.glassdoor.co.in'},
-                        'secondary': {'label': 'AmbitionBox', 'url': 'https://www.ambitionbox.com'},
-                        'tertiary': {'label': 'Company Annual Report', 'note': 'HR/CSR section, sourced via BSE announcement / company IR page'},
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'R&D / Innovation / Digital Transformation sections', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Corporate Governance Report — Vigil Mechanism / Internal Controls', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Human Resources section — engagement / attrition / retention disclosures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': f33.get('confidence_tag'), 'retrieved_at': f33.get('retrieved_at'),
                     'pathway_results': f33.get('pathway_results'),

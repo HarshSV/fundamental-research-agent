@@ -4511,22 +4511,18 @@ def compute_b5_execution_credibility(symbol, name=None, force=False):
     return payload
 
 
-def compute_b6_culture(symbol, name=None, force=False):
-    """B.6 — Culture: innovation focus, compliance orientation, employee morale,
-    attrition evidence. Formula: Employee attrition rate = Employees exited /
-    Average employee headcount.
-
-    Sourcing Sequence: AR-15 (ESG/BRSR) -> QUAL-01 (Glassdoor/AmbitionBox,
-    corroborative only).
-
-    Same situation as B.2/B.3: no Glassdoor fetcher, no AmbitionBox fetcher, and
-    no AR-15 BRSR-section parser. Employee attrition rate and culture review
-    themes don't legitimately appear in a generic business-description paragraph
-    or concall transcript, so — same guardrail as B.2/B.3 — that text is not used
-    as a stand-in here. Honest full gap, no LLM call.
+def compute_b6_1_innovation_focus(symbol, name=None, force=False):
+    """B.6.1 - Innovation focus. Spec formula: Innovation Score (1-5).
+    Deterministic (no LLM) - see tools/culture_scoring.py's
+    score_innovation_focus: an innovation-keyword sentence is
+    "Innovation-led" if it names a quantified figure (R&D spend, patent
+    count, new-product count), "Traditional" if it matches generic
+    innovation boilerplate with no specifics. Sourcing: NSE Corporate
+    Filings - Annual Reports - R&D / Innovation / Digital Transformation
+    sections.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "B.6"
+    subpoint_id = "B.6.1"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -4538,34 +4534,273 @@ def compute_b6_culture(symbol, name=None, force=False):
             except Exception:
                 return cached
 
-    pathway_results = [
-        {
-            "pathway_id": "AR-15",
-            "source": "Business Responsibility and Sustainability Report (ESG/BRSR) — HR/CSR section",
-            "result": "NOT_DISCLOSED",
-            "note": "No AR-15/BRSR section parser is wired into this codebase yet — also NOT_APPLICABLE for companies outside SEBI's top-1000-by-market-cap mandate.",
-        },
-        {
-            "pathway_id": "QUAL-01",
-            "source": "Glassdoor / AmbitionBox reviews (corroborative only)",
-            "result": "NOT_DISCLOSED",
-            "note": "No Glassdoor/AmbitionBox fetcher is wired into this codebase yet.",
-        },
-    ]
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.culture_scoring import score_innovation_focus
+        texts = extract_text_near_anchors(sym, name, {"innovation": ["research and development", "innovation", "digital transformation"]}, max_pages_per_key=6)
+        result = score_innovation_focus(texts.get("innovation", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] B.6.1 fetch failed for {sym}: {e}")
+        result = {"innovation_led_count": None, "traditional_count": None, "innovation_pct": None, "innovation_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-16",
+        "source": "NSE Corporate Filings - Annual Reports - R&D / Innovation / Digital Transformation sections",
+        "result": "CHECKED" if result["innovation_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["innovation_score"] is not None else "No quantified or clearly-generic innovation-focus sentence was located in the latest Annual Report PDF this run.",
+    }]
+
+    if result["innovation_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Innovation focus", "available": True, **result,
+            "rationale": "No innovation-focus text with a clear innovation-led/traditional signal was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
 
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Culture: innovation focus, compliance orientation, employee morale, attrition evidence",
-        "available": True,
-        "culture_rating": None,
-        "employee_attrition_rate_pct": None,
-        "rationale": "Not computed — AR-15 (BRSR HR/CSR section) has no parser wired, and QUAL-01 (Glassdoor/AmbitionBox) has no fetcher wired.",
+        "subpoint_id": subpoint_id, "title": "Innovation focus", "available": True, **result,
+        "rationale": f"{result['innovation_led_count']} innovation-led (quantified) vs {result['traditional_count']} traditional (generic) innovation statement(s) explicitly found -> score {result['innovation_score']}/5.",
         "pathway_results": pathway_results,
     }
-    confidence_tag = "SEARCH_INCONCLUSIVE"
+    confidence_tag = "SINGLE_SOURCE"
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b6_2_compliance_orientation(symbol, name=None, force=False):
+    """B.6.2 - Compliance orientation. Spec formula: Compliance Score
+    (1-5). Deterministic (no LLM) - see tools/culture_scoring.py's
+    score_compliance_orientation: a compliance-keyword sentence is
+    "Strong" if it explicitly confirms an established/operating vigil
+    mechanism or internal-controls system, "Weak" if it names a material
+    weakness/deficiency/qualified opinion. Sourcing: NSE Corporate
+    Filings - Annual Reports - Corporate Governance Report - Vigil
+    Mechanism / Internal Controls.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.6.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.culture_scoring import score_compliance_orientation
+        texts = extract_text_near_anchors(sym, name, {"compliance": ["vigil mechanism", "internal financial controls", "whistle blower"]}, max_pages_per_key=6)
+        result = score_compliance_orientation(texts.get("compliance", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] B.6.2 fetch failed for {sym}: {e}")
+        result = {"strong_count": None, "weak_count": None, "compliance_pct": None, "compliance_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-17",
+        "source": "NSE Corporate Filings - Annual Reports - Corporate Governance Report - Vigil Mechanism / Internal Controls",
+        "result": "CHECKED" if result["compliance_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["compliance_score"] is not None else "No explicit vigil-mechanism/internal-controls confirmation or weakness disclosure was located in the latest Annual Report PDF this run.",
+    }]
+
+    if result["compliance_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Compliance orientation", "available": True, **result,
+            "rationale": "No vigil-mechanism/internal-controls text with a clear strong/weak signal was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Compliance orientation", "available": True, **result,
+        "rationale": f"{result['strong_count']} strong (established/operating) vs {result['weak_count']} weak (deficiency/weakness) compliance statement(s) explicitly found -> score {result['compliance_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b6_3_employee_morale(symbol, name=None, force=False):
+    """B.6.3 - Employee morale. Spec formula: Employee Engagement Score
+    (1-5). Deterministic (no LLM) - see tools/culture_scoring.py's
+    score_employee_morale: an HR-keyword sentence is "Engaged" if it
+    names a quantified figure (engagement survey score, training
+    coverage %, headcount metric), "Disengaged" only inferred from known
+    generic people-culture boilerplate with no specifics. Sourcing: NSE
+    Corporate Filings - Annual Reports - Human Resources section -
+    employee engagement initiatives.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.6.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.culture_scoring import score_employee_morale
+        texts = extract_text_near_anchors(sym, name, {"hr": ["human resources", "employee engagement", "human capital"]}, max_pages_per_key=6)
+        result = score_employee_morale(texts.get("hr", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] B.6.3 fetch failed for {sym}: {e}")
+        result = {"engaged_count": None, "disengaged_count": None, "engagement_pct": None, "engagement_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-18",
+        "source": "NSE Corporate Filings - Annual Reports - Human Resources section - employee engagement initiatives",
+        "result": "CHECKED" if result["engagement_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["engagement_score"] is not None else "No quantified or clearly-generic employee-engagement sentence was located in the latest Annual Report PDF this run.",
+    }]
+
+    if result["engagement_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Employee morale", "available": True, **result,
+            "rationale": "No HR/employee-engagement text with a clear engaged/disengaged signal was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Employee morale", "available": True, **result,
+        "rationale": f"{result['engaged_count']} evidence-backed (quantified) vs {result['disengaged_count']} generic employee-culture statement(s) explicitly found -> score {result['engagement_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b6_4_attrition_evidence(symbol, name=None, force=False):
+    """B.6.4 - Attrition evidence. Spec formula: Attrition Stability
+    Score (1-5). Deterministic (no LLM) - see tools/culture_scoring.py's
+    score_attrition_evidence: extracts the company's own disclosed
+    employee turnover/attrition rate, preferring BRSR's mandated
+    structured Voluntary+Involuntary breakdown ("Turnover rate for
+    permanent employees and workers"). Sourcing: NSE Corporate Filings -
+    Annual Reports - Human Resources section - attrition / retention
+    disclosures.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "B.6.4"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.culture_scoring import score_attrition_evidence
+        texts = extract_text_near_anchors(sym, name, {
+            "attrition": ["turnover rate for permanent employees", "attrition rate", "employee turnover"],
+        }, max_pages_per_key=15)
+        result = score_attrition_evidence(texts.get("attrition", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] B.6.4 fetch failed for {sym}: {e}")
+        result = {"turnover_rate_pct": None, "retained_pct": None, "attrition_stability_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-19",
+        "source": "NSE Corporate Filings - Annual Reports - Human Resources section - attrition / retention disclosures (BRSR turnover-rate table)",
+        "result": "CHECKED" if result["attrition_stability_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["attrition_stability_score"] is not None else "No explicit employee turnover/attrition rate percentage was located in the latest Annual Report PDF this run.",
+    }]
+
+    if result["attrition_stability_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Attrition evidence", "available": True, **result,
+            "rationale": "No explicit employee turnover/attrition rate was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Attrition evidence", "available": True, **result,
+        "rationale": f"{result['turnover_rate_pct']}% employee turnover rate explicitly disclosed -> {result['retained_pct']}% retained, score {result['attrition_stability_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_b6_culture(symbol, name=None, force=False):
+    """B.6 — Culture: combines the four sub-points (B.6.1 innovation
+    focus, B.6.2 compliance orientation, B.6.3 employee morale, B.6.4
+    attrition evidence) into a single grounded payload, each sourced from
+    real Annual Report text and scored deterministically (no LLM call -
+    see tools/culture_scoring.py). Any sub-point the source text doesn't
+    explicitly cover is surfaced as unavailable rather than defaulted.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    b61 = compute_b6_1_innovation_focus(sym, name, force=force)
+    b62 = compute_b6_2_compliance_orientation(sym, name, force=force)
+    b63 = compute_b6_3_employee_morale(sym, name, force=force)
+    b64 = compute_b6_4_attrition_evidence(sym, name, force=force)
+
+    parts = []
+    if b61.get("innovation_score") is not None:
+        parts.append(f"Innovation focus: {b61['innovation_pct']}% innovation-led (score {b61['innovation_score']}/5).")
+    if b62.get("compliance_score") is not None:
+        parts.append(f"Compliance orientation: {b62['compliance_pct']}% strong (score {b62['compliance_score']}/5).")
+    if b63.get("engagement_score") is not None:
+        parts.append(f"Employee morale: {b63['engagement_pct']}% evidence-backed engagement (score {b63['engagement_score']}/5).")
+    if b64.get("attrition_stability_score") is not None:
+        parts.append(f"Attrition evidence: {b64['turnover_rate_pct']}% turnover rate (score {b64['attrition_stability_score']}/5).")
+    if not parts:
+        parts.append("None of the four sub-points (innovation focus, compliance orientation, employee morale, attrition evidence) were explicitly covered this run.")
+
+    _tags = [t.get("confidence_tag") for t in (b61, b62, b63, b64)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+
+    retrieved_ats = [t.get("retrieved_at") for t in (b61, b62, b63, b64) if t.get("retrieved_at")]
+    payload = {
+        "subpoint_id": "B.6",
+        "title": "Culture: innovation focus, compliance orientation, employee morale, attrition evidence",
+        "available": True,
+        "b6_1": b61, "b6_2": b62, "b6_3": b63, "b6_4": b64,
+        "rationale": " ".join(parts),
+        "pathway_results": (b61.get("pathway_results") or []) + (b62.get("pathway_results") or []) + (b63.get("pathway_results") or []) + (b64.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 
