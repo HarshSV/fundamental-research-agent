@@ -84,6 +84,69 @@ def score_rpt_frequency(rpt_text):
 
 
 # ---------------------------------------------------------------------------
+# C.3.2 - Counterparty identity (promoter-group vs independent categories).
+# ---------------------------------------------------------------------------
+
+# Standard Ind AS 24 counterparty-CATEGORY labels (generic vocabulary every
+# Indian filer's RPT note is built from - a company's OWN promoter/holding
+# entity and its management vs its own controlled/joint entities and
+# employee-benefit trusts). Classifying which category LABELS a company
+# discloses (not itemized individual counterparty names, which still needs
+# the LLM row extraction in _compute_c3_rpt_records) is a real, deterministic
+# proxy for C.3.2.
+_PROMOTER_ADJACENT_CATEGORY = re.compile(
+    r"holding company|key management personnel|\bkmp\b|senior management(?:\s+remuneration)?|"
+    r"non-executive directors?(?:\s+remuneration)?|entity in which director|relative of (?:a )?director|"
+    r"enterprise (?:controlled|significantly influenced) by", re.I
+)
+_INDEPENDENT_CATEGORY = re.compile(
+    r"\bsubsidiar(?:y|ies)\b|\bassociate\b|joint venture|fellow subsidiar|"
+    r"post[- ]employment benefit|provident fund|superannuation fund|gratuity fund|retirement benefit trust", re.I
+)
+_RPT_NOTE_BLOCK = re.compile(r"(?:note\s+\d+\s+)?related party disclosures?", re.I)
+
+
+def _isolate_rpt_note_blocks(text, block_chars=4000, max_blocks=3):
+    """Related Party Disclosures notes are usually one distinct section
+    (sometimes two - standalone + consolidated). Scanning only the text
+    starting at each such heading (rather than the whole multi-page AR
+    excerpt blob, which also carries unrelated Corporate Governance/Audit
+    Committee prose that legitimately uses words like "subsidiary" or
+    "director" elsewhere) avoids false-positive category matches."""
+    if not text:
+        return ""
+    blocks = []
+    for m in list(_RPT_NOTE_BLOCK.finditer(text))[:max_blocks]:
+        blocks.append(text[m.start():m.start() + block_chars])
+    return " ".join(blocks) if blocks else text
+
+
+def score_counterparty_identity(rpt_text):
+    """Counts DISTINCT promoter-group-adjacent vs independent Ind AS 24
+    counterparty-category labels disclosed in the Related Party
+    Disclosures note (isolated to the note's own section, not the whole
+    AR excerpt blob). Returns {'promoter_group_count',
+    'independent_count','counterparty_risk_pct',
+    'counterparty_risk_score'} or all-None if neither category signal
+    appears."""
+    block = _isolate_rpt_note_blocks(rpt_text)
+    if not block:
+        return {"promoter_group_count": None, "independent_count": None, "counterparty_risk_pct": None, "counterparty_risk_score": None}
+    promoter_matches = set(m.group(0).lower() for m in _PROMOTER_ADJACENT_CATEGORY.finditer(block))
+    independent_matches = set(m.group(0).lower() for m in _INDEPENDENT_CATEGORY.finditer(block))
+    promoter_group = len(promoter_matches)
+    independent = len(independent_matches)
+    total = promoter_group + independent
+    if total == 0:
+        return {"promoter_group_count": None, "independent_count": None, "counterparty_risk_pct": None, "counterparty_risk_score": None}
+    pct_independent = round(100 * independent / total, 1)
+    return {
+        "promoter_group_count": promoter_group, "independent_count": independent,
+        "counterparty_risk_pct": pct_independent, "counterparty_risk_score": _band_score_pct(pct_independent),
+    }
+
+
+# ---------------------------------------------------------------------------
 # C.3.3 - Pricing and commercial rationale (arm's-length disclosure).
 # ---------------------------------------------------------------------------
 

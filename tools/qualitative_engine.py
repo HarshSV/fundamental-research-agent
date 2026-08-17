@@ -5710,10 +5710,15 @@ def compute_c3_1_frequency(symbol, name=None, force=False):
 
 def compute_c3_2_counterparty_identity(symbol, name=None, force=False):
     """C.3.2 - Counterparty identity. Spec formula: Counterparty Risk
-    Score (1-5). Deterministic aggregation over the same verified RPT
-    rows - flags each row's relationship type as promoter/KMP-adjacent
-    (per Ind AS 24 vocabulary) vs an independent (subsidiary/associate/
-    other) counterparty; a higher independent share bands higher.
+    Score (1-5). Deterministic (no LLM) - see
+    tools/rpt_disclosure_scoring.py's score_counterparty_identity: counts
+    distinct promoter-group-adjacent (Holding Company, KMP, Senior
+    Management, Non-Executive Directors, entities significantly
+    influenced by a director) vs independent (Subsidiaries, Associates,
+    Joint Ventures, employee-benefit trusts) Ind AS 24 counterparty-
+    category labels disclosed in the Related Party Disclosures note - a
+    real proxy that doesn't need the LLM's per-row extraction (unlike
+    the individual counterparty names in _compute_c3_rpt_records).
     Sourcing: NSE Corporate Filings - Annual Reports - Related Party
     Disclosures - promoter group / subsidiaries / associates.
     """
@@ -5731,24 +5736,26 @@ def compute_c3_2_counterparty_identity(symbol, name=None, force=False):
                 return cached
 
     try:
-        c3rec = _compute_c3_rpt_records(sym, name, force=force)
+        from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report
+        from tools.rpt_disclosure_scoring import score_counterparty_identity
+        evidence = fetch_rpt_evidence_from_annual_report(sym, name)
+        excerpt_text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_counterparty_identity(excerpt_text)
     except Exception as e:
         print(f"[qualitative_engine] C.3.2 fetch failed for {sym}: {e}")
-        c3rec = {}
+        result = {"promoter_group_count": None, "independent_count": None, "counterparty_risk_pct": None, "counterparty_risk_score": None}
 
-    records = c3rec.get("records") or []
     pathway_results = [{
         "pathway_id": "AR-04",
         "source": "NSE Corporate Filings - Annual Reports - Related Party Disclosures - promoter group / subsidiaries / associates",
-        "result": "CHECKED" if records else "NOT_DISCLOSED",
-        "note": None if records else "No verbatim-quote-verified related-party transaction row was located this run.",
+        "result": "CHECKED" if result["counterparty_risk_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["counterparty_risk_score"] is not None else "No Related Party Disclosures note with an identifiable counterparty-category label was located in the latest Annual Report this run.",
     }]
 
-    if not records:
+    if result["counterparty_risk_score"] is None:
         payload = {
-            "subpoint_id": subpoint_id, "title": "Counterparty identity", "available": True,
-            "promoter_group_count": None, "independent_count": None, "counterparty_risk_pct": None, "counterparty_risk_score": None,
-            "rationale": c3rec.get("rationale") or "No verbatim-quote-verified related-party transaction row was located this run.",
+            "subpoint_id": subpoint_id, "title": "Counterparty identity", "available": True, **result,
+            "rationale": "No Related Party Disclosures note with an identifiable counterparty-category label was located in the latest Annual Report this run.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -5756,16 +5763,9 @@ def compute_c3_2_counterparty_identity(symbol, name=None, force=False):
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    promoter_group = len(c3rec.get("counterparty_flags") or [])
-    independent = max(0, len(records) - promoter_group)
-    pct_independent = round(100 * independent / len(records), 1)
-    counterparty_risk_score = _band_score_pct(pct_independent)
-
     payload = {
-        "subpoint_id": subpoint_id, "title": "Counterparty identity", "available": True,
-        "promoter_group_count": promoter_group, "independent_count": independent,
-        "counterparty_risk_pct": pct_independent, "counterparty_risk_score": counterparty_risk_score,
-        "rationale": f"{independent} independent vs {promoter_group} promoter/KMP-adjacent counterpart(y/ies) among {len(records)} verified row(s) -> score {counterparty_risk_score}/5.",
+        "subpoint_id": subpoint_id, "title": "Counterparty identity", "available": True, **result,
+        "rationale": f"{result['independent_count']} independent vs {result['promoter_group_count']} promoter/KMP-adjacent counterparty categor(y/ies) explicitly disclosed -> score {result['counterparty_risk_score']}/5.",
         "pathway_results": pathway_results,
     }
     confidence_tag = "SINGLE_SOURCE"
