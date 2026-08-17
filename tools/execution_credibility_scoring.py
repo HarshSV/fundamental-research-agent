@@ -83,40 +83,91 @@ def score_milestone_execution(years_texts):
 # B.5.2 - Capital allocation execution (Cash Flow Statement + Board's Report).
 # ---------------------------------------------------------------------------
 
-_ACTUAL_CAPEX = re.compile(
-    r"(?:purchase of property,?\s*plant and equipment|capital expenditure incurred|"
-    r"capex incurred)[^.\d]{0,40}?₹?\s*([\d,]+(?:\.\d+)?)\s*(?:crore|cr\b)", re.I
+_CRORE_TABLE_UNIT = re.compile(r"₹\s*in\s*crores?|rs\.?\s*in\s*crores?|figures? in\s*₹?\s*crores?", re.I)
+
+# Inline-unit form: "...capex incurred ₹1,234 crore" / "capex of Rs 500 cr".
+_ACTUAL_CAPEX_INLINE = re.compile(
+    r"(?:purchase of property,?\s*plant and equipment|capital expenditure(?:\s*\(including intangible assets\))?|"
+    r"capital expenditure incurred|capex incurred)[^.\d]{0,40}?₹?\s*([\d,]+(?:\.\d+)?)\s*(?:crore|cr\b)", re.I
+)
+# Table form: a "Capital Expenditure (including Intangible Assets)" row
+# followed by a bare number, with the ₹-crore unit declared once in the
+# table header rather than repeated inline (the standard Board's Report
+# capex-vs-cash table layout) - only trusted when that unit header is
+# present somewhere nearby in the same extracted text.
+_ACTUAL_CAPEX_TABLE = re.compile(
+    r"capital expenditure\s*(?:\(including\s+intangible\s+assets\))?\s*\n\s*([\d,]+(?:\.\d+)?)\b", re.I
 )
 _PLANNED_CAPEX = re.compile(
-    r"(?:capital expenditure|capex)[^.]{0,60}?(?:plan(?:ned)?|budget(?:ed)?|propose[ds]?|earmark(?:ed)?|guidance)[^.\d]{0,40}?₹?\s*([\d,]+(?:\.\d+)?)\s*(?:crore|cr\b)|"
-    r"plan(?:ned)?\s+(?:capital expenditure|capex)[^.\d]{0,40}?₹?\s*([\d,]+(?:\.\d+)?)\s*(?:crore|cr\b)", re.I
+    r"(?:capital expenditure|capex)[^.]{0,60}?(?:plan(?:ned)?|budget(?:ed)?|propose[ds]?|earmark(?:ed)?|guidance|"
+    r"outlay|committed?|intend(?:s|ed)? to (?:spend|invest))[^.\d]{0,40}?₹?\s*([\d,]+(?:\.\d+)?)\s*(?:crore|cr\b)|"
+    r"plan(?:ned)?\s+(?:capital expenditure|capex)[^.\d]{0,40}?₹?\s*([\d,]+(?:\.\d+)?)\s*(?:crore|cr\b)|"
+    r"(?:capex|capital expenditure)\s+(?:of|outlay of)\s+₹?\s*([\d,]+(?:\.\d+)?)\s*(?:crore|cr\b)[^.]{0,60}?(?:plan(?:ned)?|budget(?:ed)?|guidance|earmark(?:ed)?|for (?:FY|the (?:coming|next|forthcoming) year))",
+    re.I
 )
 
 
-def score_capital_execution(cash_flow_text, board_report_text):
-    """Extracts an actual capex figure from the Cash Flow Statement and a
-    planned/budgeted capex figure from the Board's Report, both explicitly
-    stated in ₹ crore. Capital Execution Score bands how close actual came
-    to planned (nearer 100% = stronger execution; over-spend is not
-    automatically "better" than under-spend). Returns
+def _extract_actual_capex(cash_flow_text):
+    m = _ACTUAL_CAPEX_INLINE.search(cash_flow_text)
+    if m:
+        try:
+            return float(m.group(1).replace(",", ""))
+        except (ValueError, TypeError):
+            pass
+    if _CRORE_TABLE_UNIT.search(cash_flow_text):
+        m = _ACTUAL_CAPEX_TABLE.search(cash_flow_text)
+        if m:
+            try:
+                return float(m.group(1).replace(",", ""))
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
+def _extract_planned_capex(texts):
+    """texts: list of raw text blocks (e.g. one per fiscal year) to search
+    for an explicit forward-looking capex plan/budget/guidance figure -
+    checked across every year available, since a company's capex guidance
+    for year N is often stated in year N-1's report, not the latest one."""
+    for t in texts:
+        if not t:
+            continue
+        m = _PLANNED_CAPEX.search(t)
+        if m:
+            raw = next((g for g in m.groups() if g), None)
+            if raw:
+                try:
+                    return float(raw.replace(",", ""))
+                except (ValueError, TypeError):
+                    continue
+    return None
+
+
+def score_capital_execution(cash_flow_text, board_report_texts):
+    """Extracts an actual capex figure from the Cash Flow Statement /
+    Board's Report capex table (inline "₹X crore" phrasing or a table row
+    under a "₹ in crores" header) and a planned/budgeted/guided capex
+    figure searched across every available year's Board's Report/MD&A
+    text (a company's capex guidance for a year is often stated a year
+    ahead of the actual spend). Capital Execution Score bands how close
+    actual came to planned (nearer 100% = stronger execution; over-spend
+    is not automatically "better" than under-spend). Returns
     {'actual_capex_cr','planned_capex_cr','execution_pct',
     'capital_execution_score'} or all-None if either figure isn't
-    explicitly disclosed (planned capex disclosure is genuinely rare -
-    this is expected to be N/A for most companies, not a bug)."""
-    if not cash_flow_text or not board_report_text:
+    explicitly disclosed (an explicit forward capex plan/guidance number
+    is genuinely rare in Indian filings - this is expected to be N/A for
+    many companies, not a bug)."""
+    board_report_texts = [t for t in (board_report_texts or []) if t]
+    if not cash_flow_text or not board_report_texts:
         return {"actual_capex_cr": None, "planned_capex_cr": None, "execution_pct": None, "capital_execution_score": None}
-    am = _ACTUAL_CAPEX.search(cash_flow_text)
-    pm = _PLANNED_CAPEX.search(board_report_text)
-    if not am or not pm:
-        return {"actual_capex_cr": None, "planned_capex_cr": None, "execution_pct": None, "capital_execution_score": None}
-    try:
-        actual = float(am.group(1).replace(",", ""))
-        planned_raw = pm.group(1) or pm.group(2)
-        planned = float(planned_raw.replace(",", ""))
-    except (ValueError, TypeError):
-        return {"actual_capex_cr": None, "planned_capex_cr": None, "execution_pct": None, "capital_execution_score": None}
-    if planned <= 0:
-        return {"actual_capex_cr": None, "planned_capex_cr": None, "execution_pct": None, "capital_execution_score": None}
+    actual = _extract_actual_capex(cash_flow_text)
+    planned = _extract_planned_capex(board_report_texts)
+    if actual is None or planned is None or planned <= 0:
+        # Surface a known actual-capex figure even when no comparable
+        # planned/guided figure exists (common - forward capex guidance in
+        # absolute ₹ terms is genuinely rare in Indian filings) rather than
+        # discarding real, already-extracted data.
+        return {"actual_capex_cr": actual, "planned_capex_cr": None, "execution_pct": None, "capital_execution_score": None}
     pct = round(100 * actual / planned, 1)
     deviation = abs(100 - pct)
     if deviation <= 10:

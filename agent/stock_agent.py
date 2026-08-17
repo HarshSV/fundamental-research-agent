@@ -2820,8 +2820,11 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co} incurred ₹{_b5_2.get('actual_capex_cr')} cr actual capex vs ₹{_b5_2.get('planned_capex_cr')} cr planned ({_b5_2.get('execution_pct')}% of plan, score {_b5_2.get('capital_execution_score')}/5).",
         }
     else:
-        _b5_2_panel = {'type': 'unavailable', 'title': 'Capex vs Planned Capex',
-                        'explanation': f"No explicitly-stated planned capex figure (Board's Report) alongside an actual capex figure (Cash Flow Statement) was located for {_co} this run — most companies don't disclose a specific capex plan/budget number."}
+        if _b5_2.get('actual_capex_cr') is not None:
+            _b5_2_explanation = f"{_co} incurred ₹{_b5_2.get('actual_capex_cr')} cr actual capex, but no explicitly-stated planned/budgeted capex figure was located across the available Annual Reports this run — an absolute-₹ capex plan/target is genuinely rare in Indian filings."
+        else:
+            _b5_2_explanation = f"No explicitly-stated planned-vs-actual capex comparison was located for {_co} across the available Annual Reports this run."
+        _b5_2_panel = {'type': 'unavailable', 'title': 'Capex vs Planned Capex', 'explanation': _b5_2_explanation}
 
     if _b5_3.get('consistency_score') is not None:
         _b5_3_panel = {

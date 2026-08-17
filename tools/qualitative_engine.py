@@ -4349,25 +4349,47 @@ def compute_b5_2_capital_execution(symbol, name=None, force=False):
         from tools.ar_table_extractor import extract_text_near_anchors
         from tools.execution_credibility_scoring import score_capital_execution
         texts = extract_text_near_anchors(sym, name, {
-            "cashflow": ["cash flow from investing activities", "purchase of property, plant and equipment"],
+            "cashflow": ["cash flow from investing activities", "purchase of property, plant and equipment", "capital expenditure"],
             "board_report": ["board's report", "directors' report", "capital expenditure"],
         }, max_pages_per_key=6)
-        result = score_capital_execution(texts.get("cashflow", ""), texts.get("board_report", ""))
+        # A company's capex GUIDANCE for a year is often stated a year
+        # ahead (in the PRIOR Annual Report's Board's Report/MD&A), not
+        # alongside the actual spend it's being compared to - so the
+        # planned-capex search spans every available year, not just the
+        # latest report.
+        board_report_texts = [texts.get("board_report", "")]
+        try:
+            board_report_texts += [y["text"] for y in _fetch_mda_by_year(sym, name)]
+        except Exception:
+            pass
+        result = score_capital_execution(texts.get("cashflow", ""), board_report_texts)
     except Exception as e:
         print(f"[qualitative_engine] B.5.2 fetch failed for {sym}: {e}")
         result = {"actual_capex_cr": None, "planned_capex_cr": None, "execution_pct": None, "capital_execution_score": None}
 
+    if result["capital_execution_score"] is not None:
+        _pathway_note = None
+    elif result.get("actual_capex_cr") is not None:
+        _pathway_note = f"Actual capex of ₹{result['actual_capex_cr']} cr was located, but no explicitly-stated planned/budgeted capex figure was found across the available Annual Reports this run — an absolute-₹ capex plan/target is genuinely rare in Indian filings."
+    else:
+        _pathway_note = "No explicitly-stated planned capex figure (Board's Report) alongside an actual capex figure (Cash Flow Statement) was located this run."
     pathway_results = [{
         "pathway_id": "AR-15",
         "source": "NSE Corporate Filings - Annual Reports - Cash Flow Statement / Board's Report - Capex & Acquisition Updates",
         "result": "CHECKED" if result["capital_execution_score"] is not None else "NOT_DISCLOSED",
-        "note": None if result["capital_execution_score"] is not None else "No explicitly-stated planned capex figure (Board's Report) alongside an actual capex figure (Cash Flow Statement) was located this run — most companies don't disclose a specific capex plan/budget number.",
+        "note": _pathway_note,
     }]
 
     if result["capital_execution_score"] is None:
+        if result.get("actual_capex_cr") is not None:
+            rationale = (f"Actual capex of ₹{result['actual_capex_cr']} cr was located, but no explicitly-stated "
+                         "planned/budgeted/guided capex figure was found across the available Annual Reports this run "
+                         "— an absolute-₹ capex plan/target is genuinely rare in Indian filings.")
+        else:
+            rationale = "No explicitly-stated planned-vs-actual capex comparison was located across the available Annual Reports this run."
         payload = {
             "subpoint_id": subpoint_id, "title": "Capital allocation execution", "available": True, **result,
-            "rationale": "No explicitly-stated planned-vs-actual capex comparison was located in the latest Annual Report this run.",
+            "rationale": rationale,
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
