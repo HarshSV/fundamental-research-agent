@@ -8725,3 +8725,201 @@ def compute_d3_secondary_transactions(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+# ---------------------------------------------------------------------------
+# D.4 - Lock-in expiries or block share releases: large scheduled sellable
+# holdings. Deterministic (no-LLM) - both sub-points share one real-source
+# lookup: the most recent NSE Corporate Announcement (last 5 years) whose
+# own text mentions a lock-in clause (an allotment/preferential-issue/IPO-
+# related filing). NSE doesn't file a distinct "lock-in expiry" announcement
+# type of its own - genuinely sparse, honestly reported N/A when no clause
+# with a resolvable date is found, never guessed. See tools/lockin_scoring.py.
+# ---------------------------------------------------------------------------
+
+def _find_latest_lockin_announcement(sym):
+    """Shared lookup for D.4: scans the last 5 years of NSE Corporate
+    Announcements for the most recent one whose own text mentions a
+    lock-in clause, downloads its PDF text. Returns (text, source_url,
+    desc) - text is '' and source_url/desc are None if none was found.
+    Never raises."""
+    from tools.nse_announcements import fetch_announcements, download_pdf_text
+    from tools.lockin_scoring import is_lockin_announcement
+    rows = fetch_announcements(sym) or []
+    cutoff_year = time.localtime().tm_year - 5
+    for row in rows:
+        an_dt = row.get("an_dt") or ""
+        try:
+            yr = int(an_dt.split()[0].split("-")[-1])
+        except (ValueError, IndexError):
+            yr = None
+        if yr is not None and yr < cutoff_year:
+            break  # rows are newest-first; nothing older is worth scanning
+        if not is_lockin_announcement(row.get("desc"), row.get("attchmntText")):
+            continue
+        url = (row.get("attchmntFile") or "").strip()
+        if not url.lower().endswith(".pdf"):
+            continue
+        text = download_pdf_text(url, max_chars=15000, max_pages=15)
+        if text:
+            return text, url, row.get("desc")
+    return "", None, None
+
+
+def compute_d4_1_lockin_status(symbol, name=None, force=False):
+    """D.4.1 - Lock-in expiry date. Spec formula: Lock-in Status =
+    Upcoming / Expired / Not Applicable; record exact date when
+    disclosed. Sourcing: NSE Corporate Filings - Corporate Announcements
+    - lock-in/release/listing/allotment/preferential-issue/IPO-related
+    filings, last 5 years.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.lockin_scoring import score_lockin_status
+        text, source_url, desc = _find_latest_lockin_announcement(sym)
+        result = score_lockin_status(text)
+    except Exception as e:
+        print(f"[qualitative_engine] D.4.1 fetch failed for {sym}: {e}")
+        result = {"lockin_status": None, "lockin_expiry_date": None}
+        source_url = None
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Corporate Announcements - lock-in/release/listing/allotment/preferential-issue/IPO-related filings, last 5 years",
+        "result": "CHECKED" if result["lockin_status"] is not None else "NOT_DISCLOSED",
+        "note": None if result["lockin_status"] is not None else "No lock-in clause with a resolvable date was located in NSE Corporate Announcements for the last 5 years this run - NSE files no distinct \"lock-in expiry\" announcement type of its own, so this is a genuinely sparse source, not necessarily evidence of no lock-in event.",
+    }]
+
+    if result["lockin_status"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Lock-in expiry date", "available": True, **result,
+            "rationale": "No lock-in clause with a resolvable date was located in NSE Corporate Announcements for the last 5 years this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Lock-in expiry date", "available": True, **result,
+        "source_pdf_url": source_url,
+        "rationale": f"Most recent lock-in clause found explicitly names an expiry date of {result['lockin_expiry_date']} -> {result['lockin_status']}.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d4_2_sellable_block(symbol, name=None, force=False):
+    """D.4.2 - Potential sellable block size. Spec formula: Potential
+    Release % = Shares Becoming Saleable / Total Shares Outstanding x
+    100 where data permits. Sourcing: NSE Corporate Filings -
+    Shareholding Patterns - Promoter/Public Shareholder tables
+    (locked/encumbered/available holdings where disclosed); NSE
+    Corporate Announcements - release details. Reads the release %
+    directly where the same lock-in filing states it explicitly (the
+    same pattern used for D.3.2's dilution %).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.lockin_scoring import score_sellable_block
+        text, source_url, desc = _find_latest_lockin_announcement(sym)
+        result = score_sellable_block(text)
+    except Exception as e:
+        print(f"[qualitative_engine] D.4.2 fetch failed for {sym}: {e}")
+        result = {"release_pct": None, "shares_released": None, "classification": None}
+        source_url = None
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Corporate Announcements - release details (Potential Release % as explicitly stated in the filing); Shareholding Patterns - Promoter/Public Shareholder tables cross-check",
+        "result": "CHECKED" if result["release_pct"] is not None else "NOT_DISCLOSED",
+        "note": None if result["release_pct"] is not None else "No lock-in/release filing explicitly stating a release % of share capital was located for the last 5 years this run.",
+    }]
+
+    if result["release_pct"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Potential sellable block size", "available": True, **result,
+            "rationale": "No lock-in/release filing explicitly stating a release % of share capital was located for the last 5 years this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Potential sellable block size", "available": True, **result,
+        "source_pdf_url": source_url,
+        "rationale": f"The matched lock-in filing explicitly states a release of {result['release_pct']}% of share capital -> {result['classification']}.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d4_lockin_releases(symbol, name=None, force=False):
+    """D.4 - Lock-in expiries or block share releases: large scheduled
+    sellable holdings: combines the two defined sub-points (D.4.1
+    lock-in status, D.4.2 sellable block size) into a single grounded
+    payload, both sourced from the same real NSE Corporate Announcement
+    PDF - no LLM call, see tools/lockin_scoring.py.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    d4_1 = compute_d4_1_lockin_status(sym, name, force=force)
+    d4_2 = compute_d4_2_sellable_block(sym, name, force=force)
+
+    parts = []
+    if d4_1.get("lockin_status") is not None:
+        parts.append(f"Status: {d4_1['lockin_status']} ({d4_1['lockin_expiry_date']}).")
+    if d4_2.get("release_pct") is not None:
+        parts.append(f"Sellable block: {d4_2['release_pct']}% of share capital ({d4_2['classification']}).")
+    if not parts:
+        parts.append("No lock-in clause with a resolvable date, or release % figure, was located for this company in NSE Corporate Announcements across the last 5 years this run - a genuinely sparse source (NSE files no distinct lock-in-expiry announcement type), not necessarily evidence of no lock-in event.")
+
+    _tags = [t.get("confidence_tag") for t in (d4_1, d4_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (d4_1, d4_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "D.4",
+        "title": "Lock-in expiries or block share releases: large scheduled sellable holdings",
+        "available": True,
+        "d4_1": d4_1, "d4_2": d4_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (d4_1.get("pathway_results") or [])[:1] + (d4_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

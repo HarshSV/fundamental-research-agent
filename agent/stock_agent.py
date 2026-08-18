@@ -2350,6 +2350,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _d4 = None
+    try:
+        from tools.qualitative_engine import compute_d4_lockin_releases
+        _d4 = compute_d4_lockin_releases(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced D.4 engine failed: {e}")
+        _d4 = {
+            'available': True,
+            'rationale': 'Not computed — D.4 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3486,6 +3498,38 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No QIP/preferential/private-placement announcement was located for {_co} across the last 5 years this run."}
     _d3_panels = [_d3_1_panel, _d3_2_panel, _d3_3_panel]
 
+    _d4_1, _d4_2 = (_d4 or {}).get('d4_1') or {}, (_d4 or {}).get('d4_2') or {}
+
+    if _d4_1.get('lockin_status') is not None:
+        # "Not Applicable" is a real category in the spec's own vocabulary,
+        # but this engine never outputs it - there's no evidence basis to
+        # positively confirm a company has NO lock-in event at all (NSE
+        # files no distinct lock-in-expiry announcement type to search
+        # against), so only Upcoming/Expired are ever classified; anything
+        # else is honestly reported unavailable, not guessed into N/A.
+        _d4_1_panel = {
+            'type': 'classification', 'title': 'Lock-in Expiry Date',
+            'zones': ['Upcoming', 'Expired'], 'active': _d4_1.get('lockin_status'),
+            'centerValue': _d4_1.get('lockin_expiry_date'),
+            'explanation': f"{_co}'s most recent lock-in clause explicitly names an expiry date of {_d4_1.get('lockin_expiry_date')} -> {_d4_1.get('lockin_status')}.",
+        }
+    else:
+        _d4_1_panel = {'type': 'unavailable', 'title': 'Lock-in Expiry Date',
+                        'explanation': f"No lock-in clause with a resolvable date was located for {_co} in NSE Corporate Announcements across the last 5 years this run."}
+
+    if _d4_2.get('release_pct') is not None:
+        _d4_2_panel = {
+            'type': 'donut', 'title': 'Potential Sellable Block Size',
+            'data': [{'label': 'Sellable Block', 'value': _d4_2.get('release_pct')},
+                     {'label': 'Remaining Holding', 'value': round(100 - _d4_2.get('release_pct'), 1)}],
+            'centerValue': f"{_d4_2.get('release_pct')}%",
+            'explanation': f"{_co}'s matched lock-in filing explicitly states a release of {_d4_2.get('release_pct')}% of share capital -> {_d4_2.get('classification')}.",
+        }
+    else:
+        _d4_2_panel = {'type': 'unavailable', 'title': 'Potential Sellable Block Size',
+                        'explanation': f"No lock-in/release filing explicitly stating a release % of share capital was located for {_co} across the last 5 years this run."}
+    _d4_panels = [_d4_1_panel, _d4_2_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4245,6 +4289,31 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_d3 or {}).get('confidence_tag'), 'retrieved_at': (_d3 or {}).get('retrieved_at'),
                     'pathway_results': (_d3 or {}).get('pathway_results'),
+                },
+                {
+                    # D.4 — the two sub-points (D.4.1 lock-in status,
+                    # D.4.2 sellable block size) combined into ONE card as
+                    # a 2-panel set, both sourced from the same real NSE
+                    # Corporate Announcement text mentioning a lock-in
+                    # clause. NSE files no distinct "lock-in expiry"
+                    # announcement type of its own - genuinely sparse.
+                    'key': 'lockin_expiries_releases',
+                    'title': 'Lock-in expiries or block share releases: large scheduled sellable holdings',
+                    'finding': (_d4 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Status', _d4_1.get('lockin_status')] if _d4_1.get('lockin_status') else None),
+                        (['Expiry date', _d4_1.get('lockin_expiry_date')] if _d4_1.get('lockin_expiry_date') else None),
+                        (['Sellable block', f"{_d4_2.get('release_pct')}% of share capital"] if _d4_2.get('release_pct') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _d4_panels} if _d4_panels else None),
+                    'formula': 'Lock-in Status = Upcoming / Expired, with the exact date read directly from a matched allotment/preferential-issue/IPO-related filing\'s own lock-in clause; '
+                               'Potential Release % = Shares Becoming Saleable / Total Shares Outstanding x 100, as explicitly stated in the filing.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'lock-in/release/listing/allotment/preferential-issue/IPO-related filings, last 5 years', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'secondary': {'label': 'NSE Corporate Filings — Shareholding Patterns', 'note': 'Promoter/Public Shareholder tables cross-check', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                    },
+                    'confidence_tag': (_d4 or {}).get('confidence_tag'), 'retrieved_at': (_d4 or {}).get('retrieved_at'),
+                    'pathway_results': (_d4 or {}).get('pathway_results'),
                 },
             ],
         },
