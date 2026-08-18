@@ -2631,7 +2631,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b2_1.get('fixed_pct') is not None:
         _b2_1_donut = {
-            'type': 'donut', 'title': 'Pay Structure',
+            'type': 'kpi_card', 'title': 'Pay Structure',
             'data': [{'label': 'Fixed pay', 'value': _b2_1.get('fixed_amount')},
                      {'label': 'Variable pay', 'value': _b2_1.get('variable_amount')}],
             'centerValue': f"{_b2_1.get('fixed_pct')}%",
@@ -2674,7 +2674,7 @@ def build_executive_summary(state: SystemState) -> dict:
         _horizon = _b2_4.get('vesting_horizon_years')
         _horizon_label = 'Long-term (≥3y)' if _horizon >= 3 else 'Moderate (1-3y)' if _horizon >= 1 else 'Short (<1y)'
         _b2_4_donut = {
-            'type': 'classification', 'title': 'Long-term Orientation',
+            'type': 'kpi_card', 'title': 'Long-term Orientation',
             'zones': ['Short (<1y)', 'Moderate (1-3y)', 'Long-term (≥3y)'], 'active': _horizon_label,
             'centerValue': f"{_horizon}y",
             'explanation': f"{_co}'s ESOP vests over {_horizon} year(s)"
@@ -2683,7 +2683,7 @@ def build_executive_summary(state: SystemState) -> dict:
         }
     elif _b2_4.get('alignment_score') is not None:
         _b2_4_donut = {
-            'type': 'donut', 'title': 'Long-term Orientation',
+            'type': 'kpi_card', 'title': 'Long-term Orientation',
             'data': [{'label': 'Long-term incentives', 'value': _b2_4.get('long_term_count')},
                      {'label': 'Short-term incentives', 'value': _b2_4.get('short_term_count')}],
             'centerValue': f"{_b2_4.get('long_term_pct')}%",
@@ -2711,7 +2711,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b3_1.get('depth_score') is not None:
         _b3_1_donut = {
-            'type': 'classification', 'title': 'Leadership Depth',
+            'type': 'kpi_card', 'title': 'Leadership Depth',
             'zones': ['Limited', 'Strong'], 'active': 'Strong' if _b3_1.get('depth_score') >= 3 else 'Limited',
             'centerValue': str(_b3_1.get('member_count')),
             'explanation': f"{_co}'s latest Annual Report explicitly names {_b3_1.get('member_count')} senior management/executive leadership members (score {_b3_1.get('depth_score')}/5).",
@@ -2722,7 +2722,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b3_2.get('readiness') is not None:
         _b3_2_donut = {
-            'type': 'classification', 'title': 'Succession Readiness',
+            'type': 'kpi_card', 'title': 'Succession Readiness',
             'zones': ['Not Ready', 'Ready'], 'active': _b3_2.get('readiness'),
             'explanation': f"{_co}: " + (f"{_b3_2.get('succession_transitions')} named completed leadership transition(s) explicitly described" if _b3_2.get('succession_transitions') else "explicit evidence of an actively reviewed succession-planning process") + ".",
         }
@@ -2732,7 +2732,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b3_3.get('dependency_score') is not None:
         _b3_3_donut = {
-            'type': 'classification', 'title': 'Key Executive Dependency',
+            'type': 'kpi_card', 'title': 'Key Executive Dependency',
             'zones': ['Concentrated', 'Distributed'], 'active': _b3_3.get('dependency_level'),
             'explanation': f"{_b3_1.get('member_count')} named senior executives at {_co} -> {_b3_3.get('dependency_level')} responsibility (score {_b3_3.get('dependency_score')}/5).",
         }
@@ -2754,7 +2754,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b4_1.get('transparency_score') is not None:
         _b4_1_donut = {
-            'type': 'donut', 'title': 'Disclosure Transparency',
+            'type': 'kpi_card', 'title': 'Disclosure Transparency',
             'data': [{'label': 'Detailed', 'value': _b4_1.get('detailed_count')},
                      {'label': 'Generic', 'value': _b4_1.get('generic_count')}],
             'centerValue': f"{_b4_1.get('detailed_pct')}%",
@@ -2785,7 +2785,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b4_3.get('openness_score') is not None:
         _b4_3_donut = {
-            'type': 'donut', 'title': 'Investor Openness',
+            'type': 'kpi_card', 'title': 'Investor Openness',
             'data': [{'label': 'Open', 'value': max(0, (_b4_3.get('unique_analysts') or 0) - (_b4_3.get('evasive_answer_count') or 0))},
                      {'label': 'Defensive', 'value': _b4_3.get('evasive_answer_count')}],
             'centerValue': f"{_b4_3.get('openness_pct')}%",
@@ -2800,7 +2800,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b5_1.get('milestone_score') is not None:
         _b5_1_donut = {
-            'type': 'donut', 'title': 'Delivered vs Stated Milestones',
+            'type': 'kpi_card', 'title': 'Delivered vs Stated Milestones',
             'data': [{'label': 'Achieved', 'value': _b5_1.get('achieved_count')},
                      {'label': 'Pending', 'value': _b5_1.get('pending_count')}],
             'centerValue': f"{_b5_1.get('execution_ratio_pct')}%",
@@ -2841,7 +2841,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b6_1.get('innovation_score') is not None:
         _b6_1_donut = {
-            'type': 'donut', 'title': 'Innovation Focus',
+            'type': 'kpi_card', 'title': 'Innovation Focus',
             'data': [{'label': 'Innovation-led', 'value': _b6_1.get('innovation_led_count')},
                      {'label': 'Traditional', 'value': _b6_1.get('traditional_count')}],
             'centerValue': f"{_b6_1.get('innovation_pct')}%",
@@ -2853,7 +2853,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b6_2.get('compliance_score') is not None:
         _b6_2_donut = {
-            'type': 'donut', 'title': 'Compliance Orientation',
+            'type': 'kpi_card', 'title': 'Compliance Orientation',
             'data': [{'label': 'Strong', 'value': _b6_2.get('strong_count')},
                      {'label': 'Weak', 'value': _b6_2.get('weak_count')}],
             'centerValue': f"{_b6_2.get('compliance_pct')}%",
@@ -2865,7 +2865,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b6_3.get('engagement_score') is not None:
         _b6_3_donut = {
-            'type': 'donut', 'title': 'Employee Morale',
+            'type': 'kpi_card', 'title': 'Employee Morale',
             'data': [{'label': 'Engaged', 'value': _b6_3.get('engaged_count')},
                      {'label': 'Disengaged', 'value': _b6_3.get('disengaged_count')}],
             'centerValue': f"{_b6_3.get('engagement_pct')}%",
@@ -2877,7 +2877,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b6_4.get('attrition_stability_score') is not None:
         _b6_4_donut = {
-            'type': 'donut', 'title': 'Attrition Evidence',
+            'type': 'kpi_card', 'title': 'Attrition Evidence',
             'data': [{'label': 'Retained', 'value': _b6_4.get('retained_pct')},
                      {'label': 'Attrited', 'value': _b6_4.get('turnover_rate_pct')}],
             'centerValue': f"{_b6_4.get('turnover_rate_pct')}%",
@@ -2947,7 +2947,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c2_1.get('presence_score') is not None:
         _c2_1_donut = {
-            'type': 'donut', 'title': 'Presence of Pledging',
+            'type': 'kpi_card', 'title': 'Presence of Pledging',
             'data': [{'label': 'Pledged', 'value': _c2_1.get('pledge_pct')},
                      {'label': 'Unpledged', 'value': _c2_1.get('unpledged_pct')}],
             'centerValue': f"{_c2_1.get('pledge_pct')}%",
@@ -2959,7 +2959,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c2_2.get('size_score') is not None:
         _c2_2_panel = {
-            'type': 'classification', 'title': 'Size of Pledged Shares',
+            'type': 'kpi_card', 'title': 'Size of Pledged Shares',
             'zones': ['Low', 'High'], 'active': _c2_2.get('size_classification'),
             'explanation': f"{_co}'s pledged shares are {_c2_2.get('pledge_pct')}% of promoter holding -> {_c2_2.get('size_classification')} (score {_c2_2.get('size_score')}/5).",
         }
@@ -2981,7 +2981,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c2_4.get('risk_score') is not None:
         _c2_4_panel = {
-            'type': 'classification', 'title': 'Margin-call Risk',
+            'type': 'kpi_card', 'title': 'Margin-call Risk',
             'zones': ['Low', 'High'], 'active': _c2_4.get('risk_level'),
             'explanation': f"{_co}'s pledged shares are {_c2_4.get('pledge_pct')}% of promoter holding -> {_c2_4.get('risk_level')} margin-call risk (score {_c2_4.get('risk_score')}/5).",
         }
@@ -2994,7 +2994,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c3_1.get('frequency_score') is not None:
         _c3_1_panel = {
-            'type': 'classification', 'title': 'Frequency of RPTs',
+            'type': 'kpi_card', 'title': 'Frequency of RPTs',
             'zones': ['Limited', 'Frequent'], 'active': _c3_1.get('frequency_bucket'),
             'explanation': f"{_co}'s Related Party Disclosures note explicitly named {_c3_1.get('distinct_transaction_types')} distinct Ind AS 24 transaction-type(s) -> {_c3_1.get('frequency_bucket')} (score {_c3_1.get('frequency_score')}/5).",
         }
@@ -3004,7 +3004,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c3_2.get('counterparty_risk_score') is not None:
         _c3_2_donut = {
-            'type': 'donut', 'title': 'Counterparty Identity',
+            'type': 'kpi_card', 'title': 'Counterparty Identity',
             'data': [{'label': 'Promoter-group', 'value': _c3_2.get('promoter_group_count')},
                      {'label': 'Independent', 'value': _c3_2.get('independent_count')}],
             'centerValue': f"{_c3_2.get('counterparty_risk_pct')}%",
@@ -3028,7 +3028,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c3_4.get('disclosure_quality_score') is not None:
         _c3_4_donut = {
-            'type': 'donut', 'title': 'Disclosure Quality of RPTs',
+            'type': 'kpi_card', 'title': 'Disclosure Quality of RPTs',
             'data': [{'label': 'Transparent', 'value': _c3_4.get('transparent_count')},
                      {'label': 'Opaque', 'value': _c3_4.get('opaque_count')}],
             'centerValue': f"{_c3_4.get('disclosure_quality_pct')}%",
@@ -3079,7 +3079,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c4_4.get('group_complexity_score') is not None:
         _c4_4_panel = {
-            'type': 'category_bar', 'title': 'Group Entities by Type and Jurisdiction',
+            'type': 'kpi_card', 'title': 'Group Entities by Type and Jurisdiction',
             'data': [{'label': 'Domestic', 'value': _c4_4.get('domestic_count')},
                      {'label': 'Overseas', 'value': _c4_4.get('overseas_count')},
                      {'label': 'Trust/Foundation', 'value': _c4_4.get('trust_count')}],
@@ -3095,7 +3095,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c5_1.get('quality_score') is not None:
         _c5_1_donut = {
-            'type': 'donut', 'title': 'Independent Directors by Quality Tier',
+            'type': 'kpi_card', 'title': 'Independent Directors by Quality Tier',
             'data': [{'label': 'High Quality', 'value': _c5_1.get('high_quality_count')},
                      {'label': 'Standard', 'value': _c5_1.get('standard_count')}],
             'centerValue': f"{_c5_1.get('quality_pct')}%",
@@ -3131,7 +3131,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c5_4.get('participation_score') is not None:
         _c5_4_donut = {
-            'type': 'donut', 'title': 'Attended vs Missed Meetings',
+            'type': 'kpi_card', 'title': 'Attended vs Missed Meetings',
             'data': [{'label': 'Attended', 'value': _c5_4.get('total_present')},
                      {'label': 'Missed', 'value': max(0, (_c5_4.get('total_possible') or 0) - (_c5_4.get('total_present') or 0))}],
             'centerValue': f"{_c5_4.get('attendance_pct')}%",
@@ -3157,7 +3157,7 @@ def build_executive_summary(state: SystemState) -> dict:
     _c6_2_by_year = _c6_2.get('switch_by_year') or []
     if _c6_2.get('switch_score') is not None and _c6_2_by_year:
         _c6_2_panel = {
-            'type': 'category_bar', 'title': 'Auditor Changes by Year',
+            'type': 'kpi_card', 'title': 'Auditor Changes by Year',
             'data': [{'label': f"FY{str(y.get('fiscal_year'))[-2:]}", 'value': 1 if y.get('changed') else 0} for y in _c6_2_by_year],
             'centerValue': f"{_c6_2.get('switch_count')} change(s)",
             'explanation': f"{_co} changed statutory auditors {_c6_2.get('switch_count')} time(s) across {_c6_2.get('years_covered')} year(s) (score {_c6_2.get('switch_score')}/5).",
@@ -3168,7 +3168,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c6_3.get('audit_qualification_score') is not None:
         _c6_3_panel = {
-            'type': 'classification', 'title': 'Unmodified vs Modified Audit Opinion',
+            'type': 'kpi_card', 'title': 'Unmodified vs Modified Audit Opinion',
             'zones': ['Modified', 'Unmodified'], 'active': _c6_3.get('opinion_type'),
             'explanation': f"{_co}'s Independent Auditor's Report opinion was explicitly classified as {_c6_3.get('opinion_type')} (score {_c6_3.get('audit_qualification_score')}/5).",
         }
@@ -3178,7 +3178,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c6_4.get('audit_observation_score') is not None:
         _c6_4_panel = {
-            'type': 'classification', 'title': 'No Material Observation vs Recurring Observation',
+            'type': 'kpi_card', 'title': 'No Material Observation vs Recurring Observation',
             'zones': ['Recurring Observation', 'No Material Observation'], 'active': _c6_4.get('observation_classification'),
             'explanation': f"{_co} explicitly identified {_c6_4.get('kam_count')} Key Audit Matter(s); Emphasis of Matter {'present' if _c6_4.get('has_emphasis_of_matter') else 'not present'} -> {_c6_4.get('observation_classification')} (score {_c6_4.get('audit_observation_score')}/5).",
         }
@@ -3194,7 +3194,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c7_1.get('capex_execution_score') is not None:
         _c7_1_donut = {
-            'type': 'donut', 'title': 'Growth vs Maintenance / Other Capex',
+            'type': 'kpi_card', 'title': 'Growth vs Maintenance / Other Capex',
             'data': [{'label': 'Growth Capex', 'value': _c7_1.get('growth_count')},
                      {'label': 'Maintenance / Other', 'value': _c7_1.get('maintenance_count')}],
             'centerValue': f"{_c7_1.get('growth_pct')}%",
@@ -3206,7 +3206,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c7_2.get('acquisition_discipline_score') is not None:
         _c7_2_donut = {
-            'type': 'donut', 'title': 'Strategic vs Non-core / Related-party Acquisitions',
+            'type': 'kpi_card', 'title': 'Strategic vs Non-core / Related-party Acquisitions',
             'data': [{'label': 'Strategic', 'value': _c7_2.get('strategic_count')},
                      {'label': 'Non-core / Related-party', 'value': _c7_2.get('noncore_count')}],
             'centerValue': f"{_c7_2.get('strategic_pct')}%",
@@ -3233,7 +3233,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c7_4.get('dividend_consistency_score') is not None:
         _c7_4_donut = {
-            'type': 'donut', 'title': 'Dividends vs Reinvestment / Other Uses',
+            'type': 'kpi_card', 'title': 'Dividends vs Reinvestment / Other Uses',
             'data': [{'label': 'Dividends', 'value': _c7_4.get('total_dividend_cr')},
                      {'label': 'Reinvestment (Capex + M&A)', 'value': _c7_4.get('total_reinvestment_cr')}],
             'centerValue': f"{_c7_4.get('consistency_pct')}%",
@@ -3261,7 +3261,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c8_1.get('disclosure_quality_score') is not None:
         _c8_1_panel = {
-            'type': 'category_bar', 'title': 'Detailed vs Limited Disclosure',
+            'type': 'kpi_card', 'title': 'Detailed vs Limited Disclosure',
             'data': [{'label': 'Detailed', 'value': _c8_1.get('detailed_count')},
                      {'label': 'Limited', 'value': _c8_1.get('limited_count')}],
             'centerValue': f"{_c8_1.get('detailed_pct')}%",
@@ -3273,7 +3273,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c8_2.get('minority_treatment_score') is not None:
         _c8_2_panel = {
-            'type': 'category_bar', 'title': 'Votes For vs Against / Abstained',
+            'type': 'kpi_card', 'title': 'Votes For vs Against / Abstained',
             'data': [{'label': 'Passed', 'value': _c8_2.get('passed_count')},
                      {'label': 'Contested', 'value': _c8_2.get('contested_count')}],
             'centerValue': f"{_c8_2.get('pass_pct')}%",

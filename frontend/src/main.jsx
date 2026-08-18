@@ -907,6 +907,49 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
+        // --- SUBCOMPONENT: "KPI Card" — a single headline stat with no chart
+        // geometry (no ring, no bars), per the spec's "KPI Card" chart type.
+        // Handles both shapes used elsewhere in this panel system: a plain
+        // {centerValue, explanation} numeric stat, and a {zones, active,
+        // explanation} classification (rendered as a badge + the other zone
+        // labels dimmed alongside it, rather than as a donut ring).
+        const KpiCardPanel = ({ panel }) => {
+            const zones = panel.zones || [];
+            const isClassification = zones.length > 0;
+            const activeIdx = zones.findIndex(z => z.toLowerCase() === (panel.active || '').toLowerCase());
+            return (
+                <div className="flex flex-col items-center justify-center min-h-[140px] py-3">
+                    {isClassification ? (
+                        <>
+                            <div className="px-4 py-1.5 rounded-full text-sm font-extrabold" style={{
+                                background: activeIdx >= 0 ? BIG_DONUT_PALETTE[activeIdx % BIG_DONUT_PALETTE.length] + '26' : 'rgba(100,116,139,0.15)',
+                                color: activeIdx >= 0 ? BIG_DONUT_PALETTE[activeIdx % BIG_DONUT_PALETTE.length] : '#64748b',
+                            }}>
+                                {panel.active || 'N/A'}
+                            </div>
+                            {zones.length > 1 && (
+                                <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-2">
+                                    {zones.map((z, i) => (
+                                        <span key={i} className={`text-[10px] ${i === activeIdx ? 'text-slate-300 font-semibold' : 'text-slate-600'}`}>{z}</span>
+                                    ))}
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <div className="text-3xl font-extrabold text-slate-100">{panel.centerValue ?? '—'}</div>
+                            {panel.data?.[0]?.label && (
+                                <div className="text-[10px] font-semibold text-slate-500 uppercase mt-1">{panel.data[0].label}</div>
+                            )}
+                        </>
+                    )}
+                    {panel.explanation && (
+                        <p className="text-[10px] text-slate-500 text-center mt-2 max-w-[220px] leading-snug">{panel.explanation}</p>
+                    )}
+                </div>
+            );
+        };
+
         const BigCenterDonut = ({ panel }) => {
             const cx = 100, cy = 100, R = 78, HOLE = 48;
             if (panel.type === 'unavailable') {
@@ -923,6 +966,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (panel.type === 'stacked_bar') return <StackedBarPanel panel={panel} />;
             if (panel.type === 'category_bar') return <CategoryBarPanel panel={panel} />;
             if (panel.type === 'line_trend') return <LineTrendPanel panel={panel} />;
+            if (panel.type === 'kpi_card') return <KpiCardPanel panel={panel} />;
             let slices = [];
             if (panel.type === 'classification') {
                 const zones = panel.zones || [];
