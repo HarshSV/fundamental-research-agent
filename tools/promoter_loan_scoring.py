@@ -68,6 +68,19 @@ _FROM_COMPANY_DIRECTION = re.compile(
 # a disclosure - without this guard it was scored as if HUL disclosed a
 # real Company -> Promoter/Group loan.
 _NEGATION_CUE = re.compile(r"\b(?:no|not|none|nil|never)\b", re.I)
+# Fallback for a common alternate disclosure layout: a table ROW LABEL
+# ("Loans and advances given ... Loans and advances recovered ...")
+# with counterparty names as COLUMN HEADERS elsewhere in the same
+# sentence/window, rather than a "loans given TO <party>" prose phrase
+# (confirmed real: TCS's Ind AS 24 note lists "Loans and advances given
+# - 21 13 - 34" under Tata Sons/Subsidiaries/Associates column headers -
+# the strict _FROM_COMPANY_DIRECTION phrase never matches this layout
+# since no party name directly follows "given"). Only used as a
+# fallback, on a sentence that has ALREADY passed _loan_sentences'
+# promoter/group-adjacent-party + real-amount filter, so the party
+# co-occurs somewhere in the same window even without direct adjacency.
+_FROM_COMPANY_TABLE_FALLBACK = re.compile(r"loans?(?:\s+and\s+advances)?\s+(?:given|granted|extended|provided)\b", re.I)
+_TO_COMPANY_TABLE_FALLBACK = re.compile(r"loans?(?:\s+and\s+advances)?\s+(?:taken|received|obtained|availed)\b", re.I)
 
 
 def _has_unnegated_match(pattern, text):
@@ -150,6 +163,11 @@ def score_loan_direction(rpt_text):
         return {"direction": None, "evidence_sentences": None}
     to_company = any(_has_unnegated_match(_TO_COMPANY_DIRECTION, s) for s in sentences)
     from_company = any(_has_unnegated_match(_FROM_COMPANY_DIRECTION, s) for s in sentences)
+    if not (to_company or from_company):
+        # Fall back to the table-row-label layout - see
+        # _FROM_COMPANY_TABLE_FALLBACK's docstring above.
+        to_company = any(_has_unnegated_match(_TO_COMPANY_TABLE_FALLBACK, s) for s in sentences)
+        from_company = any(_has_unnegated_match(_FROM_COMPANY_TABLE_FALLBACK, s) for s in sentences)
     if to_company and from_company:
         direction = "Both"
     elif to_company:

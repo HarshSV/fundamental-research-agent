@@ -9039,18 +9039,25 @@ def compute_d5_1_loan_direction(symbol, name=None, force=False):
         result = {"direction": None, "evidence_sentences": None}
         pdf_url = None
 
+    has_evidence = bool(result.get("evidence_sentences"))
+    not_disclosed_note = (
+        "A promoter/group/KMP-adjacent loan or advance sentence was located, but no directional "
+        "verb phrase (given to/taken from, etc.) could be classified from it this run."
+        if has_evidence else
+        "No promoter/group/KMP-adjacent loan or advance sentence was located in the Related Party Disclosures note this run."
+    )
     pathway_results = [{
         "pathway_id": "AR-04",
         "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Loans/Advances - Related Party Disclosures (Ind AS 24)",
         "result": "CHECKED" if result["direction"] is not None else "NOT_DISCLOSED",
-        "note": None if result["direction"] is not None else "No promoter/group/KMP-adjacent loan or advance sentence was located in the Related Party Disclosures note this run.",
+        "note": None if result["direction"] is not None else not_disclosed_note,
     }]
 
     if result["direction"] is None:
         payload = {
             "subpoint_id": subpoint_id, "title": "Promoter/company loan direction", "available": True, **result,
             "source_pdf_url": pdf_url,
-            "rationale": "No promoter/group/KMP-adjacent loan or advance sentence was located in the Related Party Disclosures note this run.",
+            "rationale": not_disclosed_note,
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
