@@ -3285,11 +3285,16 @@ def build_executive_summary(state: SystemState) -> dict:
 
     _c8_4_by_event = _c8_4.get('by_event') or []
     if _c8_4.get('timeliness_score') is not None and _c8_4_by_event:
+        # Per-event disclosure gaps are almost always near-instant (NSE's
+        # own systems timestamp the filing within seconds of the exchange
+        # dissemination time) - a 20-point line chart of values that all
+        # round to ~0 minutes was visually flat/cluttered and conveyed
+        # nothing a plain avg/max stat doesn't. KPI card with both figures
+        # instead.
         _c8_4_panel = {
-            'type': 'line_trend', 'title': 'Material Events vs Disclosure Timing',
-            'data': [{'label': f"Event {i+1}", 'value': round(e.get('gap_seconds') / 60.0, 1)} for i, e in enumerate(reversed(_c8_4_by_event))],
+            'type': 'kpi_card', 'title': 'Material Events vs Disclosure Timing',
             'centerValue': f"{_c8_4.get('avg_gap_seconds')}s avg",
-            'explanation': f"{_co}'s last {_c8_4.get('events_count')} material event(s) had an average disclosure gap of {_c8_4.get('avg_gap_seconds')}s (score {_c8_4.get('timeliness_score')}/5).",
+            'explanation': f"{_co}'s last {_c8_4.get('events_count')} material event(s) had an average disclosure gap of {_c8_4.get('avg_gap_seconds')}s (max {_c8_4.get('max_gap_seconds')}s), score {_c8_4.get('timeliness_score')}/5.",
         }
     else:
         _c8_4_panel = {'type': 'unavailable', 'title': 'Material Events vs Disclosure Timing',
