@@ -7404,27 +7404,20 @@ def compute_c7_capital_allocation(symbol, name=None, force=False):
     return payload
 
 
-def compute_c8_minority_shareholder_treatment(symbol, name=None, force=False):
-    """C.8 — Track record on minority shareholder treatment and disclosure
-    habits. N/A formula — a qualitative flag count of adverse governance events,
-    per the spec.
-
-    Sourcing Sequence: PORTAL-01 (get the AR PDF) -> PORTAL-06 (SEBI enforcement
-    orders) -> NICHE-20 (proxy advisory, IiAS/InGovern) + FOUNDER-03 (SEBI/
-    exchange debarment, by individual name, for named directors).
-
-    No SEBI enforcement-order fetcher (PORTAL-06), no IiAS/InGovern fetcher
-    (NICHE-20 — a paid subscription product by design), no AGM voting/scrutinizer-
-    result fetcher, and no FOUNDER-03 individual-name debarment search are wired
-    in this codebase. This is exactly the category the verification protocol's
-    HUMAN SIGN-OFF GATE exists for: an adverse-finding search (SEBI orders,
-    debarment) must never be silently skipped or reported as "clean" when it was
-    never actually checked — recorded as an explicit, uninvestigated gap, not a
-    finding of no adverse events. A named analyst must run PORTAL-06/NICHE-20/
-    FOUNDER-03 manually before this factors into any investment decision.
+def compute_c8_1_disclosure_quality(symbol, name=None, force=False):
+    """C.8.1 - Disclosure quality. Spec formula: Disclosure Quality
+    Score (1-5): completeness, specificity, timeliness and consistency
+    of material disclosures. Deterministic (no LLM) - see
+    tools/minority_treatment_scoring.py's score_disclosure_quality: a
+    disclosure-keyword sentence (RPT / Contingent Liabilities /
+    Commitments / Corporate Governance Report) is "Detailed" if it names
+    a quantified figure, "Limited" if it matches generic boilerplate.
+    Sourcing: NSE Corporate Filings - Annual Reports - Corporate
+    Governance Report / Notes to Accounts - RPT / Contingent Liabilities
+    / Commitments.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
-    subpoint_id = "C.8"
+    subpoint_id = "C.8.1"
 
     if not force:
         cached = read_qualitative(sym, subpoint_id)
@@ -7436,52 +7429,244 @@ def compute_c8_minority_shareholder_treatment(symbol, name=None, force=False):
             except Exception:
                 return cached
 
-    pathway_results = [
-        {
-            "pathway_id": "PORTAL-01",
-            "source": "BSE Corporate Announcements -> Annual Report PDF",
-            "result": "NOT_DISCLOSED",
-            "note": "No structured AR section parser relevant to this sub-point is wired.",
-        },
-        {
-            "pathway_id": "PORTAL-06",
-            "source": "SEBI Enforcement Orders / SCORES",
-            "result": "NOT_DISCLOSED",
-            "note": "No SEBI enforcement-order fetcher is wired into this codebase yet.",
-        },
-        {
-            "pathway_id": "NICHE-20",
-            "source": "Proxy Advisory — IiAS / InGovern (AGM resolution commentary)",
-            "result": "NOT_DISCLOSED",
-            "note": "IiAS/InGovern proxy research is a paid subscription product by design — no fetcher wired.",
-        },
-        {
-            "pathway_id": "FOUNDER-03",
-            "source": "SEBI orders + exchange debarred-entities list, by named director",
-            "result": "NOT_DISCLOSED",
-            "note": "No fetcher wired — requires director names from AR-01/AR-06, which are themselves not extracted yet.",
-        },
-    ]
+    try:
+        from tools.ar_table_extractor import extract_text_near_anchors
+        from tools.minority_treatment_scoring import score_disclosure_quality
+        texts = extract_text_near_anchors(sym, name, {"disclosures": ["related party transactions", "contingent liabilities", "commitments", "corporate governance report"]}, max_pages_per_key=8)
+        result = score_disclosure_quality(texts.get("disclosures", ""))
+    except Exception as e:
+        print(f"[qualitative_engine] C.8.1 fetch failed for {sym}: {e}")
+        result = {"detailed_count": None, "limited_count": None, "detailed_pct": None, "disclosure_quality_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Corporate Governance Report / Notes to Accounts - RPT / Contingent Liabilities / Commitments",
+        "result": "CHECKED" if result["disclosure_quality_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["disclosure_quality_score"] is not None else "No RPT/Contingent Liabilities/Commitments text with a clear detailed/limited signal was located in the latest Annual Report this run.",
+    }]
+
+    if result["disclosure_quality_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Disclosure quality", "available": True, **result,
+            "rationale": "No RPT/Contingent Liabilities/Commitments text with a clear detailed/limited signal was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
 
     payload = {
-        "subpoint_id": subpoint_id,
-        "title": "Track record on minority shareholder treatment and disclosure habits",
-        "available": True,
-        "adverse_event_flag_count": None,
-        "adverse_flags": [],
-        "rationale": (
-            "NOT INVESTIGATED — no SEBI enforcement-order search, no proxy-advisory (IiAS/InGovern) check, "
-            "and no AGM voting/scrutinizer-result check have been run for this company. This is NOT the same "
-            "as a clean record; per the verification protocol's human sign-off gate, an adverse-finding "
-            "search of this kind must be run manually by a named analyst before it can inform any "
-            "investment decision."
-        ),
+        "subpoint_id": subpoint_id, "title": "Disclosure quality", "available": True, **result,
+        "rationale": f"{result['detailed_count']} detailed (quantified) vs {result['limited_count']} limited (generic) disclosure statement(s) explicitly found -> score {result['disclosure_quality_score']}/5.",
         "pathway_results": pathway_results,
     }
-    confidence_tag = "SEARCH_INCONCLUSIVE"
+    confidence_tag = "SINGLE_SOURCE"
     write_qualitative(sym, subpoint_id, payload, confidence_tag)
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c8_2_minority_voting(symbol, name=None, force=False):
+    """C.8.2 - Minority shareholder voting and treatment. Spec formula:
+    Minority Treatment Score (1-5): assess contested resolutions, voting
+    outcomes. Deterministic (no LLM) - see
+    tools/minority_treatment_scoring.py's score_minority_voting: counts
+    resolutions explicitly marked Pass vs not-passed in the company's
+    own latest AGM/Postal Ballot Scrutinizer's Report. The precise per-
+    resolution For/Against vote-% table exists in the same PDF but its
+    column layout doesn't survive text extraction reliably enough to
+    parse without risk of cross-company misattribution — the Pass/Not-
+    Passed outcome is the one figure that extracts unambiguously.
+    Sourcing: NSE Corporate Filings - Shareholders' Meetings - Notice /
+    Voting Results / Scrutinizer Report.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.8.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.nse_announcements import fetch_announcements, download_pdf_text
+        from tools.minority_treatment_scoring import score_minority_voting
+        rows = fetch_announcements(sym)
+        scrutinizer_url = None
+        for row in rows:
+            blob = f"{row.get('attchmntText') or ''} {row.get('desc') or ''}".lower()
+            url = (row.get("attchmntFile") or "").strip()
+            if not url.lower().endswith(".pdf"):
+                continue
+            if "scrutinizer" in blob and ("result" in blob or "outcome" in blob or "voting" in blob or "postal ballot" in blob or "agm" in blob):
+                scrutinizer_url = url
+                break
+        text = download_pdf_text(scrutinizer_url, max_chars=30000, max_pages=30) if scrutinizer_url else ""
+        result = score_minority_voting(text)
+    except Exception as e:
+        print(f"[qualitative_engine] C.8.2 fetch failed for {sym}: {e}")
+        result = {"passed_count": None, "contested_count": None, "pass_pct": None, "minority_treatment_score": None}
+        scrutinizer_url = None
+
+    pathway_results = [
+        {
+            "pathway_id": "PORTAL-03",
+            "source": "NSE Corporate Filings - Shareholders' Meetings - Notice / Voting Results / Scrutinizer Report",
+            "result": "CHECKED" if result["minority_treatment_score"] is not None else "NOT_DISCLOSED",
+            "note": None if result["minority_treatment_score"] is not None else "No resolution outcome was located in the latest AGM/Postal Ballot Scrutinizer's Report this run.",
+        },
+        {
+            "pathway_id": "PORTAL-06",
+            "source": "SEBI Enforcement Orders / SCORES (fallback/cross-check only)",
+            "result": "NOT_CHECKED",
+            "note": "Not invoked this run — a named analyst must run this manually before minority-treatment findings inform any investment decision (human sign-off gate).",
+        },
+        {
+            "pathway_id": "NICHE-20",
+            "source": "Proxy Advisory — IiAS / InGovern (fallback/cross-check only)",
+            "result": "NOT_CHECKED",
+            "note": "IiAS/InGovern proxy research is a paid subscription product by design — not invoked this run.",
+        },
+    ]
+
+    if result["minority_treatment_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Minority shareholder voting and treatment", "available": True, **result,
+            "source_pdf_url": scrutinizer_url,
+            "rationale": "No resolution outcome was located in the latest AGM/Postal Ballot Scrutinizer's Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Minority shareholder voting and treatment", "available": True, **result,
+        "source_pdf_url": scrutinizer_url,
+        "rationale": f"{result['passed_count']} of {result['passed_count'] + result['contested_count']} resolution(s) explicitly passed in the latest Scrutinizer's Report -> score {result['minority_treatment_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c8_4_disclosure_timeliness(symbol, name=None, force=False):
+    """C.8.4 - Disclosure consistency and timeliness. Spec formula:
+    Disclosure Timeliness Score (1-5): promptness, consistency and
+    absence of unexplained disclosure gaps. Deterministic (no LLM) - see
+    tools/minority_treatment_scoring.py's score_disclosure_timeliness:
+    uses NSE's own "difference" field on each corporate announcement -
+    the exchange-recorded gap between the event and its disclosure, a
+    real field NSE computes and publishes, not derived here. Sourcing:
+    NSE Corporate Filings - Corporate Announcements - material event
+    announcements and their timing.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "C.8.4"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.nse_announcements import fetch_announcements
+        from tools.minority_treatment_scoring import score_disclosure_timeliness
+        rows = fetch_announcements(sym)[:20]
+        result = score_disclosure_timeliness(rows)
+    except Exception as e:
+        print(f"[qualitative_engine] C.8.4 fetch failed for {sym}: {e}")
+        result = {"avg_gap_seconds": None, "max_gap_seconds": None, "events_count": None, "timeliness_score": None, "by_event": None}
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-03",
+        "source": "NSE Corporate Filings - Corporate Announcements - material event announcements and their timing",
+        "result": "CHECKED" if result["timeliness_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["timeliness_score"] is not None else "No corporate announcement with a parseable disclosure-timing gap was located this run.",
+    }]
+
+    if result["timeliness_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Disclosure consistency and timeliness", "available": True, **result,
+            "rationale": "No corporate announcement with a parseable disclosure-timing gap was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Disclosure consistency and timeliness", "available": True, **result,
+        "rationale": f"Average disclosure gap of {result['avg_gap_seconds']}s across {result['events_count']} recent material event(s) -> score {result['timeliness_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_c8_minority_shareholder_treatment(symbol, name=None, force=False):
+    """C.8 — Track record on minority shareholder treatment and
+    disclosure habits: combines the three defined sub-points (C.8.1
+    disclosure quality, C.8.2 minority voting, C.8.4 disclosure
+    timeliness — C.8.3 is intentionally absent, not defined in the spec
+    this codebase was given) into a single grounded payload, all sourced
+    from real Annual Report text, real AGM Scrutinizer's Report PDFs,
+    and NSE's own corporate-announcements timing data (no LLM call - see
+    tools/minority_treatment_scoring.py). A SEBI-enforcement-order /
+    proxy-advisory search remains an uninvestigated human-sign-off gate
+    (see C.8.2's PORTAL-06/NICHE-20 pathway entries) - never silently
+    reported as "clean".
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    c81 = compute_c8_1_disclosure_quality(sym, name, force=force)
+    c82 = compute_c8_2_minority_voting(sym, name, force=force)
+    c84 = compute_c8_4_disclosure_timeliness(sym, name, force=force)
+
+    parts = []
+    if c81.get("disclosure_quality_score") is not None:
+        parts.append(f"Disclosure quality: {c81['detailed_pct']}% detailed (score {c81['disclosure_quality_score']}/5).")
+    if c82.get("minority_treatment_score") is not None:
+        parts.append(f"Minority voting: {c82['pass_pct']}% resolutions passed (score {c82['minority_treatment_score']}/5).")
+    if c84.get("timeliness_score") is not None:
+        parts.append(f"Disclosure timeliness: avg {c84['avg_gap_seconds']}s gap (score {c84['timeliness_score']}/5).")
+    parts.append("SEBI enforcement-order and proxy-advisory (IiAS/InGovern) checks have not been run — route to a named analyst before adverse-finding conclusions inform any investment decision.")
+    if len(parts) == 1:
+        parts.insert(0, "None of the three defined sub-points (disclosure quality, minority voting, disclosure timeliness) were explicitly covered this run.")
+
+    _tags = [t.get("confidence_tag") for t in (c81, c82, c84)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (c81, c82, c84) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "C.8",
+        "title": "Track record on minority shareholder treatment and disclosure habits",
+        "available": True,
+        "c8_1": c81, "c8_2": c82, "c8_4": c84,
+        "rationale": " ".join(parts),
+        "pathway_results": (c81.get("pathway_results") or []) + (c82.get("pathway_results") or []) + (c84.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return payload
 
 

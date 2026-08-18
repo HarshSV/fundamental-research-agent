@@ -3257,6 +3257,45 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No Cash Flow Statement data was available for {_co}'s latest fiscal year this run."}
     _c7_panels = [_c7_1_donut, _c7_2_donut, _c7_3_donut, _c7_4_donut, _c7_5_donut]
 
+    _c8_1, _c8_2, _c8_4 = (_c8 or {}).get('c8_1') or {}, (_c8 or {}).get('c8_2') or {}, (_c8 or {}).get('c8_4') or {}
+
+    if _c8_1.get('disclosure_quality_score') is not None:
+        _c8_1_panel = {
+            'type': 'category_bar', 'title': 'Detailed vs Limited Disclosure',
+            'data': [{'label': 'Detailed', 'value': _c8_1.get('detailed_count')},
+                     {'label': 'Limited', 'value': _c8_1.get('limited_count')}],
+            'centerValue': f"{_c8_1.get('detailed_pct')}%",
+            'explanation': f"{_co}'s RPT/Contingent Liabilities/Commitments disclosures named {_c8_1.get('detailed_count')} detailed (quantified) vs {_c8_1.get('limited_count')} limited (generic) statement(s) (score {_c8_1.get('disclosure_quality_score')}/5).",
+        }
+    else:
+        _c8_1_panel = {'type': 'unavailable', 'title': 'Detailed vs Limited Disclosure',
+                        'explanation': f"No RPT/Contingent Liabilities/Commitments text with a clear detailed/limited signal was located for {_co} this run."}
+
+    if _c8_2.get('minority_treatment_score') is not None:
+        _c8_2_panel = {
+            'type': 'category_bar', 'title': 'Votes For vs Against / Abstained',
+            'data': [{'label': 'Passed', 'value': _c8_2.get('passed_count')},
+                     {'label': 'Contested', 'value': _c8_2.get('contested_count')}],
+            'centerValue': f"{_c8_2.get('pass_pct')}%",
+            'explanation': f"{_co}'s latest AGM/Postal Ballot Scrutinizer's Report explicitly recorded {_c8_2.get('passed_count')} passed vs {_c8_2.get('contested_count')} contested resolution(s) (score {_c8_2.get('minority_treatment_score')}/5).",
+        }
+    else:
+        _c8_2_panel = {'type': 'unavailable', 'title': 'Votes For vs Against / Abstained',
+                        'explanation': f"No resolution outcome was located in the latest AGM/Postal Ballot Scrutinizer's Report for {_co} this run."}
+
+    _c8_4_by_event = _c8_4.get('by_event') or []
+    if _c8_4.get('timeliness_score') is not None and _c8_4_by_event:
+        _c8_4_panel = {
+            'type': 'line_trend', 'title': 'Material Events vs Disclosure Timing',
+            'data': [{'label': f"Event {i+1}", 'value': round(e.get('gap_seconds') / 60.0, 1)} for i, e in enumerate(reversed(_c8_4_by_event))],
+            'centerValue': f"{_c8_4.get('avg_gap_seconds')}s avg",
+            'explanation': f"{_co}'s last {_c8_4.get('events_count')} material event(s) had an average disclosure gap of {_c8_4.get('avg_gap_seconds')}s (score {_c8_4.get('timeliness_score')}/5).",
+        }
+    else:
+        _c8_4_panel = {'type': 'unavailable', 'title': 'Material Events vs Disclosure Timing',
+                        'explanation': f"No corporate announcement with a parseable disclosure-timing gap was located for {_co} this run."}
+    _c8_panels = [_c8_1_panel, _c8_2_panel, _c8_4_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -3922,12 +3961,14 @@ def build_executive_summary(state: SystemState) -> dict:
                     'title': 'Track record on minority shareholder treatment and disclosure habits',
                     'finding': (_c8 or {}).get('rationale') or None,
                     'facts': [],
-                    'chart': None,
-                    'formula': 'N/A — qualitative flag count of adverse governance events',
+                    'chart': ({'type': 'multi_donut', 'panels': _c8_panels} if _c8_panels else None),
+                    'formula': 'Disclosure Quality Score = detailed (quantified) vs limited (generic) RPT/Contingent Liabilities/Commitments statements, banded 1-5; '
+                               'Minority Treatment Score = resolutions explicitly passed vs contested in the latest AGM/Postal Ballot Scrutinizer\'s Report, banded 1-5; '
+                               'Disclosure Timeliness Score = average NSE-recorded disclosure gap across recent material events, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'SEBI – Disclosures/Enforcement Orders', 'note': 'enforcement orders', 'url': 'https://www.sebi.gov.in'},
-                        'secondary': {'label': 'Proxy Advisory – IiAS / InGovern', 'url': 'https://www.iias.in'},
-                        'tertiary': {'label': 'BSE India – Corporate Announcements', 'note': 'AGM voting/scrutinizer results', 'url': 'https://www.bseindia.com/corporates/ann.aspx'},
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Corporate Governance Report / Notes to Accounts — RPT / Contingent Liabilities / Commitments', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings — Shareholders\' Meetings', 'note': 'Notice / Voting Results / Scrutinizer Report', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholders-meetings'},
+                        'tertiary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'material event announcements and their timing', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
                     },
                     'confidence_tag': (_c8 or {}).get('confidence_tag'), 'retrieved_at': (_c8 or {}).get('retrieved_at'),
                     'pathway_results': (_c8 or {}).get('pathway_results'),
