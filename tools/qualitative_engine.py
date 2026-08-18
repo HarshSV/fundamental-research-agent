@@ -7920,3 +7920,309 @@ def compute_a3_revenue_model_quality(symbol, name=None, description="", force=Fa
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
+
+
+# ---------------------------------------------------------------------------
+# D.1 - Promoter / insider activity & market signalling. Deterministic
+# (no-LLM) - all four sub-points source from NSE's real Regulation 7(2)
+# insider-trading disclosure feed (tools/insider_trading_scraper.py), with
+# D.1.2 additionally cross-checking sell dates against real NSE Corporate
+# Announcements (tools/nse_announcements.py). See
+# tools/insider_activity_scoring.py for the scoring logic.
+# ---------------------------------------------------------------------------
+
+def compute_d1_1_selling_frequency(symbol, name=None, force=False):
+    """D.1.1 - Frequency of insider selling. Spec formula: number of
+    insider sale events per 8 quarters, banded 1-5 (5=none/rare,
+    1=frequent/repeated). Sourcing: NSE Corporate Filings - Insider
+    Trading - Regulation 7(2) disclosures, last 8 quarters.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.insider_trading_scraper import fetch_insider_trades
+        from tools.insider_activity_scoring import score_selling_frequency
+        rows = fetch_insider_trades(sym, quarters=8)
+        result = score_selling_frequency(rows if rows else None)
+    except Exception as e:
+        print(f"[qualitative_engine] D.1.1 fetch failed for {sym}: {e}")
+        result = {"sell_count": None, "quarter_trend": None, "frequency_score": None}
+        rows = []
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-07",
+        "source": "NSE Corporate Filings - Insider Trading - Regulation 7(2) disclosures",
+        "result": "CHECKED" if rows else "NOT_DISCLOSED",
+        "note": None if rows else "No Regulation 7(2) insider-trading disclosure was located for the last 8 quarters this run.",
+    }]
+
+    if result["frequency_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Frequency of insider selling", "available": True, **result,
+            "rationale": "No Regulation 7(2) insider-trading disclosure was located for the last 8 quarters this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Frequency of insider selling", "available": True, **result,
+        "rationale": f"{result['sell_count']} insider sell disclosure(s) explicitly recorded across the last 8 quarters -> score {result['frequency_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d1_2_selling_timing(symbol, name=None, force=False):
+    """D.1.2 - Timing of insider selling. Spec formula: Timing Risk Score
+    (1-5) - assesses whether sales cluster around sensitive periods
+    (financial results, M&A, buyback, etc), never inferring intent
+    without evidence - purely a date-proximity check against real, dated
+    NSE Corporate Announcements. Sourcing: NSE Corporate Filings -
+    Insider Trading - Regulation 7(2), cross-checked against NSE
+    Corporate Announcements over the same window.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.insider_trading_scraper import fetch_insider_trades
+        from tools.nse_announcements import fetch_announcements
+        from tools.insider_activity_scoring import score_selling_timing, _sell_rows
+        rows = fetch_insider_trades(sym, quarters=8)
+        sells = _sell_rows(rows)
+        announcements = fetch_announcements(sym) if sells else []
+        result = score_selling_timing(sells, announcements)
+    except Exception as e:
+        print(f"[qualitative_engine] D.1.2 fetch failed for {sym}: {e}")
+        result = {"near_sensitive_count": None, "total_sells": None, "timing_events": None, "timing_risk_score": None}
+        sells = []
+
+    pathway_results = [
+        {
+            "pathway_id": "PORTAL-07",
+            "source": "NSE Corporate Filings - Insider Trading - Regulation 7(2) disclosures",
+            "result": "CHECKED" if sells else "NOT_DISCLOSED",
+            "note": None if sells else "No insider sell disclosure was located for the last 8 quarters this run.",
+        },
+        {
+            "pathway_id": "PORTAL-02",
+            "source": "NSE Corporate Announcements - financial results / M&A / buyback events, cross-checked by date against insider sell disclosures",
+            "result": "CHECKED" if result["timing_risk_score"] is not None else "NOT_DISCLOSED",
+            "note": None,
+        },
+    ]
+
+    if result["timing_risk_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Timing of insider selling", "available": True, **result,
+            "rationale": "No insider sell disclosure with a parseable transaction date was located for the last 8 quarters this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Timing of insider selling", "available": True, **result,
+        "rationale": f"{result['near_sensitive_count']} of {result['total_sells']} insider sell(s) explicitly fell within 7 days of a real financial-results/M&A/buyback announcement -> score {result['timing_risk_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d1_3_selling_size(symbol, name=None, force=False):
+    """D.1.3 - Size of insider selling. Spec formula: Insider Sale Size %
+    = Shares Sold / Insider Holding Before Sale x 100, classified Low/
+    Moderate/High relative to holding. Sourcing: NSE Corporate Filings -
+    Insider Trading - Regulation 7(2) disclosures, shares sold and
+    before-holding figures.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.1.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.insider_trading_scraper import fetch_insider_trades
+        from tools.insider_activity_scoring import score_selling_size, _sell_rows
+        rows = fetch_insider_trades(sym, quarters=8)
+        sells = _sell_rows(rows)
+        result = score_selling_size(sells)
+    except Exception as e:
+        print(f"[qualitative_engine] D.1.3 fetch failed for {sym}: {e}")
+        result = {"avg_sale_size_pct": None, "classification": None, "size_score": None, "events_used": 0}
+        sells = []
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-07",
+        "source": "NSE Corporate Filings - Insider Trading - Regulation 7(2) disclosures - shares sold vs holding before sale",
+        "result": "CHECKED" if result["size_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["size_score"] is not None else "No insider sell disclosure with a usable before-holding figure was located this run.",
+    }]
+
+    if result["size_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Size of insider selling", "available": True, **result,
+            "rationale": "No insider sell disclosure with a usable before-holding figure was located for the last 8 quarters this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Size of insider selling", "available": True, **result,
+        "rationale": f"Insider sell(s) explicitly averaged {result['avg_sale_size_pct']}% of the seller's pre-sale holding across {result['events_used']} disclosure(s) -> {result['classification']} (score {result['size_score']}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d1_4_selling_rationale(symbol, name=None, force=False):
+    """D.1.4 - Rationale for insider selling. Spec formula: Rationale
+    Score (1-5) - a documented liquidity/tax/diversification rationale in
+    the disclosure's own remarks field scores higher than unexplained or
+    repeated sales. Sourcing: NSE Corporate Filings - Insider Trading -
+    Regulation 7(2) disclosure attachment - transaction remarks/reason.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.1.4"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.insider_trading_scraper import fetch_insider_trades
+        from tools.insider_activity_scoring import score_selling_rationale, _sell_rows
+        rows = fetch_insider_trades(sym, quarters=8)
+        sells = _sell_rows(rows)
+        result = score_selling_rationale(sells)
+    except Exception as e:
+        print(f"[qualitative_engine] D.1.4 fetch failed for {sym}: {e}")
+        result = {"documented_count": None, "unexplained_count": None, "documented_pct": None, "rationale_score": None}
+        sells = []
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-07",
+        "source": "NSE Corporate Filings - Insider Trading - Regulation 7(2) disclosure attachment - transaction remarks/reason",
+        "result": "CHECKED" if result["rationale_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["rationale_score"] is not None else "No insider sell disclosure was located for the last 8 quarters this run.",
+    }]
+
+    if result["rationale_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Rationale for insider selling", "available": True, **result,
+            "rationale": "No insider sell disclosure was located for the last 8 quarters this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Rationale for insider selling", "available": True, **result,
+        "rationale": f"{result['documented_count']} of {result['documented_count'] + result['unexplained_count']} insider sell(s) explicitly documented a liquidity/tax/diversification-type reason in the disclosure's own remarks field -> score {result['rationale_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d1_insider_activity(symbol, name=None, force=False):
+    """D.1 - Promoter/insider activity & market signalling: combines the
+    four defined sub-points (D.1.1 frequency, D.1.2 timing, D.1.3 size,
+    D.1.4 rationale) into a single grounded payload, all sourced from
+    NSE's real Regulation 7(2) insider-trading disclosure feed and (for
+    D.1.2) NSE's own Corporate Announcements - no LLM call, see
+    tools/insider_activity_scoring.py.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    d1_1 = compute_d1_1_selling_frequency(sym, name, force=force)
+    d1_2 = compute_d1_2_selling_timing(sym, name, force=force)
+    d1_3 = compute_d1_3_selling_size(sym, name, force=force)
+    d1_4 = compute_d1_4_selling_rationale(sym, name, force=force)
+
+    parts = []
+    if d1_1.get("frequency_score") is not None:
+        parts.append(f"Frequency: {d1_1['sell_count']} sell(s) in 8 quarters (score {d1_1['frequency_score']}/5).")
+    if d1_2.get("timing_risk_score") is not None:
+        parts.append(f"Timing: {d1_2['near_sensitive_count']}/{d1_2['total_sells']} near a sensitive period (score {d1_2['timing_risk_score']}/5).")
+    if d1_3.get("size_score") is not None:
+        parts.append(f"Size: avg {d1_3['avg_sale_size_pct']}% of holding, {d1_3['classification']} (score {d1_3['size_score']}/5).")
+    if d1_4.get("rationale_score") is not None:
+        parts.append(f"Rationale: {d1_4['documented_pct']}% documented (score {d1_4['rationale_score']}/5).")
+    if not parts:
+        parts.append("No Regulation 7(2) insider-trading disclosure was located for this company across the last 8 quarters this run.")
+
+    _tags = [t.get("confidence_tag") for t in (d1_1, d1_2, d1_3, d1_4)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (d1_1, d1_2, d1_3, d1_4) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "D.1",
+        "title": "Promoter / insider activity & market signalling",
+        "available": True,
+        "d1_1": d1_1, "d1_2": d1_2, "d1_3": d1_3, "d1_4": d1_4,
+        "rationale": " ".join(parts),
+        "pathway_results": (d1_1.get("pathway_results") or []) + (d1_2.get("pathway_results") or [])[-1:] + (d1_3.get("pathway_results") or []) + (d1_4.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

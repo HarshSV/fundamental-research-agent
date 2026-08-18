@@ -2314,6 +2314,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _d1 = None
+    try:
+        from tools.qualitative_engine import compute_d1_insider_activity
+        _d1 = compute_d1_insider_activity(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced D.1 engine failed: {e}")
+        _d1 = {
+            'available': True,
+            'rationale': 'Not computed — D.1 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3301,6 +3313,59 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No corporate announcement with a parseable disclosure-timing gap was located for {_co} this run."}
     _c8_panels = [_c8_1_panel, _c8_2_panel, _c8_4_panel]
 
+    _d1_1, _d1_2, _d1_3, _d1_4 = (_d1 or {}).get('d1_1') or {}, (_d1 or {}).get('d1_2') or {}, (_d1 or {}).get('d1_3') or {}, (_d1 or {}).get('d1_4') or {}
+
+    _d1_1_trend = _d1_1.get('quarter_trend') or []
+    if _d1_1.get('frequency_score') is not None and _d1_1_trend:
+        _d1_1_panel = {
+            'type': 'line_trend', 'title': 'Frequency of Insider Selling',
+            'data': [{'label': t.get('quarter'), 'value': t.get('count')} for t in _d1_1_trend],
+            'centerValue': f"{_d1_1.get('sell_count')} sell(s)",
+            'explanation': f"{_co} had {_d1_1.get('sell_count')} insider sell disclosure(s) explicitly recorded across the last 8 quarters (score {_d1_1.get('frequency_score')}/5).",
+        }
+    else:
+        _d1_1_panel = {'type': 'unavailable', 'title': 'Frequency of Insider Selling',
+                        'explanation': f"No Regulation 7(2) insider-trading disclosure was located for {_co} across the last 8 quarters this run."}
+
+    _d1_2_events = _d1_2.get('timing_events') or []
+    if _d1_2.get('timing_risk_score') is not None and len(_d1_2_events) >= 2:
+        _d1_2_panel = {
+            'type': 'line_trend', 'title': 'Timing of Insider Selling',
+            'data': [{'label': f"Sell {i+1}", 'value': e.get('gap_days')} for i, e in enumerate(reversed(_d1_2_events)) if e.get('gap_days') is not None],
+            'centerValue': f"{_d1_2.get('near_sensitive_count')}/{_d1_2.get('total_sells')} near",
+            'explanation': f"{_co} had {_d1_2.get('near_sensitive_count')} of {_d1_2.get('total_sells')} insider sell(s) explicitly fall within 7 days of a real financial-results/M&A/buyback announcement (score {_d1_2.get('timing_risk_score')}/5).",
+        }
+    elif _d1_2.get('timing_risk_score') is not None:
+        _d1_2_panel = {
+            'type': 'kpi_card', 'title': 'Timing of Insider Selling',
+            'centerValue': f"{_d1_2.get('near_sensitive_count')}/{_d1_2.get('total_sells')} near",
+            'explanation': f"{_co} had {_d1_2.get('near_sensitive_count')} of {_d1_2.get('total_sells')} insider sell(s) explicitly fall within 7 days of a real financial-results/M&A/buyback announcement (score {_d1_2.get('timing_risk_score')}/5).",
+        }
+    else:
+        _d1_2_panel = {'type': 'unavailable', 'title': 'Timing of Insider Selling',
+                        'explanation': f"No insider sell disclosure with a parseable transaction date was located for {_co} across the last 8 quarters this run."}
+
+    if _d1_3.get('size_score') is not None:
+        _d1_3_panel = {
+            'type': 'kpi_card', 'title': 'Size of Insider Selling',
+            'centerValue': f"{_d1_3.get('avg_sale_size_pct')}%",
+            'explanation': f"{_co}'s insider sell(s) explicitly averaged {_d1_3.get('avg_sale_size_pct')}% of the seller's pre-sale holding across {_d1_3.get('events_used')} disclosure(s) -> {_d1_3.get('classification')} (score {_d1_3.get('size_score')}/5).",
+        }
+    else:
+        _d1_3_panel = {'type': 'unavailable', 'title': 'Size of Insider Selling',
+                        'explanation': f"No insider sell disclosure with a usable before-holding figure was located for {_co} this run."}
+
+    if _d1_4.get('rationale_score') is not None:
+        _d1_4_panel = {
+            'type': 'kpi_card', 'title': 'Rationale for Insider Selling',
+            'centerValue': f"{_d1_4.get('documented_pct')}% documented",
+            'explanation': f"{_co} explicitly documented a liquidity/tax/diversification-type reason for {_d1_4.get('documented_count')} of {(_d1_4.get('documented_count') or 0) + (_d1_4.get('unexplained_count') or 0)} insider sell(s) (score {_d1_4.get('rationale_score')}/5).",
+        }
+    else:
+        _d1_4_panel = {'type': 'unavailable', 'title': 'Rationale for Insider Selling',
+                        'explanation': f"No insider sell disclosure was located for {_co} across the last 8 quarters this run."}
+    _d1_panels = [_d1_1_panel, _d1_2_panel, _d1_3_panel, _d1_4_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -3977,6 +4042,38 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_c8 or {}).get('confidence_tag'), 'retrieved_at': (_c8 or {}).get('retrieved_at'),
                     'pathway_results': (_c8 or {}).get('pathway_results'),
+                },
+            ],
+        },
+        'promoter_insider_activity': {
+            'topic': 'D. Promoter / insider activity & market signalling',
+            'subpoints': [
+                {
+                    # D.1 — the four sub-points (D.1.1 frequency, D.1.2
+                    # timing, D.1.3 size, D.1.4 rationale) combined into ONE
+                    # card as a 4-panel set, same pattern as B.1/.../C.8.
+                    # All sourced from NSE's real Regulation 7(2) insider-
+                    # trading disclosure feed, no LLM call.
+                    'key': 'promoter_insider_selling',
+                    'title': 'Frequency, timing, size and rationale of insider selling',
+                    'finding': (_d1 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Frequency', f"{_d1_1.get('sell_count')} sell(s) / 8Q"] if _d1_1.get('sell_count') is not None else None),
+                        (['Timing', f"{_d1_2.get('near_sensitive_count')}/{_d1_2.get('total_sells')} near event"] if _d1_2.get('near_sensitive_count') is not None else None),
+                        (['Size', f"avg {_d1_3.get('avg_sale_size_pct')}% of holding"] if _d1_3.get('avg_sale_size_pct') is not None else None),
+                        (['Rationale', f"{_d1_4.get('documented_pct')}% documented"] if _d1_4.get('documented_pct') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _d1_panels} if _d1_panels else None),
+                    'formula': 'Frequency Score = number of insider sell disclosures per 8 quarters, banded 1-5 (5=none/rare, 1=frequent); '
+                               'Timing Risk Score = share of sells falling within 7 days of a real financial-results/M&A/buyback announcement, banded 1-5; '
+                               'Insider Sale Size % = shares sold / seller\'s pre-sale holding x 100, classified Low/Moderate/High; '
+                               'Rationale Score = share of sell disclosures whose own remarks field documents a liquidity/tax/diversification-type reason, banded 1-5.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Insider Trading', 'note': 'Regulation 7(2) disclosures, last 8 quarters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-insider-trading'},
+                        'secondary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'financial results / M&A / buyback events, cross-checked by date', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                    },
+                    'confidence_tag': (_d1 or {}).get('confidence_tag'), 'retrieved_at': (_d1 or {}).get('retrieved_at'),
+                    'pathway_results': (_d1 or {}).get('pathway_results'),
                 },
             ],
         },
