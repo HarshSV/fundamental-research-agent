@@ -1955,19 +1955,27 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 };
             });
 
-            const n = allItems.length; // Always 4
-            const cx = 130, cy = 130, R = 100, HOLE = 60, LABEL_R = 126;
+            const cx = 130, cy = 130, R = 100, HOLE = 60;
 
-            const slices = allItems.map((d, i) => {
-                const a0 = -Math.PI / 2 + (i / n) * 2 * Math.PI;
-                const a1 = -Math.PI / 2 + ((i + 1) / n) * 2 * Math.PI;
-                const mid = (a0 + a1) / 2;
+            // Proportional fill ring: the filled arc's sweep is the actual
+            // pass-through ratio (e.g. 85% of the ring), not an equal 1-of-4
+            // wedge — a fixed quarter-wedge made an 85% figure look like 25%.
+            const ratioPct = isNaN(ratioNum) ? 0 : Math.max(0, Math.min(100, ratioNum));
+            const activeColor = PRICING_POWER_COLOR[effectiveRating] || '#3b82f6';
+            const arcPath = (startPct, endPct, color, opacity) => {
+                if (endPct <= startPct) return null;
+                const a0 = -Math.PI / 2 + (startPct / 100) * 2 * Math.PI;
+                const a1 = -Math.PI / 2 + (endPct / 100) * 2 * Math.PI;
                 const large = (a1 - a0) > Math.PI ? 1 : 0;
                 const path = `M ${(cx + R * Math.cos(a0)).toFixed(2)} ${(cy + R * Math.sin(a0)).toFixed(2)} A ${R} ${R} 0 ${large} 1 ${(cx + R * Math.cos(a1)).toFixed(2)} ${(cy + R * Math.sin(a1)).toFixed(2)} L ${(cx + HOLE * Math.cos(a1)).toFixed(2)} ${(cy + HOLE * Math.sin(a1)).toFixed(2)} A ${HOLE} ${HOLE} 0 ${large} 0 ${(cx + HOLE * Math.cos(a0)).toFixed(2)} ${(cy + HOLE * Math.sin(a0)).toFixed(2)} Z`;
-                const lx = cx + LABEL_R * Math.cos(mid), ly = cy + LABEL_R * Math.sin(mid);
-                const anchor = Math.cos(mid) > 0.25 ? 'start' : Math.cos(mid) < -0.25 ? 'end' : 'middle';
-                return { ...d, path, lx, ly, anchor };
-            });
+                return { path, color, opacity };
+            };
+            const ringArcs = [
+                arcPath(0, ratioPct, activeColor, 1),
+                arcPath(ratioPct, 100, '#1e293b', 1),
+            ].filter(Boolean);
+
+            const slices = allItems;
 
             const displayRatio = passThroughRatio || '85%';
             const displaySustained = sustained || 'Yes';
@@ -1995,21 +2003,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <div className="flex flex-col items-center flex-shrink-0">
                             <div className="relative">
                                 <svg viewBox="0 0 260 260" className="w-64 h-64 overflow-visible">
-                                    {slices.map((s, i) => (
-                                        <g key={s.label}>
-                                            <path d={s.path} fill={s.color}
-                                                stroke="#090d16" strokeWidth="3"
-                                                opacity={hi == null ? (s.active ? 1 : 0.45) : (hi === i ? 1 : 0.3)}
-                                                onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
-                                                className="transition-all duration-200 cursor-pointer hover:scale-[1.02]"
-                                                style={{ transformOrigin: `${cx}px ${cy}px` }} />
-                                            <text x={s.lx} y={s.ly}
-                                                fill={hi === i || s.active ? s.color : '#ffffff'}
-                                                fontSize="11" fontWeight="700" textAnchor={s.anchor} dominantBaseline="middle" pointerEvents="none"
-                                                className="transition-colors duration-200">
-                                                {s.label}
-                                            </text>
-                                        </g>
+                                    {ringArcs.map((a, i) => (
+                                        <path key={i} d={a.path} fill={a.color} stroke="#090d16" strokeWidth="3" opacity={a.opacity} />
                                     ))}
 
                                     {/* Donut Central Hole */}
@@ -2018,7 +2013,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                         {hi != null ? (allItems[hi].pct || allItems[hi].label) : displayRatio}
                                     </text>
                                     <text x={cx} y={cy + 16} fill="#94a3b8" fontSize="9" fontWeight="700" textAnchor="middle" pointerEvents="none" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                                        {hi != null ? allItems[hi].label : 'Pass-through'}
+                                        {hi != null ? allItems[hi].label : effectiveRating}
                                     </text>
                                 </svg>
                             </div>
