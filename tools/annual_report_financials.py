@@ -3025,6 +3025,41 @@ _RPT_EVIDENCE_ANCHORS = [
 ]
 
 
+# Ind AS 24 filers frequently split "loans/advances given to related
+# parties" (KMP, promoters, subsidiaries) into its OWN note, separate
+# from the main Related Party Disclosures note, and merely
+# cross-reference it there (e.g. HINDUNILVR's Note 44: "Refer note 43
+# for terms and conditions of loans given to subsidiaries" — Note 43
+# itself, with the real amounts/rates/terms, sits on a different page
+# and was never captured by `_RPT_EVIDENCE_ANCHORS` alone). Generic
+# Ind AS 24 vocabulary for that note's own heading/table language, not
+# any one filer's phrasing.
+_LOANS_ADVANCES_EVIDENCE_ANCHORS = [
+    "loans and advances to related part", "loans given to related part",
+    "loans to related part", "loans given to subsidiar", "loans to subsidiar",
+    "loans given to key management", "loans to key management personnel",
+    "loans given to director", "loans to director",
+    "loans and advances in the nature of loans",
+    "disclosure of loans and advances", "loans/advances", "loans /advances",
+    "loan given", "loan taken", "loan granted",
+]
+
+
+def fetch_loans_advances_evidence_from_annual_report(symbol, name, fiscal_year=None):
+    """Real, grounded text excerpts from the company's OWN Annual Report
+    PDF for the dedicated Loans/Advances-to-related-parties note (Ind AS
+    24), used alongside `fetch_rpt_evidence_from_annual_report` for D.5
+    since this note is frequently a SEPARATE note from the main RPT
+    note, only cross-referenced from it (see anchors' docstring above).
+    Own cache prefix so this doesn't collide with C.3's RPT-note cache.
+    """
+    return _fetch_ar_evidence_excerpts(
+        symbol, name, _LOANS_ADVANCES_EVIDENCE_ANCHORS, "ar_loansadvevid_text_v1",
+        fiscal_year=fiscal_year, bio_filter=False,
+        max_per_page=4, max_excerpts=24, fetch_label="loans-advances-evidence",
+    )
+
+
 def fetch_rpt_evidence_from_annual_report(symbol, name, fiscal_year=None):
     """Real, grounded text excerpts from the company's OWN Annual Report PDF
     (Ind AS 24 "Related Party Disclosures" note, Notes to Financial

@@ -8985,13 +8985,29 @@ def compute_d4_lockin_releases(symbol, name=None, force=False):
 def _fetch_rpt_text_for_loans(sym, name):
     """Shared RPT-note text fetch for all of D.5 - same real source as
     C.3, kept as one helper so the three sub-points don't each pay for a
-    separate PDF fetch. Returns (text, pdf_url)."""
-    from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report
+    separate PDF fetch. Merges the main Related Party Disclosures note
+    with the dedicated Loans/Advances-to-related-parties note, since
+    filers frequently split the latter into its own note and only
+    cross-reference it from the RPT note (e.g. HINDUNILVR's Note 44:
+    "Refer note 43 for terms and conditions of loans given to
+    subsidiaries" - Note 43 itself, with the real amounts/rates/terms,
+    is a separate note the plain RPT-note fetch alone never captured).
+    Returns (text, pdf_url)."""
+    from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report, fetch_loans_advances_evidence_from_annual_report
     evidence = fetch_rpt_evidence_from_annual_report(sym, name)
-    if not isinstance(evidence, dict):
-        return "", None
-    text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or []))
-    return text, evidence.get("pdf_url")
+    rpt_text = ""
+    pdf_url = None
+    if isinstance(evidence, dict):
+        rpt_text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or []))
+        pdf_url = evidence.get("pdf_url")
+    loans_evidence = fetch_loans_advances_evidence_from_annual_report(sym, name)
+    loans_text = ""
+    if isinstance(loans_evidence, dict):
+        loans_text = " ".join((ex.get("text") or "") for ex in (loans_evidence.get("excerpts") or []))
+        if not pdf_url:
+            pdf_url = loans_evidence.get("pdf_url")
+    text = " ".join(t for t in (rpt_text, loans_text) if t)
+    return text, pdf_url
 
 
 def compute_d5_1_loan_direction(symbol, name=None, force=False):

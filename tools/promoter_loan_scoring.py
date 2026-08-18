@@ -45,16 +45,39 @@ _PROMOTER_ADJACENT = re.compile(
 # Deliberately excludes ordinary trade/vendor advances and bank/customer
 # deposits - only sentences naming BOTH a loan-type word AND a promoter/
 # group/KMP-adjacent party are real candidates for this sub-point.
+# Includes subsidiaries/associates/group companies alongside promoter/
+# director/KMP - the spec covers "company or GROUP entities", and a
+# dedicated Loans-to-Subsidiaries note (e.g. HINDUNILVR's Note 7) is a
+# real, common disclosure of this exact direction.
+_GROUP_PARTY = r"key management personnel|kmp|director(?:s)?|promoter(?:s)?(?:\s+group)?|subsidiar(?:y|ies)|associate(?:s)?(?:\s+compan(?:y|ies))?|(?:wholly[- ]owned )?group compan(?:y|ies)"
 _TO_COMPANY_DIRECTION = re.compile(
-    r"loans? (?:granted|given|extended|provided|made) (?:by|from) (?:the )?(?:promoter|director|kmp|key management)|"
+    rf"loans? (?:granted|given|extended|provided|made) (?:by|from) (?:the )?(?:{_GROUP_PARTY})|"
     r"loans? (?:taken|obtained|availed|received) (?:from|by the company from)",
     re.I,
 )
 _FROM_COMPANY_DIRECTION = re.compile(
-    r"loans? (?:to|granted to|given to|extended to|provided to) (?:key management personnel|kmp|"
-    r"director(?:s)?|promoter(?:s)?(?:\s+group)?)",
+    rf"loans? (?:to|granted to|given to|extended to|provided to) (?:{_GROUP_PARTY})",
     re.I,
 )
+# A negation cue ("no loans...", "none", "not") within ~50 chars before a
+# direction-phrase match means the sentence is DENYING that direction,
+# not disclosing it - confirmed real false positive: HINDUNILVR's "There
+# are no loans or advances in the nature of loans granted to promoters,
+# Directors, KMPs..." literally contains the "loans granted to
+# promoters" phrase the regex looks for, but as an explicit denial, not
+# a disclosure - without this guard it was scored as if HUL disclosed a
+# real Company -> Promoter/Group loan.
+_NEGATION_CUE = re.compile(r"\b(?:no|not|none|nil|never)\b", re.I)
+
+
+def _has_unnegated_match(pattern, text):
+    """True if `pattern` matches `text` at a position NOT preceded within
+    50 chars by a negation cue - see _NEGATION_CUE docstring above."""
+    for m in pattern.finditer(text):
+        preceding = text[max(0, m.start() - 50):m.start()]
+        if not _NEGATION_CUE.search(preceding):
+            return True
+    return False
 
 
 _HAS_AMOUNT = re.compile(r"[\d,]+\.\d+|\d{2,}%|per annum|per cent", re.I)
@@ -66,22 +89,45 @@ _GOVERNANCE_BOILERPLATE = re.compile(
 
 
 def _loan_sentences(rpt_text):
-    """Real sentences from the RPT note that name both a loan-type word and
-    a promoter/group/KMP-adjacent party, AND carry an actual number (an
-    amount, rate, or "per annum") - confirmed real false-positive without
-    this last check: Audit Committee charter boilerplate ("Review and
-    approval of the Related Party Transactions including inter-corporate
-    loans") and a bare "Refer note N for terms..." cross-reference both
-    name a loan keyword and a related-party term without describing any
-    actual loan, and were being scored as if a real (if underdocumented)
-    loan existed. Returns a list of sentence strings, never a guess at
-    ones that don't literally match all three."""
+    """Real sentences from the RPT/loans note that name both a loan-type
+    word and a promoter/group/KMP-adjacent party, AND carry an actual
+    number (an amount, rate, or "per annum") - confirmed real
+    false-positive without this last check: Audit Committee charter
+    boilerplate ("Review and approval of the Related Party Transactions
+    including inter-corporate loans") and a bare "Refer note N for
+    terms..." cross-reference both name a loan keyword and a
+    related-party term without describing any actual loan, and were
+    being scored as if a real (if underdocumented) loan existed.
+
+    The amount check looks at a 2-sentence window (current + next), not
+    just the matched sentence alone - confirmed real gap: a dedicated
+    Loans-to-Subsidiaries note (e.g. HINDUNILVR's Note 7/43) commonly
+    states the loan/subsidiary/amount in one sentence ("...Lakme Lever
+    Private Limited...Loans given 30...") and its interest rate/term in
+    the very next one ("It is repayable over a period of 5 years and
+    carries...interest at 6.55% to 7.84%..."), split apart by the
+    naive period-based sentence splitter - a same-sentence-only amount
+    check silently discarded this real, fully-disclosed loan. When the
+    window matches, BOTH sentences are returned so downstream regex
+    extraction (interest rate, repayment term, balance) can still see
+    the full text via " ".join(sentences).
+    Returns a list of sentence strings, never a guess at ones that
+    don't literally match all three."""
+    sentences = _sentences(rpt_text)
     out = []
-    for sent in _sentences(rpt_text):
+    seen_idx = set()
+    for i, sent in enumerate(sentences):
         if _GOVERNANCE_BOILERPLATE.search(sent):
             continue
-        if _LOAN_KEYWORD.search(sent) and _PROMOTER_ADJACENT.search(sent) and _HAS_AMOUNT.search(sent):
-            out.append(sent)
+        if not (_LOAN_KEYWORD.search(sent) and _PROMOTER_ADJACENT.search(sent)):
+            continue
+        window = sent + (" " + sentences[i + 1] if i + 1 < len(sentences) else "")
+        if not _HAS_AMOUNT.search(window):
+            continue
+        for j in (i, i + 1):
+            if j < len(sentences) and j not in seen_idx:
+                seen_idx.add(j)
+                out.append(sentences[j])
     return out
 
 
@@ -102,8 +148,8 @@ def score_loan_direction(rpt_text):
     sentences = _loan_sentences(rpt_text)
     if not sentences:
         return {"direction": None, "evidence_sentences": None}
-    to_company = any(_TO_COMPANY_DIRECTION.search(s) for s in sentences)
-    from_company = any(_FROM_COMPANY_DIRECTION.search(s) for s in sentences)
+    to_company = any(_has_unnegated_match(_TO_COMPANY_DIRECTION, s) for s in sentences)
+    from_company = any(_has_unnegated_match(_FROM_COMPANY_DIRECTION, s) for s in sentences)
     if to_company and from_company:
         direction = "Both"
     elif to_company:
@@ -122,9 +168,26 @@ def score_loan_direction(rpt_text):
 # D.5.2 - Interest rate and terms.
 # ---------------------------------------------------------------------------
 
-_INTEREST_RATE = re.compile(r"interest (?:rate(?:s)? of|at)\s*([\d.]+)%?\s*(?:to\s*([\d.]+)\s*)?%\s*per annum", re.I)
+# Two real phrasings confirmed across filers: "interest rate(s) of X% [to
+# Y%] per annum" (explicit "per annum" suffix) and "rate of interest at
+# X% [to Y%]" (interest-rate table language, e.g. HINDUNILVR's Note 7 -
+# "carries a range rate of interest at 6.55% to 7.84%" - no "per annum"
+# stated at all, ordering reversed from the first phrasing). Both are
+# accepted; "per annum" is optional, not required, since the % figure
+# itself is the real disclosure either way.
+_INTEREST_RATE = re.compile(
+    r"interest (?:rate(?:s)? of|at)\s*([\d.]+)%?\s*(?:to\s*([\d.]+)\s*)?%(?:\s*per annum)?|"
+    r"rate of interest at\s*([\d.]+)%?\s*(?:to\s*([\d.]+)\s*)?%",
+    re.I,
+)
+# Two real phrasings confirmed across filers: a fixed maturity/expiry
+# DATE ("repayable up to/between/by/on <date>") and a TENURE length
+# ("repayable over a period of N years", e.g. HINDUNILVR's Note 7 loan
+# to Lakme Lever) - both are a genuine, disclosed repayment term, not
+# just the date form.
 _REPAYMENT_TERM = re.compile(
-    r"repayable (?:up to|between|by|on)\s*([A-Za-z]+\s*\d{1,2}?,?\s*\d{4}(?:\s*(?:to|-)\s*[A-Za-z]+\s*\d{1,2}?,?\s*\d{4})?)",
+    r"repayable (?:up to|between|by|on)\s*([A-Za-z]+\s*\d{1,2}?,?\s*\d{4}(?:\s*(?:to|-)\s*[A-Za-z]+\s*\d{1,2}?,?\s*\d{4})?)|"
+    r"repayable over a period of\s*(\d+\s*years?)",
     re.I,
 )
 _ARMS_LENGTH = re.compile(r"arm'?s[- ]length", re.I)
@@ -152,11 +215,15 @@ def score_loan_terms(rpt_text):
     rate_pct = None
     if rate_m:
         try:
-            rate_pct = float(rate_m.group(2) or rate_m.group(1))
-        except (ValueError, TypeError):
+            groups = [g for g in rate_m.groups() if g]
+            rate_pct = float(groups[-1])
+        except (ValueError, TypeError, IndexError):
             rate_pct = None
     rate_disclosed = rate_pct is not None
-    term_disclosed = bool(term_m)
+    repayment_term = None
+    if term_m:
+        repayment_term = (term_m.group(1) or term_m.group(2) or "").strip()
+    term_disclosed = bool(repayment_term)
     if rate_disclosed and term_disclosed:
         score = 5
     elif rate_disclosed or term_disclosed:
@@ -165,7 +232,7 @@ def score_loan_terms(rpt_text):
         score = 1
     return {
         "interest_rate_pct": rate_pct,
-        "repayment_term": term_m.group(1).strip() if term_m else None,
+        "repayment_term": repayment_term or None,
         "arms_length_confirmed": arms_length,
         "terms_score": score,
     }
@@ -175,15 +242,28 @@ def score_loan_terms(rpt_text):
 # D.5.3 - Outstanding balance / concentration.
 # ---------------------------------------------------------------------------
 
+# A loan-movement table (opening balance / loans given / loans repaid /
+# closing balance) discloses the real OUTSTANDING balance under
+# "Balance as at the end/close of the year", not under "Loans given"
+# (which is the amount newly disbursed during the year, a different,
+# smaller figure) - confirmed real gap on HINDUNILVR's Note 7 Loans-to-
+# Subsidiaries table ("...Loans given 30 10 Loans repaid 25 40 Balance
+# as at the end of the year 165 160..."), where a "Loans given"-only
+# search picked up the disbursement figure (30) instead of the real
+# closing balance (165). Tried first, in priority order.
+_LOAN_BALANCE_ENDYEAR = re.compile(r"balance as at (?:the )?(?:end|close) of (?:the )?year\b[^.]{0,20}?([\d,]+(?:\.\d+)?)", re.I)
 # Prefers a number immediately AFTER the standard Ind AS 24 transaction-
 # type row label "Loan given"/"Loan taken" (the real label these tables
 # use) over one appearing before it - confirmed real ambiguity: a
 # preceding, unrelated table column (e.g. a "Performance guarantee" row
 # in the same multi-column table dump) can sit right before "Loan given"
 # in the extracted text, and a plain leftmost-match search picks up THAT
-# number instead of the real loan figure that follows the label.
-_LOAN_BALANCE_AFTER = re.compile(r"loan (?:given|taken)\b[^.]{0,20}?([\d,]+\.\d+)", re.I)
-_LOAN_BALANCE_BEFORE = re.compile(r"([\d,]+\.\d+)[^.]{0,20}?\bloan (?:given|taken)\b", re.I)
+# number instead of the real loan figure that follows the label. Decimal
+# point is optional - real disclosed balances are integer crore amounts
+# just as often as decimal ones (confirmed: HINDUNILVR discloses whole
+# numbers, SUZLON discloses one decimal place).
+_LOAN_BALANCE_AFTER = re.compile(r"loan (?:given|taken)\b[^.]{0,20}?([\d,]+(?:\.\d+)?)", re.I)
+_LOAN_BALANCE_BEFORE = re.compile(r"([\d,]+(?:\.\d+)?)[^.]{0,20}?\bloan (?:given|taken)\b", re.I)
 
 
 def score_loan_concentration(rpt_text, net_worth_cr=None, total_assets_cr=None):
@@ -203,7 +283,7 @@ def score_loan_concentration(rpt_text, net_worth_cr=None, total_assets_cr=None):
     if not sentences:
         return {"loan_balance_cr": None, "denominator_used": None, "exposure_pct": None, "classification": None}
     blob = " ".join(sentences)
-    m = _LOAN_BALANCE_AFTER.search(blob) or _LOAN_BALANCE_BEFORE.search(blob)
+    m = _LOAN_BALANCE_ENDYEAR.search(blob) or _LOAN_BALANCE_AFTER.search(blob) or _LOAN_BALANCE_BEFORE.search(blob)
     loan_balance = None
     if m:
         try:
