@@ -1666,38 +1666,47 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     </h3>
 
                     <div className="flex flex-col lg:flex-row items-center lg:items-start gap-8">
-                        {/* Donut Graphic */}
+                        {/* Single dominant category (e.g. 100% Transactional, everything
+                            else genuinely 0%) isn't a real multi-way split - a donut ring
+                            drawn full-circle for it conveys nothing a plain badge doesn't,
+                            so render a KPI-card-style badge instead of an SVG ring. */}
+                        {activeItems.length <= 1 ? (
+                        <div className="flex flex-col items-center flex-shrink-0 justify-center min-h-[260px] w-64">
+                            <div className="px-5 py-2 rounded-full text-lg font-extrabold" style={{
+                                background: (activeItems[0]?.color || '#60a5fa') + '26',
+                                color: activeItems[0]?.color || '#60a5fa',
+                            }}>
+                                {activeItems[0]?.label || 'Transactional'}
+                            </div>
+                            <div className="text-3xl font-extrabold text-slate-100 mt-3">{activeItems[0]?.pct ?? 100}%</div>
+                            <div className="text-center mt-4 pt-3 border-t border-slate-800/80 w-full">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">RENEWAL RATE</p>
+                                <p className="text-xl font-extrabold text-slate-100 mt-0.5">{displayRate}</p>
+                            </div>
+                        </div>
+                        ) : (
                         <div className="flex flex-col items-center flex-shrink-0">
                             <div className="relative">
                                 <svg viewBox="0 0 260 260" className="w-64 h-64 overflow-visible">
-                                    {activeItems.length <= 1 ? (
-                                        <g onMouseEnter={() => setHi(allItems.findIndex(a => a.label === (activeItems[0]?.label || 'Transactional')))} onMouseLeave={() => setHi(null)} className="cursor-pointer">
-                                            <circle cx={cx} cy={cy} r={midR} stroke={activeItems[0]?.color || '#60a5fa'} strokeWidth={strokeWidth} fill="none" />
-                                            <text x={cx} y={cy - R - 8} fill={activeItems[0]?.color || '#60a5fa'} fontSize="11" fontWeight="700" textAnchor="middle" pointerEvents="none">
-                                                {activeItems[0]?.label || 'Transactional'} ({activeItems[0]?.pct ?? 100}%)
-                                            </text>
-                                        </g>
-                                    ) : (
-                                        slices.map(s => {
-                                            const origIdx = allItems.findIndex(a => a.label === s.label);
-                                            return (
-                                                <g key={s.label}>
-                                                    <path d={s.path} fill={s.color}
-                                                        stroke="#090d16" strokeWidth="3"
-                                                        opacity={hi == null || hi === origIdx ? 1 : 0.45}
-                                                        onMouseEnter={() => setHi(origIdx)} onMouseLeave={() => setHi(null)}
-                                                        className="transition-all duration-200 cursor-pointer hover:scale-[1.02]"
-                                                        style={{ transformOrigin: `${cx}px ${cy}px` }} />
-                                                    <text x={s.lx} y={s.ly}
-                                                        fill={hi === origIdx ? s.color : '#ffffff'}
-                                                        fontSize="11" fontWeight="700" textAnchor={s.anchor} dominantBaseline="middle" pointerEvents="none"
-                                                        className="transition-colors duration-200">
-                                                        {s.label} ({s.pct}%)
-                                                    </text>
-                                                </g>
-                                            );
-                                        })
-                                    )}
+                                    {slices.map(s => {
+                                        const origIdx = allItems.findIndex(a => a.label === s.label);
+                                        return (
+                                            <g key={s.label}>
+                                                <path d={s.path} fill={s.color}
+                                                    stroke="#090d16" strokeWidth="3"
+                                                    opacity={hi == null || hi === origIdx ? 1 : 0.45}
+                                                    onMouseEnter={() => setHi(origIdx)} onMouseLeave={() => setHi(null)}
+                                                    className="transition-all duration-200 cursor-pointer hover:scale-[1.02]"
+                                                    style={{ transformOrigin: `${cx}px ${cy}px` }} />
+                                                <text x={s.lx} y={s.ly}
+                                                    fill={hi === origIdx ? s.color : '#ffffff'}
+                                                    fontSize="11" fontWeight="700" textAnchor={s.anchor} dominantBaseline="middle" pointerEvents="none"
+                                                    className="transition-colors duration-200">
+                                                    {s.label} ({s.pct}%)
+                                                </text>
+                                            </g>
+                                        );
+                                    })}
 
                                     {/* Donut Central Hole */}
                                     <circle cx={cx} cy={cy} r={HOLE} fill="#000000" stroke="#1e293b" strokeWidth="2" />
@@ -1709,12 +1718,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                     </text>
                                 </svg>
                             </div>
-
                             <div className="text-center mt-4 pt-3 border-t border-slate-800/80 w-full">
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">RENEWAL RATE</p>
                                 <p className="text-xl font-extrabold text-slate-100 mt-0.5">{displayRate}</p>
                             </div>
                         </div>
+                        )}
 
                         {/* Side Panel: Combined Categories and Explanations */}
                         <div className="flex-1 min-w-0 w-full space-y-3">
@@ -1820,38 +1829,51 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     </h3>
 
                     <div className="flex flex-col lg:flex-row items-center lg:items-start gap-8">
-                        {/* Donut Graphic */}
+                        {/* A single active lifecycle stage (the common case - most
+                            filings only support classifying one dominant stage) drawn as
+                            a full-circle donut ring misrepresents its actual share (e.g.
+                            36.7% rendered as a complete 360deg ring looks like 100%).
+                            A plain KPI-card-style badge shows the real percentage
+                            honestly instead of a misleading full ring. */}
+                        {activeItems.length <= 1 ? (
+                        <div className="flex flex-col items-center flex-shrink-0 justify-center min-h-[260px] w-64">
+                            <div className="px-5 py-2 rounded-full text-lg font-extrabold" style={{
+                                background: (activeItems[0]?.color || '#60a5fa') + '26',
+                                color: activeItems[0]?.color || '#60a5fa',
+                            }}>
+                                {activeItems[0]?.label || 'Growth'}
+                            </div>
+                            <div className="text-3xl font-extrabold text-slate-100 mt-3">{activeItems[0]?.pct ?? 100}%</div>
+                            {isRealRev && (
+                                <div className="text-center mt-4 pt-3 border-t border-slate-800/80 w-full">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">TOTAL REVENUE</p>
+                                    <p className="text-xl font-extrabold text-slate-100 mt-0.5">{totalRevenue}</p>
+                                </div>
+                            )}
+                        </div>
+                        ) : (
                         <div className="flex flex-col items-center flex-shrink-0">
                             <div className="relative">
                                 <svg viewBox="0 0 260 260" className="w-64 h-64 overflow-visible">
-                                    {activeItems.length <= 1 ? (
-                                        <g onMouseEnter={() => setHi(allItems.findIndex(a => a.label === (activeItems[0]?.label || 'Growth')))} onMouseLeave={() => setHi(null)} className="cursor-pointer">
-                                            <circle cx={cx} cy={cy} r={midR} stroke={activeItems[0]?.color || '#60a5fa'} strokeWidth={strokeWidth} fill="none" />
-                                            <text x={cx} y={cy - R - 8} fill={activeItems[0]?.color || '#60a5fa'} fontSize="11" fontWeight="700" textAnchor="middle" pointerEvents="none">
-                                                {activeItems[0]?.label || 'Growth'} ({activeItems[0]?.pct ?? 100}%)
-                                            </text>
-                                        </g>
-                                    ) : (
-                                        slices.map(s => {
-                                            const origIdx = allItems.findIndex(a => a.label === s.label);
-                                            return (
-                                                <g key={s.label}>
-                                                    <path d={s.path} fill={s.color}
-                                                        stroke="#090d16" strokeWidth="3"
-                                                        opacity={hi == null || hi === origIdx ? 1 : 0.45}
-                                                        onMouseEnter={() => setHi(origIdx)} onMouseLeave={() => setHi(null)}
-                                                        className="transition-all duration-200 cursor-pointer hover:scale-[1.02]"
-                                                        style={{ transformOrigin: `${cx}px ${cy}px` }} />
-                                                    <text x={s.lx} y={s.ly}
-                                                        fill={hi === origIdx ? s.color : '#ffffff'}
-                                                        fontSize="11" fontWeight="700" textAnchor={s.anchor} dominantBaseline="middle" pointerEvents="none"
-                                                        className="transition-colors duration-200">
-                                                        {s.label} ({s.pct}%)
-                                                    </text>
-                                                </g>
-                                            );
-                                        })
-                                    )}
+                                    {slices.map(s => {
+                                        const origIdx = allItems.findIndex(a => a.label === s.label);
+                                        return (
+                                            <g key={s.label}>
+                                                <path d={s.path} fill={s.color}
+                                                    stroke="#090d16" strokeWidth="3"
+                                                    opacity={hi == null || hi === origIdx ? 1 : 0.45}
+                                                    onMouseEnter={() => setHi(origIdx)} onMouseLeave={() => setHi(null)}
+                                                    className="transition-all duration-200 cursor-pointer hover:scale-[1.02]"
+                                                    style={{ transformOrigin: `${cx}px ${cy}px` }} />
+                                                <text x={s.lx} y={s.ly}
+                                                    fill={hi === origIdx ? s.color : '#ffffff'}
+                                                    fontSize="11" fontWeight="700" textAnchor={s.anchor} dominantBaseline="middle" pointerEvents="none"
+                                                    className="transition-colors duration-200">
+                                                    {s.label} ({s.pct}%)
+                                                </text>
+                                            </g>
+                                        );
+                                    })}
 
                                     {/* Donut Central Hole */}
                                     <circle cx={cx} cy={cy} r={HOLE} fill="#000000" stroke="#1e293b" strokeWidth="2" />
@@ -1871,6 +1893,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 </div>
                             )}
                         </div>
+                        )}
 
                         {/* Side Panel: Combined Categories and Explanations */}
                         <div className="flex-1 min-w-0 w-full space-y-3">
