@@ -2326,6 +2326,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _d2 = None
+    try:
+        from tools.qualitative_engine import compute_d2_insider_buying
+        _d2 = compute_d2_insider_buying(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced D.2 engine failed: {e}")
+        _d2 = {
+            'available': True,
+            'rationale': 'Not computed — D.2 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3366,6 +3378,41 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No insider sell disclosure was located for {_co} across the last 8 quarters this run."}
     _d1_panels = [_d1_1_panel, _d1_2_panel, _d1_3_panel, _d1_4_panel]
 
+    _d2_1, _d2_2, _d2_3 = (_d2 or {}).get('d2_1') or {}, (_d2 or {}).get('d2_2') or {}, (_d2 or {}).get('d2_3') or {}
+
+    if _d2_1.get('frequency_score') is not None:
+        _d2_1_panel = {
+            'type': 'kpi_card', 'title': 'Frequency of Insider Buying',
+            'centerValue': f"{_d2_1.get('buy_count')} buy(s)",
+            'explanation': f"{_co} had {_d2_1.get('buy_count')} insider buy disclosure(s) explicitly recorded across {_d2_1.get('distinct_quarters')} distinct quarter(s) of the last 8 (score {_d2_1.get('frequency_score')}/5).",
+        }
+    else:
+        _d2_1_panel = {'type': 'unavailable', 'title': 'Frequency of Insider Buying',
+                        'explanation': f"No Regulation 7(2) insider-trading disclosure was located for {_co} across the last 8 quarters this run."}
+
+    if _d2_2.get('size_score') is not None:
+        _d2_2_panel = {
+            'type': 'donut', 'title': 'Size of Insider Buying',
+            'data': [{'label': 'Acquired', 'value': min(_d2_2.get('avg_buy_size_pct'), 100.0)},
+                     {'label': 'Pre-existing Holding', 'value': _d2_2.get('remaining_holding_pct')}],
+            'centerValue': f"{_d2_2.get('avg_buy_size_pct')}%",
+            'explanation': f"{_co}'s insider buy(s) explicitly averaged {_d2_2.get('avg_buy_size_pct')}% of the buyer's pre-purchase holding across {_d2_2.get('events_used')} disclosure(s) -> {_d2_2.get('classification')} (score {_d2_2.get('size_score')}/5).",
+        }
+    else:
+        _d2_2_panel = {'type': 'unavailable', 'title': 'Size of Insider Buying',
+                        'explanation': f"No insider buy disclosure with a usable before-holding figure was located for {_co} this run."}
+
+    if _d2_3.get('conviction_score') is not None:
+        _d2_3_panel = {
+            'type': 'kpi_card', 'title': 'Repeat Buying / Conviction Pattern',
+            'centerValue': f"{_d2_3.get('repeat_buyer_count')} repeat",
+            'explanation': f"{_co} had {_d2_3.get('repeat_buyer_count')} named insider(s) explicitly repeat a purchase across different quarters in the last 8 quarters (score {_d2_3.get('conviction_score')}/5).",
+        }
+    else:
+        _d2_3_panel = {'type': 'unavailable', 'title': 'Repeat Buying / Conviction Pattern',
+                        'explanation': f"No Regulation 7(2) insider-trading disclosure was located for {_co} across the last 8 quarters this run."}
+    _d2_panels = [_d2_1_panel, _d2_2_panel, _d2_3_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4074,6 +4121,29 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_d1 or {}).get('confidence_tag'), 'retrieved_at': (_d1 or {}).get('retrieved_at'),
                     'pathway_results': (_d1 or {}).get('pathway_results'),
+                },
+                {
+                    # D.2 — the three sub-points (D.2.1 frequency, D.2.2
+                    # size, D.2.3 repeat/conviction) combined into ONE card
+                    # as a 3-panel set. Same real NSE Regulation 7(2) feed as
+                    # D.1, filtered to Buy-direction rows instead of Sell.
+                    'key': 'promoter_insider_buying',
+                    'title': 'Insider buying: sign of conviction',
+                    'finding': (_d2 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Frequency', f"{_d2_1.get('buy_count')} buy(s) / 8Q"] if _d2_1.get('buy_count') is not None else None),
+                        (['Size', f"avg {_d2_2.get('avg_buy_size_pct')}% of holding"] if _d2_2.get('avg_buy_size_pct') is not None else None),
+                        (['Conviction', f"{_d2_3.get('repeat_buyer_count')} repeat buyer(s)"] if _d2_3.get('repeat_buyer_count') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _d2_panels} if _d2_panels else None),
+                    'formula': 'Buying Frequency Score = number and consistency (distinct quarters) of insider purchases per 8 quarters, banded 1-5; '
+                               'Buying Size % = shares acquired / buyer\'s pre-purchase holding x 100, classified Low/Moderate/High (High = stronger conviction); '
+                               'Conviction Score = number of named insiders repeating a purchase across different quarters, banded 1-5.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Insider Trading', 'note': 'Regulation 7(2) disclosures, acquisition/purchase transactions, last 8 quarters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-insider-trading'},
+                    },
+                    'confidence_tag': (_d2 or {}).get('confidence_tag'), 'retrieved_at': (_d2 or {}).get('retrieved_at'),
+                    'pathway_results': (_d2 or {}).get('pathway_results'),
                 },
             ],
         },

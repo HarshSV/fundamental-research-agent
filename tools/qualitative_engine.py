@@ -8226,3 +8226,232 @@ def compute_d1_insider_activity(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+# ---------------------------------------------------------------------------
+# D.2 - Insider buying: sign of conviction. Deterministic (no-LLM) - all
+# three sub-points source from the same real NSE Regulation 7(2) feed as
+# D.1 (tools/insider_trading_scraper.py), filtered to Buy-direction rows.
+# See tools/insider_activity_scoring.py for the scoring logic.
+# ---------------------------------------------------------------------------
+
+def compute_d2_1_buying_frequency(symbol, name=None, force=False):
+    """D.2.1 - Frequency of insider buying. Spec formula: Buying
+    Frequency Score (1-5) based on the number and consistency of insider
+    purchases. Sourcing: NSE Corporate Filings - Insider Trading -
+    Regulation 7(2) disclosures, acquisition/purchase transactions, last
+    8 quarters.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.insider_trading_scraper import fetch_insider_trades
+        from tools.insider_activity_scoring import score_buying_frequency, _buy_rows
+        rows = fetch_insider_trades(sym, quarters=8)
+        buys = _buy_rows(rows)
+        result = score_buying_frequency(buys if rows else None)
+    except Exception as e:
+        print(f"[qualitative_engine] D.2.1 fetch failed for {sym}: {e}")
+        result = {"buy_count": None, "distinct_quarters": None, "frequency_score": None}
+        rows = []
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-07",
+        "source": "NSE Corporate Filings - Insider Trading - Regulation 7(2) disclosures - acquisition/purchase transactions",
+        "result": "CHECKED" if rows else "NOT_DISCLOSED",
+        "note": None if rows else "No Regulation 7(2) insider-trading disclosure was located for the last 8 quarters this run.",
+    }]
+
+    if result["frequency_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Frequency of insider buying", "available": True, **result,
+            "rationale": "No Regulation 7(2) insider-trading disclosure was located for the last 8 quarters this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Frequency of insider buying", "available": True, **result,
+        "rationale": f"{result['buy_count']} insider buy disclosure(s) explicitly recorded across {result['distinct_quarters']} distinct quarter(s) in the last 8 quarters -> score {result['frequency_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d2_2_buying_size(symbol, name=None, force=False):
+    """D.2.2 - Size of insider buying. Spec formula: Buying Size % =
+    Shares Acquired / Insider Holding Before Purchase x 100 where data
+    permits. Sourcing: NSE Corporate Filings - Insider Trading -
+    Regulation 7(2) disclosures, shares acquired and value.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.insider_trading_scraper import fetch_insider_trades
+        from tools.insider_activity_scoring import score_buying_size, _buy_rows
+        rows = fetch_insider_trades(sym, quarters=8)
+        buys = _buy_rows(rows)
+        result = score_buying_size(buys)
+    except Exception as e:
+        print(f"[qualitative_engine] D.2.2 fetch failed for {sym}: {e}")
+        result = {"avg_buy_size_pct": None, "acquired_shares_total": None, "remaining_holding_pct": None,
+                  "classification": None, "size_score": None, "events_used": 0}
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-07",
+        "source": "NSE Corporate Filings - Insider Trading - Regulation 7(2) disclosures - shares acquired vs holding before purchase",
+        "result": "CHECKED" if result["size_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["size_score"] is not None else "No insider buy disclosure with a usable before-holding figure was located this run.",
+    }]
+
+    if result["size_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Size of insider buying", "available": True, **result,
+            "rationale": "No insider buy disclosure with a usable before-holding figure was located for the last 8 quarters this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Size of insider buying", "available": True, **result,
+        "rationale": f"Insider buy(s) explicitly averaged {result['avg_buy_size_pct']}% of the buyer's pre-purchase holding across {result['events_used']} disclosure(s) -> {result['classification']} (score {result['size_score']}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d2_3_buying_conviction(symbol, name=None, force=False):
+    """D.2.3 - Repeat buying / conviction pattern. Spec formula:
+    Conviction Score (1-5) - repeated open-market buying by relevant
+    insiders scores higher than isolated/nominal purchases. Sourcing:
+    NSE Corporate Filings - Insider Trading - Regulation 7(2)
+    disclosures, repeated purchases by the same insider across quarters.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.2.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.insider_trading_scraper import fetch_insider_trades
+        from tools.insider_activity_scoring import score_buying_conviction, _buy_rows
+        rows = fetch_insider_trades(sym, quarters=8)
+        buys = _buy_rows(rows)
+        result = score_buying_conviction(buys if rows else None)
+    except Exception as e:
+        print(f"[qualitative_engine] D.2.3 fetch failed for {sym}: {e}")
+        result = {"repeat_buyer_count": None, "repeat_buyers": None, "conviction_score": None}
+        rows = []
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-07",
+        "source": "NSE Corporate Filings - Insider Trading - Regulation 7(2) disclosures - repeated purchases by the same insider across quarters",
+        "result": "CHECKED" if rows else "NOT_DISCLOSED",
+        "note": None if rows else "No Regulation 7(2) insider-trading disclosure was located for the last 8 quarters this run.",
+    }]
+
+    if result["conviction_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Repeat buying / conviction pattern", "available": True, **result,
+            "rationale": "No Regulation 7(2) insider-trading disclosure was located for the last 8 quarters this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Repeat buying / conviction pattern", "available": True, **result,
+        "rationale": f"{result['repeat_buyer_count']} named insider(s) explicitly repeated an open-market/off-market purchase across different quarters in the last 8 quarters -> score {result['conviction_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d2_insider_buying(symbol, name=None, force=False):
+    """D.2 - Insider buying: sign of conviction: combines the three
+    defined sub-points (D.2.1 frequency, D.2.2 size, D.2.3 repeat/
+    conviction pattern) into a single grounded payload, all sourced from
+    the same real NSE Regulation 7(2) insider-trading disclosure feed as
+    D.1, filtered to Buy-direction rows - no LLM call, see
+    tools/insider_activity_scoring.py.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    d2_1 = compute_d2_1_buying_frequency(sym, name, force=force)
+    d2_2 = compute_d2_2_buying_size(sym, name, force=force)
+    d2_3 = compute_d2_3_buying_conviction(sym, name, force=force)
+
+    parts = []
+    if d2_1.get("frequency_score") is not None:
+        parts.append(f"Frequency: {d2_1['buy_count']} buy(s) across {d2_1['distinct_quarters']} quarter(s) (score {d2_1['frequency_score']}/5).")
+    if d2_2.get("size_score") is not None:
+        parts.append(f"Size: avg {d2_2['avg_buy_size_pct']}% of holding, {d2_2['classification']} (score {d2_2['size_score']}/5).")
+    if d2_3.get("conviction_score") is not None:
+        parts.append(f"Conviction: {d2_3['repeat_buyer_count']} repeat buyer(s) (score {d2_3['conviction_score']}/5).")
+    if not parts:
+        parts.append("No Regulation 7(2) insider-trading disclosure was located for this company across the last 8 quarters this run.")
+
+    _tags = [t.get("confidence_tag") for t in (d2_1, d2_2, d2_3)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (d2_1, d2_2, d2_3) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "D.2",
+        "title": "Insider buying: sign of conviction",
+        "available": True,
+        "d2_1": d2_1, "d2_2": d2_2, "d2_3": d2_3,
+        "rationale": " ".join(parts),
+        "pathway_results": (d2_1.get("pathway_results") or []) + (d2_2.get("pathway_results") or []) + (d2_3.get("pathway_results") or []),
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

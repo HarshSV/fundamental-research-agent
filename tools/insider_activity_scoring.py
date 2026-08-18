@@ -37,6 +37,15 @@ def _sell_rows(rows):
     return [r for r in (rows or []) if (r.get("tdpTransactionType") or "").strip().lower() == "sell"]
 
 
+def _buy_rows(rows):
+    """Filters raw NSE PIT rows to real BUY-direction rows only - see
+    _sell_rows' note on the same feed reporting both legs of a transfer;
+    a Buy row here can be a promoter inter-se transfer recipient, not
+    necessarily open-market conviction buying, but is still the real,
+    disclosed acquisition-direction row this sub-point's spec calls for."""
+    return [r for r in (rows or []) if (r.get("tdpTransactionType") or "").strip().lower() == "buy"]
+
+
 # ---------------------------------------------------------------------------
 # D.1.1 - Frequency of insider selling.
 # ---------------------------------------------------------------------------
@@ -236,3 +245,123 @@ def score_selling_rationale(sell_rows):
         "documented_count": documented, "unexplained_count": unexplained,
         "documented_pct": pct, "rationale_score": score,
     }
+
+
+# ---------------------------------------------------------------------------
+# D.2 - Insider buying: sign of conviction.
+# ---------------------------------------------------------------------------
+
+def score_buying_frequency(buy_rows):
+    """D.2.1 - Buying Frequency Score (1-5), based on the number and
+    consistency (distinct quarters) of insider purchases per 8 quarters -
+    the inverse polarity of D.1.1 (more buying is a positive conviction
+    signal, not a risk signal). Score: 1 = none, 2 = a single isolated
+    purchase, 3 = 2-3 purchases OR spread across 2+ quarters, 4 = 4-6
+    purchases across 3+ quarters, 5 = 7+ purchases across 4+ quarters
+    (sustained, repeated conviction). Returns {'buy_count',
+    'distinct_quarters','frequency_score'} or all-None if there is no PIT
+    data at all for this company (distinct from a real zero-purchases
+    result, which IS scoreable as a low-conviction 1/5, not N/A)."""
+    if buy_rows is None:
+        return {"buy_count": None, "distinct_quarters": None, "frequency_score": None}
+    quarters = set()
+    for r in buy_rows:
+        d = _parse_date(r.get("acqfromDt") or r.get("date"))
+        if d:
+            quarters.add(_quarter_label(d))
+    count = len(buy_rows)
+    nq = len(quarters)
+    if count == 0:
+        score = 1
+    elif count == 1:
+        score = 2
+    elif count <= 3 or nq >= 2:
+        score = 3
+    elif count <= 6 and nq >= 3:
+        score = 4
+    elif count >= 7 and nq >= 4:
+        score = 5
+    else:
+        score = 3
+    return {"buy_count": count, "distinct_quarters": nq, "frequency_score": score}
+
+
+def score_buying_size(buy_rows):
+    """D.2.2 - Buying Size % = Shares Acquired / Insider Holding Before
+    Purchase x 100, averaged across real buy disclosures with a
+    parseable before-holding figure. Classifies Low(<10%, score 3 -
+    small/token purchase)/Moderate(10-30%, score 4)/High(>30%, score 5 -
+    a large purchase relative to existing holding is a STRONGER
+    conviction signal, the inverse polarity of D.1.3's selling-size
+    scoring where High is bad). Returns {'avg_buy_size_pct',
+    'acquired_shares_total','remaining_holding_pct','classification',
+    'size_score','events_used'} or all-None if no buy row has a usable
+    before-holding figure."""
+    if not buy_rows:
+        return {"avg_buy_size_pct": None, "acquired_shares_total": None, "remaining_holding_pct": None,
+                "classification": None, "size_score": None, "events_used": 0}
+    pcts = []
+    acquired_total = 0
+    for r in buy_rows:
+        before = _to_int(r.get("befAcqSharesNo"))
+        bought = _to_int(r.get("secAcq"))
+        if not before or bought is None:
+            continue
+        pcts.append(round(100 * bought / before, 1))
+        acquired_total += bought
+    if not pcts:
+        return {"avg_buy_size_pct": None, "acquired_shares_total": None, "remaining_holding_pct": None,
+                "classification": None, "size_score": None, "events_used": 0}
+    avg_pct = round(sum(pcts) / len(pcts), 1)
+    # Clamped to 100 - a series of successive buys can each be a large %
+    # of that moment's PRE-purchase holding (compounding), so the average
+    # per-event % can nominally exceed 100 even though it's still real -
+    # the donut split itself needs a bounded remainder to render.
+    donut_pct = min(avg_pct, 100.0)
+    if avg_pct < 10:
+        classification, score = "Low", 3
+    elif avg_pct <= 30:
+        classification, score = "Moderate", 4
+    else:
+        classification, score = "High", 5
+    return {
+        "avg_buy_size_pct": avg_pct, "acquired_shares_total": acquired_total,
+        "remaining_holding_pct": round(100 - donut_pct, 1),
+        "classification": classification, "size_score": score, "events_used": len(pcts),
+    }
+
+
+def score_buying_conviction(buy_rows):
+    """D.2.3 - Conviction Score (1-5): repeated open-market buying by
+    relevant insiders scores higher than an isolated/nominal purchase.
+    Repeat = 2+ purchases by the SAME named acquirer (acqName) across
+    DIFFERENT quarters - the real signal repeat/conviction buying implies,
+    as distinct from D.2.1's raw frequency count (which one prolific buyer
+    could inflate on its own). Score: 1 = no buys, 2 = only isolated
+    single-quarter buyers, 3 = one repeat buyer, 4 = two repeat buyers or
+    one buyer repeating across 3+ quarters, 5 = 3+ repeat buyers. Returns
+    {'repeat_buyer_count','repeat_buyers','conviction_score'} or all-None
+    if there is no PIT data at all for this company."""
+    if buy_rows is None:
+        return {"repeat_buyer_count": None, "repeat_buyers": None, "conviction_score": None}
+    by_acquirer = {}
+    for r in buy_rows:
+        name = (r.get("acqName") or "").strip()
+        d = _parse_date(r.get("acqfromDt") or r.get("date"))
+        if not name or not d:
+            continue
+        by_acquirer.setdefault(name, set()).add(_quarter_label(d))
+    repeat_buyers = {name: sorted(qs) for name, qs in by_acquirer.items() if len(qs) >= 2}
+    max_quarters = max((len(qs) for qs in by_acquirer.values()), default=0)
+    n_repeat = len(repeat_buyers)
+    if not by_acquirer:
+        score = 1
+    elif n_repeat == 0:
+        score = 2
+    elif n_repeat == 1 and max_quarters < 3:
+        score = 3
+    elif n_repeat >= 3:
+        score = 5
+    else:
+        score = 4
+    return {"repeat_buyer_count": n_repeat, "repeat_buyers": repeat_buyers, "conviction_score": score}
