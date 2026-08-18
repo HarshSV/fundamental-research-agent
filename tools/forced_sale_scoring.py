@@ -82,17 +82,27 @@ def classify_pledge_announcements(announcements):
     return {"confirmed": confirmed, "possible": possible}
 
 
-_INSIDER_INVOCATION = re.compile(r"invoc|pledge", re.I)
+# Only "invoc" (invocation/invoked) - deliberately NOT a bare "pledge"
+# match. Real acqMode values surveyed across multiple companies include
+# "Pledge Creation" (a new pledge - not distress) and "Revokation of
+# Pledge" (a pledge RELEASE - the opposite of forced-sale distress, and
+# in fact real evidence for D.6.1). A bare "pledge" match would
+# false-positive on both (confirmed real: RELIANCE's own Reg 7(2) filing
+# "Revokation of Pledge" was being scored as Confirmed forced-sale
+# evidence, when it's actually a benign pledge release). "Revokation"/
+# "Revocation" doesn't contain the "invoc" substring, so this narrower
+# match is safe against that specific false positive.
+_INSIDER_INVOCATION = re.compile(r"invoc", re.I)
 
 
 def classify_insider_invocation(trades):
     """Scans real Regulation 7(2) insider-trading rows (as returned by
     tools.insider_trading_scraper.fetch_insider_trades) for an acqMode
-    or remarks field naming an invocation/pledge-related transaction -
-    a Reg 7(2) filing that itself tags the transaction this way is
-    direct, singular confirming evidence (not the enumerated-boilerplate
-    ambiguity the SAST filings carry). Returns a list of matched real
-    rows, never a guess."""
+    or remarks field naming an INVOCATION-specific transaction (not a
+    routine pledge creation or release) - a Reg 7(2) filing that itself
+    tags the transaction this way is direct, singular confirming
+    evidence (not the enumerated-boilerplate ambiguity the SAST filings
+    carry). Returns a list of matched real rows, never a guess."""
     out = []
     for t in trades or []:
         mode = t.get("acqMode") or ""
