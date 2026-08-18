@@ -2374,6 +2374,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _d6 = None
+    try:
+        from tools.qualitative_engine import compute_d6_pledge_signals
+        _d6 = compute_d6_pledge_signals(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced D.6 engine failed: {e}")
+        _d6 = {
+            'available': True,
+            'rationale': 'Not computed — D.6 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3589,6 +3601,31 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No promoter/group/KMP-adjacent loan balance figure was located for {_co} in the Related Party Disclosures note this run."}
     _d5_panels = [_d5_1_panel, _d5_2_panel, _d5_3_panel]
 
+    _d6_1, _d6_2 = (_d6 or {}).get('d6_1') or {}, (_d6 or {}).get('d6_2') or {}
+
+    _d6_1_trend = _d6_1.get('trend') or []
+    if _d6_1.get('direction') is not None and _d6_1_trend:
+        _d6_1_panel = {
+            'type': 'line_trend', 'title': 'Pledge Release / Unwinding',
+            'data': [{'label': _short_quarter_label(t.get('quarter')), 'value': t.get('pledge_pct')} for t in _d6_1_trend],
+            'centerValue': f"{_d6_1.get('unwinding_pct'):+.2f}pp",
+            'explanation': f"{_co}'s pledged % moved from {_d6_1.get('previous_pledge_pct')}% ({_d6_1.get('previous_quarter')}) to {_d6_1.get('current_pledge_pct')}% ({_d6_1.get('current_quarter')}) -> {_d6_1.get('direction')} of {abs(_d6_1.get('unwinding_pct'))} percentage points. Reason not disclosed.",
+        }
+    else:
+        _d6_1_panel = {'type': 'unavailable', 'title': 'Pledge Release / Unwinding',
+                        'explanation': f"Fewer than 2 quarters with an on-record pledge were available for {_co} this run — a company with no pledge history has no quarter-over-quarter unwinding to compute."}
+
+    if _d6_2.get('classification') is not None:
+        _d6_2_panel = {
+            'type': 'classification', 'title': 'Forced-Sale / Invocation Signals',
+            'zones': ['No evidence', 'Possible', 'Confirmed'], 'active': _d6_2.get('classification'),
+            'explanation': _d6_2.get('rationale') or f"{_co}'s forced-sale/invocation risk classification: {_d6_2.get('classification')}.",
+        }
+    else:
+        _d6_2_panel = {'type': 'unavailable', 'title': 'Forced-Sale / Invocation Signals',
+                        'explanation': f"NSE's live endpoints were unreachable for {_co} this run."}
+    _d6_panels = [_d6_1_panel, _d6_2_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4394,6 +4431,25 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_d5 or {}).get('confidence_tag'), 'retrieved_at': (_d5 or {}).get('retrieved_at'),
                     'pathway_results': (_d5 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'pledge_release_forced_sale',
+                    'title': 'Pledge release/unwinding and forced-sale/invocation signals',
+                    'finding': (_d6 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Pledge %', f"{_d6_1.get('current_pledge_pct')}% (was {_d6_1.get('previous_pledge_pct')}%)"] if _d6_1.get('current_pledge_pct') is not None else None),
+                        (['Unwinding', f"{_d6_1.get('direction')} of {abs(_d6_1.get('unwinding_pct'))}pp"] if _d6_1.get('unwinding_pct') is not None else None),
+                        (['Forced-sale risk', _d6_2.get('classification')] if _d6_2.get('classification') else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _d6_panels} if _d6_panels else None),
+                    'formula': 'Pledge Unwinding = Previous Pledged % - Current Pledged %; a positive decline is a release, but the reason is not assumed; '
+                               'Forced-Sale Risk Classification = No evidence / Possible / Confirmed, based only on disclosed evidence (NSE Corporate Announcements, Shareholding Pattern, Regulation 7(2) Insider Trading).',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Shareholding Patterns', 'note': 'Promoter & Promoter Group — Pledged/Encumbered Shares, quarter over quarter', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'secondary': {'label': 'NSE Corporate Filings — Corporate Announcements & Insider Trading', 'note': 'pledge invocation/default keyword search, cross-checked with Regulation 7(2) disclosures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                    },
+                    'confidence_tag': (_d6 or {}).get('confidence_tag'), 'retrieved_at': (_d6 or {}).get('retrieved_at'),
+                    'pathway_results': (_d6 or {}).get('pathway_results'),
                 },
             ],
         },

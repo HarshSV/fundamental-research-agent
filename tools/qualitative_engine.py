@@ -9261,3 +9261,198 @@ def compute_d5_promoter_loans(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+def compute_d6_1_pledge_unwinding(symbol, name=None, force=False):
+    """D.6.1 - Pledge release / unwinding. Spec formula: Pledge
+    Unwinding = Previous Pledged % - Current Pledged %; a positive
+    decline is a release, but the spec explicitly says not to assume a
+    reason for it. Deterministic (no LLM) - reads every quarter NSE's
+    own corporate-pledgedata endpoint has an on-record pledge for
+    (same real source already built for C.2.3's pledge trend).
+    Sourcing: NSE Corporate Filings - Shareholding Pattern - Promoter &
+    Promoter Group - Pledged/Encumbered Shares, compared quarter over
+    quarter.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.6.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.shareholding_scraper import get_provider
+        trend = get_provider().fetch_pledge_trend(sym) or []
+    except Exception as e:
+        print(f"[qualitative_engine] D.6.1 fetch failed for {sym}: {e}")
+        trend = []
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Shareholding Pattern - Promoter & Promoter Group - Pledged/Encumbered Shares",
+        "result": "CHECKED" if len(trend) >= 2 else "NOT_DISCLOSED",
+        "note": None if len(trend) >= 2 else "Fewer than 2 quarters with an on-record pledge were available from NSE's live endpoint this run - a company with no pledge history (or only one quarter on record) has no quarter-over-quarter unwinding to compute.",
+    }]
+
+    if len(trend) < 2:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Pledge release / unwinding", "available": True,
+            "trend": trend or None, "previous_pledge_pct": None, "current_pledge_pct": None,
+            "unwinding_pct": None, "direction": None,
+            "rationale": "Fewer than 2 quarters with an on-record pledge were available to compute pledge unwinding this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    previous_pct = trend[-2]["pledge_pct"]
+    current_pct = trend[-1]["pledge_pct"]
+    unwinding_pct = round(previous_pct - current_pct, 2)
+    if unwinding_pct > 0:
+        direction = "Release"
+    elif unwinding_pct < 0:
+        direction = "Increase"
+    else:
+        direction = "Unchanged"
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Pledge release / unwinding", "available": True,
+        "trend": trend, "quarters_available": len(trend),
+        "previous_pledge_pct": previous_pct, "current_pledge_pct": current_pct,
+        "previous_quarter": trend[-2]["quarter"], "current_quarter": trend[-1]["quarter"],
+        "unwinding_pct": unwinding_pct, "direction": direction,
+        "rationale": f"Pledged % moved from {previous_pct}% ({trend[-2]['quarter']}) to {current_pct}% ({trend[-1]['quarter']}) -> {direction} of {abs(unwinding_pct)} percentage points. Reason not disclosed - not assumed.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d6_2_forced_sale_signals(symbol, name=None, force=False):
+    """D.6.2 - Forced-sale / invocation signals. Spec formula: Risk
+    classification: No evidence / Possible / Confirmed based only on
+    disclosed evidence. Deterministic (no LLM) - scans real NSE
+    Corporate Announcements for pledge-invocation/default language
+    (tools.forced_sale_scoring), cross-checked against the real pledge-%
+    trend (tools.shareholding_scraper, same source as D.6.1) and real
+    Regulation 7(2) insider-trading disclosures
+    (tools.insider_trading_scraper, same source as D.1/D.2). Sourcing:
+    NSE Corporate Filings - Corporate Announcements (keyword search) +
+    Shareholding Pattern + Insider Trading Regulation 7(2).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.6.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.nse_announcements import fetch_announcements
+        from tools.shareholding_scraper import get_provider
+        from tools.insider_trading_scraper import fetch_insider_trades
+        from tools.forced_sale_scoring import classify_pledge_announcements, classify_insider_invocation, score_forced_sale_signals
+
+        announcements = fetch_announcements(sym) or []
+        announcement_matches = classify_pledge_announcements(announcements)
+        pledge_trend = get_provider().fetch_pledge_trend(sym) or []
+        trades = fetch_insider_trades(sym, quarters=8) or []
+        insider_matches = classify_insider_invocation(trades)
+        result = score_forced_sale_signals(announcement_matches, insider_matches, pledge_trend)
+    except Exception as e:
+        print(f"[qualitative_engine] D.6.2 fetch failed for {sym}: {e}")
+        result = {"classification": None, "confirmed_count": 0, "possible_count": 0, "evidence": []}
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Corporate Announcements (pledge invocation/default keyword search), cross-checked with Shareholding Pattern and Insider Trading Regulation 7(2)",
+        "result": "CHECKED" if result.get("classification") is not None else "NOT_DISCLOSED",
+        "note": None if result.get("classification") is not None else "NSE's live endpoints were unreachable this run.",
+    }]
+
+    if result.get("classification") is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Forced-sale / invocation signals", "available": True,
+            **result,
+            "rationale": "NSE's live endpoints were unreachable this run - forced-sale/invocation risk could not be checked.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    classification = result["classification"]
+    if classification == "Confirmed":
+        rationale = f"{result['confirmed_count']} real NSE filing(s) explicitly disclose pledge invocation, default, or a lender-forced sale -> Confirmed."
+    elif classification == "Possible":
+        rationale = f"{result['possible_count']} real pledge/encumbrance disclosure filing(s) exist alongside a corroborated on-record pledge, but none singularly confirms invocation as the reason -> Possible."
+    else:
+        rationale = "No pledge-invocation, default, or forced-sale evidence was located in NSE Corporate Announcements, Insider Trading (Reg 7(2)), or the pledge-% trend this run -> No evidence."
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Forced-sale / invocation signals", "available": True,
+        **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE" if classification in ("Confirmed", "Possible") else "SEARCH_INCONCLUSIVE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d6_pledge_signals(symbol, name=None, force=False):
+    """D.6 - Pledge release/unwinding and forced-sale/invocation signals:
+    combines the two defined sub-points (D.6.1 unwinding, D.6.2 forced-
+    sale signals) into a single grounded payload, sourced from the same
+    real NSE Shareholding Pattern pledge data, Corporate Announcements,
+    and Regulation 7(2) insider-trading disclosures already built for
+    C.2, D.1/D.2 and D.5 - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    d6_1 = compute_d6_1_pledge_unwinding(sym, name, force=force)
+    d6_2 = compute_d6_2_forced_sale_signals(sym, name, force=force)
+
+    parts = []
+    if d6_1.get("direction") is not None:
+        parts.append(f"Pledge: {d6_1['direction']} of {abs(d6_1['unwinding_pct'])}pp ({d6_1['previous_quarter']} -> {d6_1['current_quarter']}).")
+    if d6_2.get("classification") is not None:
+        parts.append(f"Forced-sale signals: {d6_2['classification']}.")
+    if not parts:
+        parts.append("No pledge trend or forced-sale/invocation evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (d6_1, d6_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (d6_1, d6_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "D.6",
+        "title": "Pledge release/unwinding and forced-sale/invocation signals",
+        "available": True,
+        "d6_1": d6_1, "d6_2": d6_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (d6_1.get("pathway_results") or [])[:1] + (d6_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
