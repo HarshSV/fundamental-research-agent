@@ -8970,3 +8970,271 @@ def compute_d4_lockin_releases(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+# ---------------------------------------------------------------------------
+# D.5 - Promoter loans to/from company or group entities; interest rates
+# and repayment terms. Deterministic (no-LLM) - all three sub-points source
+# from the same real Annual Report Ind AS 24 Related Party Disclosures note
+# already fetched for C.3 (tools.annual_report_financials.
+# fetch_rpt_evidence_from_annual_report). D.5.3's denominator reuses the
+# real Total Equity figure already extracted for the D/E ratio (Sr No 23),
+# never a separately-invented number. See tools/promoter_loan_scoring.py.
+# ---------------------------------------------------------------------------
+
+def _fetch_rpt_text_for_loans(sym, name):
+    """Shared RPT-note text fetch for all of D.5 - same real source as
+    C.3, kept as one helper so the three sub-points don't each pay for a
+    separate PDF fetch. Returns (text, pdf_url)."""
+    from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report
+    evidence = fetch_rpt_evidence_from_annual_report(sym, name)
+    if not isinstance(evidence, dict):
+        return "", None
+    text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or []))
+    return text, evidence.get("pdf_url")
+
+
+def compute_d5_1_loan_direction(symbol, name=None, force=False):
+    """D.5.1 - Promoter/company loan direction. Spec formula: Direction
+    classification: Company -> Promoter/Group, Promoter/Group -> Company,
+    Both, or None. Sourcing: NSE Corporate Filings - Annual Reports -
+    Notes to Accounts - Loans / Advances / Other Receivables - Related
+    Party Disclosures (Ind AS 24).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.5.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.promoter_loan_scoring import score_loan_direction
+        text, pdf_url = _fetch_rpt_text_for_loans(sym, name)
+        result = score_loan_direction(text)
+    except Exception as e:
+        print(f"[qualitative_engine] D.5.1 fetch failed for {sym}: {e}")
+        result = {"direction": None, "evidence_sentences": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Loans/Advances - Related Party Disclosures (Ind AS 24)",
+        "result": "CHECKED" if result["direction"] is not None else "NOT_DISCLOSED",
+        "note": None if result["direction"] is not None else "No promoter/group/KMP-adjacent loan or advance sentence was located in the Related Party Disclosures note this run.",
+    }]
+
+    if result["direction"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Promoter/company loan direction", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No promoter/group/KMP-adjacent loan or advance sentence was located in the Related Party Disclosures note this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Promoter/company loan direction", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"The Related Party Disclosures note explicitly describes loan/advance direction as {result['direction']}.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d5_2_loan_terms(symbol, name=None, force=False):
+    """D.5.2 - Interest rate and terms. Spec formula: Terms Score (1-5):
+    arm's-length rate, documented maturity and repayment terms score
+    higher. Sourcing: NSE Corporate Filings - Annual Reports - Related
+    Party Disclosures - loans/advances - interest rate, maturity and
+    repayment terms.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.5.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.promoter_loan_scoring import score_loan_terms
+        text, pdf_url = _fetch_rpt_text_for_loans(sym, name)
+        result = score_loan_terms(text)
+    except Exception as e:
+        print(f"[qualitative_engine] D.5.2 fetch failed for {sym}: {e}")
+        result = {"interest_rate_pct": None, "repayment_term": None, "arms_length_confirmed": None, "terms_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Related Party Disclosures - loans/advances - interest rate, maturity and repayment terms",
+        "result": "CHECKED" if result["terms_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["terms_score"] is not None else "No promoter/group/KMP-adjacent loan or advance sentence was located in the Related Party Disclosures note this run.",
+    }]
+
+    if result["terms_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Interest rate and terms", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No promoter/group/KMP-adjacent loan or advance sentence was located in the Related Party Disclosures note this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Interest rate and terms", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": (f"Interest rate {result['interest_rate_pct']}% p.a." if result['interest_rate_pct'] is not None else "Interest rate not explicitly stated")
+                     + (f", repayable {result['repayment_term']}" if result['repayment_term'] else ", repayment term not explicitly stated")
+                     + f" (score {result['terms_score']}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d5_3_loan_concentration(symbol, name=None, force=False):
+    """D.5.3 - Outstanding balance / concentration. Spec formula:
+    Exposure % = Promoter/Group Loan Balance / Net Worth or Total
+    Assets, using the most relevant disclosed denominator. Sourcing: NSE
+    Corporate Filings - Annual Reports - Balance Sheet / Notes -
+    related-party receivables, loans and advances. The denominator
+    (Net Worth) reuses the SAME real Total Equity figure already
+    extracted for the D/E ratio (Sr No 23) - never a separately-invented
+    number.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "D.5.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    net_worth_cr = None
+    try:
+        from tools.annual_report_financials import list_annual_report_years, fetch_debt_to_equity_from_annual_report
+        years = list_annual_report_years(sym, name)
+        if years:
+            de = fetch_debt_to_equity_from_annual_report(sym, name, years[0])
+            if de.get("applicable"):
+                net_worth_cr = (de.get("denominator") or {}).get("value_cr")
+    except Exception as e:
+        print(f"[qualitative_engine] D.5.3 net-worth fetch failed for {sym}: {e}")
+
+    try:
+        from tools.promoter_loan_scoring import score_loan_concentration
+        text, pdf_url = _fetch_rpt_text_for_loans(sym, name)
+        result = score_loan_concentration(text, net_worth_cr=net_worth_cr)
+    except Exception as e:
+        print(f"[qualitative_engine] D.5.3 fetch failed for {sym}: {e}")
+        result = {"loan_balance_cr": None, "denominator_used": None, "exposure_pct": None, "classification": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Balance Sheet / Notes - related-party receivables, loans and advances",
+        "result": "CHECKED" if result["loan_balance_cr"] is not None else "NOT_DISCLOSED",
+        "note": None if result["loan_balance_cr"] is not None else "No promoter/group/KMP-adjacent loan balance figure was located in the Related Party Disclosures note this run.",
+    }]
+
+    if result["loan_balance_cr"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Outstanding balance / concentration", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No promoter/group/KMP-adjacent loan balance figure was located in the Related Party Disclosures note this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    if result["exposure_pct"] is None:
+        rationale = f"₹{result['loan_balance_cr']} cr promoter/group-adjacent loan balance explicitly found, but no Net Worth/Total Assets denominator could be computed this run."
+    else:
+        rationale = f"₹{result['loan_balance_cr']} cr promoter/group-adjacent loan balance is {result['exposure_pct']}% of {result['denominator_used']} -> {result['classification']}."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Outstanding balance / concentration", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_d5_promoter_loans(symbol, name=None, force=False):
+    """D.5 - Promoter loans to/from company or group entities; interest
+    rates and repayment terms: combines the three defined sub-points
+    (D.5.1 direction, D.5.2 terms, D.5.3 concentration) into a single
+    grounded payload, all sourced from the same real Annual Report Ind
+    AS 24 Related Party Disclosures note - no LLM call, see
+    tools/promoter_loan_scoring.py.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    d5_1 = compute_d5_1_loan_direction(sym, name, force=force)
+    d5_2 = compute_d5_2_loan_terms(sym, name, force=force)
+    d5_3 = compute_d5_3_loan_concentration(sym, name, force=force)
+
+    parts = []
+    if d5_1.get("direction") is not None:
+        parts.append(f"Direction: {d5_1['direction']}.")
+    if d5_2.get("terms_score") is not None:
+        parts.append(f"Terms: score {d5_2['terms_score']}/5.")
+    if d5_3.get("loan_balance_cr") is not None:
+        if d5_3.get("exposure_pct") is not None:
+            parts.append(f"Balance: ₹{d5_3['loan_balance_cr']} cr ({d5_3['exposure_pct']}% of {d5_3['denominator_used']}).")
+        else:
+            parts.append(f"Balance: ₹{d5_3['loan_balance_cr']} cr.")
+    if not parts:
+        parts.append("No promoter/group/KMP-adjacent loan or advance was located in the Related Party Disclosures note for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (d5_1, d5_2, d5_3)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (d5_1, d5_2, d5_3) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "D.5",
+        "title": "Promoter loans to/from company or group entities; interest rates and repayment terms",
+        "available": True,
+        "d5_1": d5_1, "d5_2": d5_2, "d5_3": d5_3,
+        "rationale": " ".join(parts),
+        "pathway_results": (d5_1.get("pathway_results") or [])[:1] + (d5_2.get("pathway_results") or [])[:1] + (d5_3.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

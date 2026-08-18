@@ -2362,6 +2362,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _d5 = None
+    try:
+        from tools.qualitative_engine import compute_d5_promoter_loans
+        _d5 = compute_d5_promoter_loans(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced D.5 engine failed: {e}")
+        _d5 = {
+            'available': True,
+            'rationale': 'Not computed — D.5 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3534,6 +3546,49 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No lock-in/release filing explicitly stating a release % of share capital was located for {_co} across its full available NSE Corporate Announcements history this run."}
     _d4_panels = [_d4_1_panel, _d4_2_panel]
 
+    _d5_1, _d5_2, _d5_3 = (_d5 or {}).get('d5_1') or {}, (_d5 or {}).get('d5_2') or {}, (_d5 or {}).get('d5_3') or {}
+
+    if _d5_1.get('direction') is not None:
+        _d5_1_panel = {
+            'type': 'classification', 'title': 'Promoter/Company Loan Direction',
+            'zones': ['Company → Promoter/Group', 'Promoter/Group → Company', 'Both'], 'active': _d5_1.get('direction'),
+            'explanation': f"{_co}'s Related Party Disclosures note explicitly describes loan/advance direction as {_d5_1.get('direction')}.",
+        }
+    else:
+        _d5_1_panel = {'type': 'unavailable', 'title': 'Promoter/Company Loan Direction',
+                        'explanation': f"No promoter/group/KMP-adjacent loan or advance sentence was located for {_co} in the Related Party Disclosures note this run."}
+
+    if _d5_2.get('terms_score') is not None:
+        _d5_2_panel = {
+            'type': 'kpi_card', 'title': 'Interest Rate and Terms',
+            'centerValue': (f"{_d5_2.get('interest_rate_pct')}% p.a." if _d5_2.get('interest_rate_pct') is not None else '—'),
+            'explanation': (f"Interest rate {_d5_2.get('interest_rate_pct')}% p.a." if _d5_2.get('interest_rate_pct') is not None else "Interest rate not explicitly stated")
+                           + (f", repayable {_d5_2.get('repayment_term')}" if _d5_2.get('repayment_term') else ", repayment term not explicitly stated")
+                           + f" (score {_d5_2.get('terms_score')}/5).",
+        }
+    else:
+        _d5_2_panel = {'type': 'unavailable', 'title': 'Interest Rate and Terms',
+                        'explanation': f"No promoter/group/KMP-adjacent loan or advance sentence was located for {_co} in the Related Party Disclosures note this run."}
+
+    if _d5_3.get('loan_balance_cr') is not None and _d5_3.get('exposure_pct') is not None:
+        _d5_3_panel = {
+            'type': 'donut', 'title': 'Outstanding Balance / Concentration',
+            'data': [{'label': 'Promoter/Group Loan', 'value': _d5_3.get('exposure_pct')},
+                     {'label': f"Rest of {_d5_3.get('denominator_used')}", 'value': round(100 - _d5_3.get('exposure_pct'), 2)}],
+            'centerValue': f"{_d5_3.get('exposure_pct')}%",
+            'explanation': f"{_co}'s ₹{_d5_3.get('loan_balance_cr')} cr promoter/group-adjacent loan balance is {_d5_3.get('exposure_pct')}% of {_d5_3.get('denominator_used')} -> {_d5_3.get('classification')}.",
+        }
+    elif _d5_3.get('loan_balance_cr') is not None:
+        _d5_3_panel = {
+            'type': 'kpi_card', 'title': 'Outstanding Balance / Concentration',
+            'centerValue': f"₹{_d5_3.get('loan_balance_cr')} cr",
+            'explanation': f"{_co}'s ₹{_d5_3.get('loan_balance_cr')} cr promoter/group-adjacent loan balance was explicitly found, but no Net Worth/Total Assets denominator could be computed this run.",
+        }
+    else:
+        _d5_3_panel = {'type': 'unavailable', 'title': 'Outstanding Balance / Concentration',
+                        'explanation': f"No promoter/group/KMP-adjacent loan balance figure was located for {_co} in the Related Party Disclosures note this run."}
+    _d5_panels = [_d5_1_panel, _d5_2_panel, _d5_3_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4318,6 +4373,27 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_d4 or {}).get('confidence_tag'), 'retrieved_at': (_d4 or {}).get('retrieved_at'),
                     'pathway_results': (_d4 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'promoter_loans',
+                    'title': 'Promoter loans to/from company or group entities; interest rates and repayment terms',
+                    'finding': (_d5 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Direction', _d5_1.get('direction')] if _d5_1.get('direction') else None),
+                        (['Interest rate', f"{_d5_2.get('interest_rate_pct')}% p.a."] if _d5_2.get('interest_rate_pct') is not None else None),
+                        (['Repayment term', _d5_2.get('repayment_term')] if _d5_2.get('repayment_term') else None),
+                        (['Outstanding balance', f"₹{_d5_3.get('loan_balance_cr')} cr"] if _d5_3.get('loan_balance_cr') is not None else None),
+                        (['Exposure', f"{_d5_3.get('exposure_pct')}% of {_d5_3.get('denominator_used')}"] if _d5_3.get('exposure_pct') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _d5_panels} if _d5_panels else None),
+                    'formula': 'Direction = Company -> Promoter/Group, Promoter/Group -> Company, Both, or None, read directly from the Related Party Disclosures (Ind AS 24) note\'s own loan/advance sentences; '
+                               'Terms Score (1-5) = arm\'s-length rate and documented repayment/maturity terms score higher; '
+                               'Exposure % = Promoter/Group Loan Balance / Net Worth or Total Assets, using the most relevant disclosed denominator.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Related Party Disclosures (Ind AS 24), Loans/Advances/Other Receivables', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_d5 or {}).get('confidence_tag'), 'retrieved_at': (_d5 or {}).get('retrieved_at'),
+                    'pathway_results': (_d5 or {}).get('pathway_results'),
                 },
             ],
         },
