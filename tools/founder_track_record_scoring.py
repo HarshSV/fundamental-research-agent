@@ -79,7 +79,16 @@ _INITIATIVE_KEYWORDS = re.compile(
 _OUTCOME_PATTERNS = [
     ("failed", re.compile(r"\b(?:failed|discontinued|shut down|written off|impair(?:ed|ment)|abandon(?:ed|ing)?|called off|scrapped)\b", re.I)),
     ("delayed", re.compile(r"\b(?:delayed|postponed|deferred|pushed back|behind schedule|slippage)\b", re.I)),
-    ("ongoing", re.compile(r"\b(?:underway|in progress|on track|is being commissioned|is being built|expected to (?:complete|commission)|will be commissioned|planned for (?:FY|20))\b", re.I)),
+    # "expected to be commissioned" (with "be" between the verb and its
+    # object) is a real, common phrasing that the original "expected to
+    # (?:complete|commission)" pattern missed - confirmed real: SHYAM
+    # METALICS' "the project is expected to be commissioned by mid-FY
+    # 2026-27" fell through to the "success" tier's bare "commissioned"
+    # match instead, wrongly counting a future plan as a delivered result.
+    ("ongoing", re.compile(r"\b(?:underway|in progress|on track|is being commissioned|is being built|"
+                            r"expected to (?:be\s+)?(?:complete|commission)(?:d|ed|ing)?|will be commissioned|"
+                            r"yet to be commissioned|scheduled to be commissioned|slated (?:for|to)|"
+                            r"planned for (?:FY|20))\b", re.I)),
     ("success", re.compile(r"\b(?:successfully|completed|achieved|commissioned|delivered|record\b|on time and on budget|ahead of schedule|exceeded)\b", re.I)),
 ]
 
