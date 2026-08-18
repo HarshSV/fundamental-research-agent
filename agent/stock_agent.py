@@ -3381,10 +3381,22 @@ def build_executive_summary(state: SystemState) -> dict:
     _d2_1, _d2_2, _d2_3 = (_d2 or {}).get('d2_1') or {}, (_d2 or {}).get('d2_2') or {}, (_d2 or {}).get('d2_3') or {}
 
     if _d2_1.get('frequency_score') is not None:
+        _d2_1_buys = _d2_1.get('buys') or []
+        # Named specificity, not just a bare count - "2 buy(s)" alone
+        # forces the reader to open Sources & Formula to find out who
+        # actually bought and when; naming the real acquirer(s) and
+        # date(s) directly here (up to 3, since NSE's own PIT rows always
+        # carry a real acqName) answers "what exactly is this" at a glance.
+        _d2_1_who = "; ".join(
+            f"{b.get('acqName')} ({b.get('category')}) bought {b.get('shares')} shares on {b.get('date')}"
+            for b in _d2_1_buys[:3] if b.get('acqName')
+        )
         _d2_1_panel = {
             'type': 'kpi_card', 'title': 'Frequency of Insider Buying',
-            'centerValue': f"{_d2_1.get('buy_count')} buy(s)",
-            'explanation': f"{_co} had {_d2_1.get('buy_count')} insider buy disclosure(s) explicitly recorded across {_d2_1.get('distinct_quarters')} distinct quarter(s) of the last 8 (score {_d2_1.get('frequency_score')}/5).",
+            'centerValue': f"{_d2_1.get('buy_count')} purchase(s)",
+            'data': [{'label': 'By named insiders'}],
+            'explanation': (f"{_d2_1_who}. " if _d2_1_who else "") +
+                           f"{_d2_1.get('buy_count')} insider purchase(s) explicitly recorded across {_d2_1.get('distinct_quarters')} distinct quarter(s) of the last 8 (score {_d2_1.get('frequency_score')}/5).",
         }
     else:
         _d2_1_panel = {'type': 'unavailable', 'title': 'Frequency of Insider Buying',
@@ -3403,10 +3415,19 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No insider buy disclosure with a usable before-holding figure was located for {_co} this run."}
 
     if _d2_3.get('conviction_score') is not None:
+        _d2_3_repeat_buyers = _d2_3.get('repeat_buyers') or {}
+        # "1 repeat" alone doesn't say who or when - name the actual
+        # repeat buyer(s) and the quarters they bought in, since NSE's own
+        # PIT rows always carry a real acqName.
+        _d2_3_who = "; ".join(
+            f"{name} bought in {', '.join(qs)}" for name, qs in list(_d2_3_repeat_buyers.items())[:3]
+        )
         _d2_3_panel = {
             'type': 'kpi_card', 'title': 'Repeat Buying / Conviction Pattern',
-            'centerValue': f"{_d2_3.get('repeat_buyer_count')} repeat",
-            'explanation': f"{_co} had {_d2_3.get('repeat_buyer_count')} named insider(s) explicitly repeat a purchase across different quarters in the last 8 quarters (score {_d2_3.get('conviction_score')}/5).",
+            'centerValue': f"{_d2_3.get('repeat_buyer_count')} repeat buyer(s)",
+            'data': [{'label': 'Insiders who bought more than once'}],
+            'explanation': (f"{_d2_3_who}. " if _d2_3_who else "") +
+                           f"{_d2_3.get('repeat_buyer_count')} named insider(s) explicitly repeated a purchase across different quarters in the last 8 quarters (score {_d2_3.get('conviction_score')}/5).",
         }
     else:
         _d2_3_panel = {'type': 'unavailable', 'title': 'Repeat Buying / Conviction Pattern',

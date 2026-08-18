@@ -263,12 +263,18 @@ def score_buying_frequency(buy_rows):
     data at all for this company (distinct from a real zero-purchases
     result, which IS scoreable as a low-conviction 1/5, not N/A)."""
     if buy_rows is None:
-        return {"buy_count": None, "distinct_quarters": None, "frequency_score": None}
+        return {"buy_count": None, "distinct_quarters": None, "frequency_score": None, "buys": None}
     quarters = set()
+    buys = []
     for r in buy_rows:
         d = _parse_date(r.get("acqfromDt") or r.get("date"))
         if d:
             quarters.add(_quarter_label(d))
+        buys.append({
+            "acqName": r.get("acqName"), "category": r.get("personCategory"),
+            "date": d.isoformat() if d else None, "shares": _to_int(r.get("secAcq")),
+            "mode": r.get("acqMode"),
+        })
     count = len(buy_rows)
     nq = len(quarters)
     if count == 0:
@@ -283,7 +289,7 @@ def score_buying_frequency(buy_rows):
         score = 5
     else:
         score = 3
-    return {"buy_count": count, "distinct_quarters": nq, "frequency_score": score}
+    return {"buy_count": count, "distinct_quarters": nq, "frequency_score": score, "buys": buys}
 
 
 def score_buying_size(buy_rows):
