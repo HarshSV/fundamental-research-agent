@@ -2338,6 +2338,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _d3 = None
+    try:
+        from tools.qualitative_engine import compute_d3_secondary_transactions
+        _d3 = compute_d3_secondary_transactions(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced D.3 engine failed: {e}")
+        _d3 = {
+            'available': True,
+            'rationale': 'Not computed — D.3 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3434,6 +3446,46 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No Regulation 7(2) insider-trading disclosure was located for {_co} across the last 8 quarters this run."}
     _d2_panels = [_d2_1_panel, _d2_2_panel, _d2_3_panel]
 
+    _d3_1, _d3_2, _d3_3 = (_d3 or {}).get('d3_1') or {}, (_d3 or {}).get('d3_2') or {}, (_d3 or {}).get('d3_3') or {}
+
+    if _d3_1.get('disclosure_score') is not None:
+        _d3_1_panel = {
+            'type': 'kpi_card', 'title': 'Placements / Preferential Allotments',
+            'centerValue': _d3_1.get('transaction_type'),
+            'explanation': f"{_co}'s most recent secondary transaction was explicitly classified as {_d3_1.get('transaction_type')}"
+                           + (f", allotted to {_d3_1.get('recipient_class')}" if _d3_1.get('recipient_class') else ", recipient class not explicitly stated")
+                           + f" (score {_d3_1.get('disclosure_score')}/5).",
+        }
+    else:
+        _d3_1_panel = {'type': 'unavailable', 'title': 'Placements / Preferential Allotments',
+                        'explanation': f"No QIP/preferential/private-placement announcement was located for {_co} across the last 5 years this run."}
+
+    if _d3_2.get('dilution_pct') is not None:
+        _d3_2_panel = {
+            'type': 'donut', 'title': 'Dilution to Existing Shareholders',
+            'data': [{'label': 'New Shares Issued', 'value': _d3_2.get('dilution_pct')},
+                     {'label': 'Existing Shareholders', 'value': round(100 - _d3_2.get('dilution_pct'), 1)}],
+            'centerValue': f"{_d3_2.get('dilution_pct')}%",
+            'explanation': f"{_co}'s most recent secondary transaction explicitly diluted existing shareholders by {_d3_2.get('dilution_pct')}% of share capital -> {_d3_2.get('classification')}.",
+        }
+    else:
+        _d3_2_panel = {'type': 'unavailable', 'title': 'Dilution to Existing Shareholders',
+                        'explanation': f"No QIP/preferential/private-placement announcement explicitly stating a dilution % was located for {_co} across the last 5 years this run."}
+
+    if _d3_3.get('pricing_rationale_score') is not None:
+        _d3_3_panel = {
+            'type': 'kpi_card', 'title': 'Pricing / Discount and Rationale',
+            'centerValue': (f"₹{_d3_3.get('issue_price')}" if _d3_3.get('issue_price') else (f"{_d3_3.get('discount_pct')}% disc." if _d3_3.get('discount_pct') else '—')),
+            'explanation': (f"Issue price ₹{_d3_3.get('issue_price')}" if _d3_3.get('issue_price') else "Issue price not explicitly stated")
+                           + (f" (floor ₹{_d3_3.get('floor_price')}, {_d3_3.get('discount_pct')}% discount)" if _d3_3.get('floor_price') else "")
+                           + (f"; purpose explicitly stated" if _d3_3.get('purpose_stated') else "; purpose not explicitly stated")
+                           + f" (score {_d3_3.get('pricing_rationale_score')}/5).",
+        }
+    else:
+        _d3_3_panel = {'type': 'unavailable', 'title': 'Pricing / Discount and Rationale',
+                        'explanation': f"No QIP/preferential/private-placement announcement was located for {_co} across the last 5 years this run."}
+    _d3_panels = [_d3_1_panel, _d3_2_panel, _d3_3_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4165,6 +4217,34 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_d2 or {}).get('confidence_tag'), 'retrieved_at': (_d2 or {}).get('retrieved_at'),
                     'pathway_results': (_d2 or {}).get('pathway_results'),
+                },
+                {
+                    # D.3 — the three sub-points (D.3.1 transaction type,
+                    # D.3.2 dilution %, D.3.3 pricing/rationale) combined
+                    # into ONE card as a 3-panel set, all sourced from the
+                    # same real NSE Corporate Announcement PDF (the formal
+                    # closure/pricing SEBI LODR intimation for the most
+                    # recent QIP/preferential/private-placement in the
+                    # last 5 years).
+                    'key': 'secondary_transactions_dilution',
+                    'title': 'Secondary transactions: placements, preferential allotments — dilution concerns',
+                    'finding': (_d3 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Type', _d3_1.get('transaction_type')] if _d3_1.get('transaction_type') else None),
+                        (['Dilution', f"{_d3_2.get('dilution_pct')}% of share capital"] if _d3_2.get('dilution_pct') is not None else None),
+                        (['Pricing', f"₹{_d3_3.get('issue_price')}"] if _d3_3.get('issue_price') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _d3_panels} if _d3_panels else None),
+                    'formula': 'Transaction Type Score = classification (QIP/Preferential/Placement/Other) and recipient class, both explicitly named in the filing, banded 1-5 on disclosure completeness; '
+                               'Dilution % = New Shares Issued / Post-Issue Shares x 100, as explicitly stated in the filing; '
+                               'Pricing & Rationale Score = issue price/floor/discount AND purpose both explicitly stated, banded 1-5.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'Preferential Issue / QIP / Placement / Allotment, last 5 years', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'secondary': {'label': 'NSE Corporate Filings — Corporate Actions', 'note': 'Purpose search cross-check', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-actions'},
+                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Equity / Share Capital', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_d3 or {}).get('confidence_tag'), 'retrieved_at': (_d3 or {}).get('retrieved_at'),
+                    'pathway_results': (_d3 or {}).get('pathway_results'),
                 },
             ],
         },
