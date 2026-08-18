@@ -913,17 +913,38 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // {centerValue, explanation} numeric stat, and a {zones, active,
         // explanation} classification (rendered as a badge + the other zone
         // labels dimmed alongside it, rather than as a donut ring).
+        // Every deterministic sub-point in this system already bands its raw
+        // fact into a 1-5 score where 5 is always the better outcome (the
+        // banding functions encode the metric's own polarity - e.g. a HIGH
+        // pledge % bands to a LOW score), so parsing "score N/5" out of the
+        // explanation text a panel already writes is a generic, backend-
+        // untouched way to color every KPI card by real sentiment instead
+        // of leaving plain white text a reader has to parse in 2-3 seconds.
+        // Deliberately reads the score, not the label text, since the same
+        // zone label can mean opposite things for different metrics (e.g.
+        // "Low" pledge size is good; "Low" strategy alignment is bad).
+        const _SCORE_RE = /score\s+(-?\d+(?:\.\d+)?)\s*\/\s*5/i;
+        const scoreSentimentColor = (explanation) => {
+            const m = explanation && _SCORE_RE.exec(explanation);
+            if (!m) return null;
+            const score = parseFloat(m[1]);
+            if (score >= 4) return '#34d399';   // green - positive
+            if (score <= 2) return '#f87171';   // red - negative
+            return '#e2e8f0';                   // near-white - neutral
+        };
+
         const KpiCardPanel = ({ panel }) => {
             const zones = panel.zones || [];
             const isClassification = zones.length > 0;
             const activeIdx = zones.findIndex(z => z.toLowerCase() === (panel.active || '').toLowerCase());
+            const sentimentColor = scoreSentimentColor(panel.explanation);
             return (
                 <div className="flex flex-col items-center justify-center min-h-[140px] py-3">
                     {isClassification ? (
                         <>
                             <div className="px-4 py-1.5 rounded-full text-sm font-extrabold" style={{
-                                background: activeIdx >= 0 ? BIG_DONUT_PALETTE[activeIdx % BIG_DONUT_PALETTE.length] + '26' : 'rgba(100,116,139,0.15)',
-                                color: activeIdx >= 0 ? BIG_DONUT_PALETTE[activeIdx % BIG_DONUT_PALETTE.length] : '#64748b',
+                                background: (sentimentColor || (activeIdx >= 0 ? BIG_DONUT_PALETTE[activeIdx % BIG_DONUT_PALETTE.length] : '#64748b')) + '26',
+                                color: sentimentColor || (activeIdx >= 0 ? BIG_DONUT_PALETTE[activeIdx % BIG_DONUT_PALETTE.length] : '#64748b'),
                             }}>
                                 {panel.active || 'N/A'}
                             </div>
@@ -937,7 +958,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         </>
                     ) : (
                         <>
-                            <div className="text-3xl font-extrabold text-slate-100">{panel.centerValue ?? '—'}</div>
+                            <div className="text-3xl font-extrabold" style={{ color: sentimentColor || 'rgb(var(--slate-100))' }}>{panel.centerValue ?? '—'}</div>
                             {panel.data?.[0]?.label && (
                                 <div className="text-[10px] font-semibold text-slate-500 uppercase mt-1">{panel.data[0].label}</div>
                             )}
