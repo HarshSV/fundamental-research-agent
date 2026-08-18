@@ -8497,9 +8497,24 @@ def _find_latest_dilutive_announcement(sym):
         if not is_dilutive_announcement(row.get("desc"), row.get("attchmntText")):
             continue
         url = (row.get("attchmntFile") or "").strip()
-        if not url.lower().endswith(".pdf"):
-            continue
-        text = download_pdf_text(url, max_chars=15000, max_pages=15)
+        text = ""
+        # download_pdf_text now handles NSE's .zip wrapper (extracts the
+        # first .pdf member) - many older filings are zip-wrapped, so
+        # excluding them here would silently skip real, extractable text.
+        if url.lower().endswith(".pdf") or url.lower().endswith(".zip"):
+            text = download_pdf_text(url, max_chars=15000, max_pages=15)
+        if not text:
+            # Real fallback, not a last resort hack: NSE's own
+            # attchmntText field is often the FULL announcement body, not
+            # just a summary - confirmed real: SUZLON's 2014 preferential-
+            # issue lock-in clause is a complete, self-contained 784-char
+            # paragraph in attchmntText alone, while its attached PDF is a
+            # scanned image with zero extractable text (common for older
+            # filings). Using it means a scanned/undownloadable PDF no
+            # longer silently loses real, already-available text.
+            text = (row.get("attchmntText") or "").strip()
+            if len(text) < 200:
+                text = ""
         if text:
             # Collapse the PDF's own line-wrap newlines to single spaces -
             # confirmed real: a phrase this module's regexes need to match
@@ -8743,7 +8758,7 @@ def compute_d3_secondary_transactions(symbol, name=None, force=False):
 # ---------------------------------------------------------------------------
 # D.4 - Lock-in expiries or block share releases: large scheduled sellable
 # holdings. Deterministic (no-LLM) - both sub-points share one real-source
-# lookup: the most recent NSE Corporate Announcement (last 5 years) whose
+# lookup: the most recent NSE Corporate Announcement (no cutoff - full available history) whose
 # own text mentions a lock-in clause (an allotment/preferential-issue/IPO-
 # related filing). NSE doesn't file a distinct "lock-in expiry" announcement
 # type of its own - genuinely sparse, honestly reported N/A when no clause
@@ -8751,29 +8766,41 @@ def compute_d3_secondary_transactions(symbol, name=None, force=False):
 # ---------------------------------------------------------------------------
 
 def _find_latest_lockin_announcement(sym):
-    """Shared lookup for D.4: scans the last 5 years of NSE Corporate
-    Announcements for the most recent one whose own text mentions a
-    lock-in clause, downloads its PDF text. Returns (text, source_url,
-    desc) - text is '' and source_url/desc are None if none was found.
-    Never raises."""
+    """Shared lookup for D.4: scans the company's FULL available NSE
+    Corporate Announcements history for the most recent one whose own
+    text mentions a lock-in clause, downloads its PDF text. No cutoff
+    window (unlike an earlier 5-year version) - D.4 has no spec-mandated
+    lookback, and a real lock-in clause is often several years old by the
+    time anyone asks about it (confirmed real: SUZLON's only-ever lock-in
+    disclosure, a real 2014 preferential-issue lock-in, was silently
+    missed under the old 5-year cutoff even though the extraction logic
+    itself correctly resolves it to "Expired" - the exact same class of
+    bug found and fixed in D.3's lookback window). Returns (text,
+    source_url, desc) - text is '' and source_url/desc are None if none
+    was found. Never raises."""
     from tools.nse_announcements import fetch_announcements, download_pdf_text
     from tools.lockin_scoring import is_lockin_announcement
     rows = fetch_announcements(sym) or []
-    cutoff_year = time.localtime().tm_year - 5
     for row in rows:
-        an_dt = row.get("an_dt") or ""
-        try:
-            yr = int(an_dt.split()[0].split("-")[-1])
-        except (ValueError, IndexError):
-            yr = None
-        if yr is not None and yr < cutoff_year:
-            break  # rows are newest-first; nothing older is worth scanning
         if not is_lockin_announcement(row.get("desc"), row.get("attchmntText")):
             continue
         url = (row.get("attchmntFile") or "").strip()
-        if not url.lower().endswith(".pdf"):
-            continue
-        text = download_pdf_text(url, max_chars=15000, max_pages=15)
+        text = ""
+        # download_pdf_text now handles NSE's .zip wrapper (extracts the
+        # first .pdf member) - confirmed real: SUZLON's only lock-in
+        # disclosure is zip-wrapped, and excluding zips here silently
+        # missed it even after the cutoff-window fix.
+        if url.lower().endswith(".pdf") or url.lower().endswith(".zip"):
+            text = download_pdf_text(url, max_chars=15000, max_pages=15)
+        if not text:
+            # Real fallback, not a last resort hack: SUZLON's 2014
+            # lock-in clause is a complete, self-contained paragraph in
+            # NSE's own attchmntText field, while its attached PDF is a
+            # scanned image with zero extractable text - see D.3's lookup
+            # for the same, first-discovered instance of this gap.
+            text = (row.get("attchmntText") or "").strip()
+            if len(text) < 200:
+                text = ""
         if text:
             # Collapse the PDF's own line-wrap newlines to single spaces -
             # confirmed real: a phrase this module's regexes need to match
@@ -8791,7 +8818,7 @@ def compute_d4_1_lockin_status(symbol, name=None, force=False):
     Upcoming / Expired / Not Applicable; record exact date when
     disclosed. Sourcing: NSE Corporate Filings - Corporate Announcements
     - lock-in/release/listing/allotment/preferential-issue/IPO-related
-    filings, last 5 years.
+    filings, full available announcement history.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "D.4.1"
@@ -8817,15 +8844,15 @@ def compute_d4_1_lockin_status(symbol, name=None, force=False):
 
     pathway_results = [{
         "pathway_id": "PORTAL-02",
-        "source": "NSE Corporate Filings - Corporate Announcements - lock-in/release/listing/allotment/preferential-issue/IPO-related filings, last 5 years",
+        "source": "NSE Corporate Filings - Corporate Announcements - lock-in/release/listing/allotment/preferential-issue/IPO-related filings, full available announcement history",
         "result": "CHECKED" if result["lockin_status"] is not None else "NOT_DISCLOSED",
-        "note": None if result["lockin_status"] is not None else "No lock-in clause with a resolvable date was located in NSE Corporate Announcements for the last 5 years this run - NSE files no distinct \"lock-in expiry\" announcement type of its own, so this is a genuinely sparse source, not necessarily evidence of no lock-in event.",
+        "note": None if result["lockin_status"] is not None else "No lock-in clause with a resolvable date was located across NSE Corporate Announcements' full available history this run - NSE files no distinct \"lock-in expiry\" announcement type of its own, so this is a genuinely sparse source, not necessarily evidence of no lock-in event.",
     }]
 
     if result["lockin_status"] is None:
         payload = {
             "subpoint_id": subpoint_id, "title": "Lock-in expiry date", "available": True, **result,
-            "rationale": "No lock-in clause with a resolvable date was located in NSE Corporate Announcements for the last 5 years this run.",
+            "rationale": "No lock-in clause with a resolvable date was located across NSE Corporate Announcements' full available history this run.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -8882,13 +8909,13 @@ def compute_d4_2_sellable_block(symbol, name=None, force=False):
         "pathway_id": "PORTAL-02",
         "source": "NSE Corporate Filings - Corporate Announcements - release details (Potential Release % as explicitly stated in the filing); Shareholding Patterns - Promoter/Public Shareholder tables cross-check",
         "result": "CHECKED" if result["release_pct"] is not None else "NOT_DISCLOSED",
-        "note": None if result["release_pct"] is not None else "No lock-in/release filing explicitly stating a release % of share capital was located for the last 5 years this run.",
+        "note": None if result["release_pct"] is not None else "No lock-in/release filing explicitly stating a release % of share capital was located across NSE Corporate Announcements' full available history this run.",
     }]
 
     if result["release_pct"] is None:
         payload = {
             "subpoint_id": subpoint_id, "title": "Potential sellable block size", "available": True, **result,
-            "rationale": "No lock-in/release filing explicitly stating a release % of share capital was located for the last 5 years this run.",
+            "rationale": "No lock-in/release filing explicitly stating a release % of share capital was located across NSE Corporate Announcements' full available history this run.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -8926,7 +8953,7 @@ def compute_d4_lockin_releases(symbol, name=None, force=False):
     if d4_2.get("release_pct") is not None:
         parts.append(f"Sellable block: {d4_2['release_pct']}% of share capital ({d4_2['classification']}).")
     if not parts:
-        parts.append("No lock-in clause with a resolvable date, or release % figure, was located for this company in NSE Corporate Announcements across the last 5 years this run - a genuinely sparse source (NSE files no distinct lock-in-expiry announcement type), not necessarily evidence of no lock-in event.")
+        parts.append("No lock-in clause with a resolvable date, or release % figure, was located for this company in NSE Corporate Announcements across the full available announcement history this run - a genuinely sparse source (NSE files no distinct lock-in-expiry announcement type), not necessarily evidence of no lock-in event.")
 
     _tags = [t.get("confidence_tag") for t in (d4_1, d4_2)]
     combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"

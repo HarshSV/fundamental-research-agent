@@ -3519,7 +3519,7 @@ def build_executive_summary(state: SystemState) -> dict:
         }
     else:
         _d4_1_panel = {'type': 'unavailable', 'title': 'Lock-in Expiry Date',
-                        'explanation': f"No lock-in clause with a resolvable date was located for {_co} in NSE Corporate Announcements across the last 5 years this run."}
+                        'explanation': f"No lock-in clause with a resolvable date was located for {_co} across its full available NSE Corporate Announcements history this run."}
 
     if _d4_2.get('release_pct') is not None:
         _d4_2_panel = {
@@ -3531,7 +3531,7 @@ def build_executive_summary(state: SystemState) -> dict:
         }
     else:
         _d4_2_panel = {'type': 'unavailable', 'title': 'Potential Sellable Block Size',
-                        'explanation': f"No lock-in/release filing explicitly stating a release % of share capital was located for {_co} across the last 5 years this run."}
+                        'explanation': f"No lock-in/release filing explicitly stating a release % of share capital was located for {_co} across its full available NSE Corporate Announcements history this run."}
     _d4_panels = [_d4_1_panel, _d4_2_panel]
 
     qualitative_topics = {
@@ -4273,7 +4273,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     # same real NSE Corporate Announcement PDF (the formal
                     # closure/pricing SEBI LODR intimation for the most
                     # recent QIP/preferential/private-placement in the
-                    # last 5 years).
+                    # no cutoff - full available history).
                     'key': 'secondary_transactions_dilution',
                     'title': 'Secondary transactions: placements, preferential allotments — dilution concerns',
                     'finding': (_d3 or {}).get('rationale') or None,
@@ -4313,7 +4313,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     'formula': 'Lock-in Status = Upcoming / Expired, with the exact date read directly from a matched allotment/preferential-issue/IPO-related filing\'s own lock-in clause; '
                                'Potential Release % = Shares Becoming Saleable / Total Shares Outstanding x 100, as explicitly stated in the filing.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'lock-in/release/listing/allotment/preferential-issue/IPO-related filings, last 5 years', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'primary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'lock-in/release/listing/allotment/preferential-issue/IPO-related filings, full available announcement history', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
                         'secondary': {'label': 'NSE Corporate Filings — Shareholding Patterns', 'note': 'Promoter/Public Shareholder tables cross-check', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
                     },
                     'confidence_tag': (_d4 or {}).get('confidence_tag'), 'retrieved_at': (_d4 or {}).get('retrieved_at'),

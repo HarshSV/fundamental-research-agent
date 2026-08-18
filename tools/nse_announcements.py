@@ -122,7 +122,14 @@ _LIGATURE_MAP = str.maketrans({"ﬁ": "fi", "ﬂ": "fl", "ﬀ": "ff", "ﬃ": "ff
 
 
 def download_pdf_text(url, max_chars=40000, max_pages=30):
-    """Download an NSE-hosted announcement PDF and extract its text.
+    """Download an NSE-hosted announcement attachment and extract its
+    text. Handles both a direct PDF and NSE's .zip wrapper used for many
+    older filings (confirmed real: SUZLON's 2014 preferential-issue
+    lock-in disclosure is only available as a .zip - a plain PdfReader
+    call on zip bytes fails silently and this function used to just
+    return '' for every zip-wrapped attachment, a real, systemic gap
+    affecting every older announcement filed this way, not just one
+    company). Pulls the first .pdf member out of the zip when present.
     Cached per-URL. Returns '' on any failure. Never raises."""
     if not url:
         return ""
@@ -137,18 +144,31 @@ def download_pdf_text(url, max_chars=40000, max_pages=30):
         s = _session()
         r = s.get(url, timeout=30)
         if r.status_code == 200 and len(r.content) >= 5000:
-            reader = PdfReader(io.BytesIO(r.content))
-            parts = []
-            for page in reader.pages[:max_pages]:
+            content = r.content
+            if content[:2] == b"PK" or url.lower().endswith(".zip"):
+                import zipfile
+                content = None
                 try:
-                    parts.append((page.extract_text() or "").translate(_LIGATURE_MAP))
-                except Exception:
-                    continue
-                if sum(len(p) for p in parts) > max_chars:
-                    break
-            text = re.sub(r"[ \t]+", " ", "\n".join(parts)).strip()[:max_chars]
-            if len(text) > 800:
-                _write_cache(ckey, {"text": text})
+                    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+                        for nm in zf.namelist():
+                            if nm.lower().endswith(".pdf"):
+                                content = zf.read(nm)
+                                break
+                except Exception as e:
+                    print(f"[nse_announcements] zip extract failed ({url}): {e}")
+            if content:
+                reader = PdfReader(io.BytesIO(content))
+                parts = []
+                for page in reader.pages[:max_pages]:
+                    try:
+                        parts.append((page.extract_text() or "").translate(_LIGATURE_MAP))
+                    except Exception:
+                        continue
+                    if sum(len(p) for p in parts) > max_chars:
+                        break
+                text = re.sub(r"[ \t]+", " ", "\n".join(parts)).strip()[:max_chars]
+                if len(text) > 800:
+                    _write_cache(ckey, {"text": text})
     except Exception as e:
         print(f"[nse_announcements] transcript download failed ({url}): {e}")
     return text if len(text) > 800 else ""
