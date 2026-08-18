@@ -89,7 +89,12 @@ _OUTCOME_PATTERNS = [
                             r"expected to (?:be\s+)?(?:complete|commission)(?:d|ed|ing)?|will be commissioned|"
                             r"yet to be commissioned|scheduled to be commissioned|slated (?:for|to)|"
                             r"planned for (?:FY|20))\b", re.I)),
-    ("success", re.compile(r"\b(?:successfully|completed|achieved|commissioned|delivered|record\b|on time and on budget|ahead of schedule|exceeded)\b", re.I)),
+    # "completion of" (not just "completed") is NSE's own standardised
+    # announcement-category prefix for a finished M&A/divestment action
+    # (e.g. "Completion of Divestment of Water Purification business") -
+    # a formal SEBI LODR disclosure, not narrative prose, so it belongs in
+    # the success tier alongside "completed".
+    ("success", re.compile(r"\b(?:successfully|completed|completion of|achieved|commissioned|delivered|record\b|on time and on budget|ahead of schedule|exceeded)\b", re.I)),
 ]
 
 
@@ -113,16 +118,71 @@ def classify_initiatives(text):
     return out
 
 
-def score_initiative_success_rate(year_texts):
-    """`year_texts`: list of {'fiscal_year', 'milestones_text'}. Returns
+def classify_initiatives_from_announcements(rows):
+    """B.1.1's NSE Corporate Announcements cross-check (PORTAL-02) - the
+    spec calls for sourcing BOTH the AR Chairman/MD message AND NSE
+    Corporate Announcements, cross-checked against actual outcomes. NSE's
+    own announcement `desc` field already carries a standardised
+    category prefix for completed M&A/divestment actions (e.g.
+    "Completion of Divestment of...", "Acquisition..."), a formal SEBI
+    LODR disclosure - a stronger, more reliably-dated signal than AR
+    narrative prose for exactly the acquisition/divestment/restructuring
+    initiative types NSE requires companies to disclose as standalone
+    announcements. `rows`: NSE corporate-announcements rows (each with
+    'desc', 'attchmntText', 'an_dt'). Returns a list of
+    {label, outcome, an_dt} - same shape/outcome vocabulary as
+    classify_initiatives, so the two can be merged into one score.
+    Never raises; empty list if nothing classifiable."""
+    out = []
+    for row in (rows or []):
+        blob = f"{row.get('desc') or ''} {row.get('attchmntText') or ''}".strip()
+        if not blob or not _INITIATIVE_KEYWORDS.search(blob):
+            continue
+        outcome = None
+        for label, pat in _OUTCOME_PATTERNS:
+            if pat.search(blob):
+                outcome = label
+                break
+        if outcome is None:
+            continue
+        out.append({"label": blob[:220], "outcome": outcome, "an_dt": row.get("an_dt")})
+    return out
+
+
+def score_initiative_success_rate(year_texts, announcement_initiatives=None):
+    """`year_texts`: list of {'fiscal_year', 'milestones_text'}.
+    `announcement_initiatives`: optional pre-classified list from
+    classify_initiatives_from_announcements (the NSE Corporate
+    Announcements cross-check, PORTAL-02) - merged in alongside the AR-
+    narrative-sourced initiatives so a real, dated regulatory disclosure
+    (e.g. NSE's own "Completion of Divestment...") counts the same as an
+    AR-narrative match, not just a secondary check. Returns
     {'initiative_success_rate_pct', 'execution_score', 'initiatives',
     'successful_count','delayed_count','failed_count','ongoing_count'} or
-    all-None fields if no classifiable initiative is found in any year."""
+    all-None fields if no classifiable initiative is found anywhere."""
     initiatives = []
     for yt in year_texts or []:
         for it in classify_initiatives(yt.get("milestones_text") or ""):
-            initiatives.append({**it, "fiscal_year": yt.get("fiscal_year")})
-    initiatives = initiatives[:25]
+            initiatives.append({**it, "fiscal_year": yt.get("fiscal_year"), "source": "annual_report"})
+    for it in (announcement_initiatives or []):
+        initiatives.append({**it, "source": "nse_announcement"})
+    # De-dup: the same corporate action is often narrated in the AR AND
+    # filed as its own NSE announcement - counting both would double-count
+    # one real event. A shared initiative-type keyword within the same
+    # calendar year is treated as the same event, keeping the AR mention
+    # (richer context) and dropping the announcement duplicate.
+    seen_year_keywords = set()
+    deduped = []
+    for it in initiatives:
+        yr = it.get("fiscal_year") or (it.get("an_dt") or "")[-4:]
+        kw_match = _INITIATIVE_KEYWORDS.search(it["label"])
+        kw = kw_match.group(0).lower() if kw_match else ""
+        key = (str(yr), kw)
+        if it.get("source") == "nse_announcement" and key in seen_year_keywords:
+            continue
+        seen_year_keywords.add(key)
+        deduped.append(it)
+    initiatives = deduped[:25]
     if not initiatives:
         return {
             "initiative_success_rate_pct": None, "execution_score": None, "initiatives": [],

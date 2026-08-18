@@ -2812,7 +2812,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b5_2.get('capital_execution_score') is not None:
         _b5_2_panel = {
-            'type': 'stacked_bar', 'title': 'Capex vs Planned Capex',
+            'type': 'kpi_card', 'title': 'Capex vs Planned Capex',
             'data': [{'label': 'Actual', 'value': _b5_2.get('actual_capex_cr')},
                      {'label': 'Planned', 'value': _b5_2.get('planned_capex_cr')}],
             'centerValue': f"{_b5_2.get('execution_pct')}%",

@@ -2863,15 +2863,18 @@ def compute_b1_1_past_track_record(symbol, name=None, force=False):
     Initiatives Announced in Last 5 Years x 100, banded to a 1-5 score.
 
     Deterministic (no LLM) - see tools/founder_track_record_scoring.py's
-    classify_initiatives: a sentence must carry both an initiative keyword
-    (commissioning/expansion/acquisition/restructuring/etc) AND a
-    classifiable outcome keyword (success/delayed/failed/ongoing) to count;
-    a sentence naming an initiative with no matched outcome is skipped, not
-    guessed. Sourcing: Chairman/MD message across the last up to 5 Annual
-    Reports (fetch_founder_milestones_multi_year). The NSE Corporate
-    Announcements cross-check the spec also calls for has no fetcher wired -
-    see the PORTAL-02 gap in pathway_results; this score is AR-narrative-
-    only, not a full announced-vs-actual reconciliation.
+    classify_initiatives / classify_initiatives_from_announcements: a
+    sentence (or NSE announcement desc/attachment title) must carry both an
+    initiative keyword (commissioning/expansion/acquisition/restructuring/
+    etc) AND a classifiable outcome keyword (success/delayed/failed/
+    ongoing) to count; a sentence naming an initiative with no matched
+    outcome is skipped, not guessed. Sourcing: BOTH the Chairman/MD message
+    across the last up to 5 Annual Reports (fetch_founder_milestones_multi_
+    year, pathway AR-13) AND NSE Corporate Announcements from the same
+    5-year window (fetch_announcements, pathway PORTAL-02), merged into one
+    initiative list with a same-year/same-initiative-keyword dedup so a
+    corporate action narrated in both the AR and its own NSE filing isn't
+    double-counted.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "B.1.1"
@@ -2893,6 +2896,27 @@ def compute_b1_1_past_track_record(symbol, name=None, force=False):
         print(f"[qualitative_engine] B.1.1 multi-year AR text fetch failed for {sym}: {e}")
         year_texts = []
 
+    try:
+        from tools.nse_announcements import fetch_announcements
+        from tools.founder_track_record_scoring import classify_initiatives_from_announcements
+        _all_announcements = fetch_announcements(sym) or []
+        _cutoff_year = time.localtime().tm_year - 5
+
+        def _an_dt_year(a):
+            # an_dt is "DD-Mon-YYYY HH:MM:SS" - the year is the last
+            # segment of the DATE part, not the last 4 characters of the
+            # whole string (those are seconds/minutes digits).
+            try:
+                return int(a.get("an_dt", "").split()[0].split("-")[-1])
+            except (ValueError, IndexError, AttributeError):
+                return None
+
+        _recent_announcements = [a for a in _all_announcements if (_an_dt_year(a) or 0) >= _cutoff_year]
+        announcement_initiatives = classify_initiatives_from_announcements(_recent_announcements)
+    except Exception as e:
+        print(f"[qualitative_engine] B.1.1 NSE announcements cross-check failed for {sym}: {e}")
+        announcement_initiatives = []
+
     pathway_results = [
         {
             "pathway_id": "AR-13",
@@ -2901,18 +2925,27 @@ def compute_b1_1_past_track_record(symbol, name=None, force=False):
             "note": (f"Chairman/MD message located in {len(year_texts)} of the last 5 Annual Reports."
                      if year_texts else "Chairman/MD message section not located in any of the last 5 Annual Reports this run."),
         },
-        _NSE_ANNOUNCEMENTS_GAP,
+        {
+            "pathway_id": "PORTAL-02",
+            "source": "NSE Corporate Announcements - major initiative announcements, cross-checked against actual outcomes",
+            "result": "CHECKED" if announcement_initiatives else "NOT_DISCLOSED",
+            "note": (f"{len(announcement_initiatives)} classifiable initiative announcement(s) with a stated outcome found in the last 5 years of NSE Corporate Announcements."
+                     if announcement_initiatives else "No NSE Corporate Announcement in the last 5 years named a major initiative with a classifiable outcome this run."),
+        },
     ]
     pdf_url = year_texts[0]["pdf_url"] if year_texts else None
 
     from tools.founder_track_record_scoring import score_initiative_success_rate
-    result = score_initiative_success_rate(year_texts)
+    result = score_initiative_success_rate(year_texts, announcement_initiatives)
 
     if result["execution_score"] is None:
-        reason = ("No Chairman/MD message was located in any of the last 5 Annual Reports this run." if not year_texts else
-                   "The Chairman/MD messages across the last 5 Annual Reports were read, but none name a major "
-                   "strategic initiative (commissioning/expansion/acquisition/restructuring) with a matched "
-                   "outcome keyword - no track-record evidence was located this run, not a clean record.")
+        if not year_texts and not announcement_initiatives:
+            reason = "No Chairman/MD message was located in any of the last 5 Annual Reports, and no NSE Corporate Announcement in the same window named a classifiable initiative, this run."
+        else:
+            reason = ("The Chairman/MD messages across the last 5 Annual Reports were read and the last 5 years of NSE "
+                       "Corporate Announcements were checked, but neither names a major strategic initiative "
+                       "(commissioning/expansion/acquisition/restructuring) with a matched outcome keyword - no "
+                       "track-record evidence was located this run, not a clean record.")
         payload = {
             "subpoint_id": subpoint_id, "title": "Past successes / failures",
             "available": True, **result,
