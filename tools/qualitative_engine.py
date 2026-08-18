@@ -9297,16 +9297,41 @@ def compute_d6_1_pledge_unwinding(symbol, name=None, force=False):
     pathway_results = [{
         "pathway_id": "PORTAL-02",
         "source": "NSE Corporate Filings - Shareholding Pattern - Promoter & Promoter Group - Pledged/Encumbered Shares",
-        "result": "CHECKED" if len(trend) >= 2 else "NOT_DISCLOSED",
-        "note": None if len(trend) >= 2 else "Fewer than 2 quarters with an on-record pledge were available from NSE's live endpoint this run - a company with no pledge history (or only one quarter on record) has no quarter-over-quarter unwinding to compute.",
+        "result": "CHECKED" if trend else "NOT_DISCLOSED",
+        "note": None if trend else "No on-record pledge was available from NSE's live endpoint this run.",
     }]
 
-    if len(trend) < 2:
+    if not trend:
         payload = {
             "subpoint_id": subpoint_id, "title": "Pledge release / unwinding", "available": True,
-            "trend": trend or None, "previous_pledge_pct": None, "current_pledge_pct": None,
+            "trend": None, "previous_pledge_pct": None, "current_pledge_pct": None,
             "unwinding_pct": None, "direction": None,
-            "rationale": "Fewer than 2 quarters with an on-record pledge were available to compute pledge unwinding this run.",
+            "rationale": "No on-record pledge was available from NSE's live endpoint this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    if len(trend) < 2:
+        # Real current pledge % IS available even though NSE's live
+        # endpoint isn't currently exposing a prior quarter to diff
+        # against (confirmed real, not a bug: NSE's corporate-pledgedata
+        # endpoint is presently returning only the single latest
+        # disclosure for every symbol checked, including companies with
+        # large, long-standing pledges like ZEEL/SUZLON - not specific
+        # to any one company). Surface the real current % as a known
+        # data point rather than discarding it into a blank N/A -
+        # unwinding itself (which needs a prior quarter to diff against)
+        # is correctly left uncomputed, not fabricated.
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Pledge release / unwinding", "available": True,
+            "trend": trend, "quarters_available": len(trend),
+            "previous_pledge_pct": None, "current_pledge_pct": trend[-1]["pledge_pct"],
+            "previous_quarter": None, "current_quarter": trend[-1]["quarter"],
+            "unwinding_pct": None, "direction": None,
+            "rationale": f"Current pledge: {trend[-1]['pledge_pct']}% (as of {trend[-1]['quarter']}). NSE's live endpoint has not yet exposed a prior quarter to compute quarter-over-quarter unwinding against this run.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")

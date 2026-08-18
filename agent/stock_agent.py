@@ -3611,9 +3611,15 @@ def build_executive_summary(state: SystemState) -> dict:
             'centerValue': f"{_d6_1.get('unwinding_pct'):+.2f}pp",
             'explanation': f"{_co}'s pledged % moved from {_d6_1.get('previous_pledge_pct')}% ({_d6_1.get('previous_quarter')}) to {_d6_1.get('current_pledge_pct')}% ({_d6_1.get('current_quarter')}) -> {_d6_1.get('direction')} of {abs(_d6_1.get('unwinding_pct'))} percentage points. Reason not disclosed.",
         }
+    elif _d6_1.get('current_pledge_pct') is not None:
+        _d6_1_panel = {
+            'type': 'kpi_card', 'title': 'Pledge Release / Unwinding',
+            'centerValue': f"{_d6_1.get('current_pledge_pct')}%",
+            'explanation': f"{_co}'s current pledge is {_d6_1.get('current_pledge_pct')}% (as of {_d6_1.get('current_quarter')}). NSE's live endpoint has not yet exposed a prior quarter to compute quarter-over-quarter unwinding against this run.",
+        }
     else:
         _d6_1_panel = {'type': 'unavailable', 'title': 'Pledge Release / Unwinding',
-                        'explanation': f"Fewer than 2 quarters with an on-record pledge were available for {_co} this run — a company with no pledge history has no quarter-over-quarter unwinding to compute."}
+                        'explanation': f"No on-record pledge was available for {_co} this run."}
 
     if _d6_2.get('classification') is not None:
         _d6_2_panel = {
@@ -4437,7 +4443,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     'title': 'Pledge release/unwinding and forced-sale/invocation signals',
                     'finding': (_d6 or {}).get('rationale') or None,
                     'facts': [f for f in [
-                        (['Pledge %', f"{_d6_1.get('current_pledge_pct')}% (was {_d6_1.get('previous_pledge_pct')}%)"] if _d6_1.get('current_pledge_pct') is not None else None),
+                        (['Pledge %', f"{_d6_1.get('current_pledge_pct')}% (was {_d6_1.get('previous_pledge_pct')}%)" if _d6_1.get('previous_pledge_pct') is not None else f"{_d6_1.get('current_pledge_pct')}%"] if _d6_1.get('current_pledge_pct') is not None else None),
                         (['Unwinding', f"{_d6_1.get('direction')} of {abs(_d6_1.get('unwinding_pct'))}pp"] if _d6_1.get('unwinding_pct') is not None else None),
                         (['Forced-sale risk', _d6_2.get('classification')] if _d6_2.get('classification') else None),
                     ] if f],
