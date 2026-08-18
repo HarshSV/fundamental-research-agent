@@ -8470,7 +8470,7 @@ def compute_d2_insider_buying(symbol, name=None, force=False):
 # ---------------------------------------------------------------------------
 
 def _find_latest_dilutive_announcement(sym):
-    """Shared lookup for all of D.3: scans the last 5 years of NSE
+    """Shared lookup for all of D.3: scans the last 10 years of NSE
     Corporate Announcements for the most recent one whose own desc/
     attachment-title names a real QIP/preferential/placement transaction
     (not a routine ESOP/ESPS allotment), downloads its PDF text. Returns
@@ -8479,7 +8479,13 @@ def _find_latest_dilutive_announcement(sym):
     from tools.nse_announcements import fetch_announcements, download_pdf_text
     from tools.dilution_scoring import is_dilutive_announcement
     rows = fetch_announcements(sym) or []
-    cutoff_year = time.localtime().tm_year - 5
+    # D.3 has no spec-mandated lookback window (unlike D.1/D.2's explicit
+    # "8 quarters") - widened from an earlier 5-year cutoff to 10, since a
+    # material dilution event (confirmed real: HINDUNILVR's 2020 GSK
+    # Consumer Healthcare merger, a real ~7.86% dilution) is exactly the
+    # kind of history this sub-point should surface, not silently miss
+    # for being a year or two outside an arbitrary short window.
+    cutoff_year = time.localtime().tm_year - 10
     for row in rows:
         an_dt = row.get("an_dt") or ""
         try:
@@ -8495,6 +8501,13 @@ def _find_latest_dilutive_announcement(sym):
             continue
         text = download_pdf_text(url, max_chars=15000, max_pages=15)
         if text:
+            # Collapse the PDF's own line-wrap newlines to single spaces -
+            # confirmed real: a phrase this module's regexes need to match
+            # in one span (e.g. "...shareholders who were holding shares
+            # of the \nGlaxoSmithKline...") routinely wraps across a real
+            # PDF line break, which a raw multi-line string silently
+            # breaks any non-DOTALL regex spanning it.
+            text = re.sub(r"\s+", " ", text)
             return text, url, row.get("desc")
     return "", None, None
 
@@ -8504,7 +8517,7 @@ def compute_d3_1_transaction_type(symbol, name=None, force=False):
     Transaction Type Score - classifies as QIP / preferential /
     placement / other and identifies recipient class. Sourcing: NSE
     Corporate Filings - Corporate Announcements - Preferential Issue /
-    QIP / Placement / Allotment, last 5 years.
+    QIP / Placement / Allotment, last 10 years.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "D.3.1"
@@ -8530,15 +8543,15 @@ def compute_d3_1_transaction_type(symbol, name=None, force=False):
 
     pathway_results = [{
         "pathway_id": "PORTAL-02",
-        "source": "NSE Corporate Filings - Corporate Announcements - Preferential Issue / QIP / Placement / Allotment, last 5 years",
+        "source": "NSE Corporate Filings - Corporate Announcements - Preferential Issue / QIP / Placement / Allotment, last 10 years",
         "result": "CHECKED" if result["disclosure_score"] is not None else "NOT_DISCLOSED",
-        "note": None if result["disclosure_score"] is not None else "No QIP/preferential/private-placement announcement was located for the last 5 years this run.",
+        "note": None if result["disclosure_score"] is not None else "No QIP/preferential/private-placement announcement was located for the last 10 years this run.",
     }]
 
     if result["disclosure_score"] is None:
         payload = {
             "subpoint_id": subpoint_id, "title": "Placements / preferential allotments", "available": True, **result,
-            "rationale": "No QIP/preferential/private-placement announcement was located for the last 5 years this run.",
+            "rationale": "No QIP/preferential/private-placement announcement was located for the last 10 years this run.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -8596,13 +8609,13 @@ def compute_d3_2_dilution(symbol, name=None, force=False):
         "pathway_id": "PORTAL-02",
         "source": "NSE Corporate Filings - Corporate Announcements - issue terms and allotment (dilution % as explicitly stated in the filing)",
         "result": "CHECKED" if result["dilution_pct"] is not None else "NOT_DISCLOSED",
-        "note": None if result["dilution_pct"] is not None else "No QIP/preferential/private-placement announcement explicitly stating a dilution % was located for the last 5 years this run.",
+        "note": None if result["dilution_pct"] is not None else "No QIP/preferential/private-placement announcement explicitly stating a dilution % was located for the last 10 years this run.",
     }]
 
     if result["dilution_pct"] is None:
         payload = {
             "subpoint_id": subpoint_id, "title": "Dilution to existing shareholders", "available": True, **result,
-            "rationale": "No QIP/preferential/private-placement announcement explicitly stating a dilution % was located for the last 5 years this run.",
+            "rationale": "No QIP/preferential/private-placement announcement explicitly stating a dilution % was located for the last 10 years this run.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -8657,13 +8670,13 @@ def compute_d3_3_pricing_rationale(symbol, name=None, force=False):
         "pathway_id": "PORTAL-02",
         "source": "NSE Corporate Filings - Corporate Announcements - issue announcement (price, floor/premium, purpose, allottee details)",
         "result": "CHECKED" if result["pricing_rationale_score"] is not None else "NOT_DISCLOSED",
-        "note": None if result["pricing_rationale_score"] is not None else "No QIP/preferential/private-placement announcement was located for the last 5 years this run.",
+        "note": None if result["pricing_rationale_score"] is not None else "No QIP/preferential/private-placement announcement was located for the last 10 years this run.",
     }]
 
     if result["pricing_rationale_score"] is None:
         payload = {
             "subpoint_id": subpoint_id, "title": "Pricing / discount and rationale", "available": True, **result,
-            "rationale": "No QIP/preferential/private-placement announcement was located for the last 5 years this run.",
+            "rationale": "No QIP/preferential/private-placement announcement was located for the last 10 years this run.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -8708,7 +8721,7 @@ def compute_d3_secondary_transactions(symbol, name=None, force=False):
     if d3_3.get("pricing_rationale_score") is not None:
         parts.append(f"Pricing/rationale: score {d3_3['pricing_rationale_score']}/5.")
     if not parts:
-        parts.append("No QIP/preferential/private-placement (equity dilution) announcement was located for this company across the last 5 years this run.")
+        parts.append("No QIP/preferential/private-placement (equity dilution) announcement was located for this company across the last 10 years this run.")
 
     _tags = [t.get("confidence_tag") for t in (d3_1, d3_2, d3_3)]
     combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
@@ -8762,6 +8775,13 @@ def _find_latest_lockin_announcement(sym):
             continue
         text = download_pdf_text(url, max_chars=15000, max_pages=15)
         if text:
+            # Collapse the PDF's own line-wrap newlines to single spaces -
+            # confirmed real: a phrase this module's regexes need to match
+            # in one span (e.g. "...shareholders who were holding shares
+            # of the \nGlaxoSmithKline...") routinely wraps across a real
+            # PDF line break, which a raw multi-line string silently
+            # breaks any non-DOTALL regex spanning it.
+            text = re.sub(r"\s+", " ", text)
             return text, url, row.get("desc")
     return "", None, None
 

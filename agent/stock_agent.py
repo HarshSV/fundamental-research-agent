@@ -3470,7 +3470,7 @@ def build_executive_summary(state: SystemState) -> dict:
         }
     else:
         _d3_1_panel = {'type': 'unavailable', 'title': 'Placements / Preferential Allotments',
-                        'explanation': f"No QIP/preferential/private-placement announcement was located for {_co} across the last 5 years this run."}
+                        'explanation': f"No QIP/preferential/private-placement announcement was located for {_co} across the last 10 years this run."}
 
     if _d3_2.get('dilution_pct') is not None:
         _d3_2_panel = {
@@ -3482,20 +3482,24 @@ def build_executive_summary(state: SystemState) -> dict:
         }
     else:
         _d3_2_panel = {'type': 'unavailable', 'title': 'Dilution to Existing Shareholders',
-                        'explanation': f"No QIP/preferential/private-placement announcement explicitly stating a dilution % was located for {_co} across the last 5 years this run."}
+                        'explanation': f"No QIP/preferential/private-placement announcement explicitly stating a dilution % was located for {_co} across the last 10 years this run."}
 
     if _d3_3.get('pricing_rationale_score') is not None:
         _d3_3_panel = {
             'type': 'kpi_card', 'title': 'Pricing / Discount and Rationale',
-            'centerValue': (f"₹{_d3_3.get('issue_price')}" if _d3_3.get('issue_price') else (f"{_d3_3.get('discount_pct')}% disc." if _d3_3.get('discount_pct') else '—')),
-            'explanation': (f"Issue price ₹{_d3_3.get('issue_price')}" if _d3_3.get('issue_price') else "Issue price not explicitly stated")
+            'centerValue': (f"₹{_d3_3.get('issue_price')}" if _d3_3.get('issue_price')
+                            else (f"{_d3_3.get('discount_pct')}% disc." if _d3_3.get('discount_pct')
+                            else (f"{_d3_3.get('swap_ratio')} swap" if _d3_3.get('swap_ratio') else '—'))),
+            'explanation': (f"Issue price ₹{_d3_3.get('issue_price')}" if _d3_3.get('issue_price')
+                            else (f"Share-swap ratio {_d3_3.get('swap_ratio')} (no cash issue price - a Scheme of Arrangement share-swap)" if _d3_3.get('swap_ratio')
+                            else "Issue price not explicitly stated"))
                            + (f" (floor ₹{_d3_3.get('floor_price')}, {_d3_3.get('discount_pct')}% discount)" if _d3_3.get('floor_price') else "")
                            + (f"; purpose explicitly stated" if _d3_3.get('purpose_stated') else "; purpose not explicitly stated")
                            + f" (score {_d3_3.get('pricing_rationale_score')}/5).",
         }
     else:
         _d3_3_panel = {'type': 'unavailable', 'title': 'Pricing / Discount and Rationale',
-                        'explanation': f"No QIP/preferential/private-placement announcement was located for {_co} across the last 5 years this run."}
+                        'explanation': f"No QIP/preferential/private-placement announcement was located for {_co} across the last 10 years this run."}
     _d3_panels = [_d3_1_panel, _d3_2_panel, _d3_3_panel]
 
     _d4_1, _d4_2 = (_d4 or {}).get('d4_1') or {}, (_d4 or {}).get('d4_2') or {}
@@ -4283,7 +4287,7 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Dilution % = New Shares Issued / Post-Issue Shares x 100, as explicitly stated in the filing; '
                                'Pricing & Rationale Score = issue price/floor/discount AND purpose both explicitly stated, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'Preferential Issue / QIP / Placement / Allotment, last 5 years', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'primary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'Preferential Issue / QIP / Placement / Allotment, last 10 years', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
                         'secondary': {'label': 'NSE Corporate Filings — Corporate Actions', 'note': 'Purpose search cross-check', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-actions'},
                         'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Equity / Share Capital', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
