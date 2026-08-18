@@ -2350,12 +2350,32 @@ def _fetch_ar_text_sections(symbol, name, anchors, cache_key_prefix, prefer_pros
                     # window (fine for a single-anchor prose match) was
                     # routinely cutting the table off before it reached the
                     # actual dates for directors listed further down.
-                    tail = 6000 if key == "tenure" else 1300
+                    # "milestones" (Chairman/MD message) also needs a much
+                    # larger window than a single-anchor prose match - a
+                    # Chairman's Statement runs several pages, and the
+                    # specific completed/delayed/failed initiative language
+                    # B.1.1 actually needs almost never appears in the
+                    # opening paragraph a 1300-char window captured; it's
+                    # further down the letter (confirmed real: HINDUNILVR's
+                    # 1300-char window only captured generic opening
+                    # remarks, with zero classifiable initiative sentences).
+                    tail = 6000 if key in ("tenure", "milestones") else 1300
                     window = t[max(0, idx - 200):idx + tail].strip()
                     if prefer_prose:
                         base_words = len([w for w in window.split() if w.isalpha() and len(w) > 2])
                         wl = window.lower()
-                        if any(bad in wl for bad in ["notice of the", "item no.", "proxy form", "book closure"]):
+                        # A Table of Contents page matches an anchor phrase
+                        # (e.g. "Chairman's Statement") just as reliably as
+                        # the real page, but is a list of short headings each
+                        # followed by a lone page-number token, not prose -
+                        # confirmed real false-positive: HINDUNILVR's B.1.1
+                        # anchor was landing on the ToC instead of the actual
+                        # Chairman's Statement. Detect via a high density of
+                        # isolated 1-3 digit numbers standing alone on a line.
+                        toc_number_hits = len(re.findall(r"(?:^|\n)\s{0,3}\d{1,3}\s*(?:\n|\t)", window))
+                        if toc_number_hits >= 5:
+                            score = base_words * 0.05
+                        elif any(bad in wl for bad in ["notice of the", "item no.", "proxy form", "book closure"]):
                             score = base_words * 0.1
                         else:
                             if key == "milestones":
@@ -2415,7 +2435,14 @@ _FOUNDER_TRACK_RECORD_ANCHORS = {
         "message to shareholders", "managing director's message", "md's message",
         "letter to shareholders", "letter from the chairman", "chairman's statement",
         "statement from the chairman", "reflections & outlook", "reflections and outlook",
-        "historical milestones", "our journey", "key milestones", "milestones",
+        # Deliberately excludes bare "milestones" / "our journey" / "key
+        # milestones" / "historical milestones" - confirmed real false-
+        # positive source: those single generic words/phrases match
+        # anywhere a report happens to use them (e.g. an unrelated CSR
+        # section reading "...28 girls have achieved significant
+        # milestones this season..."), silently pulling in an unrelated
+        # page instead of the actual Chairman/MD message. A missed year is
+        # reported honestly as N/A; a wrong section is not.
     ],
     "tenure": [
         "date of appointment", "appointed as director", "director since",
@@ -2444,7 +2471,7 @@ def fetch_founder_track_record_text(symbol, name):
     # v5: widened the "tenure" key's captured window (1300 -> 6000 chars) so
     # a multi-director appointment-date table isn't cut off - bumped so this
     # doesn't keep serving pre-widening cached text forever.
-    return _fetch_ar_text_sections(symbol, name, _FOUNDER_TRACK_RECORD_ANCHORS, "ar_founder_text_v7", prefer_prose=True)
+    return _fetch_ar_text_sections(symbol, name, _FOUNDER_TRACK_RECORD_ANCHORS, "ar_founder_text_v8", prefer_prose=True)
 
 
 def fetch_founder_milestones_multi_year(symbol, name, n_years=5):
@@ -2467,7 +2494,7 @@ def fetch_founder_milestones_multi_year(symbol, name, n_years=5):
     for yr in (years or [])[:n_years]:
         res = _fetch_ar_text_sections(
             sym, name, {"milestones": _FOUNDER_TRACK_RECORD_ANCHORS["milestones"]},
-            "ar_milestones_multi_v1", prefer_prose=True, fiscal_year=yr,
+            "ar_milestones_multi_v2", prefer_prose=True, fiscal_year=yr,
         )
         if res.get("milestones_text"):
             out.append({"fiscal_year": yr, "pdf_url": res.get("pdf_url"), "milestones_text": res["milestones_text"]})

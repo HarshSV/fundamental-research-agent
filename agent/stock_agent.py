@@ -2608,7 +2608,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b1_3.get('alignment'):
         _b1_3_donut = {
-            'type': 'classification', 'title': 'Strategy Alignment Distribution',
+            'type': 'kpi_card', 'title': 'Strategy Alignment Distribution',
             'zones': ['High', 'Moderate', 'Low'], 'active': _b1_3.get('alignment'),
             'centerValue': f"{_b1_3.get('strategy_alignment_pct')}%",
             'explanation': f"Leadership background at {_co} explicitly matches {len(_b1_3.get('matched_areas') or [])} of "

@@ -56,8 +56,15 @@ def _band_score_pct(pct):
 # A sentence must carry an INITIATIVE keyword before its outcome is judged at
 # all - otherwise generic narrative ("we remain committed to excellence")
 # would get swept in as a false "ongoing" initiative.
+# "expand(?:ed|ing)?" alone is deliberately excluded - confirmed real false
+# positive: "India's young and expanding population continues to fuel
+# consumption" matched as an "ongoing initiative" via bare "expanding" +
+# "continues to", though it names no company initiative at all. Only the
+# noun "expansion" (still generic, but rarer as a false match) and
+# capacity/plant/facility-qualified expansion phrasing are kept.
 _INITIATIVE_KEYWORDS = re.compile(
-    r"\b(?:commission(?:ed|ing)?|expansion|expand(?:ed|ing)?|acquisition|acquir(?:ed|ing)?|"
+    r"\b(?:commission(?:ed|ing)?|expansion|capacity expansion|expand(?:ed|ing)?\s+(?:capacity|our\s+plant|the\s+plant|production|manufacturing)|"
+    r"acquisition|acquir(?:ed|ing)?|"
     r"divest(?:ed|iture|ment)?|restructur(?:ed|ing)?|greenfield|brownfield|new plant|"
     r"new facility|capacity addition|capex project|launch(?:ed|ing)?\s+(?:of\s+)?(?:a|the|our)?\s*new|"
     r"turnaround|joint venture|merger)\b", re.I
@@ -66,11 +73,13 @@ _INITIATIVE_KEYWORDS = re.compile(
 # Outcome keyword tiers, checked in this priority order per sentence so a
 # negative/uncertain signal is never masked by an incidental positive word
 # in the same sentence (e.g. "the expansion was delayed despite strong
-# demand" must classify as delayed, not success).
+# demand" must classify as delayed, not success). "continues? to" alone is
+# deliberately excluded from "ongoing" - too generic, matches any continuous
+# action (a macro/demographic remark, not necessarily a company initiative).
 _OUTCOME_PATTERNS = [
     ("failed", re.compile(r"\b(?:failed|discontinued|shut down|written off|impair(?:ed|ment)|abandon(?:ed|ing)?|called off|scrapped)\b", re.I)),
     ("delayed", re.compile(r"\b(?:delayed|postponed|deferred|pushed back|behind schedule|slippage)\b", re.I)),
-    ("ongoing", re.compile(r"\b(?:underway|in progress|on track|is being|continues? to|expected to (?:complete|commission)|will be commissioned|planned for (?:FY|20))\b", re.I)),
+    ("ongoing", re.compile(r"\b(?:underway|in progress|on track|is being commissioned|is being built|expected to (?:complete|commission)|will be commissioned|planned for (?:FY|20))\b", re.I)),
     ("success", re.compile(r"\b(?:successfully|completed|achieved|commissioned|delivered|record\b|on time and on budget|ahead of schedule|exceeded)\b", re.I)),
 ]
 
