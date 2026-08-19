@@ -39,16 +39,25 @@ _APOS = "['’]?"
 # The standard Ind AS 108 NEGATIVE disclosure - "No single customer
 # represents/represented 10% or more of ... total revenue" - a real,
 # disclosed upper bound (concentration < the stated threshold), not an
-# absence of data.
-_NO_CONCENTRATION = re.compile(
-    rf"no (?:single|one) customer\s+(?:represents?|represented|accounts?\s+for|contributed?)\s+({_NUM})%\s*or\s*more\s+of\s+(?:the\s+)?"
-    rf"(?:Company{_APOS}s|Group{_APOS}s|consolidated|standalone)?\s*(?:total\s+)?revenue",
+# absence of data. Two real word-order variants confirmed across
+# filers: "...represents 10% OR MORE of..." (TCS) and "...accounted
+# for MORE THAN 10% of..." (WIPRO) - the qualifier can precede or
+# follow the number. WIPRO also combines the receivables and revenue
+# concentration into one sentence via "or" ("...10% of the accounts
+# receivable ... or revenues for the year...") rather than a tight
+# "...% of ... revenue" phrase, so this only anchors on the % clause
+# and separately confirms "revenue(s)" appears nearby (not necessarily
+# immediately adjacent).
+_NO_CONCENTRATION_LEAD = re.compile(
+    rf"no (?:single|one) customer\s+(?:represents?|represented|account(?:s|ed)?\s+for|contribut(?:es|ing|ed)?)\s+"
+    rf"(?:more\s+than\s+)?({_NUM})%(?:\s*or\s*more)?",
     re.I,
 )
+_REVENUE_WORD = re.compile(r"\brevenues?\b", re.I)
 # The standard Ind AS 108 POSITIVE disclosure - an actual customer (or
 # "a single customer") crossing the threshold, with the real % stated.
 _HAS_CONCENTRATION = re.compile(
-    rf"(?:a\s+)?single customer\s+(?:represents?|represented|accounts?\s+for|contributed?)\s+({_NUM})%\s+of\s+(?:the\s+)?"
+    rf"(?:a\s+)?single customer\s+(?:represents?|represented|account(?:s|ed)?\s+for|contribut(?:es|ing|ed)?)\s+({_NUM})%\s+of\s+(?:the\s+)?"
     rf"(?:Company{_APOS}s|Group{_APOS}s|consolidated|standalone)?\s*(?:total\s+)?revenue",
     re.I,
 )
@@ -56,6 +65,16 @@ _HAS_CONCENTRATION = re.compile(
 # Y% of revenue" / "our largest customer accounted for Y% of revenue").
 _NAMED_CUSTOMER_PCT = re.compile(
     rf"(?:largest|top|single largest|biggest)\s+customer\s+(?:contributed|accounted\s+for|represented)\s+({_NUM})%",
+    re.I,
+)
+# A "Revenue from top N customers: X%" table figure (confirmed real on
+# INFY: "Revenue from top five customers 12.7"). The spec's own formula
+# says "Largest Customer(s)" (plural allowed), so a top-5/top-10
+# concentration figure is a real, direct answer to this sub-point, not
+# a proxy - takes the smallest N disclosed (tightest, most concentrated
+# real figure) when multiple are given.
+_TOP_N_CUSTOMERS_PCT = re.compile(
+    rf"revenue from top\s+(five|ten|\d+)\s+customers\D{{0,15}}({_NUM})",
     re.I,
 )
 
@@ -79,11 +98,19 @@ def score_customer_concentration(text):
             return {"concentration_pct": None, "is_upper_bound": None, "classification": None}
         classification = "Low" if pct < 10 else ("Moderate" if pct <= 25 else "High")
         return {"concentration_pct": pct, "is_upper_bound": False, "classification": classification}
-    m = _NO_CONCENTRATION.search(text)
+    m = _TOP_N_CUSTOMERS_PCT.search(text)
     if m:
+        pct = _to_float(m.group(2))
+        if pct is not None:
+            classification = "Low" if pct < 10 else ("Moderate" if pct <= 25 else "High")
+            return {"concentration_pct": pct, "is_upper_bound": False, "classification": classification, "customer_count": m.group(1)}
+    for m in _NO_CONCENTRATION_LEAD.finditer(text):
+        window = text[m.end():m.end() + 150]
+        if not _REVENUE_WORD.search(window):
+            continue
         threshold = _to_float(m.group(1))
         if threshold is None:
-            return {"concentration_pct": None, "is_upper_bound": None, "classification": None}
+            continue
         return {"concentration_pct": threshold, "is_upper_bound": True, "classification": "Low"}
     return {"concentration_pct": None, "is_upper_bound": None, "classification": None}
 
