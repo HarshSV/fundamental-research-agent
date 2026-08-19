@@ -16,8 +16,30 @@ import re
 
 _OFF_MARKET_KEYWORD = re.compile(
     r"off[- ]market\b|inter[- ]se transfer|block deal|bulk deal|"
-    r"preferential (?:issue|allotment)|negotiated (?:deal|transaction)",
+    r"preferential (?:issue|allotment)|negotiated (?:deal|transaction)|"
+    # The spec's own sourcing path explicitly says to search "off-
+    # market, transfer, sale, acquisition, related-party or
+    # preferential transaction disclosures" - the original keyword
+    # list only covered the first and last of these. Confirmed real
+    # gap: HINDUNILVR's genuine, well-disclosed acquisitions (Zywie
+    # Ventures, Uprising Science, Palm Undertaking) never matched at
+    # all. "acquisition"/"sale"/"transfer" alone are too broad (would
+    # catch e.g. a routine dividend book-closure notice mentioning
+    # "Share Transfer Books"), so these require a named-entity/stake
+    # object immediately after the verb to stay anchored to a real
+    # transaction, not a bare word match.
+    r"acquisition of (?:the )?(?:equity )?shares|acquisition of\s+[A-Z][\w&.\-]+(?:\s+[\w&.\-]+){0,4}|"
+    r"sale of (?:its |the )?(?:equity )?(?:shares|stake|business|undertaking)|"
+    r"divestment of|transfer of (?:equity )?shares(?! of the company to (?:investor education|iepf))",
     re.I,
+)
+# Routine book-closure/administrative notices that happen to contain
+# "transfer" but aren't a real transaction at all - excluded so they
+# don't get counted as "off-market" disclosures.
+_ADMINISTRATIVE_NOISE = re.compile(
+    r"share transfer books.{0,40}(?:closed|closure)|"
+    r"transfer of equity shares.{0,40}(?:investor education|iepf)|"
+    r"register of members", re.I,
 )
 # A real counterparty name near the match - a capitalized multi-word
 # entity ending in a common corporate suffix, or "Mr/Ms/Mrs <Name>" for
@@ -66,7 +88,7 @@ def classify_off_market_announcements(announcements):
         text = f"{row.get('desc') or ''} {row.get('attchmntText') or ''}"
         if not text.strip() or not _OFF_MARKET_KEYWORD.search(text):
             continue
-        if _GOVERNANCE_BOILERPLATE.search(text):
+        if _GOVERNANCE_BOILERPLATE.search(text) or _ADMINISTRATIVE_NOISE.search(text):
             continue
         out.append({
             "desc": row.get("desc"), "an_dt": row.get("an_dt"),
@@ -96,7 +118,7 @@ def score_off_market_transactions(announcement_matches, rpt_text=None):
     if rpt_text:
         for m in _OFF_MARKET_KEYWORD.finditer(rpt_text):
             window = rpt_text[max(0, m.start() - 200):m.end() + 200]
-            if _GOVERNANCE_BOILERPLATE.search(window):
+            if _GOVERNANCE_BOILERPLATE.search(window) or _ADMINISTRATIVE_NOISE.search(window):
                 continue
             matches.append({
                 "desc": "Related Party Disclosures note", "an_dt": None,
