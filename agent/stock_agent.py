@@ -2410,6 +2410,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _e3 = None
+    try:
+        from tools.qualitative_engine import compute_e3_supplier_concentration_terms
+        _e3 = compute_e3_supplier_concentration_terms(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced E.3 engine failed: {e}")
+        _e3 = {
+            'available': True,
+            'rationale': 'Not computed — E.3 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3703,6 +3715,29 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No disclosed concentration % or explicit customer-diversification/dependency language was located for {_co} in the latest Annual Report this run."}
     _e2_panels = [_e2_1_panel, _e2_2_panel]
 
+    _e3_1, _e3_3 = (_e3 or {}).get('e3_1') or {}, (_e3 or {}).get('e3_3') or {}
+
+    if _e3_1.get('concentration_score') is not None:
+        _e3_1_panel = {
+            'type': 'kpi_card', 'title': 'Supplier Concentration',
+            'centerValue': f"{_e3_1.get('concentration_score')}/5",
+            'explanation': ("Single-source/limited-supplier dependence disclosed" if _e3_1.get('single_source_disclosed') else "Diversified supplier base explicitly disclosed") + f" (score {_e3_1.get('concentration_score')}/5).",
+        }
+    else:
+        _e3_1_panel = {'type': 'unavailable', 'title': 'Supplier Concentration',
+                        'explanation': f"No single-source-supplier risk statement or diversified-supplier-base language was located for {_co} in the latest Annual Report this run."}
+
+    if _e3_3.get('terms_score') is not None:
+        _e3_3_panel = {
+            'type': 'kpi_card', 'title': 'Supplier Terms / Dependence',
+            'centerValue': f"{_e3_3.get('terms_score')}/5",
+            'explanation': ("Transparent commercial terms (long-term/multi-year supply agreement or a stated credit period) disclosed" if _e3_3.get('transparent_terms_disclosed') else "Supplier-dependence risk language disclosed") + f" (score {_e3_3.get('terms_score')}/5).",
+        }
+    else:
+        _e3_3_panel = {'type': 'unavailable', 'title': 'Supplier Terms / Dependence',
+                        'explanation': f"No transparent-supplier-terms or supplier-dependence-risk language was located for {_co} in the latest Annual Report this run."}
+    _e3_panels = [_e3_1_panel, _e3_3_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4568,6 +4603,23 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_e2 or {}).get('confidence_tag'), 'retrieved_at': (_e2 or {}).get('retrieved_at'),
                     'pathway_results': (_e2 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'supplier_concentration_terms',
+                    'title': 'Supplier concentration and terms: single-sourced inputs or tied suppliers',
+                    'finding': (_e3 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Concentration score', f"{_e3_1.get('concentration_score')}/5"] if _e3_1.get('concentration_score') is not None else None),
+                        (['Terms score', f"{_e3_3.get('terms_score')}/5"] if _e3_3.get('terms_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _e3_panels} if _e3_panels else None),
+                    'formula': 'Supplier Concentration Score (1-5) = based on disclosed single-source dependence; '
+                               'Supplier Terms Score (1-5) = transparent commercial terms and diversified procurement score higher.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Risk Factors / Supply Chain; Notes to Accounts — trade payables / commitments', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_e3 or {}).get('confidence_tag'), 'retrieved_at': (_e3 or {}).get('retrieved_at'),
+                    'pathway_results': (_e3 or {}).get('pathway_results'),
                 },
             ],
         },

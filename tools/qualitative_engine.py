@@ -9844,3 +9844,188 @@ def compute_e2_customer_concentration(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+_SUPPLIER_CONCENTRATION_ANCHORS = [
+    "single source", "single-source", "sole supplier", "single supplier", "concentration of suppliers",
+    "diversified supplier", "alternative supplier", "dependent on suppliers", "credit period",
+    "supply agreement", "key suppliers", "raw material price",
+]
+
+
+def _fetch_supplier_concentration_text(sym, name):
+    """Shared evidence fetch for E.3 - real Annual Report MD&A/Risk
+    Factors and Notes to Accounts text near supplier-concentration/
+    single-source and supplier-terms language. Returns (text, pdf_url)."""
+    from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+    evidence = _fetch_ar_evidence_excerpts(
+        sym, name, _SUPPLIER_CONCENTRATION_ANCHORS, "ar_suppconc_text_v1",
+        max_per_page=3, max_excerpts=15, fetch_label="supplier-concentration",
+    )
+    if not isinstance(evidence, dict):
+        return "", None
+    text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or []))
+    return text, evidence.get("pdf_url")
+
+
+def compute_e3_1_supplier_concentration(symbol, name=None, force=False):
+    """E.3.1 - Supplier concentration. Spec formula: Supplier
+    Concentration Score (1-5) based on disclosed single-source
+    dependence. Deterministic (no LLM) - see
+    tools.supplier_concentration_scoring.score_supplier_concentration.
+    Sourcing: NSE Corporate Filings - Annual Reports - MD&A - Risk
+    Factors / Supply Chain - major suppliers, single-source
+    dependencies and concentration disclosures.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.supplier_concentration_scoring import score_supplier_concentration
+        text, pdf_url = _fetch_supplier_concentration_text(sym, name)
+        result = score_supplier_concentration(text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.3.1 fetch failed for {sym}: {e}")
+        result = {"single_source_disclosed": None, "diversified_disclosed": None, "concentration_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-01",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Risk Factors / Supply Chain - major suppliers, single-source dependencies and concentration disclosures",
+        "result": "CHECKED" if result["concentration_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["concentration_score"] is not None else "No single-source-supplier risk statement or diversified-supplier-base language was located in the latest Annual Report this run.",
+    }]
+
+    if result["concentration_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Supplier concentration", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No single-source-supplier risk statement or diversified-supplier-base language was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Supplier concentration", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": ("Single-source/limited-supplier dependence disclosed" if result["single_source_disclosed"] else "Diversified supplier base explicitly disclosed") + f" -> score {result['concentration_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e3_3_supplier_terms(symbol, name=None, force=False):
+    """E.3.3 - Supplier terms / dependence. Spec formula: Supplier
+    Terms Score (1-5): transparent commercial terms and diversified
+    procurement score higher. Deterministic (no LLM) - see
+    tools.supplier_concentration_scoring.score_supplier_terms.
+    Sourcing: NSE Corporate Filings - Annual Reports - Notes to
+    Accounts - trade payables / commitments; MD&A - procurement terms
+    and supply contracts.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.3.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.supplier_concentration_scoring import score_supplier_terms
+        text, pdf_url = _fetch_supplier_concentration_text(sym, name)
+        result = score_supplier_terms(text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.3.3 fetch failed for {sym}: {e}")
+        result = {"transparent_terms_disclosed": None, "dependence_risk_disclosed": None, "terms_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - trade payables / commitments; MD&A - procurement terms and supply contracts",
+        "result": "CHECKED" if result["terms_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["terms_score"] is not None else "No transparent-supplier-terms or supplier-dependence-risk language was located in the latest Annual Report this run.",
+    }]
+
+    if result["terms_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Supplier terms / dependence", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No transparent-supplier-terms or supplier-dependence-risk language was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Supplier terms / dependence", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": ("Transparent commercial terms (long-term/multi-year supply agreement or a stated credit period) disclosed" if result["transparent_terms_disclosed"] else "Supplier-dependence risk language disclosed") + f" -> score {result['terms_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e3_supplier_concentration_terms(symbol, name=None, force=False):
+    """E.3 - Supplier concentration and terms: single-sourced inputs or
+    tied suppliers: combines the two defined sub-points (E.3.1
+    concentration, E.3.3 terms) into a single grounded payload (E.3.2
+    is not defined in the spec workbook, so no sub-point is fabricated
+    for it), sourced from the same real Annual Report MD&A/Risk Factors
+    and Notes to Accounts text - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    e3_1 = compute_e3_1_supplier_concentration(sym, name, force=force)
+    e3_3 = compute_e3_3_supplier_terms(sym, name, force=force)
+
+    parts = []
+    if e3_1.get("concentration_score") is not None:
+        parts.append(f"Supplier concentration: score {e3_1['concentration_score']}/5.")
+    if e3_3.get("terms_score") is not None:
+        parts.append(f"Supplier terms: score {e3_3['terms_score']}/5.")
+    if not parts:
+        parts.append("No supplier-concentration or supplier-terms evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (e3_1, e3_3)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (e3_1, e3_3) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "E.3",
+        "title": "Supplier concentration and terms: single-sourced inputs or tied suppliers",
+        "available": True,
+        "e3_1": e3_1, "e3_3": e3_3,
+        "rationale": " ".join(parts),
+        "pathway_results": (e3_1.get("pathway_results") or [])[:1] + (e3_3.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
