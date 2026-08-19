@@ -10323,3 +10323,288 @@ def compute_e4_receivables_disclosure_risk(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+def _fetch_inventory_and_revenue(sym, name):
+    """Shared fetch for E.5.1/E.5.2 - real Annual Report Balance Sheet
+    Inventory and P&L Revenue (both current, prior), reusing the SAME
+    cached PDF extraction already built for Inventory Turnover/
+    Receivables Turnover (tools.annual_report_financials.
+    _get_extracted_financials - no new fetch/parse). Returns
+    (inventory_tuple_or_None, revenue_tuple_or_None, fiscal_year, pdf_url)."""
+    from tools.annual_report_financials import list_annual_report_years, _get_extracted_financials
+    years = list_annual_report_years(sym, name)
+    if not years:
+        return None, None, None, None
+    fiscal_year = years[0]
+    parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated=True)
+    return parsed.get("inventory"), parsed.get("revenue"), fiscal_year, parsed.get("source_url")
+
+
+def compute_e5_1_inventory_trend(symbol, name=None, force=False):
+    """E.5.1 - Inventory trend. Spec formula: Inventory Growth =
+    Current Inventory / Prior Inventory - 1. Deterministic (no LLM) -
+    reuses the SAME real Annual Report Balance Sheet Inventory figures
+    already extracted for the Inventory Turnover ratio.
+
+    Same explicitly documented deviation as E.4.1: the spec's own
+    sourcing path asks for an 8-quarter NSE XBRL Financial Results
+    trend; no quarterly Balance Sheet fetcher exists anywhere in this
+    codebase, so this uses the same real growth formula on real ANNUAL
+    (year-over-year) Inventory instead, tagged 'period_type':'annual'
+    throughout - never presented as the quarterly chart the spec
+    describes.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.5.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        inventory, _revenue, fiscal_year, pdf_url = _fetch_inventory_and_revenue(sym, name)
+        trend = []
+        if inventory and inventory[0] is not None and inventory[1] is not None:
+            trend = [
+                {"period": f"FY{str(fiscal_year - 1)[-2:]}", "inventory_cr": inventory[1]},
+                {"period": f"FY{str(fiscal_year)[-2:]}", "inventory_cr": inventory[0]},
+            ]
+    except Exception as e:
+        print(f"[qualitative_engine] E.5.1 fetch failed for {sym}: {e}")
+        trend = []
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Balance Sheet - Inventories (annual, not the 8-quarter XBRL trend the spec describes - no quarterly balance-sheet fetcher exists in this codebase)",
+        "result": "CHECKED" if trend else "NOT_DISCLOSED",
+        "note": None if trend else "Inventory could not be located on the Balance Sheet page of the latest Annual Report this run.",
+    }]
+
+    if not trend:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Inventory trend", "available": True,
+            "trend": None, "period_type": None, "current_inventory_cr": None, "prior_inventory_cr": None,
+            "growth_pct": None,
+            "source_pdf_url": pdf_url,
+            "rationale": "Inventory could not be located on the Balance Sheet page of the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    prior_inv, current_inv = trend[0]["inventory_cr"], trend[1]["inventory_cr"]
+    growth_pct = round(100 * (current_inv / prior_inv - 1), 2) if prior_inv else None
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Inventory trend", "available": True,
+        "trend": trend, "period_type": "annual",
+        "current_inventory_cr": current_inv, "prior_inventory_cr": prior_inv, "growth_pct": growth_pct,
+        "source_pdf_url": pdf_url,
+        "rationale": f"Inventory moved from Rs{prior_inv} cr ({trend[0]['period']}) to Rs{current_inv} cr ({trend[1]['period']}) -> {growth_pct:+.2f}% YoY (annual, not quarterly - see rationale note)." if growth_pct is not None else f"Inventory: Rs{current_inv} cr ({trend[1]['period']}); prior-year figure unusable for a growth %.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e5_2_inventory_vs_demand(symbol, name=None, force=False):
+    """E.5.2 - Inventory vs demand. Spec formula: Inventory-Demand
+    Divergence = Inventory Growth - Revenue Growth. Deterministic (no
+    LLM) - reuses the SAME real Annual Report Inventory AND Revenue
+    figures already extracted together in one PDF parse (no second
+    fetch). A positive divergence (inventory growing faster than
+    revenue) is a real channel-stuffing/build-up signal; a negative one
+    (inventory growing slower than or shrinking against revenue) is
+    healthy. Same annual-not-quarterly deviation as E.5.1/E.4.1.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.5.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        inventory, revenue, fiscal_year, pdf_url = _fetch_inventory_and_revenue(sym, name)
+        inv_growth = None
+        rev_growth = None
+        if inventory and inventory[0] is not None and inventory[1] not in (None, 0):
+            inv_growth = round(100 * (inventory[0] / inventory[1] - 1), 2)
+        if revenue and revenue[0] is not None and revenue[1] not in (None, 0):
+            rev_growth = round(100 * (revenue[0] / revenue[1] - 1), 2)
+    except Exception as e:
+        print(f"[qualitative_engine] E.5.2 fetch failed for {sym}: {e}")
+        inv_growth = rev_growth = None
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Balance Sheet Inventories vs P&L Revenue (annual, not the quarterly XBRL comparison the spec describes)",
+        "result": "CHECKED" if (inv_growth is not None and rev_growth is not None) else "NOT_DISCLOSED",
+        "note": None if (inv_growth is not None and rev_growth is not None) else "Inventory and/or Revenue could not both be located in the latest Annual Report this run.",
+    }]
+
+    if inv_growth is None or rev_growth is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Inventory vs demand", "available": True,
+            "inventory_growth_pct": inv_growth, "revenue_growth_pct": rev_growth, "divergence_pct": None, "classification": None,
+            "source_pdf_url": pdf_url,
+            "rationale": "Inventory and/or Revenue could not both be located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    divergence = round(inv_growth - rev_growth, 2)
+    classification = "Low" if divergence <= 5 else ("Moderate" if divergence <= 15 else "High")
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Inventory vs demand", "available": True,
+        "inventory_growth_pct": inv_growth, "revenue_growth_pct": rev_growth, "divergence_pct": divergence, "classification": classification,
+        "source_pdf_url": pdf_url,
+        "rationale": f"Inventory grew {inv_growth:+.2f}% vs Revenue {rev_growth:+.2f}% YoY -> divergence {divergence:+.2f}pp -> {classification}.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_INVENTORY_OBSOLESCENCE_ANCHORS = [
+    "write-down", "write down", "provision for slow moving", "obsolete",
+    "net realisable value", "slow moving inventory", "inventory provision",
+]
+
+
+def compute_e5_3_inventory_obsolescence(symbol, name=None, force=False):
+    """E.5.3 - Obsolete / slow-moving inventory. Spec formula:
+    Obsolescence Risk Score (1-5) based on write-downs, ageing and
+    management commentary. Deterministic (no LLM) - see
+    tools.inventory_risk_scoring.score_inventory_obsolescence: reads
+    the real Ind AS 2 inventory write-down-to-NRV disclosure (current
+    and prior-year charge). Sourcing: NSE Corporate Filings - Annual
+    Reports - Notes to Accounts - Inventories - write-down / provision
+    / NRV disclosures.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.5.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.inventory_risk_scoring import score_inventory_obsolescence
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _INVENTORY_OBSOLESCENCE_ANCHORS, "ar_invobs_text_v1",
+            max_per_page=3, max_excerpts=10, fetch_label="inventory-obsolescence",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
+        result = score_inventory_obsolescence(text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.5.3 fetch failed for {sym}: {e}")
+        result = {"writedown_cr": None, "writedown_prior_cr": None, "writedown_trend": None, "obsolescence_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Inventories - write-down / provision / NRV disclosures",
+        "result": "CHECKED" if result["obsolescence_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["obsolescence_score"] is not None else "No inventory write-down/slow-moving-inventory disclosure was located in the latest Annual Report this run.",
+    }]
+
+    if result["obsolescence_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Obsolete / slow-moving inventory", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No inventory write-down/slow-moving-inventory disclosure was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    if result.get("writedown_cr") is not None:
+        rationale = f"Inventory write-down of Rs{result['writedown_cr']} cr (prior: Rs{result['writedown_prior_cr']} cr) -> {result['writedown_trend']} -> score {result['obsolescence_score']}/5."
+    else:
+        rationale = f"Obsolete/slow-moving inventory language disclosed without a distinct write-down figure -> score {result['obsolescence_score']}/5."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Obsolete / slow-moving inventory", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e5_inventory_demand_risk(symbol, name=None, force=False):
+    """E.5 - Inventory build vs demand: potential channel stuffing or
+    obsolete inventory: combines the three defined sub-points (E.5.1
+    trend, E.5.2 vs-demand divergence, E.5.3 obsolescence) into a
+    single grounded payload, sourced from the same real Annual Report
+    Balance Sheet / P&L / Notes to Accounts text - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    e5_1 = compute_e5_1_inventory_trend(sym, name, force=force)
+    e5_2 = compute_e5_2_inventory_vs_demand(sym, name, force=force)
+    e5_3 = compute_e5_3_inventory_obsolescence(sym, name, force=force)
+
+    parts = []
+    if e5_1.get("growth_pct") is not None:
+        parts.append(f"Inventory growth: {e5_1['growth_pct']:+.2f}% YoY.")
+    if e5_2.get("divergence_pct") is not None:
+        parts.append(f"Vs demand: {e5_2['divergence_pct']:+.2f}pp divergence ({e5_2['classification']}).")
+    if e5_3.get("obsolescence_score") is not None:
+        parts.append(f"Obsolescence: score {e5_3['obsolescence_score']}/5.")
+    if not parts:
+        parts.append("No inventory trend, demand-divergence, or obsolescence evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (e5_1, e5_2, e5_3)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (e5_1, e5_2, e5_3) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "E.5",
+        "title": "Inventory build vs demand: potential channel stuffing or obsolete inventory",
+        "available": True,
+        "e5_1": e5_1, "e5_2": e5_2, "e5_3": e5_3,
+        "rationale": " ".join(parts),
+        "pathway_results": (e5_1.get("pathway_results") or [])[:1] + (e5_2.get("pathway_results") or [])[:1] + (e5_3.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

@@ -2434,6 +2434,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _e5 = None
+    try:
+        from tools.qualitative_engine import compute_e5_inventory_demand_risk
+        _e5 = compute_e5_inventory_demand_risk(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced E.5 engine failed: {e}")
+        _e5 = {
+            'available': True,
+            'rationale': 'Not computed — E.5 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3790,6 +3802,45 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No contract-assets/unbilled-revenue/variable-consideration language was located for {_co} in the Revenue Recognition accounting policy this run."}
     _e4_panels = [_e4_1_panel, _e4_2_panel, _e4_3_panel]
 
+    _e5_1, _e5_2, _e5_3 = (_e5 or {}).get('e5_1') or {}, (_e5 or {}).get('e5_2') or {}, (_e5 or {}).get('e5_3') or {}
+
+    _e5_1_trend = _e5_1.get('trend') or []
+    if _e5_1.get('growth_pct') is not None and _e5_1_trend:
+        _e5_1_panel = {
+            'type': 'line_trend', 'title': 'Inventory Trend',
+            'data': [{'label': t.get('period'), 'value': t.get('inventory_cr')} for t in _e5_1_trend],
+            'centerValue': f"{_e5_1.get('growth_pct'):+.2f}%",
+            'explanation': f"{_co}'s Inventory moved from ₹{_e5_1.get('prior_inventory_cr')} cr ({_e5_1_trend[0].get('period')}) to ₹{_e5_1.get('current_inventory_cr')} cr ({_e5_1_trend[1].get('period')}) -> {_e5_1.get('growth_pct'):+.2f}% (year-over-year; no quarterly Balance Sheet data source exists for this sub-point).",
+        }
+    else:
+        _e5_1_panel = {'type': 'unavailable', 'title': 'Inventory Trend',
+                        'explanation': f"Inventory could not be located on the Balance Sheet page of {_co}'s latest Annual Report this run."}
+
+    if _e5_2.get('divergence_pct') is not None:
+        _e5_2_panel = {
+            'type': 'classification', 'title': 'Inventory vs Demand',
+            'zones': ['Low', 'Moderate', 'High'], 'active': _e5_2.get('classification'),
+            'explanation': f"{_co}'s Inventory grew {_e5_2.get('inventory_growth_pct'):+.2f}% vs Revenue {_e5_2.get('revenue_growth_pct'):+.2f}% YoY -> divergence {_e5_2.get('divergence_pct'):+.2f}pp -> {_e5_2.get('classification')}.",
+        }
+    else:
+        _e5_2_panel = {'type': 'unavailable', 'title': 'Inventory vs Demand',
+                        'explanation': f"Inventory and/or Revenue could not both be located for {_co} in the latest Annual Report this run."}
+
+    if _e5_3.get('obsolescence_score') is not None:
+        if _e5_3.get('writedown_cr') is not None:
+            _e5_3_explanation = f"Inventory write-down of ₹{_e5_3.get('writedown_cr')} cr (prior: ₹{_e5_3.get('writedown_prior_cr')} cr) -> {_e5_3.get('writedown_trend')} (score {_e5_3.get('obsolescence_score')}/5)."
+        else:
+            _e5_3_explanation = f"Obsolete/slow-moving inventory language disclosed without a distinct write-down figure (score {_e5_3.get('obsolescence_score')}/5)."
+        _e5_3_panel = {
+            'type': 'kpi_card', 'title': 'Obsolete / Slow-Moving Inventory',
+            'centerValue': f"{_e5_3.get('obsolescence_score')}/5",
+            'explanation': _e5_3_explanation,
+        }
+    else:
+        _e5_3_panel = {'type': 'unavailable', 'title': 'Obsolete / Slow-Moving Inventory',
+                        'explanation': f"No inventory write-down/slow-moving-inventory disclosure was located for {_co} in the latest Annual Report this run."}
+    _e5_panels = [_e5_1_panel, _e5_2_panel, _e5_3_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4691,6 +4742,25 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_e4 or {}).get('confidence_tag'), 'retrieved_at': (_e4 or {}).get('retrieved_at'),
                     'pathway_results': (_e4 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'inventory_demand_risk',
+                    'title': 'Inventory build vs demand: potential channel stuffing or obsolete inventory',
+                    'finding': (_e5 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Inventory growth', f"{_e5_1.get('growth_pct'):+.2f}% YoY"] if _e5_1.get('growth_pct') is not None else None),
+                        (['Vs demand divergence', f"{_e5_2.get('divergence_pct'):+.2f}pp ({_e5_2.get('classification')})"] if _e5_2.get('divergence_pct') is not None else None),
+                        (['Obsolescence score', f"{_e5_3.get('obsolescence_score')}/5"] if _e5_3.get('obsolescence_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _e5_panels} if _e5_panels else None),
+                    'formula': 'Inventory Growth = Current Inventory / Prior Inventory - 1 (annual, not the 8-quarter XBRL trend the spec describes - no quarterly Balance Sheet fetcher exists in this codebase); '
+                               'Inventory-Demand Divergence = Inventory Growth - Revenue Growth; '
+                               'Obsolescence Risk Score (1-5) based on write-downs, ageing and management commentary.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Balance Sheet — Inventories; P&L — Revenue; Notes to Accounts — Inventories write-down/provision/NRV disclosures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_e5 or {}).get('confidence_tag'), 'retrieved_at': (_e5 or {}).get('retrieved_at'),
+                    'pathway_results': (_e5 or {}).get('pathway_results'),
                 },
             ],
         },
