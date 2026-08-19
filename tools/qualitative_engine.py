@@ -9481,3 +9481,172 @@ def compute_d6_pledge_signals(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+def compute_e1_1_payment_frequency(symbol, name=None, force=False):
+    """E.1.1 - Related-party payment frequency. Spec formula: Frequency
+    Score (1-5) based on recurring nature and number of material
+    counterparties. Deterministic (no LLM) - see
+    tools.rpt_leakage_scoring.score_payment_frequency: counts DISTINCT
+    named (not category-label) counterparties with a real amount
+    attached in the Related Party Disclosures note, same real source
+    already built for C.3/D.5. Sourcing: NSE Corporate Filings - Annual
+    Reports - Notes to Accounts - Related Party Disclosures -
+    transactions with promoter/group entities.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report
+        from tools.rpt_leakage_scoring import score_payment_frequency
+        evidence = fetch_rpt_evidence_from_annual_report(sym, name) or {}
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or []))
+        result = score_payment_frequency(text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.1.1 fetch failed for {sym}: {e}")
+        result = {"material_counterparty_count": None, "recurring_disclosed": None, "frequency_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Related Party Disclosures - transactions with promoter/group entities",
+        "result": "CHECKED" if result["frequency_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["frequency_score"] is not None else "No named, amount-attached related-party counterparty was located in the Related Party Disclosures note this run.",
+    }]
+
+    if result["frequency_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Related-party payment frequency", "available": True, **result,
+            "rationale": "No named, amount-attached related-party counterparty was located in the Related Party Disclosures note this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Related-party payment frequency", "available": True, **result,
+        "rationale": f"{result['material_counterparty_count']} named related-party counterpart(y/ies) with a disclosed amount" + (", recurring/ongoing nature disclosed" if result["recurring_disclosed"] else "") + f" -> score {result['frequency_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e1_3_payment_rationale(symbol, name=None, force=False):
+    """E.1.3 - Payment rationale / arm's-length basis. Spec formula:
+    Rationale Score (1-5): documented commercial purpose and arm's-
+    length basis score higher. Deterministic (no LLM) - see
+    tools.rpt_leakage_scoring.score_payment_rationale: arm's-length
+    pricing confirmation AND Audit Committee approval language, same
+    real Related Party Disclosures note text as E.1.1/C.3/D.5.
+    Sourcing: NSE Corporate Filings - Annual Reports - Related Party
+    Disclosures - nature, terms, pricing basis and Audit Committee
+    approval.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.1.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report
+        from tools.rpt_leakage_scoring import score_payment_rationale
+        evidence = fetch_rpt_evidence_from_annual_report(sym, name) or {}
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or []))
+        result = score_payment_rationale(text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.1.3 fetch failed for {sym}: {e}")
+        result = {"arms_length_confirmed": None, "audit_committee_approved": None, "opaque_flag": None, "rationale_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Related Party Disclosures - nature, terms, pricing basis and Audit Committee approval",
+        "result": "CHECKED" if result["rationale_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["rationale_score"] is not None else "No explicit arm's-length pricing statement or Audit Committee approval language was located in the Related Party Disclosures note this run.",
+    }]
+
+    if result["rationale_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Payment rationale / arm's-length basis", "available": True, **result,
+            "rationale": "No explicit arm's-length pricing statement or Audit Committee approval language was located in the Related Party Disclosures note this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    if result["opaque_flag"]:
+        rationale = "An explicit non-arm's-length pricing statement or Audit Committee approval gap was found -> score 1/5."
+    else:
+        rationale = f"Arm's-length pricing {'confirmed' if result['arms_length_confirmed'] else 'not explicitly confirmed'}; Audit Committee approval {'documented' if result['audit_committee_approved'] else 'not explicitly documented'} -> score {result['rationale_score']}/5."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Payment rationale / arm's-length basis", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e1_business_integrity_signals(symbol, name=None, force=False):
+    """E.1 - Unexpected related-party payments to opaque vendors or
+    consultants: combines the two defined sub-points (E.1.1 payment
+    frequency, E.1.3 payment rationale) into a single grounded payload
+    (E.1.2 is not defined in the spec workbook, so no sub-point is
+    fabricated for it), sourced from the same real Related Party
+    Disclosures note already built for C.3/D.5 - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    e1_1 = compute_e1_1_payment_frequency(sym, name, force=force)
+    e1_3 = compute_e1_3_payment_rationale(sym, name, force=force)
+
+    parts = []
+    if e1_1.get("frequency_score") is not None:
+        parts.append(f"Payment frequency: {e1_1['material_counterparty_count']} named counterpart(y/ies) (score {e1_1['frequency_score']}/5).")
+    if e1_3.get("rationale_score") is not None:
+        parts.append(f"Payment rationale: score {e1_3['rationale_score']}/5.")
+    if not parts:
+        parts.append("No named, amount-attached related-party counterparty or payment-rationale language was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (e1_1, e1_3)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (e1_1, e1_3) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "E.1",
+        "title": "Unexpected related-party payments to opaque vendors or consultants",
+        "available": True,
+        "e1_1": e1_1, "e1_3": e1_3,
+        "rationale": " ".join(parts),
+        "pathway_results": (e1_1.get("pathway_results") or [])[:1] + (e1_3.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

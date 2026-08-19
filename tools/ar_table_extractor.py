@@ -167,37 +167,64 @@ def extract_tables_near_anchors(symbol, name, anchor_phrases_by_key, fiscal_year
             return {}
 
         anchor_pages = _find_anchor_pages_fast(content, anchor_phrases_by_key, score_by=score_by, max_pages_per_key=max_pages_per_key)
-        all_page_indices = sorted({i for pages in anchor_pages.values() for i in pages})
-        if not all_page_indices:
+        matched_page_indices = sorted({i for pages in anchor_pages.values() for i in pages})
+        if not matched_page_indices:
             out = {k: [] for k in anchor_phrases_by_key}
             out["fiscal_year"] = fiscal_year
             return out
 
+        # A real disclosure table routinely continues onto the NEXT PDF
+        # page with no repeated header and no anchor keyword at all (e.g.
+        # a KMP remuneration table's header/label row - "Fixed salary",
+        # "Perquisites", "Commission" - on one page, its actual per-
+        # director NUMBER rows on the next) - confirmed real on INFY's
+        # Annual Report, where the header-only fragment was extracted but
+        # every real figure was silently missed because the continuation
+        # page never matched any anchor phrase on its own. Scan one page
+        # past every matched anchor page too, purely as a merge candidate
+        # (never treated as its own anchor match).
+        continuation_candidates = {i + 1 for i in matched_page_indices} - set(matched_page_indices)
+        all_page_indices = sorted(set(matched_page_indices) | continuation_candidates)
+
         import pdfplumber
         import io
-        out = {k: [] for k in anchor_phrases_by_key}
+        raw_tables_by_key = {k: [] for k in anchor_phrases_by_key}  # key -> [(orig_idx, table), ...]
         with pdfplumber.open(io.BytesIO(content), pages=[i + 1 for i in all_page_indices]) as pdf:
             # pdfplumber's `pages=` selector re-indexes pdf.pages to just
             # the requested ones, in the same order - zip back to the
             # original page index so we know which key(s) it satisfies.
+            page_tables = {}
             for orig_idx, page in zip(all_page_indices, pdf.pages):
                 try:
                     tables = page.extract_tables()
                 except Exception:
                     tables = []
-                if not tables:
-                    continue
-                matched_keys = [key for key, pages in anchor_pages.items() if orig_idx in pages]
-                for table in tables:
-                    if not table or len(table) < 2:
-                        continue
-                    clean = [[(c or "").strip() for c in row] for row in table]
-                    for key in matched_keys:
-                        out[key].append(clean)
+                page_tables[orig_idx] = [
+                    [[(c or "").strip() for c in row] for row in t]
+                    for t in tables if t and len(t) >= 1
+                ]
 
+            for key, pages in anchor_pages.items():
+                for orig_idx in pages:
+                    tables_here = [t for t in page_tables.get(orig_idx, []) if len(t) >= 2]
+                    for table in tables_here:
+                        # Merge-forward: if the LAST row of this table's
+                        # column count matches the FIRST table on the very
+                        # next page (a continuation candidate, not itself
+                        # an anchor match for this key), append its rows -
+                        # this is what recovers INFY-style split tables.
+                        next_page_tables = page_tables.get(orig_idx + 1, [])
+                        if (orig_idx + 1) in continuation_candidates and next_page_tables:
+                            cont = next_page_tables[0]
+                            if cont and len(cont[0]) == len(table[-1]):
+                                table = table + cont
+                        raw_tables_by_key[key].append(table)
+
+        out = {k: [] for k in anchor_phrases_by_key}
         for key in anchor_phrases_by_key:
-            out[key].sort(key=lambda t: -len(t))
-            out[key] = out[key][:max_tables_per_key]
+            tabs = raw_tables_by_key[key]
+            tabs.sort(key=lambda t: -len(t))
+            out[key] = tabs[:max_tables_per_key]
         out["fiscal_year"] = fiscal_year
         return out
     except Exception as e:

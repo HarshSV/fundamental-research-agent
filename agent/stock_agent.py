@@ -2386,6 +2386,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _e1 = None
+    try:
+        from tools.qualitative_engine import compute_e1_business_integrity_signals
+        _e1 = compute_e1_business_integrity_signals(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced E.1 engine failed: {e}")
+        _e1 = {
+            'available': True,
+            'rationale': 'Not computed — E.1 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3632,6 +3644,29 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"NSE's live endpoints were unreachable for {_co} this run."}
     _d6_panels = [_d6_1_panel, _d6_2_panel]
 
+    _e1_1, _e1_3 = (_e1 or {}).get('e1_1') or {}, (_e1 or {}).get('e1_3') or {}
+
+    if _e1_1.get('frequency_score') is not None:
+        _e1_1_panel = {
+            'type': 'kpi_card', 'title': 'Related-Party Payment Frequency',
+            'centerValue': f"{_e1_1.get('material_counterparty_count')} counterpart{'y' if _e1_1.get('material_counterparty_count') == 1 else 'ies'}",
+            'explanation': f"{_co}'s Related Party Disclosures note names {_e1_1.get('material_counterparty_count')} counterparty(ies) with a disclosed amount" + (", recurring/ongoing nature disclosed" if _e1_1.get('recurring_disclosed') else "") + f" (score {_e1_1.get('frequency_score')}/5).",
+        }
+    else:
+        _e1_1_panel = {'type': 'unavailable', 'title': 'Related-Party Payment Frequency',
+                        'explanation': f"No named, amount-attached related-party counterparty was located for {_co} in the Related Party Disclosures note this run."}
+
+    if _e1_3.get('rationale_score') is not None:
+        _e1_3_panel = {
+            'type': 'kpi_card', 'title': "Payment Rationale / Arm's-Length Basis",
+            'centerValue': f"{_e1_3.get('rationale_score')}/5",
+            'explanation': f"Arm's-length pricing {'confirmed' if _e1_3.get('arms_length_confirmed') else 'not explicitly confirmed'}; Audit Committee approval {'documented' if _e1_3.get('audit_committee_approved') else 'not explicitly documented'} (score {_e1_3.get('rationale_score')}/5).",
+        }
+    else:
+        _e1_3_panel = {'type': 'unavailable', 'title': "Payment Rationale / Arm's-Length Basis",
+                        'explanation': f"No explicit arm's-length pricing statement or Audit Committee approval language was located for {_co} in the Related Party Disclosures note this run."}
+    _e1_panels = [_e1_1_panel, _e1_3_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4456,6 +4491,29 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_d6 or {}).get('confidence_tag'), 'retrieved_at': (_d6 or {}).get('retrieved_at'),
                     'pathway_results': (_d6 or {}).get('pathway_results'),
+                },
+            ],
+        },
+        'business_integrity_leakage': {
+            'topic': 'E. Business integrity & "leakage" signals',
+            'subpoints': [
+                {
+                    'key': 'related_party_payment_leakage',
+                    'title': 'Unexpected related-party payments to opaque vendors or consultants',
+                    'finding': (_e1 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Named counterparties', _e1_1.get('material_counterparty_count')] if _e1_1.get('material_counterparty_count') is not None else None),
+                        (['Frequency score', f"{_e1_1.get('frequency_score')}/5"] if _e1_1.get('frequency_score') is not None else None),
+                        (['Rationale score', f"{_e1_3.get('rationale_score')}/5"] if _e1_3.get('rationale_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _e1_panels} if _e1_panels else None),
+                    'formula': 'Frequency Score (1-5) = based on the recurring nature and number of named, amount-attached related-party counterparties disclosed (more/recurring scores lower); '
+                               "Rationale Score (1-5) = documented commercial purpose and arm's-length basis score higher.",
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Related Party Disclosures (Ind AS 24), transactions with promoter/group entities', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_e1 or {}).get('confidence_tag'), 'retrieved_at': (_e1 or {}).get('retrieved_at'),
+                    'pathway_results': (_e1 or {}).get('pathway_results'),
                 },
             ],
         },
