@@ -2458,6 +2458,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _e7 = None
+    try:
+        from tools.qualitative_engine import compute_e7_accounting_policy_risk
+        _e7 = compute_e7_accounting_policy_risk(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced E.7 engine failed: {e}")
+        _e7 = {
+            'available': True,
+            'rationale': 'Not computed — E.7 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3876,6 +3888,49 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No explicit arm's-length pricing statement or Audit Committee approval language was located for {_co} in the Related Party Disclosures note this run."}
     _e6_panels = [_e6_1_panel, _e6_2_panel]
 
+    _e7_1, _e7_2, _e7_3, _e7_4 = (_e7 or {}).get('e7_1') or {}, (_e7 or {}).get('e7_2') or {}, (_e7 or {}).get('e7_3') or {}, (_e7 or {}).get('e7_4') or {}
+
+    if _e7_1.get('policy_change_count') is not None:
+        _e7_1_panel = {
+            'type': 'kpi_card', 'title': 'Accounting Policy Changes',
+            'centerValue': str(_e7_1.get('policy_change_count')),
+            'explanation': f"{_e7_1.get('policy_change_count')} accounting policy change(s)/standard amendment adoption(s) disclosed this year (current year only, not the 5-year comparison the spec describes).",
+        }
+    else:
+        _e7_1_panel = {'type': 'unavailable', 'title': 'Accounting Policy Changes',
+                        'explanation': f"No accounting-policy-change or standard-amendment-adoption language was located for {_co} in the latest Annual Report this run."}
+
+    if _e7_2.get('estimate_change_score') is not None:
+        _e7_2_panel = {
+            'type': 'kpi_card', 'title': 'Changes in Accounting Estimates',
+            'centerValue': f"{_e7_2.get('estimate_change_score')}/5",
+            'explanation': f"{_e7_2.get('estimate_change_count')} estimate change(s) disclosed, {_e7_2.get('explained_count')} with a stated reason (score {_e7_2.get('estimate_change_score')}/5).",
+        }
+    else:
+        _e7_2_panel = {'type': 'unavailable', 'title': 'Changes in Accounting Estimates',
+                        'explanation': f"No accounting-estimate-change language was located for {_co} in the latest Annual Report this run."}
+
+    if _e7_3.get('current_exceptional_cr') is not None:
+        _e7_3_panel = {
+            'type': 'kpi_card', 'title': 'One-Off Adjustments / Special Items',
+            'centerValue': 'Recurring' if _e7_3.get('recurring_flag') else 'Not recurring',
+            'explanation': f"Exceptional items: ₹{_e7_3.get('current_exceptional_cr')} cr this year (₹{_e7_3.get('prior_exceptional_cr')} cr prior year) -> " + ('recurring (non-zero in both years).' if _e7_3.get('recurring_flag') else 'not recurring.'),
+        }
+    else:
+        _e7_3_panel = {'type': 'unavailable', 'title': 'One-Off Adjustments / Special Items',
+                        'explanation': f"No Exceptional Items P&L line was located for {_co} in the latest Annual Report this run."}
+
+    if _e7_4.get('smoothing_risk_score') is not None:
+        _e7_4_panel = {
+            'type': 'kpi_card', 'title': 'Earnings Smoothing Signals',
+            'centerValue': f"{_e7_4.get('smoothing_risk_score')}/5",
+            'explanation': (f"Recurring exceptional item is {_e7_4.get('exceptional_pct_of_pbt')}% of PBT" if _e7_4.get('exceptional_pct_of_pbt') is not None else "Recurring exceptional item found, PBT unavailable for magnitude context") + f" (score {_e7_4.get('smoothing_risk_score')}/5).",
+        }
+    else:
+        _e7_4_panel = {'type': 'unavailable', 'title': 'Earnings Smoothing Signals',
+                        'explanation': f"No Exceptional Items P&L line was located for {_co} in the latest Annual Report this run."}
+    _e7_panels = [_e7_1_panel, _e7_2_panel, _e7_3_panel, _e7_4_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4814,6 +4869,27 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_e6 or {}).get('confidence_tag'), 'retrieved_at': (_e6 or {}).get('retrieved_at'),
                     'pathway_results': (_e6 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'accounting_policy_risk',
+                    'title': 'Unusual accounting policies or frequent changes in accounting estimates',
+                    'finding': (_e7 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Policy changes', _e7_1.get('policy_change_count')] if _e7_1.get('policy_change_count') is not None else None),
+                        (['Estimate change score', f"{_e7_2.get('estimate_change_score')}/5"] if _e7_2.get('estimate_change_score') is not None else None),
+                        (['One-off items', 'Recurring' if _e7_3.get('recurring_flag') else 'Not recurring'] if _e7_3.get('recurring_flag') is not None else None),
+                        (['Smoothing risk score', f"{_e7_4.get('smoothing_risk_score')}/5"] if _e7_4.get('smoothing_risk_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _e7_panels} if _e7_panels else None),
+                    'formula': 'Policy Change Count = material policy changes disclosed this year (current year only - no multi-year AR history fetcher exists in this codebase); '
+                               'Estimate Change Score (1-5) = based on frequency, magnitude and explanation of accounting estimate changes; '
+                               'Recurring One-off Flag = a non-zero exceptional item in both the current and prior year; '
+                               'Smoothing Risk Score (1-5) = based on recurring exceptional items that materially change reported earnings.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Significant Accounting Policies — Changes in Accounting Policies/Estimates; Statement of Profit & Loss — Exceptional Items', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_e7 or {}).get('confidence_tag'), 'retrieved_at': (_e7 or {}).get('retrieved_at'),
+                    'pathway_results': (_e7 or {}).get('pathway_results'),
                 },
             ],
         },

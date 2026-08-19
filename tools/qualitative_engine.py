@@ -10783,3 +10783,352 @@ def compute_e6_off_market_arms_length(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+_ACCOUNTING_POLICY_ANCHORS = [
+    "change in accounting policy", "change in accounting policies", "change in accounting estimate",
+    "retrospective", "prospective application", "revised its estimate", "reassessed",
+]
+_EXCEPTIONAL_ITEMS_ANCHORS = ["exceptional item", "other income"]
+
+
+def compute_e7_1_policy_changes(symbol, name=None, force=False):
+    """E.7.1 - Accounting policy changes. Spec formula: Policy Change
+    Count = material policy changes over review period. Deterministic
+    (no LLM) - see tools.accounting_policy_scoring.score_policy_changes.
+
+    Same explicitly documented deviation as E.4.1/E.5.1: the spec's own
+    sourcing path asks to "compare last 5 years"; no multi-year AR
+    history fetcher exists in this codebase. Ind AS 8 mandates every
+    policy change be disclosed in the YEAR it's made, so this reads the
+    CURRENT year's real disclosure (what changed this year), not a
+    fabricated 5-year retrospective. Sourcing: NSE Corporate Filings -
+    Annual Reports - Significant Accounting Policies - Changes in
+    Accounting Policies / estimates.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.7.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.accounting_policy_scoring import score_policy_changes
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _ACCOUNTING_POLICY_ANCHORS, "ar_policychg_text_v1",
+            max_per_page=3, max_excerpts=15, fetch_label="accounting-policy-changes",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
+        result = score_policy_changes(text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.7.1 fetch failed for {sym}: {e}")
+        result = {"policy_change_count": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Significant Accounting Policies - Changes in Accounting Policies / estimates (current year only - no multi-year AR history fetcher exists in this codebase)",
+        "result": "CHECKED" if result["policy_change_count"] is not None else "NOT_DISCLOSED",
+        "note": None if result["policy_change_count"] is not None else "No accounting-policy-change or standard-amendment-adoption language was located in the latest Annual Report this run.",
+    }]
+
+    if result["policy_change_count"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Accounting policy changes", "available": True, **result,
+            "source_pdf_url": pdf_url, "period_type": None,
+            "rationale": "No accounting-policy-change or standard-amendment-adoption language was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Accounting policy changes", "available": True, **result,
+        "source_pdf_url": pdf_url, "period_type": "current_year",
+        "rationale": f"{result['policy_change_count']} accounting policy change(s)/standard amendment adoption(s) disclosed this year (current year only, not the 5-year comparison the spec describes).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e7_2_estimate_changes(symbol, name=None, force=False):
+    """E.7.2 - Changes in accounting estimates. Spec formula: Estimate
+    Change Score (1-5) based on frequency, magnitude and explanation.
+    Deterministic (no LLM) - see
+    tools.accounting_policy_scoring.score_estimate_changes. Same
+    current-year-only deviation as E.7.1. Sourcing: NSE Corporate
+    Filings - Annual Reports - Significant Accounting Judgements /
+    Estimates.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.7.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.accounting_policy_scoring import score_estimate_changes
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _ACCOUNTING_POLICY_ANCHORS, "ar_policychg_text_v1",
+            max_per_page=3, max_excerpts=15, fetch_label="accounting-estimate-changes",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
+        result = score_estimate_changes(text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.7.2 fetch failed for {sym}: {e}")
+        result = {"estimate_change_count": None, "explained_count": None, "estimate_change_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Significant Accounting Judgements / Estimates (current year only - no multi-year AR history fetcher exists in this codebase)",
+        "result": "CHECKED" if result["estimate_change_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["estimate_change_score"] is not None else "No accounting-estimate-change language was located in the latest Annual Report this run.",
+    }]
+
+    if result["estimate_change_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Changes in accounting estimates", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No accounting-estimate-change language was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Changes in accounting estimates", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"{result['estimate_change_count']} estimate change(s) disclosed, {result['explained_count']} with a stated reason -> score {result['estimate_change_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def _fetch_exceptional_items_text_and_pbt(sym, name):
+    """Shared fetch for E.7.3/E.7.4 - real P&L Exceptional Items text
+    plus the real current-year Profit Before Tax (reused from the same
+    cached PDF extraction as E.4/E.5's Receivables/Inventory Turnover,
+    no new fetch/parse). Returns (text, pdf_url, current_pbt_cr)."""
+    from tools.annual_report_financials import _fetch_ar_evidence_excerpts, list_annual_report_years, _get_extracted_financials
+    evidence = _fetch_ar_evidence_excerpts(
+        sym, name, _EXCEPTIONAL_ITEMS_ANCHORS, "ar_exceptionalitems_text_v2",
+        max_per_page=3, max_excerpts=10, fetch_label="exceptional-items",
+    )
+    text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+    pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
+    current_pbt = None
+    try:
+        years = list_annual_report_years(sym, name)
+        if years:
+            parsed = _get_extracted_financials(sym, name, years[0], consolidated=True)
+            pbt = parsed.get("pbt")
+            if pbt and pbt[0] is not None:
+                current_pbt = pbt[0]
+    except Exception:
+        pass
+    return text, pdf_url, current_pbt
+
+
+def compute_e7_3_oneoff_adjustments(symbol, name=None, force=False):
+    """E.7.3 - One-off adjustments / special items. Spec formula:
+    Recurring One-off Flag = count of repeated exceptional/special
+    items over review period. Deterministic (no LLM) - see
+    tools.accounting_policy_scoring.score_oneoff_adjustments: reads
+    the real P&L Exceptional Items line (current + immediately
+    preceding year - not a fabricated 5-year series this codebase has
+    no quarterly/multi-year source for). Sourcing: NSE Corporate
+    Filings - Financial Results - Statement of Profit & Loss -
+    exceptional items / other income / other expenses.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.7.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.accounting_policy_scoring import score_oneoff_adjustments
+        text, pdf_url, _pbt = _fetch_exceptional_items_text_and_pbt(sym, name)
+        result = score_oneoff_adjustments(text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.7.3 fetch failed for {sym}: {e}")
+        result = {"current_exceptional_cr": None, "prior_exceptional_cr": None, "recurring_flag": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Financial Results - Statement of Profit & Loss - exceptional items / other income / other expenses (current + prior year only - no multi-year XBRL fetcher exists in this codebase)",
+        "result": "CHECKED" if result["current_exceptional_cr"] is not None else "NOT_DISCLOSED",
+        "note": None if result["current_exceptional_cr"] is not None else "No Exceptional Items P&L line was located in the latest Annual Report this run.",
+    }]
+
+    if result["current_exceptional_cr"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "One-off adjustments / special items", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No Exceptional Items P&L line was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "One-off adjustments / special items", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"Exceptional items: Rs{result['current_exceptional_cr']} cr this year (Rs{result['prior_exceptional_cr']} cr prior year) -> " + ("Recurring (non-zero in both years)" if result["recurring_flag"] else "Not recurring"),
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e7_4_earnings_smoothing(symbol, name=None, force=False):
+    """E.7.4 - Earnings smoothing signals. Spec formula: Smoothing
+    Risk Score (1-5) based on repeated adjustments that materially
+    change reported earnings. Deterministic (no LLM) - see
+    tools.accounting_policy_scoring.score_earnings_smoothing: combines
+    E.7.3's real recurring-exceptional-item flag with the item's real
+    magnitude relative to Profit Before Tax. Sourcing: NSE Corporate
+    Filings - Financial Results - operating profit / exceptional items
+    / other income comparison; Annual Reports - accounting policy
+    notes.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.7.4"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.accounting_policy_scoring import score_oneoff_adjustments, score_earnings_smoothing
+        text, pdf_url, current_pbt = _fetch_exceptional_items_text_and_pbt(sym, name)
+        oneoff = score_oneoff_adjustments(text)
+        result = score_earnings_smoothing(oneoff, current_pbt_cr=current_pbt)
+    except Exception as e:
+        print(f"[qualitative_engine] E.7.4 fetch failed for {sym}: {e}")
+        result = {"exceptional_pct_of_pbt": None, "smoothing_risk_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Financial Results - operating profit / exceptional items / other income comparison; Annual Reports - accounting policy notes",
+        "result": "CHECKED" if result["smoothing_risk_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["smoothing_risk_score"] is not None else "No Exceptional Items P&L line was located in the latest Annual Report this run.",
+    }]
+
+    if result["smoothing_risk_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Earnings smoothing signals", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No Exceptional Items P&L line was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Earnings smoothing signals", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": (f"Recurring exceptional item is {result['exceptional_pct_of_pbt']}% of PBT" if result.get("exceptional_pct_of_pbt") is not None else "Recurring exceptional item found, PBT unavailable for magnitude context") + f" -> score {result['smoothing_risk_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e7_accounting_policy_risk(symbol, name=None, force=False):
+    """E.7 - Unusual accounting policies or frequent changes in
+    accounting estimates: combines the four defined sub-points (E.7.1
+    policy changes, E.7.2 estimate changes, E.7.3 one-off adjustments,
+    E.7.4 earnings smoothing) into a single grounded payload, sourced
+    from the same real Annual Report Significant Accounting Policies /
+    P&L Notes text - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    e7_1 = compute_e7_1_policy_changes(sym, name, force=force)
+    e7_2 = compute_e7_2_estimate_changes(sym, name, force=force)
+    e7_3 = compute_e7_3_oneoff_adjustments(sym, name, force=force)
+    e7_4 = compute_e7_4_earnings_smoothing(sym, name, force=force)
+
+    parts = []
+    if e7_1.get("policy_change_count") is not None:
+        parts.append(f"Policy changes: {e7_1['policy_change_count']} this year.")
+    if e7_2.get("estimate_change_score") is not None:
+        parts.append(f"Estimate changes: score {e7_2['estimate_change_score']}/5.")
+    if e7_3.get("recurring_flag") is not None:
+        parts.append(f"One-off items: {'recurring' if e7_3['recurring_flag'] else 'not recurring'}.")
+    if e7_4.get("smoothing_risk_score") is not None:
+        parts.append(f"Smoothing risk: score {e7_4['smoothing_risk_score']}/5.")
+    if not parts:
+        parts.append("No accounting-policy-change, estimate-change, or exceptional-item evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (e7_1, e7_2, e7_3, e7_4)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (e7_1, e7_2, e7_3, e7_4) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "E.7",
+        "title": "Unusual accounting policies or frequent changes in accounting estimates",
+        "available": True,
+        "e7_1": e7_1, "e7_2": e7_2, "e7_3": e7_3, "e7_4": e7_4,
+        "rationale": " ".join(parts),
+        "pathway_results": (e7_1.get("pathway_results") or [])[:1] + (e7_2.get("pathway_results") or [])[:1] + (e7_3.get("pathway_results") or [])[:1] + (e7_4.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
