@@ -10040,3 +10040,286 @@ def compute_e3_supplier_concentration_terms(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+def compute_e4_1_receivables_growth(symbol, name=None, force=False):
+    """E.4.1 - Receivables growth. Spec formula: Receivables Growth =
+    Current Trade Receivables / Prior-period Trade Receivables - 1.
+    Deterministic (no LLM) - reuses the SAME real Annual Report Balance
+    Sheet Trade Receivables figures already extracted for the
+    Receivables Turnover ratio (tools.annual_report_financials.
+    _get_extracted_financials - no separate fetch/parse).
+
+    IMPORTANT DEVIATION FROM SPEC'S SOURCING PATH: the spec's own
+    sourcing path asks for a QUARTERLY (8-quarter) NSE XBRL Financial
+    Results trend. No such fetcher exists anywhere in this codebase
+    (confirmed: this app's only "8 quarter" trend fetchers are for
+    shareholding/pledge data, not balance-sheet line items; NSE's
+    quarterly XBRL results endpoint has never been wired up here) and
+    building one from scratch is a substantial undertaking outside a
+    single sub-point's scope. Rather than fabricate quarterly points or
+    silently mislabel annual data as quarterly, this computes the SAME
+    growth formula on real ANNUAL (year-over-year) Trade Receivables
+    from the Balance Sheet - each real result explicitly labelled
+    'period_type': 'annual' so no caller can present it as the
+    8-quarter chart the spec describes without knowing that's not what
+    it is.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import list_annual_report_years, _get_extracted_financials
+        years = list_annual_report_years(sym, name)
+        trend = []
+        pdf_url = None
+        if years:
+            fiscal_year = years[0]
+            parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated=True)
+            pdf_url = parsed.get("source_url")
+            receivables = parsed.get("receivables")
+            if receivables and receivables[0] is not None and receivables[1] is not None:
+                trend = [
+                    {"period": f"FY{str(fiscal_year - 1)[-2:]}", "receivables_cr": receivables[1]},
+                    {"period": f"FY{str(fiscal_year)[-2:]}", "receivables_cr": receivables[0]},
+                ]
+    except Exception as e:
+        print(f"[qualitative_engine] E.4.1 fetch failed for {sym}: {e}")
+        trend = []
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Balance Sheet - Trade Receivables (annual, not the 8-quarter XBRL trend the spec describes - no quarterly balance-sheet fetcher exists in this codebase)",
+        "result": "CHECKED" if trend else "NOT_DISCLOSED",
+        "note": None if trend else "Trade Receivables could not be located on the Balance Sheet page of the latest Annual Report this run.",
+    }]
+
+    if not trend:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Receivables growth", "available": True,
+            "trend": None, "period_type": None, "current_receivables_cr": None, "prior_receivables_cr": None,
+            "growth_pct": None,
+            "source_pdf_url": pdf_url,
+            "rationale": "Trade Receivables could not be located on the Balance Sheet page of the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    prior_cr, current_cr = trend[0]["receivables_cr"], trend[1]["receivables_cr"]
+    growth_pct = round(100 * (current_cr / prior_cr - 1), 2) if prior_cr else None
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Receivables growth", "available": True,
+        "trend": trend, "period_type": "annual",
+        "current_receivables_cr": current_cr, "prior_receivables_cr": prior_cr, "growth_pct": growth_pct,
+        "source_pdf_url": pdf_url,
+        "rationale": f"Trade Receivables moved from Rs{prior_cr} cr ({trend[0]['period']}) to Rs{current_cr} cr ({trend[1]['period']}) -> {growth_pct:+.2f}% YoY (annual, not quarterly - see rationale note)." if growth_pct is not None else f"Trade Receivables: Rs{current_cr} cr ({trend[1]['period']}); prior-year figure unusable for a growth %.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_RECEIVABLES_AGEING_ANCHORS = [
+    "trade receivables ageing", "ageing schedule", "not due", "undisputed trade receivables",
+    "ageing for trade receivables",
+]
+_REVENUE_RECOGNITION_ANCHORS = [
+    "revenue recognition", "contract asset", "unbilled revenue", "variable consideration", "performance obligation",
+]
+
+
+def compute_e4_2_receivables_ageing(symbol, name=None, force=False):
+    """E.4.2 - Receivables aging / overdue quality. Spec formula:
+    Overdue Concentration = Overdue Receivables / Total Trade
+    Receivables x 100. Deterministic (no LLM) - see
+    tools.receivables_risk_scoring.score_receivables_ageing: reads the
+    real Ind AS 107 Trade Receivables ageing schedule's own TOTAL row.
+    Sourcing: NSE Corporate Filings - Annual Reports - Notes to
+    Accounts - Trade Receivables Ageing / Expected Credit Loss.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.receivables_risk_scoring import score_receivables_ageing
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _RECEIVABLES_AGEING_ANCHORS, "ar_recvageing_text_v1",
+            max_per_page=4, max_excerpts=15, fetch_label="receivables-ageing",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
+        result = score_receivables_ageing(text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.4.2 fetch failed for {sym}: {e}")
+        result = {"not_due_cr": None, "total_cr": None, "overdue_pct": None, "classification": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Trade Receivables Ageing / Expected Credit Loss",
+        "result": "CHECKED" if result["overdue_pct"] is not None else "NOT_DISCLOSED",
+        "note": None if result["overdue_pct"] is not None else "No Trade Receivables ageing TOTAL row was located in the latest Annual Report this run.",
+    }]
+
+    if result["overdue_pct"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Receivables aging / overdue quality", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No Trade Receivables ageing TOTAL row was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Receivables aging / overdue quality", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"{result['overdue_pct']}% of total Trade Receivables (Rs{result['total_cr']} cr) is overdue past the due date -> {result['classification']}.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e4_3_revenue_recognition_risk(symbol, name=None, force=False):
+    """E.4.3 - Revenue-recognition disclosure risk. Spec formula:
+    Revenue Recognition Risk Score (1-5) based on complexity and
+    disclosure clarity. Deterministic (no LLM) - see
+    tools.receivables_risk_scoring.score_revenue_recognition_risk.
+    Sourcing: NSE Corporate Filings - Annual Reports - Significant
+    Accounting Policies - Revenue Recognition (Ind AS 115) - contract
+    assets / unbilled revenue / variable consideration.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.4.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.receivables_risk_scoring import score_revenue_recognition_risk
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _REVENUE_RECOGNITION_ANCHORS, "ar_revrec_text_v1",
+            max_per_page=3, max_excerpts=15, fetch_label="revenue-recognition",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
+        result = score_revenue_recognition_risk(text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.4.3 fetch failed for {sym}: {e}")
+        result = {"contract_assets_disclosed": None, "unbilled_revenue_disclosed": None,
+                  "variable_consideration_disclosed": None, "judgement_disclosed": None, "risk_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Significant Accounting Policies - Revenue Recognition (Ind AS 115) - contract assets / unbilled revenue / variable consideration",
+        "result": "CHECKED" if result["risk_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["risk_score"] is not None else "No contract-assets/unbilled-revenue/variable-consideration language was located in the Revenue Recognition accounting policy this run.",
+    }]
+
+    if result["risk_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Revenue-recognition disclosure risk", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No contract-assets/unbilled-revenue/variable-consideration language was located in the Revenue Recognition accounting policy this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    disclosed = [k.replace("_disclosed", "").replace("_", " ") for k in ("contract_assets_disclosed", "unbilled_revenue_disclosed", "variable_consideration_disclosed") if result[k]]
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Revenue-recognition disclosure risk", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": (f"Discloses {', '.join(disclosed)}" if disclosed else "No specific complexity indicators disclosed") + (" with an explicit significant-judgement/estimate flag" if result["judgement_disclosed"] else "") + f" -> score {result['risk_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e4_receivables_disclosure_risk(symbol, name=None, force=False):
+    """E.4 - High or growing receivables with limited disclosure -
+    revenue recognition risk: combines the three defined sub-points
+    (E.4.1 growth, E.4.2 ageing, E.4.3 revenue-recognition risk) into a
+    single grounded payload, sourced from the same real Annual Report
+    Balance Sheet / Notes to Accounts / Significant Accounting Policies
+    text - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    e4_1 = compute_e4_1_receivables_growth(sym, name, force=force)
+    e4_2 = compute_e4_2_receivables_ageing(sym, name, force=force)
+    e4_3 = compute_e4_3_revenue_recognition_risk(sym, name, force=force)
+
+    parts = []
+    if e4_1.get("growth_pct") is not None:
+        parts.append(f"Receivables growth: {e4_1['growth_pct']:+.2f}% YoY.")
+    if e4_2.get("overdue_pct") is not None:
+        parts.append(f"Overdue: {e4_2['overdue_pct']}% ({e4_2['classification']}).")
+    if e4_3.get("risk_score") is not None:
+        parts.append(f"Revenue-recognition disclosure: score {e4_3['risk_score']}/5.")
+    if not parts:
+        parts.append("No receivables growth, ageing, or revenue-recognition-disclosure evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (e4_1, e4_2, e4_3)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (e4_1, e4_2, e4_3) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "E.4",
+        "title": "High or growing receivables with limited disclosure - revenue recognition risk",
+        "available": True,
+        "e4_1": e4_1, "e4_2": e4_2, "e4_3": e4_3,
+        "rationale": " ".join(parts),
+        "pathway_results": (e4_1.get("pathway_results") or [])[:1] + (e4_2.get("pathway_results") or [])[:1] + (e4_3.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

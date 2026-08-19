@@ -2422,6 +2422,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _e4 = None
+    try:
+        from tools.qualitative_engine import compute_e4_receivables_disclosure_risk
+        _e4 = compute_e4_receivables_disclosure_risk(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced E.4 engine failed: {e}")
+        _e4 = {
+            'available': True,
+            'rationale': 'Not computed — E.4 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3742,6 +3754,42 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No transparent-supplier-terms or supplier-dependence-risk language was located for {_co} in the latest Annual Report this run."}
     _e3_panels = [_e3_1_panel, _e3_3_panel]
 
+    _e4_1, _e4_2, _e4_3 = (_e4 or {}).get('e4_1') or {}, (_e4 or {}).get('e4_2') or {}, (_e4 or {}).get('e4_3') or {}
+
+    _e4_1_trend = _e4_1.get('trend') or []
+    if _e4_1.get('growth_pct') is not None and _e4_1_trend:
+        _e4_1_panel = {
+            'type': 'line_trend', 'title': 'Receivables Growth',
+            'data': [{'label': t.get('period'), 'value': t.get('receivables_cr')} for t in _e4_1_trend],
+            'centerValue': f"{_e4_1.get('growth_pct'):+.2f}%",
+            'explanation': f"{_co}'s Trade Receivables moved from ₹{_e4_1.get('prior_receivables_cr')} cr ({_e4_1_trend[0].get('period')}) to ₹{_e4_1.get('current_receivables_cr')} cr ({_e4_1_trend[1].get('period')}) -> {_e4_1.get('growth_pct'):+.2f}% (year-over-year; no quarterly Balance Sheet data source exists for this sub-point).",
+        }
+    else:
+        _e4_1_panel = {'type': 'unavailable', 'title': 'Receivables Growth',
+                        'explanation': f"Trade Receivables could not be located on the Balance Sheet page of {_co}'s latest Annual Report this run."}
+
+    if _e4_2.get('overdue_pct') is not None:
+        _e4_2_panel = {
+            'type': 'kpi_card', 'title': 'Receivables Aging / Overdue Quality',
+            'centerValue': f"{_e4_2.get('overdue_pct')}%",
+            'explanation': f"{_e4_2.get('overdue_pct')}% of {_co}'s total Trade Receivables (₹{_e4_2.get('total_cr')} cr) is overdue past the due date -> {_e4_2.get('classification')}.",
+        }
+    else:
+        _e4_2_panel = {'type': 'unavailable', 'title': 'Receivables Aging / Overdue Quality',
+                        'explanation': f"No Trade Receivables ageing TOTAL row was located for {_co} in the latest Annual Report this run."}
+
+    if _e4_3.get('risk_score') is not None:
+        _disclosed_bits = [k.replace('_disclosed', '').replace('_', ' ') for k in ('contract_assets_disclosed', 'unbilled_revenue_disclosed', 'variable_consideration_disclosed') if _e4_3.get(k)]
+        _e4_3_panel = {
+            'type': 'kpi_card', 'title': 'Revenue-Recognition Disclosure Risk',
+            'centerValue': f"{_e4_3.get('risk_score')}/5",
+            'explanation': (f"Discloses {', '.join(_disclosed_bits)}" if _disclosed_bits else "No specific complexity indicators disclosed") + (" with an explicit significant-judgement/estimate flag" if _e4_3.get('judgement_disclosed') else "") + f" (score {_e4_3.get('risk_score')}/5).",
+        }
+    else:
+        _e4_3_panel = {'type': 'unavailable', 'title': 'Revenue-Recognition Disclosure Risk',
+                        'explanation': f"No contract-assets/unbilled-revenue/variable-consideration language was located for {_co} in the Revenue Recognition accounting policy this run."}
+    _e4_panels = [_e4_1_panel, _e4_2_panel, _e4_3_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4624,6 +4672,25 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_e3 or {}).get('confidence_tag'), 'retrieved_at': (_e3 or {}).get('retrieved_at'),
                     'pathway_results': (_e3 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'receivables_disclosure_risk',
+                    'title': 'High or growing receivables with limited disclosure — revenue recognition risk',
+                    'finding': (_e4 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Receivables growth', f"{_e4_1.get('growth_pct'):+.2f}% YoY"] if _e4_1.get('growth_pct') is not None else None),
+                        (['Overdue', f"{_e4_2.get('overdue_pct')}% ({_e4_2.get('classification')})"] if _e4_2.get('overdue_pct') is not None else None),
+                        (['Revenue-recognition risk', f"{_e4_3.get('risk_score')}/5"] if _e4_3.get('risk_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _e4_panels} if _e4_panels else None),
+                    'formula': 'Receivables Growth = Current Trade Receivables / Prior-period Trade Receivables - 1 (annual, not the 8-quarter XBRL trend the spec describes - no quarterly Balance Sheet fetcher exists in this codebase); '
+                               'Overdue Concentration = Overdue Receivables / Total Trade Receivables x 100; '
+                               'Revenue Recognition Risk Score (1-5) based on complexity and disclosure clarity.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Balance Sheet — Trade Receivables; Notes to Accounts — Trade Receivables Ageing; Significant Accounting Policies — Revenue Recognition (Ind AS 115)', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_e4 or {}).get('confidence_tag'), 'retrieved_at': (_e4 or {}).get('retrieved_at'),
+                    'pathway_results': (_e4 or {}).get('pathway_results'),
                 },
             ],
         },
