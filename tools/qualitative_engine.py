@@ -9650,3 +9650,197 @@ def compute_e1_business_integrity_signals(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+_CUSTOMER_CONCENTRATION_ANCHORS = [
+    "single customer", "single external customer", "major customer", "revenue from customer",
+    "customer concentration", "top customer", "largest customer", "diversified customer", "dependent on",
+]
+
+
+def _fetch_customer_concentration_text(sym, name):
+    """Shared evidence fetch for E.2 - real Annual Report text near Ind
+    AS 108 'Information about major customers' note and MD&A customer-
+    concentration/dependency language. Returns (text, pdf_url)."""
+    from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+    evidence = _fetch_ar_evidence_excerpts(
+        sym, name, _CUSTOMER_CONCENTRATION_ANCHORS, "ar_custconc_text_v1",
+        max_per_page=3, max_excerpts=15, fetch_label="customer-concentration",
+    )
+    if not isinstance(evidence, dict):
+        return "", None
+    text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or []))
+    return text, evidence.get("pdf_url")
+
+
+def compute_e2_1_customer_concentration(symbol, name=None, force=False):
+    """E.2.1 - Top customer revenue concentration. Spec formula: Top
+    Customer Concentration % = Revenue from Largest Customer(s) / Total
+    Revenue x 100 where disclosed. Deterministic (no LLM) - see
+    tools.customer_concentration_scoring.score_customer_concentration:
+    handles both the standard Ind AS 108 negative disclosure form ("no
+    single customer represents 10%+ of revenue" - a real disclosed
+    upper bound) and the positive form naming an actual %. Sourcing:
+    NSE Corporate Filings - Annual Reports - Notes to Accounts -
+    Revenue from Customers / Segment Information / Major Customer
+    disclosures.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.customer_concentration_scoring import score_customer_concentration
+        text, pdf_url = _fetch_customer_concentration_text(sym, name)
+        result = score_customer_concentration(text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.2.1 fetch failed for {sym}: {e}")
+        result = {"concentration_pct": None, "is_upper_bound": None, "classification": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Revenue from Customers / Segment Information / Major Customer disclosures",
+        "result": "CHECKED" if result["concentration_pct"] is not None else "NOT_DISCLOSED",
+        "note": None if result["concentration_pct"] is not None else "No Ind AS 108 major-customer revenue-concentration disclosure was located in the latest Annual Report this run.",
+    }]
+
+    if result["concentration_pct"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Top customer revenue concentration", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No Ind AS 108 major-customer revenue-concentration disclosure was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    if result["is_upper_bound"]:
+        rationale = f"No single customer represents {result['concentration_pct']}% or more of total revenue (real disclosed upper bound) -> {result['classification']}."
+    else:
+        rationale = f"Largest customer represents {result['concentration_pct']}% of total revenue -> {result['classification']}."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Top customer revenue concentration", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e2_2_customer_dependency(symbol, name=None, force=False):
+    """E.2.2 - Customer dependency. Spec formula: Dependency Score
+    (1-5): diversified recurring customer base scores higher than
+    reliance on one/few customers. Deterministic (no LLM) - see
+    tools.customer_concentration_scoring.score_customer_dependency:
+    cross-checks E.2.1's own disclosed concentration % first (the most
+    concrete real signal), falling back to explicit MD&A/risk-factor
+    diversification/dependency language. Sourcing: NSE Corporate
+    Filings - Annual Reports - MD&A - customer concentration, contract
+    dependence, major customer commentary.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.customer_concentration_scoring import score_customer_dependency
+        text, pdf_url = _fetch_customer_concentration_text(sym, name)
+        concentration = compute_e2_1_customer_concentration(sym, name, force=force)
+        result = score_customer_dependency(text, concentration)
+    except Exception as e:
+        print(f"[qualitative_engine] E.2.2 fetch failed for {sym}: {e}")
+        result = {"dependency_score": None, "basis": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - customer concentration, contract dependence, major customer commentary",
+        "result": "CHECKED" if result["dependency_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["dependency_score"] is not None else "No disclosed concentration % or explicit customer-diversification/dependency language was located in the latest Annual Report this run.",
+    }]
+
+    if result["dependency_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Customer dependency", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No disclosed concentration % or explicit customer-diversification/dependency language was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    basis_label = "the disclosed concentration %" if result["basis"] == "concentration_pct" else "MD&A/risk-factor language"
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Customer dependency", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"Dependency score {result['dependency_score']}/5, based on {basis_label}.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e2_customer_concentration(symbol, name=None, force=False):
+    """E.2 - Customer concentration: top customers percentage &
+    dependency: combines the two defined sub-points (E.2.1 concentration,
+    E.2.2 dependency) into a single grounded payload, sourced from the
+    same real Annual Report Ind AS 108 major-customer note and MD&A text
+    - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    e2_1 = compute_e2_1_customer_concentration(sym, name, force=force)
+    e2_2 = compute_e2_2_customer_dependency(sym, name, force=force)
+
+    parts = []
+    if e2_1.get("concentration_pct") is not None:
+        parts.append(f"Top customer concentration: {'<' if e2_1.get('is_upper_bound') else ''}{e2_1['concentration_pct']}% ({e2_1['classification']}).")
+    if e2_2.get("dependency_score") is not None:
+        parts.append(f"Dependency: score {e2_2['dependency_score']}/5.")
+    if not parts:
+        parts.append("No customer-concentration or dependency evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (e2_1, e2_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (e2_1, e2_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "E.2",
+        "title": "Customer concentration: top customers percentage & dependency",
+        "available": True,
+        "e2_1": e2_1, "e2_2": e2_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (e2_1.get("pathway_results") or [])[:1] + (e2_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

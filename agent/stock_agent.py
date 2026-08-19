@@ -2398,6 +2398,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _e2 = None
+    try:
+        from tools.qualitative_engine import compute_e2_customer_concentration
+        _e2 = compute_e2_customer_concentration(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced E.2 engine failed: {e}")
+        _e2 = {
+            'available': True,
+            'rationale': 'Not computed — E.2 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3667,6 +3679,30 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No explicit arm's-length pricing statement or Audit Committee approval language was located for {_co} in the Related Party Disclosures note this run."}
     _e1_panels = [_e1_1_panel, _e1_3_panel]
 
+    _e2_1, _e2_2 = (_e2 or {}).get('e2_1') or {}, (_e2 or {}).get('e2_2') or {}
+
+    if _e2_1.get('concentration_pct') is not None:
+        _e2_1_panel = {
+            'type': 'kpi_card', 'title': 'Top Customer Revenue Concentration',
+            'centerValue': f"{'<' if _e2_1.get('is_upper_bound') else ''}{_e2_1.get('concentration_pct')}%",
+            'explanation': (f"No single customer represents {_e2_1.get('concentration_pct')}% or more of total revenue (real disclosed upper bound)" if _e2_1.get('is_upper_bound')
+                            else f"Largest customer represents {_e2_1.get('concentration_pct')}% of total revenue") + f" -> {_e2_1.get('classification')}.",
+        }
+    else:
+        _e2_1_panel = {'type': 'unavailable', 'title': 'Top Customer Revenue Concentration',
+                        'explanation': f"No Ind AS 108 major-customer revenue-concentration disclosure was located for {_co} in the latest Annual Report this run."}
+
+    if _e2_2.get('dependency_score') is not None:
+        _e2_2_panel = {
+            'type': 'kpi_card', 'title': 'Customer Dependency',
+            'centerValue': f"{_e2_2.get('dependency_score')}/5",
+            'explanation': f"Dependency score {_e2_2.get('dependency_score')}/5, based on " + ("the disclosed concentration %." if _e2_2.get('basis') == 'concentration_pct' else "MD&A/risk-factor language."),
+        }
+    else:
+        _e2_2_panel = {'type': 'unavailable', 'title': 'Customer Dependency',
+                        'explanation': f"No disclosed concentration % or explicit customer-diversification/dependency language was located for {_co} in the latest Annual Report this run."}
+    _e2_panels = [_e2_1_panel, _e2_2_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4514,6 +4550,24 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_e1 or {}).get('confidence_tag'), 'retrieved_at': (_e1 or {}).get('retrieved_at'),
                     'pathway_results': (_e1 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'customer_concentration',
+                    'title': 'Customer concentration: top customers percentage & dependency',
+                    'finding': (_e2 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Top customer concentration', f"{'<' if _e2_1.get('is_upper_bound') else ''}{_e2_1.get('concentration_pct')}%"] if _e2_1.get('concentration_pct') is not None else None),
+                        (['Classification', _e2_1.get('classification')] if _e2_1.get('classification') else None),
+                        (['Dependency score', f"{_e2_2.get('dependency_score')}/5"] if _e2_2.get('dependency_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _e2_panels} if _e2_panels else None),
+                    'formula': 'Top Customer Concentration % = Revenue from Largest Customer(s) / Total Revenue x 100 where disclosed; '
+                               'Dependency Score (1-5) = a diversified recurring customer base scores higher than reliance on one/few customers.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Revenue from Customers / Segment Information / Major Customer disclosures (Ind AS 108)', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_e2 or {}).get('confidence_tag'), 'retrieved_at': (_e2 or {}).get('retrieved_at'),
+                    'pathway_results': (_e2 or {}).get('pathway_results'),
                 },
             ],
         },
