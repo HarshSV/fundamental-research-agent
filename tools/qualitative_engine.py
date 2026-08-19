@@ -10787,7 +10787,10 @@ def compute_e6_off_market_arms_length(symbol, name=None, force=False):
 
 _ACCOUNTING_POLICY_ANCHORS = [
     "change in accounting policy", "change in accounting policies", "change in accounting estimate",
-    "retrospective", "prospective application", "revised its estimate", "reassessed",
+    "prospective application", "revised its estimate", "reassessed",
+    "new standards, interpretations and amendments", "new and amended standards",
+    "amendments adopted", "notified amendments", "standards issued but not yet effective",
+    "amendments to ind as", "mca notified", "ministry of corporate affairs (“mca”) notifies",
 ]
 _EXCEPTIONAL_ITEMS_ANCHORS = ["exceptional item", "other income"]
 
@@ -10823,8 +10826,8 @@ def compute_e7_1_policy_changes(symbol, name=None, force=False):
         from tools.annual_report_financials import _fetch_ar_evidence_excerpts
         from tools.accounting_policy_scoring import score_policy_changes
         evidence = _fetch_ar_evidence_excerpts(
-            sym, name, _ACCOUNTING_POLICY_ANCHORS, "ar_policychg_text_v1",
-            max_per_page=3, max_excerpts=15, fetch_label="accounting-policy-changes",
+            sym, name, _ACCOUNTING_POLICY_ANCHORS, "ar_policychg_text_v4",
+            max_per_page=8, max_excerpts=25, fetch_label="accounting-policy-changes",
         )
         text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
         pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
@@ -10892,8 +10895,8 @@ def compute_e7_2_estimate_changes(symbol, name=None, force=False):
         from tools.annual_report_financials import _fetch_ar_evidence_excerpts
         from tools.accounting_policy_scoring import score_estimate_changes
         evidence = _fetch_ar_evidence_excerpts(
-            sym, name, _ACCOUNTING_POLICY_ANCHORS, "ar_policychg_text_v1",
-            max_per_page=3, max_excerpts=15, fetch_label="accounting-estimate-changes",
+            sym, name, _ACCOUNTING_POLICY_ANCHORS, "ar_policychg_text_v4",
+            max_per_page=8, max_excerpts=25, fetch_label="accounting-estimate-changes",
         )
         text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
         pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None

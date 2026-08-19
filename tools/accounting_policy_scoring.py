@@ -45,10 +45,22 @@ def _to_float(s):
 # de-duplicates repeated mentions of the SAME amendment within one AR.
 _POLICY_CHANGE = re.compile(
     r"change(?:s)?\s+in\s+accounting\s+polic(?:y|ies)|"
-    r"amendments?\s+to\s+ind\s*as\s*(\d+)|"
+    r"amendments?\s+to:?\s*(?:[a-z]\.\s*)?ind\s*as\s*(\d+)|"
     r"retrospective application under ind as\s*(\d+)|applied retrospectively",
     re.I,
 )
+# Real MCA-amendment notes commonly list each affected standard as a
+# lettered sub-item ("a. Ind AS 1...", "b. Ind AS 7...", "c. Ind AS 12...")
+# under a single shared "notified the following amendments to:" lead-in,
+# so only the first letter's standard is caught by the pattern above.
+# Confirmed on HINDUNILVR: Ind AS 7/107/12 all follow as separate lettered
+# items with no repeated "amendments to" immediately before them. Only
+# scanned when the trigger phrase is present somewhere in the same text
+# (score_policy_changes checks this before using these matches), so this
+# stays scoped to genuine amendment-listing sections, not arbitrary
+# lettered lists elsewhere in the report.
+_POLICY_CHANGE_TRIGGER = re.compile(r"notified\s+(?:the\s+following\s+)?amendments?\s+to", re.I)
+_LETTERED_STANDARD_ITEM = re.compile(r"\b[a-z]\.\s*ind\s*as\s*(\d+)\b", re.I)
 
 
 def score_policy_changes(text):
@@ -72,6 +84,9 @@ def score_policy_changes(text):
             standards.add(std)
         else:
             generic_count += 1
+    if _POLICY_CHANGE_TRIGGER.search(text):
+        for m in _LETTERED_STANDARD_ITEM.finditer(text):
+            standards.add(m.group(1))
     count = len(standards) + (1 if generic_count else 0)
     if count == 0:
         return {"policy_change_count": None}
