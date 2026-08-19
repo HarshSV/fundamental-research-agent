@@ -3718,10 +3718,14 @@ def build_executive_summary(state: SystemState) -> dict:
     _e3_1, _e3_3 = (_e3 or {}).get('e3_1') or {}, (_e3 or {}).get('e3_3') or {}
 
     if _e3_1.get('concentration_score') is not None:
+        if _e3_1.get('basis') == 'esg_proxy':
+            _e3_1_explanation = f"No direct MD&A risk-factor statement was found for {_co}; an ESG sustainable-sourcing disclosure (multiple raw-material categories) is used as an indirect diversification proxy (score {_e3_1.get('concentration_score')}/5)."
+        else:
+            _e3_1_explanation = ("Single-source/limited-supplier dependence disclosed" if _e3_1.get('single_source_disclosed') else "Diversified supplier base explicitly disclosed") + f" (score {_e3_1.get('concentration_score')}/5)."
         _e3_1_panel = {
             'type': 'kpi_card', 'title': 'Supplier Concentration',
             'centerValue': f"{_e3_1.get('concentration_score')}/5",
-            'explanation': ("Single-source/limited-supplier dependence disclosed" if _e3_1.get('single_source_disclosed') else "Diversified supplier base explicitly disclosed") + f" (score {_e3_1.get('concentration_score')}/5).",
+            'explanation': _e3_1_explanation,
         }
     else:
         _e3_1_panel = {'type': 'unavailable', 'title': 'Supplier Concentration',

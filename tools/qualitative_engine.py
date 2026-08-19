@@ -9850,6 +9850,13 @@ _SUPPLIER_CONCENTRATION_ANCHORS = [
     "single source", "single-source", "sole supplier", "single supplier", "concentration of suppliers",
     "diversified supplier", "alternative supplier", "dependent on suppliers", "credit period",
     "supply agreement", "key suppliers", "raw material price",
+    # ESG sustainable-sourcing-% anchors - used only as a fallback
+    # diversification proxy (see score_supplier_concentration's
+    # 'esg_proxy' basis) when no direct MD&A risk-factor statement is
+    # found; confirmed real on HINDUNILVR ("64.5% of key crops sourced
+    # sustainably ... tea, palm oil, paper and board, cereal, sugar,
+    # dairy, cocoa, coconut oil, soy, starches").
+    "sourced sustainably", "sustainable sourcing", "responsible sourcing",
 ]
 
 
@@ -9859,7 +9866,7 @@ def _fetch_supplier_concentration_text(sym, name):
     single-source and supplier-terms language. Returns (text, pdf_url)."""
     from tools.annual_report_financials import _fetch_ar_evidence_excerpts
     evidence = _fetch_ar_evidence_excerpts(
-        sym, name, _SUPPLIER_CONCENTRATION_ANCHORS, "ar_suppconc_text_v1",
+        sym, name, _SUPPLIER_CONCENTRATION_ANCHORS, "ar_suppconc_text_v2",
         max_per_page=3, max_excerpts=15, fetch_label="supplier-concentration",
     )
     if not isinstance(evidence, dict):
@@ -9918,10 +9925,14 @@ def compute_e3_1_supplier_concentration(symbol, name=None, force=False):
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
+    if result.get("basis") == "esg_proxy":
+        rationale = f"No direct MD&A risk-factor statement was found, but an ESG sustainable-sourcing disclosure (multiple raw-material categories sourced sustainably) is used as an indirect diversification proxy -> score {result['concentration_score']}/5."
+    else:
+        rationale = ("Single-source/limited-supplier dependence disclosed" if result["single_source_disclosed"] else "Diversified supplier base explicitly disclosed") + f" -> score {result['concentration_score']}/5."
     payload = {
         "subpoint_id": subpoint_id, "title": "Supplier concentration", "available": True, **result,
         "source_pdf_url": pdf_url,
-        "rationale": ("Single-source/limited-supplier dependence disclosed" if result["single_source_disclosed"] else "Diversified supplier base explicitly disclosed") + f" -> score {result['concentration_score']}/5.",
+        "rationale": rationale,
         "pathway_results": pathway_results,
     }
     confidence_tag = "SINGLE_SOURCE"

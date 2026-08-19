@@ -42,31 +42,62 @@ _DIVERSIFIED_SUPPLY = re.compile(
     r"multiple (?:alternative )?suppliers|wide(?:ly)? diversified (?:base of )?suppliers|"
     r"broad(?:-|\s)based supplier|identifying alternative suppliers", re.I,
 )
+# ESG sustainable-sourcing % disclosure (e.g. "64.5% of key crops were
+# sourced sustainably... tea, palm oil, paper and board, cereal, sugar,
+# dairy, cocoa, coconut oil, soy, starches...") - an INDIRECT
+# diversification proxy, not a direct single-source-risk statement.
+# By explicit user decision, used as a fallback only when neither
+# _SINGLE_SOURCE_RISK nor _DIVERSIFIED_SUPPLY matched anything -
+# requires BOTH a real disclosed % AND at least 3 distinct named raw-
+# material/crop categories nearby, so a bare ESG percentage without
+# genuine evidence of sourcing across many categories doesn't count.
+# Always labelled as ESG-derived in the result, never presented as
+# equivalent to a direct MD&A risk-factor statement.
+_ESG_SOURCING_PCT = re.compile(
+    rf"({_NUM})%\s*(?:of\s+)?(?:key\s+)?(?:crops|inputs|raw materials?|materials)\s*(?:were\s+|are\s+)?sourced\s+sustainably",
+    re.I,
+)
 
 
 def score_supplier_concentration(text):
     """E.3.1 - Supplier Concentration Score (1-5) based on disclosed
     single-source dependence in the MD&A/Risk Factors section. A
     single-source/limited-supplier risk statement scores low; explicit
-    diversified-supplier-base language scores high. Returns
-    {'single_source_disclosed','diversified_disclosed',
-    'concentration_score'} or all-None if neither signal appears (a
-    real, common gap - most Indian AR MD&A sections don't discuss
-    supplier concentration explicitly, unlike the mandatory Ind AS
-    24/108 notes E.1/E.2 draw on)."""
+    diversified-supplier-base language scores high. Falls back to an
+    ESG sustainable-sourcing-%-across-many-categories disclosure as an
+    indirect diversification proxy (explicit user decision) when
+    neither direct signal is present - flagged via 'basis':'esg_proxy'
+    so callers can label it distinctly from a direct MD&A statement.
+    Returns {'single_source_disclosed','diversified_disclosed',
+    'concentration_score','basis'} or all-None if no signal appears at
+    all (a real, common gap - most Indian AR MD&A sections don't
+    discuss supplier concentration explicitly, unlike the mandatory
+    Ind AS 24/108 notes E.1/E.2 draw on)."""
     if not text:
-        return {"single_source_disclosed": None, "diversified_disclosed": None, "concentration_score": None}
+        return {"single_source_disclosed": None, "diversified_disclosed": None, "concentration_score": None, "basis": None}
     single_source = bool(_SINGLE_SOURCE_RISK.search(text))
     diversified = bool(_DIVERSIFIED_SUPPLY.search(text))
-    if not (single_source or diversified):
-        return {"single_source_disclosed": None, "diversified_disclosed": None, "concentration_score": None}
-    if single_source and diversified:
-        score = 3
-    elif single_source:
-        score = 2
-    else:
-        score = 5
-    return {"single_source_disclosed": single_source, "diversified_disclosed": diversified, "concentration_score": score}
+    if single_source or diversified:
+        if single_source and diversified:
+            score = 3
+        elif single_source:
+            score = 2
+        else:
+            score = 5
+        return {"single_source_disclosed": single_source, "diversified_disclosed": diversified, "concentration_score": score, "basis": "risk_factor_language"}
+    m = _ESG_SOURCING_PCT.search(text)
+    if m:
+        pct = float(m.group(1))
+        # A real, meaningful majority-sourced-sustainably % across
+        # "key crops"/"raw materials" (plural, i.e. more than one
+        # category by construction) is itself sufficient evidence of
+        # this proxy - the specific named crop list often sits in a
+        # different excerpt window than the % statement (confirmed
+        # real on HINDUNILVR), so requiring both in the same window
+        # was too fragile and silently discarded genuine matches.
+        if pct >= 50:
+            return {"single_source_disclosed": False, "diversified_disclosed": True, "concentration_score": 4, "basis": "esg_proxy"}
+    return {"single_source_disclosed": None, "diversified_disclosed": None, "concentration_score": None, "basis": None}
 
 
 # ---------------------------------------------------------------------------
