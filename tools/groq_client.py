@@ -262,7 +262,17 @@ def groq_chat(messages, temperature=None, max_tokens=None, api_key=None):
     Run a chat completion. Tries the free OpenRouter chain first (three models,
     each on its own key/quota), then falls back to the Groq MODEL_CHAIN below.
     Returns the response text. Raises the LAST error only if every model fails.
+
+    Disabled by explicit user instruction (no LLM dependency anywhere in this
+    app, including qualitative report generation and Ask Navrist) - raises
+    immediately with ZERO network calls, so every one of this function's ~15+
+    callers falls through to its own already-built deterministic/quant-proxy
+    fallback path instantly instead of burning 15-90+ seconds per call
+    retrying OpenRouter/Groq first. This was a real, confirmed contributor to
+    multi-minute qualitative-report load times.
     """
+    raise RuntimeError("LLM calls are disabled for this deployment (no Groq/OpenRouter dependency).")
+
     or_text = _try_openrouter(messages, temperature, max_tokens)
     if or_text is not None:
         return or_text

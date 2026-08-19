@@ -258,6 +258,11 @@ def ask_navrist(messages, context: str = "", api_key: str = None, tools: dict = 
         tools_spec.append(NEWS_SENTIMENT_TOOL_SCHEMA)
     tools_spec = tools_spec or None
 
+    # Disabled by explicit user instruction - no LLM/Groq dependency anywhere
+    # in this app. Short-circuits before any network call, same as
+    # tools/groq_client.py's groq_chat().
+    return {"reply": "Ask Navrist is currently disabled (no LLM dependency configured for this deployment).", "error": True}
+
     key = (api_key or os.getenv("GROQ_API_KEY", "")).strip()
     if not key or key == "your_api_key_here":
         return {"reply": "The AI model isn't configured (missing GROQ_API_KEY).", "error": True}
