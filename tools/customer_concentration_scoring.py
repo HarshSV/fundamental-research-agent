@@ -15,6 +15,12 @@ than being discarded as unavailable.
 """
 import re
 
+# Ind AS 108's mandated threshold is universally 10% - some filers spell
+# it out as a word ("ten percent") rather than a numeral. Small, closed
+# map for the word forms actually used for this one regulatory
+# threshold (not a general number-word parser).
+_WORD_TO_NUM = {"ten": 10, "five": 5, "fifteen": 15, "twenty": 20}
+
 _NUM = r"\d[\d,]*\.?\d*"
 
 
@@ -61,6 +67,16 @@ _NO_CONCENTRATION_LEAD = re.compile(
 _NO_CONCENTRATION_SUBJECT_LEAD = re.compile(
     rf"does\s+not\s+receive\s+(?:more\s+than\s+)?({_NUM})%(?:\s*or\s*more)?\s+of\s+(?:its|the|our)\s+revenues?"
     r".{0,60}?\bsingle\b.{0,20}?\bcustomer\b",
+    re.I,
+)
+# A fourth real structure, confirmed on L&T: "Revenue contributed by
+# any single customer ... does not exceed ten percent of the Company's
+# total revenue." - subject is "Revenue", verb "does not exceed", and
+# the threshold is spelled out as a word ("ten percent") rather than a
+# numeral with "%".
+_NO_CONCENTRATION_EXCEED = re.compile(
+    rf"revenue contributed by (?:any )?(?:a )?single customer.{{0,120}}?does not exceed\s+"
+    rf"({_NUM}|{'|'.join(_WORD_TO_NUM)})\s*(?:percent|per\s*cent|%)",
     re.I,
 )
 _REVENUE_WORD = re.compile(r"\brevenues?\b", re.I)
@@ -127,6 +143,12 @@ def score_customer_concentration(text):
         threshold = _to_float(m.group(1))
         if threshold is not None:
             return {"concentration_pct": threshold, "is_upper_bound": True, "classification": "Low"}
+    m = _NO_CONCENTRATION_EXCEED.search(text)
+    if m:
+        raw = m.group(1).lower()
+        threshold = _WORD_TO_NUM.get(raw, _to_float(raw))
+        if threshold is not None:
+            return {"concentration_pct": float(threshold), "is_upper_bound": True, "classification": "Low"}
     return {"concentration_pct": None, "is_upper_bound": None, "classification": None}
 
 
