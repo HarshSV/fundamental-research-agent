@@ -53,6 +53,16 @@ _NO_CONCENTRATION_LEAD = re.compile(
     rf"(?:more\s+than\s+)?({_NUM})%(?:\s*or\s*more)?",
     re.I,
 )
+# A third real word order, confirmed on HINDUNILVR: "The Company does
+# not receive 10% or more of its revenues from transactions with any
+# single external customer." - negation attaches to the COMPANY as
+# subject ("does not receive"), not to "customer" as in the other two
+# forms, so needs its own pattern entirely.
+_NO_CONCENTRATION_SUBJECT_LEAD = re.compile(
+    rf"does\s+not\s+receive\s+(?:more\s+than\s+)?({_NUM})%(?:\s*or\s*more)?\s+of\s+(?:its|the|our)\s+revenues?"
+    r".{0,60}?\bsingle\b.{0,20}?\bcustomer\b",
+    re.I,
+)
 _REVENUE_WORD = re.compile(r"\brevenues?\b", re.I)
 # The standard Ind AS 108 POSITIVE disclosure - an actual customer (or
 # "a single customer") crossing the threshold, with the real % stated.
@@ -112,6 +122,11 @@ def score_customer_concentration(text):
         if threshold is None:
             continue
         return {"concentration_pct": threshold, "is_upper_bound": True, "classification": "Low"}
+    m = _NO_CONCENTRATION_SUBJECT_LEAD.search(text)
+    if m:
+        threshold = _to_float(m.group(1))
+        if threshold is not None:
+            return {"concentration_pct": threshold, "is_upper_bound": True, "classification": "Low"}
     return {"concentration_pct": None, "is_upper_bound": None, "classification": None}
 
 
