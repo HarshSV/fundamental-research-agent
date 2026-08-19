@@ -27,13 +27,20 @@ _SINGLE_SOURCE_RISK = re.compile(
     r"dependent on (?:a )?(?:limited|small|single|one|few) number of (?:key )?suppliers|"
     r"reliance on (?:a )?(?:limited|small|single|one|few) (?:number of )?(?:key )?suppliers|"
     r"concentration of (?:our |its |the )?suppliers|"
-    r"limited number of (?:alternative )?suppliers", re.I,
+    r"limited number of (?:alternative )?suppliers|"
+    # Confirmed real, broader forms on CIPLA: "Our dependence on API and
+    # drug suppliers in China ... makes us vulnerable" and "lack of
+    # diversified suppliers" - dependence isn't always phrased as "a
+    # limited/small number of suppliers"; a geography- or category-named
+    # supplier dependency is just as real a concentration signal.
+    r"(?:our |its |the )?dependence on .{0,80}?suppliers?\b|"
+    r"lack of diversified suppliers", re.I,
 )
 _DIVERSIFIED_SUPPLY = re.compile(
     r"diversified supplier base|diversified (?:vendor|procurement) base|"
     r"no single supplier|not dependent on any single supplier|"
     r"multiple (?:alternative )?suppliers|wide(?:ly)? diversified (?:base of )?suppliers|"
-    r"broad(?:-|\s)based supplier", re.I,
+    r"broad(?:-|\s)based supplier|identifying alternative suppliers", re.I,
 )
 
 
@@ -67,7 +74,10 @@ def score_supplier_concentration(text):
 # ---------------------------------------------------------------------------
 
 _TRANSPARENT_TERMS = re.compile(
-    rf"credit period of ({_NUM})\s*days|payment terms? of ({_NUM})\s*days|"
+    # "credit period" is followed by "of"/"upto"/"up to" across real
+    # filers - confirmed real on BAJAJ-AUTO ("extended credit period
+    # upto 45 days by its vendors"), not just "of".
+    rf"credit period (?:of|up\s*to)\s*({_NUM})\s*days|payment terms? (?:of|up\s*to)\s*({_NUM})\s*days|"
     r"long[- ]term supply agreement|multi[- ]year supply contract|"
     r"master supply agreement", re.I,
 )
