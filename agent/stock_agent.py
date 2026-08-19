@@ -2446,6 +2446,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _e6 = None
+    try:
+        from tools.qualitative_engine import compute_e6_off_market_arms_length
+        _e6 = compute_e6_off_market_arms_length(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced E.6 engine failed: {e}")
+        _e6 = {
+            'available': True,
+            'rationale': 'Not computed — E.6 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3841,6 +3853,29 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No inventory write-down/slow-moving-inventory disclosure was located for {_co} in the latest Annual Report this run."}
     _e5_panels = [_e5_1_panel, _e5_2_panel, _e5_3_panel]
 
+    _e6_1, _e6_2 = (_e6 or {}).get('e6_1') or {}, (_e6 or {}).get('e6_2') or {}
+
+    if _e6_1.get('risk_score') is not None:
+        _e6_1_panel = {
+            'type': 'kpi_card', 'title': 'Off-Market Transactions',
+            'centerValue': f"{_e6_1.get('risk_score')}/5",
+            'explanation': f"{_e6_1.get('transaction_count')} real off-market/block-deal-type disclosure(s) found, {_e6_1.get('named_counterparty_count')} naming a counterparty and {_e6_1.get('rationale_disclosed_count')} stating a commercial rationale (score {_e6_1.get('risk_score')}/5).",
+        }
+    else:
+        _e6_1_panel = {'type': 'unavailable', 'title': 'Off-Market Transactions',
+                        'explanation': f"No off-market/block-deal/inter-se-transfer/preferential-issue disclosure was located for {_co} this run."}
+
+    if _e6_2.get('evidence_score') is not None:
+        _e6_2_panel = {
+            'type': 'kpi_card', 'title': "Non-Arm's-Length Contracts",
+            'centerValue': f"{_e6_2.get('evidence_score')}/5",
+            'explanation': (f"Arm's-length pricing {'confirmed' if _e6_2.get('arms_length_confirmed') else 'not explicitly confirmed'}; Audit Committee approval {'documented' if _e6_2.get('audit_committee_approved') else 'not explicitly documented'}" if not _e6_2.get('opaque_flag') else "An explicit non-arm's-length pricing statement or Audit Committee approval gap was found") + f" (score {_e6_2.get('evidence_score')}/5).",
+        }
+    else:
+        _e6_2_panel = {'type': 'unavailable', 'title': "Non-Arm's-Length Contracts",
+                        'explanation': f"No explicit arm's-length pricing statement or Audit Committee approval language was located for {_co} in the Related Party Disclosures note this run."}
+    _e6_panels = [_e6_1_panel, _e6_2_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4761,6 +4796,24 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_e5 or {}).get('confidence_tag'), 'retrieved_at': (_e5 or {}).get('retrieved_at'),
                     'pathway_results': (_e5 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'off_market_arms_length',
+                    'title': "Off-market transactions, non-arm's length contracts, side-letters or sweetheart deals",
+                    'finding': (_e6 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Off-market transactions score', f"{_e6_1.get('risk_score')}/5"] if _e6_1.get('risk_score') is not None else None),
+                        (["Non-arm's-length contracts score", f"{_e6_2.get('evidence_score')}/5"] if _e6_2.get('evidence_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _e6_panels} if _e6_panels else None),
+                    'formula': 'Transaction Risk Score (1-5) = based on disclosure, counterparty and commercial rationale of off-market/block-deal-type transactions; '
+                               "Arm's-length Evidence Score (1-5) = based on documented commercial purpose and arm's-length basis in Related Party Disclosures.",
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'off-market/block-deal/preferential-transaction keyword search', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Related Party Disclosures — contractual terms, pricing basis and approval', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_e6 or {}).get('confidence_tag'), 'retrieved_at': (_e6 or {}).get('retrieved_at'),
+                    'pathway_results': (_e6 or {}).get('pathway_results'),
                 },
             ],
         },

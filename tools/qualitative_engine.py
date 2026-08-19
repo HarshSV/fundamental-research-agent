@@ -10608,3 +10608,178 @@ def compute_e5_inventory_demand_risk(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+def compute_e6_1_off_market_transactions(symbol, name=None, force=False):
+    """E.6.1 - Off-market transactions. Spec formula: Transaction Risk
+    Score (1-5) based on disclosure, counterparty and commercial
+    rationale. Deterministic (no LLM) - see
+    tools.off_market_scoring.score_off_market_transactions: scans real
+    NSE Corporate Announcements for off-market/block-deal/bulk-deal/
+    inter-se-transfer/preferential-issue language, cross-checked
+    against the same Related Party Disclosures note text used for
+    E.1/D.5. Sourcing: NSE Corporate Filings - Corporate Announcements
+    (keyword search) + Annual Reports - Notes to Accounts.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.6.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.nse_announcements import fetch_announcements
+        from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report
+        from tools.off_market_scoring import classify_off_market_announcements, score_off_market_transactions
+        announcements = fetch_announcements(sym) or []
+        matches = classify_off_market_announcements(announcements)
+        evidence = fetch_rpt_evidence_from_annual_report(sym, name) or {}
+        rpt_text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or []))
+        result = score_off_market_transactions(matches, rpt_text)
+    except Exception as e:
+        print(f"[qualitative_engine] E.6.1 fetch failed for {sym}: {e}")
+        result = {"transaction_count": None, "named_counterparty_count": None, "rationale_disclosed_count": None, "risk_score": None}
+
+    pathway_results = [{
+        "pathway_id": "PORTAL-02",
+        "source": "NSE Corporate Filings - Corporate Announcements (off-market/block-deal/inter-se-transfer keyword search) + Annual Reports - Notes to Accounts",
+        "result": "CHECKED" if result["risk_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["risk_score"] is not None else "No off-market/block-deal/inter-se-transfer/preferential-issue disclosure was located this run.",
+    }]
+
+    if result["risk_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Off-market transactions", "available": True, **result,
+            "rationale": "No off-market/block-deal/inter-se-transfer/preferential-issue disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Off-market transactions", "available": True, **result,
+        "rationale": f"{result['transaction_count']} real off-market/block-deal-type disclosure(s) found, {result['named_counterparty_count']} naming a counterparty and {result['rationale_disclosed_count']} stating a commercial rationale -> score {result['risk_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e6_2_non_arms_length_contracts(symbol, name=None, force=False):
+    """E.6.2 - Non-arm's-length contracts. Spec formula: Arm's-length
+    Evidence Score (1-5). Deterministic (no LLM) - reuses
+    tools.rpt_leakage_scoring.score_payment_rationale directly (the
+    same real arm's-length/Audit-Committee-approval signal already
+    built for E.1.3), since the spec's own sourcing path for E.6.2
+    ("Related Party Disclosures - contractual terms, pricing basis and
+    approval") is identical to E.1.3's. Sourcing: NSE Corporate
+    Filings - Annual Reports - Related Party Disclosures - contractual
+    terms, pricing basis and approval.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "E.6.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report
+        from tools.rpt_leakage_scoring import score_payment_rationale
+        evidence = fetch_rpt_evidence_from_annual_report(sym, name) or {}
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or []))
+        result = score_payment_rationale(text)
+        result = {"arms_length_confirmed": result.get("arms_length_confirmed"), "audit_committee_approved": result.get("audit_committee_approved"),
+                  "opaque_flag": result.get("opaque_flag"), "evidence_score": result.get("rationale_score")}
+    except Exception as e:
+        print(f"[qualitative_engine] E.6.2 fetch failed for {sym}: {e}")
+        result = {"arms_length_confirmed": None, "audit_committee_approved": None, "opaque_flag": None, "evidence_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Related Party Disclosures - contractual terms, pricing basis and approval",
+        "result": "CHECKED" if result["evidence_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["evidence_score"] is not None else "No explicit arm's-length pricing statement or Audit Committee approval language was located in the Related Party Disclosures note this run.",
+    }]
+
+    if result["evidence_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Non-arm's-length contracts", "available": True, **result,
+            "rationale": "No explicit arm's-length pricing statement or Audit Committee approval language was located in the Related Party Disclosures note this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    if result["opaque_flag"]:
+        rationale = "An explicit non-arm's-length pricing statement or Audit Committee approval gap was found -> score 1/5."
+    else:
+        rationale = f"Arm's-length pricing {'confirmed' if result['arms_length_confirmed'] else 'not explicitly confirmed'}; Audit Committee approval {'documented' if result['audit_committee_approved'] else 'not explicitly documented'} -> score {result['evidence_score']}/5."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Non-arm's-length contracts", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_e6_off_market_arms_length(symbol, name=None, force=False):
+    """E.6 - Off-market transactions, non-arm's length contracts, side-
+    letters or sweetheart deals: combines the two defined sub-points
+    (E.6.1 off-market transactions, E.6.2 non-arm's-length contracts)
+    into a single grounded payload (E.6.3 is not defined in the spec
+    workbook, so no sub-point is fabricated for it), sourced from the
+    same real NSE Corporate Announcements and Related Party Disclosures
+    note already built for D.1-D.3/E.1 - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    e6_1 = compute_e6_1_off_market_transactions(sym, name, force=force)
+    e6_2 = compute_e6_2_non_arms_length_contracts(sym, name, force=force)
+
+    parts = []
+    if e6_1.get("risk_score") is not None:
+        parts.append(f"Off-market transactions: score {e6_1['risk_score']}/5.")
+    if e6_2.get("evidence_score") is not None:
+        parts.append(f"Non-arm's-length contracts: score {e6_2['evidence_score']}/5.")
+    if not parts:
+        parts.append("No off-market-transaction or non-arm's-length-contract evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (e6_1, e6_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (e6_1, e6_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "E.6",
+        "title": "Off-market transactions, non-arm's length contracts, side-letters or sweetheart deals",
+        "available": True,
+        "e6_1": e6_1, "e6_2": e6_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (e6_1.get("pathway_results") or [])[:1] + (e6_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
