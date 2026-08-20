@@ -11494,3 +11494,111 @@ def compute_f2_new_entrant_threat(symbol, name=None, force=False):
         "retrieved_at": f2_1.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+def compute_f3_2_price_war_evidence(symbol, name=None, force=False, margins_annual=None):
+    """F.3.2 - Price-war evidence. Spec formula: Margin Pressure =
+    Current Margin - Prior-period Margin; interpret alongside management
+    commentary. Deterministic (no LLM) - `margins_annual` is computed
+    upstream (agent/stock_agent.py) directly from the company's own
+    audited annual gross/operating margins (the same financial-statement
+    pipeline every Sr 1-92 ratio card and A.6 margin sustainability use)
+    and passed in here - real numbers from the XBRL Financial Results
+    the spec's own sourcing path names, not text-mined from the AR.
+    F.3.1 was left blank in the spec table supplied - not built.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "F.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    rows = [r for r in (margins_annual or []) if str(r.get("date", "")).upper() != "TTM"]
+    op_rows = [r for r in rows if r.get("ebit_margin") is not None]
+    gross_rows = [r for r in rows if r.get("gross_margin") is not None]
+
+    pathway_results = [{
+        "pathway_id": "XBRL-01",
+        "source": "NSE Corporate Filings - Financial Results - XBRL/attachment - gross/operating margin trend",
+        "result": "CHECKED" if len(op_rows) >= 2 else "NOT_DISCLOSED",
+        "note": None if len(op_rows) >= 2 else "Fewer than two years of real operating-margin data were available for this company.",
+    }]
+
+    if len(op_rows) < 2:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Price-war evidence", "available": True,
+            "op_margin_pressure_pp": None, "gross_margin_pressure_pp": None, "classification": None,
+            "op_margin_series": None,
+            "rationale": "Fewer than two years of real operating-margin data were available for this company.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    current, prior = op_rows[-1], op_rows[-2]
+    op_pressure_pp = round((current["ebit_margin"] - prior["ebit_margin"]) * 100, 2)
+    gross_pressure_pp = None
+    if len(gross_rows) >= 2:
+        gcurrent, gprior = gross_rows[-1], gross_rows[-2]
+        gross_pressure_pp = round((gcurrent["gross_margin"] - gprior["gross_margin"]) * 100, 2)
+
+    if op_pressure_pp <= -2.0:
+        classification = "Price-war evidence (significant compression)"
+    elif op_pressure_pp <= -0.5:
+        classification = "Margin pressure"
+    elif op_pressure_pp >= 0.5:
+        classification = "Margin expansion"
+    else:
+        classification = "Stable"
+
+    op_margin_series = [
+        {"label": str(r.get("date", ""))[:7], "value": round(r["ebit_margin"] * 100, 2)}
+        for r in op_rows[-8:]
+    ]
+
+    parts = [f"Operating margin {op_pressure_pp:+.2f}pp YoY ({prior['ebit_margin']*100:.2f}% -> {current['ebit_margin']*100:.2f}%) -> {classification}."]
+    if gross_pressure_pp is not None:
+        parts.append(f"Gross margin {gross_pressure_pp:+.2f}pp YoY.")
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Price-war evidence", "available": True,
+        "op_margin_pressure_pp": op_pressure_pp, "gross_margin_pressure_pp": gross_pressure_pp,
+        "classification": classification, "op_margin_series": op_margin_series,
+        "rationale": " ".join(parts),
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_f3_price_dynamics(symbol, name=None, force=False, margins_annual=None):
+    """F.3 - Pricing dynamics in sector: margin pressure or price wars.
+    Wraps F.3.2 (Price-war evidence) - F.3.1 was left blank in the spec
+    table supplied, so not built.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    f3_2 = compute_f3_2_price_war_evidence(sym, name, force=force, margins_annual=margins_annual)
+
+    payload = {
+        "subpoint_id": "F.3",
+        "title": "Pricing dynamics in sector: margin pressure or price wars",
+        "available": True,
+        "f3_2": f3_2,
+        "rationale": f3_2.get("rationale") or "No margin-trend evidence was located for this company this run.",
+        "pathway_results": (f3_2.get("pathway_results") or [])[:1],
+        "confidence_tag": f3_2.get("confidence_tag") or "SEARCH_INCONCLUSIVE",
+        "retrieved_at": f3_2.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

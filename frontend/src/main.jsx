@@ -3063,7 +3063,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         sustained={sp.chart?.sustained || 'Yes'}
                     />
                 );
-            } else if (sp.key === 'margin_sustainability') {
+            } else if (sp.key === 'margin_sustainability' || sp.key === 'price_war_evidence') {
                 revenuePatternDonut = (
                     <EbitdaMarginAnalytics
                         rows={sp.chart?.rows}

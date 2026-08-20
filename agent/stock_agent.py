@@ -2494,6 +2494,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _f3 = None
+    try:
+        from tools.qualitative_engine import compute_f3_price_dynamics
+        _f3 = compute_f3_price_dynamics(symbol, name, margins_annual=margins.get('margins_annual'))
+    except Exception as e:
+        print(f"[qualitative_topics] sourced F.3 engine failed: {e}")
+        _f3 = {
+            'available': True,
+            'rationale': 'Not computed — F.3 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -4008,6 +4020,8 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No regulatory/licensing, capital-intensity, distribution, technology/IP, or scale barrier language was located for {_co} in the latest Annual Report this run."}
     _f2_panels = [_f2_1_panel]
 
+    _f3_2 = (_f3 or {}).get('f3_2') or {}
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -5007,6 +5021,30 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_f2 or {}).get('confidence_tag'), 'retrieved_at': (_f2 or {}).get('retrieved_at'),
                     'pathway_results': (_f2 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'price_war_evidence',
+                    'title': 'Pricing dynamics in sector: margin pressure or price wars',
+                    'finding': (_f3 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Operating margin pressure', f"{_f3_2.get('op_margin_pressure_pp'):+.2f}pp YoY"] if _f3_2.get('op_margin_pressure_pp') is not None else None),
+                        (['Gross margin pressure', f"{_f3_2.get('gross_margin_pressure_pp'):+.2f}pp YoY"] if _f3_2.get('gross_margin_pressure_pp') is not None else None),
+                        (['Classification', _f3_2.get('classification')] if _f3_2.get('classification') else None),
+                    ] if f],
+                    'chart': ({
+                        'type': 'ebitda_margin_analytics',
+                        'rows': _f3_2.get('op_margin_series'),
+                        'avgMargin': f"{_f3_2.get('op_margin_series')[-1]['value']:.1f}%" if _f3_2.get('op_margin_series') else None,
+                        'volatility': None,
+                        'annotations': [],
+                    } if _f3_2.get('op_margin_series') and len(_f3_2.get('op_margin_series')) >= 3 else None),
+                    'formula': 'Margin Pressure = Current Operating Margin - Prior-period Operating Margin (real, audited annual figures from the same financial-statement pipeline every ratio card uses); interpret alongside management commentary.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Financial Results', 'note': 'XBRL / attachment — gross/operating margin trend', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-financial-results'},
+                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — margins / competition', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_f3 or {}).get('confidence_tag'), 'retrieved_at': (_f3 or {}).get('retrieved_at'),
+                    'pathway_results': (_f3 or {}).get('pathway_results'),
                 },
             ],
         },
