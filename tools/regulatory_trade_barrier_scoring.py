@@ -21,7 +21,9 @@ _REGULATORY_BARRIER_DIMENSIONS = {
     "licence_to_operate": re.compile(r"\blicen[cs]e\s+to\s+operate\b", re.I),
     "mining_or_resource_lease": re.compile(r"\bmining\s+leases?\b|\bmining\s+licen[cs]es?\b", re.I),
     "mandatory_standards": re.compile(
-        r"\bindustrial\s+standards\b|\bmandatory\s+standards?\b|\bBIS\s+certif\w*\b|\bquality\s+control\s+order\b",
+        r"\bindustrial\s+standards\b|\bmandatory\s+standards?\b|\bBIS\s+certif\w*\b|\bBIS\s+standards?\b|"
+        r"\bquality\s+control\s+order\b|\blegal\s+metrology\s+act\b|\bfood\s+safety\s+and\s+standards\s+act\b|"
+        r"\bcosmetic\s+rules\b|\bapplicable\s+standards\b",
         re.I,
     ),
 }

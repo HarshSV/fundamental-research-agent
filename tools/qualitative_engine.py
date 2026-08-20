@@ -11787,7 +11787,8 @@ def compute_f5_foreign_competition(symbol, name=None, force=False):
 
 
 _REGULATORY_TRADE_BARRIER_ANCHORS = [
-    "USFDA", "regulatory approval", "licence to operate", "mining lease", "BIS certif", "quality control order",
+    "USFDA", "regulatory approval", "licence to operate", "mining lease", "BIS certif", "BIS standard",
+    "quality control order", "legal metrology", "food safety and standards act", "cosmetic rules",
     "tariff", "import duty", "export duty", "anti-dumping", "anti dumping", "safeguard duty",
     "foreign trade policy", "ITC(HS)", "export incentive", "import quota",
 ]
@@ -11796,7 +11797,7 @@ _REGULATORY_TRADE_BARRIER_ANCHORS = [
 def _fetch_regulatory_trade_barrier_text(sym, name):
     from tools.annual_report_financials import _fetch_ar_evidence_excerpts
     evidence = _fetch_ar_evidence_excerpts(
-        sym, name, _REGULATORY_TRADE_BARRIER_ANCHORS, "ar_regtrade_text_v1",
+        sym, name, _REGULATORY_TRADE_BARRIER_ANCHORS, "ar_regtrade_text_v2",
         max_per_page=5, max_excerpts=25, fetch_label="regulatory-trade-barriers",
     )
     text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
