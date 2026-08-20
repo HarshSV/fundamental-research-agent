@@ -11135,3 +11135,362 @@ def compute_e7_accounting_policy_risk(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+_COMPETITIVE_LANDSCAPE_ANCHORS = [
+    "market share", "market leader", "market leadership", "competitors", "competition",
+    "industry structure", "competitive landscape", "largest exporter", "compete with",
+    "principal competitors", "key competitors",
+]
+
+
+def _fetch_competitive_landscape_text(sym, name):
+    from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+    evidence = _fetch_ar_evidence_excerpts(
+        sym, name, _COMPETITIVE_LANDSCAPE_ANCHORS, "ar_complandscape_text_v1",
+        max_per_page=5, max_excerpts=25, fetch_label="competitive-landscape",
+    )
+    text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+    pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
+    return text, pdf_url
+
+
+def compute_f1_1_competitor_count(symbol, name=None, force=False):
+    """F.1.1 - Number of material competitors. Deterministic (no LLM) -
+    see tools.competitive_landscape_scoring.score_competitor_count. Real
+    Indian AR MD&A sections almost never name specific rival companies
+    (commercially sensitive), confirmed by direct inspection of
+    HINDUNILVR, MARUTI, and ASIANPAINT ARs - none name a single
+    competitor - so this is honestly N/A far more often than F.1.2/F.1.3.
+    Sourcing: NSE Corporate Filings - Annual Reports - MD&A - Industry
+    Structure / Competition.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "F.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.competitive_landscape_scoring import score_competitor_count
+        text, pdf_url = _fetch_competitive_landscape_text(sym, name)
+        result = score_competitor_count(text)
+    except Exception as e:
+        print(f"[qualitative_engine] F.1.1 fetch failed for {sym}: {e}")
+        result = {"competitor_count": None, "competitor_names": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-05",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Industry Structure / Competition",
+        "result": "CHECKED" if result["competitor_count"] is not None else "NOT_DISCLOSED",
+        "note": None if result["competitor_count"] is not None else "No named-competitor list was located in the latest Annual Report this run (Indian issuers routinely avoid naming rivals).",
+    }]
+
+    if result["competitor_count"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Number of material competitors", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No named-competitor list was located in the latest Annual Report this run (Indian issuers routinely avoid naming rivals in MD&A).",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Number of material competitors", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"{result['competitor_count']} named competitor(s) identified in the latest Annual Report MD&A.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_f1_2_market_position(symbol, name=None, force=False):
+    """F.1.2 - Relative market position. Spec: Market Position Score
+    (1-5) from disclosed market share/rank; do not estimate when not
+    disclosed. Deterministic (no LLM) - see
+    tools.competitive_landscape_scoring.score_market_position. Sourcing:
+    NSE Corporate Filings - Annual Reports - MD&A - Industry Overview /
+    Market Share.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "F.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.competitive_landscape_scoring import score_market_position
+        text, pdf_url = _fetch_competitive_landscape_text(sym, name)
+        result = score_market_position(text)
+    except Exception as e:
+        print(f"[qualitative_engine] F.1.2 fetch failed for {sym}: {e}")
+        result = {"market_share_pct": None, "market_position_score": None, "basis": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-05",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Industry Overview / Market Share",
+        "result": "CHECKED" if result["market_position_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["market_position_score"] is not None else "No disclosed market share % or leadership/rank claim was located in the latest Annual Report this run.",
+    }]
+
+    if result["market_position_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Relative market position", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No disclosed market share % or leadership/rank claim was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    if result["basis"] == "disclosed_market_share_pct":
+        rationale = f"Disclosed market share: {result['market_share_pct']}% (score {result['market_position_score']}/5)."
+    elif result["basis"] == "disclosed_segment_market_share_pct":
+        rationale = f"Disclosed SEGMENT-level market share: {result['market_share_pct']}% (not overall market share; score {result['market_position_score']}/5)."
+    else:
+        rationale = f"Disclosed market leadership/rank claim (no numeric % given; score {result['market_position_score']}/5)."
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Relative market position", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_f1_3_competitor_strength(symbol, name=None, force=False):
+    """F.1.3 - Competitor strength. Spec: Competitive Strength Score
+    (1-5) based on disclosed peer advantages. Deterministic (no LLM) -
+    see tools.competitive_landscape_scoring.score_competitor_strength.
+    Sourcing: NSE Corporate Filings - Annual Reports - MD&A -
+    competitive advantages / peer comparison.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "F.1.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.competitive_landscape_scoring import score_competitor_strength
+        text, pdf_url = _fetch_competitive_landscape_text(sym, name)
+        result = score_competitor_strength(text)
+    except Exception as e:
+        print(f"[qualitative_engine] F.1.3 fetch failed for {sym}: {e}")
+        result = {"strength_dimensions": None, "competitive_strength_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-05",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - competitive advantages / peer comparison",
+        "result": "CHECKED" if result["competitive_strength_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["competitive_strength_score"] is not None else "No disclosed scale/distribution/technology/cost advantage language was located in the latest Annual Report this run.",
+    }]
+
+    if result["competitive_strength_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Competitor strength", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No disclosed scale/distribution/technology/cost advantage language was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    dims = ", ".join(result["strength_dimensions"])
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Competitor strength", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"Disclosed competitive advantage(s): {dims} (score {result['competitive_strength_score']}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_f1_competitive_landscape(symbol, name=None, force=False):
+    """F.1 - Competitive landscape: number and strength of competitors,
+    market shares. Combines F.1.1-F.1.3 into a single grounded payload,
+    sourced from the same real Annual Report MD&A text - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    f1_1 = compute_f1_1_competitor_count(sym, name, force=force)
+    f1_2 = compute_f1_2_market_position(sym, name, force=force)
+    f1_3 = compute_f1_3_competitor_strength(sym, name, force=force)
+
+    parts = []
+    if f1_1.get("competitor_count") is not None:
+        parts.append(f"Named competitors: {f1_1['competitor_count']}.")
+    if f1_2.get("market_position_score") is not None:
+        parts.append(f"Market position: score {f1_2['market_position_score']}/5.")
+    if f1_3.get("competitive_strength_score") is not None:
+        parts.append(f"Competitive strength: score {f1_3['competitive_strength_score']}/5.")
+    if not parts:
+        parts.append("No named-competitor, market-share/rank, or competitive-advantage evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (f1_1, f1_2, f1_3)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (f1_1, f1_2, f1_3) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "F.1",
+        "title": "Competitive landscape: number and strength of competitors, market shares",
+        "available": True,
+        "f1_1": f1_1, "f1_2": f1_2, "f1_3": f1_3,
+        "rationale": " ".join(parts),
+        "pathway_results": (f1_1.get("pathway_results") or [])[:1] + (f1_2.get("pathway_results") or [])[:1] + (f1_3.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+_ENTRY_BARRIER_ANCHORS = [
+    "entry barrier", "barriers to entry", "capital intensive", "capital intensity",
+    "licences required", "regulatory approvals", "economies of scale", "new entrants",
+    "distribution network", "proprietary technology", "patents",
+]
+
+
+def compute_f2_1_entry_barriers(symbol, name=None, force=False):
+    """F.2.1 - Entry barriers. Spec: Entry Barrier Score (1-5).
+    Deterministic (no LLM) - see
+    tools.entry_barrier_scoring.score_entry_barriers. Real Indian AR
+    MD&A text almost never uses the literal phrase "entry barrier" -
+    confirmed by direct inspection of MARUTI, ULTRACEMCO, and CIPLA ARs
+    - so this counts real, generic barrier-type language (regulatory/
+    licensing, capital intensity, distribution, technology/IP, scale)
+    instead, and will genuinely be N/A more often than most sub-points.
+    Sourcing: NSE Corporate Filings - Annual Reports - MD&A - Industry
+    Structure / Risk Factors.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "F.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.entry_barrier_scoring import score_entry_barriers
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _ENTRY_BARRIER_ANCHORS, "ar_entrybarrier_text_v1",
+            max_per_page=5, max_excerpts=25, fetch_label="entry-barriers",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
+        result = score_entry_barriers(text)
+    except Exception as e:
+        print(f"[qualitative_engine] F.2.1 fetch failed for {sym}: {e}")
+        result = {"barrier_dimensions": None, "entry_barrier_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-05",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Industry Structure / Risk Factors",
+        "result": "CHECKED" if result["entry_barrier_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["entry_barrier_score"] is not None else "No regulatory/licensing, capital-intensity, distribution, technology/IP, or scale barrier language was located in the latest Annual Report this run.",
+    }]
+
+    if result["entry_barrier_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Entry barriers", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No regulatory/licensing, capital-intensity, distribution, technology/IP, or scale barrier language was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    dims = ", ".join(result["barrier_dimensions"])
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Entry barriers", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"Disclosed entry-barrier dimension(s): {dims} (score {result['entry_barrier_score']}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_f2_new_entrant_threat(symbol, name=None, force=False):
+    """F.2 - Threat from new entrants or substitute technologies.
+    Currently wraps F.2.1 (Entry barriers) - the only sub-point
+    supplied so far; combiner shape kept consistent with every other
+    F/E-series topic so later sub-points (F.2.2/F.2.3, if supplied) can
+    be added without changing this function's signature or callers.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    f2_1 = compute_f2_1_entry_barriers(sym, name, force=force)
+
+    parts = []
+    if f2_1.get("entry_barrier_score") is not None:
+        parts.append(f"Entry barriers: score {f2_1['entry_barrier_score']}/5.")
+    if not parts:
+        parts.append("No entry-barrier evidence was located for this company this run.")
+
+    payload = {
+        "subpoint_id": "F.2",
+        "title": "Threat from new entrants or substitute technologies",
+        "available": True,
+        "f2_1": f2_1,
+        "rationale": " ".join(parts),
+        "pathway_results": (f2_1.get("pathway_results") or [])[:1],
+        "confidence_tag": f2_1.get("confidence_tag") or "SEARCH_INCONCLUSIVE",
+        "retrieved_at": f2_1.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

@@ -2470,6 +2470,30 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _f1 = None
+    try:
+        from tools.qualitative_engine import compute_f1_competitive_landscape
+        _f1 = compute_f1_competitive_landscape(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced F.1 engine failed: {e}")
+        _f1 = {
+            'available': True,
+            'rationale': 'Not computed — F.1 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
+    _f2 = None
+    try:
+        from tools.qualitative_engine import compute_f2_new_entrant_threat
+        _f2 = compute_f2_new_entrant_threat(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced F.2 engine failed: {e}")
+        _f2 = {
+            'available': True,
+            'rationale': 'Not computed — F.2 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -3931,6 +3955,59 @@ def build_executive_summary(state: SystemState) -> dict:
                         'explanation': f"No Exceptional Items P&L line was located for {_co} in the latest Annual Report this run."}
     _e7_panels = [_e7_1_panel, _e7_2_panel, _e7_3_panel, _e7_4_panel]
 
+    _f1_1, _f1_2, _f1_3 = (_f1 or {}).get('f1_1') or {}, (_f1 or {}).get('f1_2') or {}, (_f1 or {}).get('f1_3') or {}
+
+    if _f1_1.get('competitor_count') is not None:
+        _f1_1_panel = {
+            'type': 'kpi_card', 'title': 'Number of Material Competitors',
+            'centerValue': str(_f1_1.get('competitor_count')),
+            'explanation': f"{_f1_1.get('competitor_count')} named competitor(s) identified in the latest Annual Report MD&A.",
+        }
+    else:
+        _f1_1_panel = {'type': 'unavailable', 'title': 'Number of Material Competitors',
+                        'explanation': f"No named-competitor list was located for {_co} in the latest Annual Report MD&A this run (Indian issuers routinely avoid naming rivals)."}
+
+    if _f1_2.get('market_position_score') is not None:
+        if _f1_2.get('basis') == 'disclosed_market_share_pct':
+            _f1_2_expl = f"Disclosed market share: {_f1_2.get('market_share_pct')}% (score {_f1_2.get('market_position_score')}/5)."
+        elif _f1_2.get('basis') == 'disclosed_segment_market_share_pct':
+            _f1_2_expl = f"Disclosed SEGMENT-level market share: {_f1_2.get('market_share_pct')}% (not overall market share; score {_f1_2.get('market_position_score')}/5)."
+        else:
+            _f1_2_expl = f"Disclosed market leadership/rank claim (no numeric % given; score {_f1_2.get('market_position_score')}/5)."
+        _f1_2_panel = {
+            'type': 'kpi_card', 'title': 'Relative Market Position',
+            'centerValue': f"{_f1_2.get('market_position_score')}/5",
+            'explanation': _f1_2_expl,
+        }
+    else:
+        _f1_2_panel = {'type': 'unavailable', 'title': 'Relative Market Position',
+                        'explanation': f"No disclosed market share % or leadership/rank claim was located for {_co} in the latest Annual Report this run."}
+
+    if _f1_3.get('competitive_strength_score') is not None:
+        _f1_3_panel = {
+            'type': 'kpi_card', 'title': 'Competitor Strength',
+            'centerValue': f"{_f1_3.get('competitive_strength_score')}/5",
+            'explanation': f"Disclosed competitive advantage(s): {', '.join(_f1_3.get('strength_dimensions') or [])} (score {_f1_3.get('competitive_strength_score')}/5).",
+        }
+    else:
+        _f1_3_panel = {'type': 'unavailable', 'title': 'Competitor Strength',
+                        'explanation': f"No disclosed scale/distribution/technology/cost advantage language was located for {_co} in the latest Annual Report this run."}
+    _f1_panels = [_f1_1_panel, _f1_2_panel, _f1_3_panel]
+
+    _f2_1 = (_f2 or {}).get('f2_1') or {}
+    if _f2_1.get('entry_barrier_score') is not None:
+        _f2_1_score = _f2_1.get('entry_barrier_score')
+        _f2_1_zone = 'Low' if _f2_1_score <= 2 else ('Moderate' if _f2_1_score == 3 else 'High')
+        _f2_1_panel = {
+            'type': 'classification', 'title': 'Entry Barriers',
+            'zones': ['Low', 'Moderate', 'High'], 'active': _f2_1_zone,
+            'explanation': f"Disclosed entry-barrier dimension(s): {', '.join(_f2_1.get('barrier_dimensions') or [])} (score {_f2_1_score}/5).",
+        }
+    else:
+        _f2_1_panel = {'type': 'unavailable', 'title': 'Entry Barriers',
+                        'explanation': f"No regulatory/licensing, capital-intensity, distribution, technology/IP, or scale barrier language was located for {_co} in the latest Annual Report this run."}
+    _f2_panels = [_f2_1_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -4890,6 +4967,46 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_e7 or {}).get('confidence_tag'), 'retrieved_at': (_e7 or {}).get('retrieved_at'),
                     'pathway_results': (_e7 or {}).get('pathway_results'),
+                },
+            ],
+        },
+        'market_competition': {
+            'topic': 'F. Market & competition',
+            'subpoints': [
+                {
+                    'key': 'competitive_landscape',
+                    'title': 'Competitive landscape: number and strength of competitors, market shares',
+                    'finding': (_f1 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Named competitors', _f1_1.get('competitor_count')] if _f1_1.get('competitor_count') is not None else None),
+                        (['Market position score', f"{_f1_2.get('market_position_score')}/5"] if _f1_2.get('market_position_score') is not None else None),
+                        (['Competitive strength score', f"{_f1_3.get('competitive_strength_score')}/5"] if _f1_3.get('competitive_strength_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _f1_panels} if _f1_panels else None),
+                    'formula': 'Competitor Count = number of material named competitors identified from filings; '
+                               'Market Position Score (1-5) = from disclosed market share/rank, not estimated when not disclosed; '
+                               'Competitive Strength Score (1-5) = based on disclosed peer advantages (scale, distribution, technology, cost position).',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Industry Structure / Competition; Industry Overview / Market Share; competitive advantages / peer comparison', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'investor presentations for market context', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                    },
+                    'confidence_tag': (_f1 or {}).get('confidence_tag'), 'retrieved_at': (_f1 or {}).get('retrieved_at'),
+                    'pathway_results': (_f1 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'new_entrant_threat',
+                    'title': 'Threat from new entrants or substitute technologies',
+                    'finding': (_f2 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Entry barrier score', f"{_f2_1.get('entry_barrier_score')}/5"] if _f2_1.get('entry_barrier_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _f2_panels} if _f2_panels else None),
+                    'formula': 'Entry Barrier Score (1-5) = based on disclosed regulatory/licensing, capital-intensity, distribution, technology/IP, and scale barriers.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Industry Structure / Risk Factors — licences, capital intensity, distribution, technology or scale barriers', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_f2 or {}).get('confidence_tag'), 'retrieved_at': (_f2 or {}).get('retrieved_at'),
+                    'pathway_results': (_f2 or {}).get('pathway_results'),
                 },
             ],
         },
