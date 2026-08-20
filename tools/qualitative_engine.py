@@ -11784,3 +11784,180 @@ def compute_f5_foreign_competition(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+_REGULATORY_TRADE_BARRIER_ANCHORS = [
+    "USFDA", "regulatory approval", "licence to operate", "mining lease", "BIS certif", "quality control order",
+    "tariff", "import duty", "export duty", "anti-dumping", "anti dumping", "safeguard duty",
+    "foreign trade policy", "ITC(HS)", "export incentive", "import quota",
+]
+
+
+def _fetch_regulatory_trade_barrier_text(sym, name):
+    from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+    evidence = _fetch_ar_evidence_excerpts(
+        sym, name, _REGULATORY_TRADE_BARRIER_ANCHORS, "ar_regtrade_text_v1",
+        max_per_page=5, max_excerpts=25, fetch_label="regulatory-trade-barriers",
+    )
+    text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+    pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
+    return text, pdf_url
+
+
+def compute_f4_1_regulatory_barriers(symbol, name=None, force=False):
+    """F.4.1 - Regulatory barriers. Spec: Barrier Score (1-5): strength
+    and durability of regulatory barriers. Deterministic (no LLM) - see
+    tools.regulatory_trade_barrier_scoring.score_regulatory_barriers.
+    Sourcing: NSE Corporate Filings - Annual Reports - MD&A -
+    Regulation / Licensing / Industry Structure.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "F.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.regulatory_trade_barrier_scoring import score_regulatory_barriers
+        text, pdf_url = _fetch_regulatory_trade_barrier_text(sym, name)
+        result = score_regulatory_barriers(text)
+    except Exception as e:
+        print(f"[qualitative_engine] F.4.1 fetch failed for {sym}: {e}")
+        result = {"regulatory_barrier_dimensions": None, "regulatory_barrier_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-05",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Regulation / Licensing / Industry Structure",
+        "result": "CHECKED" if result["regulatory_barrier_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["regulatory_barrier_score"] is not None else "No regulatory-approval-regime, licence-to-operate, mining/resource-lease, or mandatory-standards language was located in the latest Annual Report this run.",
+    }]
+
+    if result["regulatory_barrier_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Regulatory barriers", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No regulatory-approval-regime, licence-to-operate, mining/resource-lease, or mandatory-standards language was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    dims = ", ".join(result["regulatory_barrier_dimensions"])
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Regulatory barriers", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"Disclosed regulatory-barrier dimension(s): {dims} (score {result['regulatory_barrier_score']}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_f4_2_trade_barriers(symbol, name=None, force=False):
+    """F.4.2 - Trade barriers. Spec: Trade Barrier Exposure Score
+    (1-5). Deterministic (no LLM) - see
+    tools.regulatory_trade_barrier_scoring.score_trade_barriers.
+    Sourcing: NSE Corporate Filings - Annual Reports - MD&A -
+    imports/exports, tariffs and duties; DGFT - Foreign Trade Policy /
+    ITC(HS) relevant product policy.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "F.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.regulatory_trade_barrier_scoring import score_trade_barriers
+        text, pdf_url = _fetch_regulatory_trade_barrier_text(sym, name)
+        result = score_trade_barriers(text)
+    except Exception as e:
+        print(f"[qualitative_engine] F.4.2 fetch failed for {sym}: {e}")
+        result = {"trade_barrier_dimensions": None, "trade_barrier_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-05",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - imports/exports, tariffs and duties; DGFT - Foreign Trade Policy / ITC(HS)",
+        "result": "CHECKED" if result["trade_barrier_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["trade_barrier_score"] is not None else "No tariff, import/export duty, anti-dumping/safeguard duty, or trade-policy language was located in the latest Annual Report this run.",
+    }]
+
+    if result["trade_barrier_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Trade barriers", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No tariff, import/export duty, anti-dumping/safeguard duty, or trade-policy language was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    dims = ", ".join(result["trade_barrier_dimensions"])
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Trade barriers", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"Disclosed trade-barrier dimension(s): {dims} (score {result['trade_barrier_score']}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_f4_regulatory_trade_barriers(symbol, name=None, force=False):
+    """F.4 - Regulatory or trade barriers protecting or exposing the
+    company. Combines F.4.1-F.4.2 into a single grounded payload,
+    sourced from the same real Annual Report MD&A text - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    f4_1 = compute_f4_1_regulatory_barriers(sym, name, force=force)
+    f4_2 = compute_f4_2_trade_barriers(sym, name, force=force)
+
+    parts = []
+    if f4_1.get("regulatory_barrier_score") is not None:
+        parts.append(f"Regulatory barriers: score {f4_1['regulatory_barrier_score']}/5.")
+    if f4_2.get("trade_barrier_score") is not None:
+        parts.append(f"Trade barriers: score {f4_2['trade_barrier_score']}/5.")
+    if not parts:
+        parts.append("No regulatory-barrier or trade-barrier evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (f4_1, f4_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (f4_1, f4_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "F.4",
+        "title": "Regulatory or trade barriers protecting or exposing the company",
+        "available": True,
+        "f4_1": f4_1, "f4_2": f4_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (f4_1.get("pathway_results") or [])[:1] + (f4_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

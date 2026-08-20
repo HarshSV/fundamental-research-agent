@@ -2506,6 +2506,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _f4 = None
+    try:
+        from tools.qualitative_engine import compute_f4_regulatory_trade_barriers
+        _f4 = compute_f4_regulatory_trade_barriers(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced F.4 engine failed: {e}")
+        _f4 = {
+            'available': True,
+            'rationale': 'Not computed — F.4 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _f5 = None
     try:
         from tools.qualitative_engine import compute_f5_foreign_competition
@@ -4034,6 +4046,29 @@ def build_executive_summary(state: SystemState) -> dict:
 
     _f3_2 = (_f3 or {}).get('f3_2') or {}
 
+    _f4_1, _f4_2 = (_f4 or {}).get('f4_1') or {}, (_f4 or {}).get('f4_2') or {}
+
+    if _f4_1.get('regulatory_barrier_score') is not None:
+        _f4_1_panel = {
+            'type': 'kpi_card', 'title': 'Regulatory Barriers',
+            'centerValue': f"{_f4_1.get('regulatory_barrier_score')}/5",
+            'explanation': f"Disclosed regulatory-barrier dimension(s): {', '.join(_f4_1.get('regulatory_barrier_dimensions') or [])} (score {_f4_1.get('regulatory_barrier_score')}/5).",
+        }
+    else:
+        _f4_1_panel = {'type': 'unavailable', 'title': 'Regulatory Barriers',
+                        'explanation': f"No regulatory-approval-regime, licence-to-operate, mining/resource-lease, or mandatory-standards language was located for {_co} in the latest Annual Report this run."}
+
+    if _f4_2.get('trade_barrier_score') is not None:
+        _f4_2_panel = {
+            'type': 'kpi_card', 'title': 'Trade Barriers',
+            'centerValue': f"{_f4_2.get('trade_barrier_score')}/5",
+            'explanation': f"Disclosed trade-barrier dimension(s): {', '.join(_f4_2.get('trade_barrier_dimensions') or [])} (score {_f4_2.get('trade_barrier_score')}/5).",
+        }
+    else:
+        _f4_2_panel = {'type': 'unavailable', 'title': 'Trade Barriers',
+                        'explanation': f"No tariff, import/export duty, anti-dumping/safeguard duty, or trade-policy language was located for {_co} in the latest Annual Report this run."}
+    _f4_panels = [_f4_1_panel, _f4_2_panel]
+
     _f5_1, _f5_2 = (_f5 or {}).get('f5_1') or {}, (_f5 or {}).get('f5_2') or {}
 
     if _f5_1.get('foreign_competition_score') is not None:
@@ -5080,6 +5115,24 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_f3 or {}).get('confidence_tag'), 'retrieved_at': (_f3 or {}).get('retrieved_at'),
                     'pathway_results': (_f3 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'regulatory_trade_barriers',
+                    'title': 'Regulatory or trade barriers protecting or exposing the company',
+                    'finding': (_f4 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Regulatory barrier score', f"{_f4_1.get('regulatory_barrier_score')}/5"] if _f4_1.get('regulatory_barrier_score') is not None else None),
+                        (['Trade barrier exposure score', f"{_f4_2.get('trade_barrier_score')}/5"] if _f4_2.get('trade_barrier_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _f4_panels} if _f4_panels else None),
+                    'formula': 'Barrier Score (1-5) = strength and durability of disclosed regulatory-approval regime, licence-to-operate, mining/resource-lease, and mandatory-standards barriers; '
+                               'Trade Barrier Exposure Score (1-5) = based on disclosed tariffs, import/export duties, anti-dumping/safeguard duty, and trade-policy references.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Regulation / Licensing / Industry Structure; imports/exports, tariffs and duties', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'DGFT — Regulatory Updates / Foreign Trade Policy', 'note': 'ITC(HS) relevant product policy', 'url': 'https://www.dgft.gov.in/'},
+                    },
+                    'confidence_tag': (_f4 or {}).get('confidence_tag'), 'retrieved_at': (_f4 or {}).get('retrieved_at'),
+                    'pathway_results': (_f4 or {}).get('pathway_results'),
                 },
                 {
                     'key': 'foreign_competition',
