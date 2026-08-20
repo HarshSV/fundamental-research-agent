@@ -11961,3 +11961,94 @@ def compute_f4_regulatory_trade_barriers(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+def compute_f6_1_switching_costs(symbol, name=None, a2e_result=None):
+    """F.6.1 - Switching costs. Spec: Switching Cost Score (1-5).
+    Deterministic (no LLM) - this is NOT a new fetch/score. A.2.E
+    (compute_a2e_switching_costs_moat) already computes exactly this
+    real, evidenced score (contract lock-in term length, renewal rate,
+    regulatory/certification switching barriers, sourced from CRISIL/
+    ICRA rationale and Annual Report MD&A) for the moat-factor topic -
+    F.6.1 just re-surfaces that same real result under its own
+    subpoint_id/title rather than re-fetching and re-scoring the same
+    evidence a second time. `a2e_result` must be the already-computed
+    A.2.E payload (agent/stock_agent.py's `_a2e`).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    a2e = a2e_result or {}
+    score = a2e.get("score")
+    payload = {
+        "subpoint_id": "F.6.1", "title": "Switching costs", "available": True,
+        "switching_cost_score": score,
+        "rationale": a2e.get("rationale") or "No contract lock-in term, renewal rate, or switching-barrier evidence was located for this company this run.",
+        "evidence_quote": a2e.get("evidence_quote"),
+        "pathway_results": a2e.get("pathway_results") or [],
+        "confidence_tag": a2e.get("confidence_tag") or "SEARCH_INCONCLUSIVE",
+        "retrieved_at": a2e.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_f6_2_network_effects(symbol, name=None, a2d_result=None):
+    """F.6.2 - Network effects. Spec: Network Effect Score (1-5).
+    Deterministic (no LLM) - this is NOT a new fetch/score. A.2.D
+    (compute_a2d_network_effects_moat) already computes exactly this
+    real, evidenced score (a real growth-linkage figure - a value
+    metric like GMV/transaction value tracked against a user/seller/
+    buyer-base metric, sourced from Annual Report MD&A) for the
+    moat-factor topic - F.6.2 just re-surfaces that same real result.
+    N/A here means the business has no platform/marketplace element at
+    all, not a failed search. `a2d_result` must be the already-computed
+    A.2.D payload (agent/stock_agent.py's `_a2d`).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    a2d = a2d_result or {}
+    score = a2d.get("score")
+    payload = {
+        "subpoint_id": "F.6.2", "title": "Network effects", "available": True,
+        "network_effect_score": score,
+        "applicable": a2d.get("applicable"),
+        "rationale": a2d.get("rationale") or "No platform/network-effects growth-linkage evidence was located for this company this run.",
+        "evidence_quote": a2d.get("evidence_quote"),
+        "pathway_results": a2d.get("pathway_results") or [],
+        "confidence_tag": a2d.get("confidence_tag") or "SEARCH_INCONCLUSIVE",
+        "retrieved_at": a2d.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_f6_customer_lockin(symbol, name=None, a2e_result=None, a2d_result=None):
+    """F.6 - Customer switching costs and network effects that lock
+    customers in. Wraps F.6.1 (Switching costs) and F.6.2 (Network
+    effects) - both re-surface the already-computed A.2.E/A.2.D moat
+    scores rather than re-fetching/re-scoring the same real evidence.
+    """
+    f6_1 = compute_f6_1_switching_costs(symbol, name, a2e_result=a2e_result)
+    f6_2 = compute_f6_2_network_effects(symbol, name, a2d_result=a2d_result)
+
+    parts = []
+    if f6_1.get("switching_cost_score") is not None:
+        parts.append(f"Switching costs: score {f6_1['switching_cost_score']}/5.")
+    if f6_2.get("applicable") is False:
+        parts.append("Network effects: not applicable (no platform/marketplace element).")
+    elif f6_2.get("network_effect_score") is not None:
+        parts.append(f"Network effects: score {f6_2['network_effect_score']}/5.")
+    if not parts:
+        parts.append("No switching-cost or network-effects evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (f6_1, f6_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else (
+        "NOT_APPLICABLE" if any(t == "NOT_APPLICABLE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    )
+    retrieved_ats = [t.get("retrieved_at") for t in (f6_1, f6_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "F.6",
+        "title": "Customer switching costs and network effects that lock customers in",
+        "available": True,
+        "f6_1": f6_1, "f6_2": f6_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (f6_1.get("pathway_results") or [])[:1] + (f6_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload

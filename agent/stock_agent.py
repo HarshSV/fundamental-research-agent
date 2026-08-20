@@ -2518,6 +2518,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _f6 = None
+    try:
+        from tools.qualitative_engine import compute_f6_customer_lockin
+        _f6 = compute_f6_customer_lockin(symbol, name, a2e_result=_a2e, a2d_result=_a2d)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced F.6 engine failed: {e}")
+        _f6 = {
+            'available': True,
+            'rationale': 'Not computed — F.6 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _f5 = None
     try:
         from tools.qualitative_engine import compute_f5_foreign_competition
@@ -4046,6 +4058,36 @@ def build_executive_summary(state: SystemState) -> dict:
 
     _f3_2 = (_f3 or {}).get('f3_2') or {}
 
+    _f6_1, _f6_2 = (_f6 or {}).get('f6_1') or {}, (_f6 or {}).get('f6_2') or {}
+
+    if _f6_1.get('switching_cost_score') is not None:
+        _f6_1_score = _f6_1.get('switching_cost_score')
+        _f6_1_zone = 'Low' if _f6_1_score <= 2 else ('Moderate' if _f6_1_score == 3 else 'High')
+        _f6_1_panel = {
+            'type': 'classification', 'title': 'Switching Costs',
+            'zones': ['Low', 'Moderate', 'High'], 'active': _f6_1_zone,
+            'explanation': _f6_1.get('rationale') or f"Switching cost score {_f6_1_score}/5.",
+        }
+    else:
+        _f6_1_panel = {'type': 'unavailable', 'title': 'Switching Costs',
+                        'explanation': f"No contract lock-in term, renewal rate, or switching-barrier evidence was located for {_co} this run."}
+
+    if _f6_2.get('applicable') is False:
+        _f6_2_panel = {'type': 'unavailable', 'title': 'Network Effects',
+                        'explanation': f"Not applicable — {_co} has no platform/marketplace element."}
+    elif _f6_2.get('network_effect_score') is not None:
+        _f6_2_score = _f6_2.get('network_effect_score')
+        _f6_2_zone = 'Low' if _f6_2_score <= 2 else ('Moderate' if _f6_2_score == 3 else 'High')
+        _f6_2_panel = {
+            'type': 'classification', 'title': 'Network Effects',
+            'zones': ['Low', 'Moderate', 'High'], 'active': _f6_2_zone,
+            'explanation': _f6_2.get('rationale') or f"Network effect score {_f6_2_score}/5.",
+        }
+    else:
+        _f6_2_panel = {'type': 'unavailable', 'title': 'Network Effects',
+                        'explanation': f"No platform/network-effects growth-linkage evidence was located for {_co} this run."}
+    _f6_panels = [_f6_1_panel, _f6_2_panel]
+
     _f4_1, _f4_2 = (_f4 or {}).get('f4_1') or {}, (_f4 or {}).get('f4_2') or {}
 
     if _f4_1.get('regulatory_barrier_score') is not None:
@@ -5115,6 +5157,22 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_f3 or {}).get('confidence_tag'), 'retrieved_at': (_f3 or {}).get('retrieved_at'),
                     'pathway_results': (_f3 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'customer_lockin',
+                    'title': 'Customer switching costs and network effects that lock customers in',
+                    'finding': (_f6 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Switching cost score', f"{_f6_1.get('switching_cost_score')}/5"] if _f6_1.get('switching_cost_score') is not None else None),
+                        (['Network effect score', f"{_f6_2.get('network_effect_score')}/5"] if _f6_2.get('network_effect_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _f6_panels} if _f6_panels else None),
+                    'formula': 'Switching Cost Score (1-5) and Network Effect Score (1-5) re-surface the already-computed A.2.E/A.2.D moat-factor scores (contract lock-in term/renewal rate/switching barriers; growth-linked platform/network evidence) rather than re-fetching/re-scoring the same real Annual Report evidence a second time.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Business Model / Customer Relationships / Contracts / Platform / Ecosystem', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_f6 or {}).get('confidence_tag'), 'retrieved_at': (_f6 or {}).get('retrieved_at'),
+                    'pathway_results': (_f6 or {}).get('pathway_results'),
                 },
                 {
                     'key': 'regulatory_trade_barriers',
