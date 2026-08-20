@@ -2506,6 +2506,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _f5 = None
+    try:
+        from tools.qualitative_engine import compute_f5_foreign_competition
+        _f5 = compute_f5_foreign_competition(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced F.5 engine failed: {e}")
+        _f5 = {
+            'available': True,
+            'rationale': 'Not computed — F.5 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _contract_type_label = _enum(f24.get('contract_type_label'), ['Transactional', 'Recurring', 'Annuity', 'Long-term Contract', 'Mixed'])
     _blend_position = f24.get('blend_position')
     try:
@@ -4022,6 +4034,29 @@ def build_executive_summary(state: SystemState) -> dict:
 
     _f3_2 = (_f3 or {}).get('f3_2') or {}
 
+    _f5_1, _f5_2 = (_f5 or {}).get('f5_1') or {}, (_f5 or {}).get('f5_2') or {}
+
+    if _f5_1.get('foreign_competition_score') is not None:
+        _f5_1_panel = {
+            'type': 'kpi_card', 'title': 'Foreign Competitor Presence',
+            'centerValue': f"{_f5_1.get('foreign_competition_score')}/5",
+            'explanation': f"Disclosed foreign-competitor-presence dimension(s): {', '.join(_f5_1.get('presence_dimensions') or [])} (score {_f5_1.get('foreign_competition_score')}/5).",
+        }
+    else:
+        _f5_1_panel = {'type': 'unavailable', 'title': 'Foreign Competitor Presence',
+                        'explanation': f"No named international competitor, global/multinational player, export-competition, or import-pressure language was located for {_co} in the latest Annual Report this run."}
+
+    if _f5_2.get('import_competition_score') is not None:
+        _f5_2_panel = {
+            'type': 'kpi_card', 'title': 'Import Competition',
+            'centerValue': f"{_f5_2.get('import_competition_score')}/5",
+            'explanation': f"Disclosed import-competition dimension(s): {', '.join(_f5_2.get('import_dimensions') or [])} (score {_f5_2.get('import_competition_score')}/5).",
+        }
+    else:
+        _f5_2_panel = {'type': 'unavailable', 'title': 'Import Competition',
+                        'explanation': f"No cheap-imports, anti-dumping/safeguard-duty, import duty/quota/policy, or import-pressure language was located for {_co} in the latest Annual Report this run."}
+    _f5_panels = [_f5_1_panel, _f5_2_panel]
+
     qualitative_topics = {
         'strategy_business_model': {
             'topic': 'A. Company strategy & business model',
@@ -5045,6 +5080,24 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_f3 or {}).get('confidence_tag'), 'retrieved_at': (_f3 or {}).get('retrieved_at'),
                     'pathway_results': (_f3 or {}).get('pathway_results'),
+                },
+                {
+                    'key': 'foreign_competition',
+                    'title': 'Foreign competitors: ability of global players to enter India or export competition',
+                    'finding': (_f5 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Foreign competitor presence score', f"{_f5_1.get('foreign_competition_score')}/5"] if _f5_1.get('foreign_competition_score') is not None else None),
+                        (['Import competition score', f"{_f5_2.get('import_competition_score')}/5"] if _f5_2.get('import_competition_score') is not None else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _f5_panels} if _f5_panels else None),
+                    'formula': 'Foreign Competition Score (1-5) = based on disclosed named foreign/China-sourced competition, global/multinational player presence, and export-market competitive pressure; '
+                               'Import Competition Score (1-5) = based on disclosed cheap/low-cost imports, anti-dumping/safeguard duty, and import duty/quota/policy references.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Competition / Industry Overview; imports / raw materials / competition', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'DGFT — Regulatory Updates / Foreign Trade Policy', 'note': 'ITC(HS) import policy', 'url': 'https://www.dgft.gov.in/'},
+                    },
+                    'confidence_tag': (_f5 or {}).get('confidence_tag'), 'retrieved_at': (_f5 or {}).get('retrieved_at'),
+                    'pathway_results': (_f5 or {}).get('pathway_results'),
                 },
             ],
         },

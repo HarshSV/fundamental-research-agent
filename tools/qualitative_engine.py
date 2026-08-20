@@ -11602,3 +11602,185 @@ def compute_f3_price_dynamics(symbol, name=None, force=False, margins_annual=Non
         "retrieved_at": f3_2.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+_FOREIGN_COMPETITION_ANCHORS = [
+    "excessive imports", "import pressure", "cheap imports", "cheaper imports", "anti-dumping", "anti dumping",
+    "dumping duty", "safeguard duty", "import quota", "import duty", "import policy", "ITC(HS)",
+    "chinese imports", "import substitution", "global players", "multinational compan", "international competitor",
+    "foreign compan",
+]
+
+
+def _fetch_foreign_competition_text(sym, name):
+    from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+    evidence = _fetch_ar_evidence_excerpts(
+        sym, name, _FOREIGN_COMPETITION_ANCHORS, "ar_foreigncomp_text_v2",
+        max_per_page=5, max_excerpts=25, fetch_label="foreign-competition",
+    )
+    text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+    pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
+    return text, pdf_url
+
+
+def compute_f5_1_foreign_competitor_presence(symbol, name=None, force=False):
+    """F.5.1 - Foreign competitor presence. Spec: Foreign Competition
+    Score (1-5). Deterministic (no LLM) - see
+    tools.foreign_competition_scoring.score_foreign_competitor_presence.
+    Real Indian AR MD&A coverage of foreign/import competition is
+    genuinely sector-driven - confirmed by direct inspection: TATASTEEL
+    explicitly discusses excessive imports and China's export volumes;
+    ULTRACEMCO (cement, not economically tradable over long distances)
+    barely mentions it. Sourcing: NSE Corporate Filings - Annual
+    Reports - MD&A - Competition / Industry Overview.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "F.5.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.foreign_competition_scoring import score_foreign_competitor_presence
+        text, pdf_url = _fetch_foreign_competition_text(sym, name)
+        result = score_foreign_competitor_presence(text)
+    except Exception as e:
+        print(f"[qualitative_engine] F.5.1 fetch failed for {sym}: {e}")
+        result = {"presence_dimensions": None, "foreign_competition_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-05",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Competition / Industry Overview",
+        "result": "CHECKED" if result["foreign_competition_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["foreign_competition_score"] is not None else "No named international competitor, global/multinational player, export-competition, or import-pressure language was located in the latest Annual Report this run.",
+    }]
+
+    if result["foreign_competition_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Foreign competitor presence", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No named international competitor, global/multinational player, export-competition, or import-pressure language was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    dims = ", ".join(result["presence_dimensions"])
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Foreign competitor presence", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"Disclosed foreign-competitor-presence dimension(s): {dims} (score {result['foreign_competition_score']}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_f5_2_import_competition(symbol, name=None, force=False):
+    """F.5.2 - Import competition. Spec: Import Competition Score (1-5).
+    Deterministic (no LLM) - see
+    tools.foreign_competition_scoring.score_import_competition. Sourcing:
+    NSE Corporate Filings - Annual Reports - MD&A - imports / raw
+    materials / competition; DGFT - ITC(HS) import policy.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "F.5.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.foreign_competition_scoring import score_import_competition
+        text, pdf_url = _fetch_foreign_competition_text(sym, name)
+        result = score_import_competition(text)
+    except Exception as e:
+        print(f"[qualitative_engine] F.5.2 fetch failed for {sym}: {e}")
+        result = {"import_dimensions": None, "import_competition_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-05",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - imports / raw materials / competition; DGFT - ITC(HS) import policy",
+        "result": "CHECKED" if result["import_competition_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["import_competition_score"] is not None else "No cheap-imports, anti-dumping/safeguard-duty, import duty/quota/policy, or import-pressure language was located in the latest Annual Report this run.",
+    }]
+
+    if result["import_competition_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Import competition", "available": True, **result,
+            "source_pdf_url": pdf_url,
+            "rationale": "No cheap-imports, anti-dumping/safeguard-duty, import duty/quota/policy, or import-pressure language was located in the latest Annual Report this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    dims = ", ".join(result["import_dimensions"])
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Import competition", "available": True, **result,
+        "source_pdf_url": pdf_url,
+        "rationale": f"Disclosed import-competition dimension(s): {dims} (score {result['import_competition_score']}/5).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_f5_foreign_competition(symbol, name=None, force=False):
+    """F.5 - Foreign competitors: ability of global players to enter
+    India or export competition. Combines F.5.1-F.5.2 into a single
+    grounded payload, sourced from the same real Annual Report MD&A
+    text - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    f5_1 = compute_f5_1_foreign_competitor_presence(sym, name, force=force)
+    f5_2 = compute_f5_2_import_competition(sym, name, force=force)
+
+    parts = []
+    if f5_1.get("foreign_competition_score") is not None:
+        parts.append(f"Foreign competitor presence: score {f5_1['foreign_competition_score']}/5.")
+    if f5_2.get("import_competition_score") is not None:
+        parts.append(f"Import competition: score {f5_2['import_competition_score']}/5.")
+    if not parts:
+        parts.append("No foreign-competitor-presence or import-competition evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (f5_1, f5_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (f5_1, f5_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "F.5",
+        "title": "Foreign competitors: ability of global players to enter India or export competition",
+        "available": True,
+        "f5_1": f5_1, "f5_2": f5_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (f5_1.get("pathway_results") or [])[:1] + (f5_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
