@@ -2518,6 +2518,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
+    _g1 = None
+    try:
+        from tools.qualitative_engine import compute_g1_channel_mix_and_control
+        _g1 = compute_g1_channel_mix_and_control(symbol, name)
+    except Exception as e:
+        print(f"[qualitative_topics] sourced G.1 engine failed: {e}")
+        _g1 = {
+            'available': True,
+            'rationale': 'Not computed — G.1 engine failed to run.',
+            'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
+        }
+
     _f6 = None
     try:
         from tools.qualitative_engine import compute_f6_customer_lockin
@@ -4058,6 +4070,31 @@ def build_executive_summary(state: SystemState) -> dict:
 
     _f3_2 = (_f3 or {}).get('f3_2') or {}
 
+    _g1_1, _g1_2 = (_g1 or {}).get('g1_1') or {}, (_g1 or {}).get('g1_2') or {}
+
+    if _g1_1.get('channel_mix_score') is not None:
+        _g1_1_score = _g1_1.get('channel_mix_score')
+        _g1_1_zone = 'Low' if _g1_1_score <= 2 else ('Moderate' if _g1_1_score == 3 else 'High')
+        _g1_1_panel = {
+            'type': 'classification', 'title': 'Channel Mix',
+            'zones': ['Low', 'Moderate', 'High'], 'active': _g1_1_zone,
+            'explanation': f"{len(_g1_1.get('channels_identified') or [])} distinct channel(s) disclosed ({', '.join(_g1_1.get('channels_identified') or [])}) -> score {_g1_1_score}/5.",
+        }
+    else:
+        _g1_1_panel = {'type': 'unavailable', 'title': 'Channel Mix',
+                        'explanation': f"No named distribution channel was located for {_co} in MD&A / Business Model text this run."}
+
+    if _g1_2.get('channel_control_score') is not None:
+        _g1_2_panel = {
+            'type': 'kpi_card', 'title': 'Channel Control',
+            'centerValue': f"{_g1_2.get('channel_control_score')}/5",
+            'explanation': f"Channel control basis: {_g1_2.get('control_basis')} -> score {_g1_2.get('channel_control_score')}/5.",
+        }
+    else:
+        _g1_2_panel = {'type': 'unavailable', 'title': 'Channel Control',
+                        'explanation': f"No owned-vs-third-party channel dependence language was located for {_co} this run."}
+    _g1_panels = [_g1_1_panel, _g1_2_panel]
+
     _f6_1, _f6_2 = (_f6 or {}).get('f6_1') or {}, (_f6 or {}).get('f6_2') or {}
 
     if _f6_1.get('switching_cost_score') is not None:
@@ -5209,6 +5246,28 @@ def build_executive_summary(state: SystemState) -> dict:
                     },
                     'confidence_tag': (_f5 or {}).get('confidence_tag'), 'retrieved_at': (_f5 or {}).get('retrieved_at'),
                     'pathway_results': (_f5 or {}).get('pathway_results'),
+                },
+            ],
+        },
+        'customers_channels_distribution': {
+            'topic': 'G. Customers, channels & distribution',
+            'subpoints': [
+                {
+                    'key': 'channel_mix_control',
+                    'title': 'Channel mix: direct, retail, distributors, e-commerce; control over channel',
+                    'finding': (_g1 or {}).get('rationale') or None,
+                    'facts': [f for f in [
+                        (['Channels disclosed', len(_g1_1.get('channels_identified') or [])] if _g1_1.get('channels_identified') else None),
+                        (['Channel control basis', _g1_2.get('control_basis')] if _g1_2.get('control_basis') else None),
+                    ] if f],
+                    'chart': ({'type': 'multi_donut', 'panels': _g1_panels} if _g1_panels else None),
+                    'formula': 'Channel Mix % = Revenue by Channel / Total Revenue where disclosed (a clean per-channel revenue table is essentially never disclosed in Indian AR prose, so this counts real, named channel types actually evidenced instead); '
+                               'Channel Control Score (1-5) = based on disclosed owned vs third-party channel dependence.',
+                    'sources': {
+                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Business Model / Distribution; Distribution Network / Business Model', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                    },
+                    'confidence_tag': (_g1 or {}).get('confidence_tag'), 'retrieved_at': (_g1 or {}).get('retrieved_at'),
+                    'pathway_results': (_g1 or {}).get('pathway_results'),
                 },
             ],
         },

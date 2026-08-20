@@ -11961,6 +11961,222 @@ def compute_f4_regulatory_trade_barriers(symbol, name=None, force=False):
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+# =============================================================================
+# Section G - Customers, channels & distribution
+# =============================================================================
+# All G sub-points are AR/MD&A-based (Business Model / Distribution Network /
+# Related Party Disclosures) - same evidence path as E-series/F.2.1, so this
+# reuses _fetch_ar_evidence_excerpts (which already routes through
+# tools/ar_document_cache.py) rather than any new retrieval infrastructure.
+# G2.2 is blank/undefined in the framework - no compute_ function exists for
+# it, matching E.1.2's precedent (never fabricated).
+
+_CHANNEL_MIX_ANCHORS = [
+    "channel mix", "distribution channel", "direct sales", "retail channel",
+    "distributors", "dealers", "e-commerce", "online channel", "franchisee",
+    "wholesale", "exports",
+]
+_CHANNEL_CONTROL_ANCHORS = [
+    "company-owned stores", "own retail network", "captive distribution",
+    "third-party distributors", "independent distributors", "appointed distributors",
+    "franchise model", "distribution network",
+]
+_CHANNEL_CONFLICT_ANCHORS = [
+    "group companies", "related party", "promoter group", "associate company",
+    "subsidiary distributor", "arm's length", "audit committee approv",
+    "conflict of interest", "competitive bidding",
+]
+_CONTRACT_QUALITY_ANCHORS = [
+    "contract period", "contract term", "long-term agreement", "multi-year contract",
+    "renewal rate", "contracts renewed", "order book", "repeat orders", "repeat business",
+]
+_CUSTOMER_RETENTION_ANCHORS = [
+    "customer retention", "retention rate", "churn rate", "repeat customers",
+    "customer attrition", "repeat purchase",
+]
+_DISTRIBUTION_REACH_ANCHORS = [
+    "dealers", "distributors", "retail outlets", "stores", "touchpoints",
+    "service centers", "service centres", "pan-india", "nationwide network",
+]
+_PEER_DISTRIBUTION_ANCHORS = [
+    "largest distribution network", "widest network", "wider network",
+    "broader reach", "deepest reach", "compared to peers", "compared to competitors",
+    "among its peers",
+]
+
+
+def compute_g1_1_channel_mix(symbol, name=None, force=False):
+    """G.1.1 - Channel mix. Spec formula: Channel Mix % = Revenue by
+    Channel / Total Revenue where disclosed. Deterministic (no LLM) -
+    see tools.channel_distribution_scoring.score_channel_mix: counts
+    distinct named channel types (direct/retail/distributor/e-commerce/
+    exports/franchisee) actually evidenced in real MD&A / Business Model
+    text - a clean per-channel revenue % table is essentially never
+    disclosed in Indian AR prose (same documented limitation as A.1.2/
+    A.3's segment-revenue text), so this counts real disclosed channels
+    rather than fabricate a percentage the source doesn't contain.
+    Sourcing: NSE Corporate Filings - Annual Reports - MD&A - Business
+    Model / Distribution.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "G.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.channel_distribution_scoring import score_channel_mix
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _CHANNEL_MIX_ANCHORS, "ar_channelmix_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="channel-mix",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
+        result = score_channel_mix(text)
+    except Exception as e:
+        print(f"[qualitative_engine] G.1.1 fetch failed for {sym}: {e}")
+        result = {"channels_identified": None, "channel_mix_score": None}
+        pdf_url = None
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Business Model / Distribution",
+        "result": "CHECKED" if result["channel_mix_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["channel_mix_score"] is not None else "No named distribution channel was located in MD&A / Business Model text this run.",
+    }]
+
+    if result["channel_mix_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Channel mix", "available": True, **result,
+            "rationale": "No named distribution channel was located in MD&A / Business Model text this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Channel mix", "available": True, **result,
+        "rationale": f"{len(result['channels_identified'])} distinct channel(s) disclosed ({', '.join(result['channels_identified'])}) -> score {result['channel_mix_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_g1_2_channel_control(symbol, name=None, force=False):
+    """G.1.2 - Channel control. Spec formula: Channel Control Score
+    (1-5): assess owned vs third-party channel dependence. Deterministic
+    (no LLM) - see tools.channel_distribution_scoring.score_channel_control.
+    Sourcing: NSE Corporate Filings - Annual Reports - MD&A - Distribution
+    Network / Business Model.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "G.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.channel_distribution_scoring import score_channel_control
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _CHANNEL_CONTROL_ANCHORS, "ar_channelcontrol_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="channel-control",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_channel_control(text)
+    except Exception as e:
+        print(f"[qualitative_engine] G.1.2 fetch failed for {sym}: {e}")
+        result = {"control_basis": None, "channel_control_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Distribution Network / Business Model",
+        "result": "CHECKED" if result["channel_control_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["channel_control_score"] is not None else "No owned-vs-third-party channel dependence language was located this run.",
+    }]
+
+    if result["channel_control_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Channel control", "available": True, **result,
+            "rationale": "No owned-vs-third-party channel dependence language was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Channel control", "available": True, **result,
+        "rationale": f"Channel control basis: {result['control_basis']} -> score {result['channel_control_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_g1_channel_mix_and_control(symbol, name=None, force=False):
+    """G.1 - Channel mix: direct, retail, distributors, e-commerce;
+    control over channel. Combines G.1.1-G.1.2 into a single grounded
+    payload, sourced from the same real Annual Report MD&A text - no
+    LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    g1_1 = compute_g1_1_channel_mix(sym, name, force=force)
+    g1_2 = compute_g1_2_channel_control(sym, name, force=force)
+
+    parts = []
+    if g1_1.get("channel_mix_score") is not None:
+        parts.append(f"Channel mix: {len(g1_1['channels_identified'])} channel(s) disclosed (score {g1_1['channel_mix_score']}/5).")
+    if g1_2.get("channel_control_score") is not None:
+        parts.append(f"Channel control: {g1_2['control_basis']} basis (score {g1_2['channel_control_score']}/5).")
+    if not parts:
+        parts.append("No channel-mix or channel-control evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (g1_1, g1_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (g1_1, g1_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "G.1",
+        "title": "Channel mix: direct, retail, distributors, e-commerce; control over channel",
+        "available": True,
+        "g1_1": g1_1, "g1_2": g1_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (g1_1.get("pathway_results") or [])[:1] + (g1_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+
 def compute_f6_1_switching_costs(symbol, name=None, a2e_result=None):
     """F.6.1 - Switching costs. Spec: Switching Cost Score (1-5).
     Deterministic (no LLM) - this is NOT a new fetch/score. A.2.E
