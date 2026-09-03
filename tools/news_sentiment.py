@@ -1,5 +1,5 @@
 """
-News sentiment — real news evidence for the chatbot's event-grounded reasoning
+News sentiment - real news evidence for the chatbot's event-grounded reasoning
 and general "how is sentiment on X" questions (see memory
 "event-grounded-reasoning-scope"). User's pick: scrape Indian financial news
 (Moneycontrol / Economic Times / LiveMint) rather than a paid news API.
@@ -8,10 +8,10 @@ Implementation note: instead of scraping each site's own search page (fragile,
 breaks on redesign, several have anti-bot/paywall friction), this fetches
 Google News' public RSS search restricted to exactly those three domains
 (`site:moneycontrol.com OR site:economictimes.indiatimes.com OR
-site:livemint.com`) — same source publishers the user picked, one stable feed
+site:livemint.com`) - same source publishers the user picked, one stable feed
 format (RSS/XML) instead of three fragile HTML scrapers. Free, no API key.
 
-Sentiment is scored per-headline by Groq (headlines only — full article scrape
+Sentiment is scored per-headline by Groq (headlines only - full article scrape
 is unnecessary for a sentiment tag and would blow up latency/cost), batched
 into one call. Disk-cached (headlines 2h, since news moves fast; sentiment
 alongside them). Never raises.
@@ -51,7 +51,7 @@ SITES = ("moneycontrol.com", "economictimes.indiatimes.com", "livemint.com")
 MAX_ITEMS = 12
 _lock = threading.Lock()
 
-# Corporate suffixes stripped before building the title-match tokens — the
+# Corporate suffixes stripped before building the title-match tokens - the
 # registry name is typically "X Limited"/"X Ltd" but headlines almost never
 # include the suffix, so requiring it in an ALL-tokens match silently
 # filtered out every real headline (found live on "Tata Steel Limited").
@@ -102,12 +102,12 @@ def fetch_news(symbol: str, name: str = None) -> list:
 
     # One query PER site: an OR'd site: filter combined with a quoted phrase
     # confuses Google News' query parser and silently falls back to generic
-    # top-stories for that site (verified empirically) — per-site queries stay
+    # top-stories for that site (verified empirically) - per-site queries stay
     # on-topic. Client-side we also require the company name/symbol to appear
     # in the title, since even a single-site query returns a few unrelated
     # "top of page" items (ticker tape numbers, unrelated site headlines).
     cutoff = datetime.now(timezone.utc) - timedelta(days=120)
-    # ALL tokens (word-boundary match) must appear — an ANY-token or substring
+    # ALL tokens (word-boundary match) must appear - an ANY-token or substring
     # match let unrelated group-company headlines through (e.g. "Tata Power",
     # or "Ben Steele" matching a bare "steel" substring).
     core_name = _SUFFIX_RE.sub("", label).strip()
@@ -148,7 +148,7 @@ def fetch_news(symbol: str, name: str = None) -> list:
                 except Exception:
                     pub_dt = None
                 if pub_dt is not None and pub_dt < cutoff:
-                    continue  # stale article — skip, don't let old news masquerade as recent
+                    continue  # stale article - skip, don't let old news masquerade as recent
                 seen_titles.add(title_low)
                 items.append({
                     "title": title,

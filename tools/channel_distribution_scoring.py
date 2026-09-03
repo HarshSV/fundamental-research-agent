@@ -43,11 +43,30 @@ _THIRDPARTY_CONTROL_RE = re.compile(
     re.I,
 )
 
-_GROUP_ENTITY_RE = re.compile(
+# Requires a group/related-party ENTITY mention to co-occur with actual
+# distribution/channel-relevant language nearby - a bare "related party"
+# hit anywhere in a company's RPT note (present in virtually every listed
+# company's financial statements, for equity investments, service fees,
+# loans, etc.) is not evidence of a CHANNEL conflict specifically.
+# Confirmed real over-triggering: RELIANCE/TATASTEEL/SUZLON/TCS all
+# scored identically off unrelated RPT-table boilerplate before this fix.
+_GROUP_ENTITY_BARE_RE = re.compile(
     r"group\s+compan(?:y|ies)|related\s+part(?:y|ies)|promoter\s+group\s+entit(?:y|ies)|"
     r"associate\s+compan(?:y|ies)|subsidiary\s+distributor",
     re.I,
 )
+_DISTRIBUTION_CONTEXT_RE = re.compile(
+    r"distribut|dealer|retail|channel|stockist|wholesal|sales?\s+agent|franchise",
+    re.I,
+)
+
+
+def _group_entity_with_distribution_context(text, window=150):
+    for m in _GROUP_ENTITY_BARE_RE.finditer(text):
+        ctx = text[max(0, m.start() - window):m.end() + window]
+        if _DISTRIBUTION_CONTEXT_RE.search(ctx):
+            return True
+    return False
 _GOVERNANCE_CONTROL_RE = re.compile(
     r"arm's[\s-]length|audit\s+committee\s+approv|no\s+conflict\s+of\s+interest|"
     r"independent\s+(?:valuation|pricing)|competitive\s+bidding",
@@ -135,7 +154,7 @@ def score_channel_conflict(text):
     applicable/not found, never fabricated as a clean score)."""
     if not text:
         return {"group_overlap_found": None, "governance_controls_found": None, "channel_conflict_score": None}
-    overlap = bool(_GROUP_ENTITY_RE.search(text))
+    overlap = _group_entity_with_distribution_context(text)
     if not overlap:
         return {"group_overlap_found": None, "governance_controls_found": None, "channel_conflict_score": None}
     governed = bool(_GOVERNANCE_CONTROL_RE.search(text))

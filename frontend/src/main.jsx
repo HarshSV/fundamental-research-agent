@@ -6,6 +6,7 @@ import ThemeToggle from "./theme/ThemeToggle.jsx";
 import Sidebar from "./components/layout/Sidebar.jsx";
 import MobileNav from "./components/layout/MobileNav.jsx";
 import Landing from "./views/Landing.jsx";
+import DocumentAnalysis from "./views/DocumentAnalysis.jsx";
 import DashHeader from "./components/layout/DashHeader.jsx";
 import Overview from "./views/Overview.jsx";
 import Settings from "./views/Settings.jsx";
@@ -16,6 +17,8 @@ import { SunburstChart } from "./components/SunburstChart.jsx";
 import { RecurringCyclicalTrendChart } from "./components/RecurringCyclicalTrendChart.jsx";
 import { RPTTable } from "./components/RPTTable.jsx";
 import { CapitalAllocationTrendChart } from "./components/CapitalAllocationTrendChart.jsx";
+import { QualChart } from "./components/QualCharts.jsx";
+import { QUAL_CHART_MAPPING, normalizeMetricTitle } from "./components/QualChartMapping.js";
 import { addHistory } from "./lib/history.js";
 import { SECTIONS } from "./components/layout/sections.jsx";
 import { SECTORS, getRatiosForSector, getIndustrySpecificRatiosForSector,
@@ -40,7 +43,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         const TOKEN_KEY = 'navrist_token';
 
         // Shared, deduped live-quote fetch. Every ratio card + both live-price
-        // components used to call /api/quote independently — opening one report
+        // components used to call /api/quote independently - opening one report
         // page fired 15+ near-simultaneous requests for the SAME symbol, which is
         // what was tripping Angel One's "Access denied because of exceeding
         // access rate". Callers within QUOTE_DEDUPE_MS of each other for the same
@@ -66,7 +69,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // EV/FCF, PEG, Price-to-Cash-Flow, Graham Number, Altman Z-Score). Those
         // cards used to fetch the quote ONCE inside the same Promise.all as
         // their (slow-changing) statement-based fields, so the price shown
-        // stayed frozen at whatever it was on page load — never updating again
+        // stayed frozen at whatever it was on page load - never updating again
         // even as the live market price moved, unless the user switched symbols
         // and back. This polls independently on the same 20s cadence as
         // DashHeader's own live price, so every MPS-based ratio recomputes
@@ -200,7 +203,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             onChange={(e) => { setQuery(e.target.value); setOpen(true); setActive(0); }}
                             onFocus={() => setOpen(true)}
                             onKeyDown={onKey}
-                            placeholder="Ask the agent — find KPI movement, PAT, solvency score, moat…"
+                            placeholder="Ask the agent - find KPI movement, PAT, solvency score, moat…"
                             className="w-full bg-transparent border-0 outline-none text-slate-200 pl-2.5 pr-4 py-2.5 placeholder-slate-500 text-xs font-medium"
                         />
                     </div>
@@ -232,7 +235,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Live price ticker — polls the lightweight /api/quote endpoint so the
+        // Live price ticker - polls the lightweight /api/quote endpoint so the
         // dashboard shows a real-time LTP that refreshes on an interval (Angel One
         // live tick when configured, ~15-min delayed yfinance otherwise).
         const LivePriceTicker = ({ symbol }) => {
@@ -500,7 +503,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const sx = ((e.clientX - rect.left) / rect.width) * W;
                 if (smooth) {
                     // Track the exact cursor pixel (clamped to the plot area) instead of
-                    // snapping to the nearest labelled point — the crosshair and the
+                    // snapping to the nearest labelled point - the crosshair and the
                     // (linearly interpolated) reading follow the cursor continuously,
                     // so every pixel across the whole chart is "live", not just the
                     // handful of actual data points.
@@ -585,7 +588,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             </g>
                         )}
                         {/* per-point annotation markers (e.g. A.6's one-off-margin
-                            flags) — matched against the row label by fiscal year
+                            flags) - matched against the row label by fiscal year
                             substring since that's the only shared key the backend
                             can reliably provide; a flag with no matching plotted
                             row is simply skipped, never guessed onto a nearby point. */}
@@ -632,7 +635,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: collapsible section — keeps the heading visible with a
+        // --- SUBCOMPONENT: collapsible section - keeps the heading visible with a
         // side "Show / Hide" toggle; content is hidden until the user opens it.
         // Used to fold away AI Insights sections we're not currently focused on.
         const CollapsibleSection = ({ title, children, defaultOpen = false }) => {
@@ -653,7 +656,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // --- SUBCOMPONENT: DONUT chart (ring, with hole) with hover value.
         // `center` (optional {value,label}) renders a permanent headline number
-        // in the middle of the ring — e.g. "65% Recurring revenue" — swapped for
+        // in the middle of the ring - e.g. "65% Recurring revenue" - swapped for
         // the hovered slice's value while hovering, like the Overview page's
         // "Total Revenue" donut.
         const Donut = ({ data, fmt = (v) => v, unit = '', center = null, dark = false }) => {
@@ -694,7 +697,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             };
             const hv = hi != null ? slices[hi] : null;
             // The center label's secondary line (e.g. "Recurring revenue") lives
-            // OUTSIDE the ring as a caption below it — the hole is too small to
+            // OUTSIDE the ring as a caption below it - the hole is too small to
             // fit a label without truncating/overlapping the number.
             const captionText = hv ? hv.label : (center ? center.label : null);
             return (
@@ -728,13 +731,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: equal-wedge "classification" donut — for a single
+        // --- SUBCOMPONENT: equal-wedge "classification" donut - for a single
         // fixed-category classification (e.g. Pricing Power: Weak/Moderate/
         // Strong/Insufficient Data), NOT a revenue-weighted blend. Every zone
-        // gets an equal-size wedge (there is no real "weight" to a category —
+        // gets an equal-size wedge (there is no real "weight" to a category -
         // fabricating one would misrepresent a classification as a blend);
         // the actual classification's wedge is shown full-color, the rest
-        // dimmed — same concept as SpectrumBarChart's marker, in donut form.
+        // dimmed - same concept as SpectrumBarChart's marker, in donut form.
         // Generic via props (zones/active/centerValue/centerUnit) so it isn't
         // hardcoded to Pricing Power's own zone labels.
         const ClassificationDonut = ({ zones, active, centerValue = null, centerUnit = '', dark = false }) => {
@@ -783,7 +786,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // --- SUBCOMPONENT: single big centered-percent donut ring with a
-        // centered legend row below it — the visual style used for B.1's
+        // centered legend row below it - the visual style used for B.1's
         // three combined panels (Initiative Success Rate / Management Tenure
         // Distribution / Strategy Alignment Distribution). A 2-value donut
         // (real counts) or a fixed 3-zone classification wheel (High/
@@ -803,7 +806,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     {panel.centerValue && (
                         <div className="text-xl font-extrabold text-slate-100 mb-2">{panel.centerValue}</div>
                     )}
-                    <div className="w-full max-w-[200px] space-y-2.5">
+                    <div className="w-full space-y-2.5">
                         {items.map((d, i) => (
                             <div key={d.label}>
                                 <div className="flex items-center justify-between text-[10px] mb-1">
@@ -824,24 +827,41 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // --- category_bar: N-category horizontal bar of raw counts (e.g.
-        // Group Entities by Type and Jurisdiction) — unlike stacked_bar
+        // Group Entities by Type and Jurisdiction) - unlike stacked_bar
         // (currency-formatted, fixed 2 categories), this shows a plain
         // integer count per category, any number of categories.
         const CategoryBarPanel = ({ panel }) => {
             const items = (panel.data || []).filter(d => d.value != null && !isNaN(d.value));
             if (!items.length) return null;
             const maxVal = Math.max(...items.map(d => d.value), 1);
+            const suffix = panel.valueSuffix || '';
+            // `composition: true` means these items are genuine parts of one
+            // whole (Attended+Missed=all meetings, Pledged+Unpledged=100%,
+            // Independent+Promoter-group=all counterparties...) - shown as a
+            // single proportional 100%-width strip ABOVE the per-item value
+            // bars, so the part-to-whole relationship reads at a glance
+            // (per the spec: compositions get a stacked bar/donut, not two
+            // independently-scaled bars that hide how the parts relate).
+            const total = items.reduce((s, d) => s + Math.max(0, d.value), 0) || 1;
             return (
                 <div className="flex flex-col items-center w-full">
                     {panel.centerValue && (
                         <div className="text-lg font-extrabold text-slate-100 mb-2">{panel.centerValue}</div>
                     )}
-                    <div className="w-full max-w-[200px] space-y-2.5">
+                    {panel.composition && (
+                        <div className="w-full h-4 rounded-full overflow-hidden flex bg-slate-800 mb-3">
+                            {items.map((d, i) => (
+                                <div key={d.label} title={`${d.label}: ${d.value}${suffix}`}
+                                    style={{ width: `${(Math.max(0, d.value) / total) * 100}%`, background: BIG_DONUT_PALETTE[i % BIG_DONUT_PALETTE.length] }} />
+                            ))}
+                        </div>
+                    )}
+                    <div className="w-full space-y-2.5">
                         {items.map((d, i) => (
                             <div key={d.label}>
                                 <div className="flex items-center justify-between text-[10px] mb-1">
                                     <span className="font-semibold text-slate-300">{d.label}</span>
-                                    <span className="font-mono font-bold text-slate-400">{d.value}</span>
+                                    <span className="font-mono font-bold text-slate-400">{d.value}{suffix}</span>
                                 </div>
                                 <div className="h-2.5 rounded-full overflow-hidden bg-slate-800">
                                     <div className="h-full rounded-full" style={{ width: `${Math.max(2, (d.value / maxVal) * 100)}%`, background: BIG_DONUT_PALETTE[i % BIG_DONUT_PALETTE.length] }}></div>
@@ -857,13 +877,18 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // --- line_trend: simple polyline over N real yearly data points
-        // (e.g. Strategic Delivery Trend) — only shows the years that
+        // (e.g. Strategic Delivery Trend) - only shows the years that
         // actually resolved, never padded to a fixed length.
         const LineTrendPanel = ({ panel }) => {
             const [hover, setHover] = useState(null);
             const items = (panel.data || []).filter(d => d.value != null && !isNaN(d.value));
             if (items.length < 2) return null;
-            const W = 200, H = 110, padX = 16, padY = 14;
+            // The canvas widens with the number of points instead of
+            // squeezing everything into a fixed box, so every point keeps
+            // its own label - no point/label is ever dropped for a longer
+            // series (spec: charts must grow with the data, not clip it).
+            const H = 110, padX = 16, padY = 14;
+            const W = Math.max(200, items.length * 46);
             const maxVal = Math.max(...items.map(d => d.value), 1);
             const minVal = Math.min(0, ...items.map(d => d.value));
             const span = (maxVal - minVal) || 1;
@@ -873,32 +898,22 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return { x, y, ...d };
             });
             const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
-            // Beyond ~5 points, a label under every tick overlaps its
-            // neighbors - cap it at ~4 evenly-spaced labels (always
-            // including the first and last point) instead.
-            const maxLabels = 4;
-            const labelStep = items.length > maxLabels ? Math.ceil((items.length - 1) / (maxLabels - 1)) : 1;
             return (
                 <div className="flex flex-col items-center w-full">
                     {panel.centerValue && (
                         <div className="text-xl font-extrabold text-slate-100 mb-1">{panel.centerValue}</div>
                     )}
-                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[200px]">
+                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
                         <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="2" />
-                        {pts.map((p, i) => {
-                            const showLabel = i === 0 || i === pts.length - 1 || i % labelStep === 0;
-                            return (
-                                <g key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-                                    <circle cx={p.x} cy={p.y} r={hover === i ? 4.5 : 3} fill="#3b82f6" stroke="#0b1220" strokeWidth="1.5" style={{ cursor: 'default' }} />
-                                    {showLabel && (
-                                        <text x={p.x} y={H - 2} textAnchor="middle" fontSize="8" fill="#64748b">{p.label}</text>
-                                    )}
-                                    {hover === i && (
-                                        <text x={p.x} y={p.y - 8} textAnchor="middle" fontSize="9" fontWeight="700" fill="#e2e8f0">{p.value}</text>
-                                    )}
-                                </g>
-                            );
-                        })}
+                        {pts.map((p, i) => (
+                            <g key={i} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+                                <circle cx={p.x} cy={p.y} r={hover === i ? 4.5 : 3} fill="#3b82f6" stroke="#0b1220" strokeWidth="1.5" style={{ cursor: 'default' }} />
+                                <text x={p.x} y={H - 2} textAnchor="middle" fontSize="8" fill="#64748b">{p.label}</text>
+                                {hover === i && (
+                                    <text x={p.x} y={p.y - 8} textAnchor="middle" fontSize="9" fontWeight="700" fill="#e2e8f0">{p.value}</text>
+                                )}
+                            </g>
+                        ))}
                     </svg>
                     {panel.explanation && (
                         <p className="text-[10px] text-slate-500 text-center mt-2 max-w-[220px] leading-snug">{panel.explanation}</p>
@@ -907,7 +922,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: "KPI Card" — a single headline stat with no chart
+        // --- SUBCOMPONENT: "KPI Card" - a single headline stat with no chart
         // geometry (no ring, no bars), per the spec's "KPI Card" chart type.
         // Handles both shapes used elsewhere in this panel system: a plain
         // {centerValue, explanation} numeric stat, and a {zones, active,
@@ -942,6 +957,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="flex flex-col items-center justify-center min-h-[140px] py-3">
                     {isClassification ? (
                         <>
+                            {/* The zones/active badge is a CLASSIFICATION of the
+                                real underlying value (e.g. "High" is a bucket
+                                over a real 45.2% alignment) - that number must
+                                stay visible, never silently dropped just
+                                because a categorical badge also exists. */}
+                            {panel.centerValue && (
+                                <div className="text-xl font-extrabold text-slate-100 mb-1.5">{panel.centerValue}</div>
+                            )}
                             <div className="px-4 py-1.5 rounded-full text-sm font-extrabold" style={{
                                 background: (sentimentColor || (activeIdx >= 0 ? BIG_DONUT_PALETTE[activeIdx % BIG_DONUT_PALETTE.length] : '#64748b')) + '26',
                                 color: sentimentColor || (activeIdx >= 0 ? BIG_DONUT_PALETTE[activeIdx % BIG_DONUT_PALETTE.length] : '#64748b'),
@@ -958,7 +981,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         </>
                     ) : (
                         <>
-                            <div className="text-3xl font-extrabold" style={{ color: sentimentColor || 'rgb(var(--slate-100))' }}>{panel.centerValue ?? '—'}</div>
+                            <div className="text-3xl font-extrabold" style={{ color: sentimentColor || 'rgb(var(--slate-100))' }}>{panel.centerValue ?? '-'}</div>
                             {panel.data?.[0]?.label && (
                                 <div className="text-[10px] font-semibold text-slate-500 uppercase mt-1">{panel.data[0].label}</div>
                             )}
@@ -988,6 +1011,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (panel.type === 'category_bar') return <CategoryBarPanel panel={panel} />;
             if (panel.type === 'line_trend') return <LineTrendPanel panel={panel} />;
             if (panel.type === 'kpi_card') return <KpiCardPanel panel={panel} />;
+            // A genuine 1-5 evidence-based score - always a rating bar, never
+            // bucketed into pie/donut zones (the spec's core "not everything
+            // is a donut" rule, applied to score-shaped sub-points).
+            if (panel.type === 'bar_score') {
+                return <SemanticRatingBar title={panel.title} score={panel.score} explanation={panel.explanation} full />;
+            }
             let slices = [];
             if (panel.type === 'classification') {
                 const zones = panel.zones || [];
@@ -1042,10 +1071,79 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // --- SUBCOMPONENT: N big-center donuts stacked in one card, each with
-        // its own title — used to combine several AR-sourced sub-points (e.g.
+        // its own title - used to combine several AR-sourced sub-points (e.g.
         // B.1.1/B.1.2/B.1.3) into one visual, same idea as A.2's combined moat
         // wheel but for independently-scored panels rather than slices of one
         // wheel.
+        // A named-entity/dimension list (e.g. F.1.1's competitor_names,
+        // F.2.1's barrier_dimensions) has no per-item numeric weight - never
+        // forced into a pie/bar with a fabricated share. Shown as a plain
+        // readable list alongside whatever primary visual (score/KPI/donut)
+        // the panel already has, so real disclosed evidence is never
+        // dropped just because the panel's primary number already rendered.
+        // Grows with the list - no item cap, no "+N more".
+        const NamedListRow = ({ items, label }) => {
+            if (!items || !items.length) return null;
+            return (
+                <div className="w-full mt-2.5 pt-2.5 border-t border-slate-800/60">
+                    {label && <p className="text-[9.5px] font-bold uppercase tracking-wide text-slate-500 mb-1.5">{label}</p>}
+                    <div className="flex flex-wrap gap-1.5">
+                        {items.map((it, i) => (
+                            <span key={i} className="text-[10px] font-medium text-slate-300 bg-slate-800/80 border border-slate-700/60 rounded px-2 py-1 break-words">
+                                {it}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // Full matched sentences/quotes (e.g. D.5.1's evidence_sentences) -
+        // the actual textual basis behind a classification, not a
+        // named-entity/dimension label. Shown as a stacked quote list, never
+        // as chips (which would mangle a full sentence), never clamped -
+        // every matched sentence the compute_fn found is shown.
+        const EvidenceQuoteList = ({ quotes, label }) => {
+            if (!quotes || !quotes.length) return null;
+            return (
+                <div className="w-full mt-2.5 pt-2.5 border-t border-slate-800/60">
+                    {label && <p className="text-[9.5px] font-bold uppercase tracking-wide text-slate-500 mb-1.5">{label}</p>}
+                    <div className="space-y-1.5">
+                        {quotes.map((q, i) => (
+                            <p key={i} className="text-[10.5px] text-slate-400 leading-snug italic border-l-2 border-slate-700 pl-2">
+                                "{q}"
+                            </p>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // Dated matched filings/events (e.g. D.6.2's evidence: NSE
+        // announcement/insider-filing rows) - the real dated basis behind a
+        // classification. A compact timeline, not a bar/chip - every matched
+        // event is shown, none dropped or capped.
+        const EvidenceEventList = ({ events, label }) => {
+            const items = (events || []).filter(e => e && (e.label || e.value));
+            if (!items.length) return null;
+            return (
+                <div className="w-full mt-2.5 pt-2.5 border-t border-slate-800/60">
+                    {label && <p className="text-[9.5px] font-bold uppercase tracking-wide text-slate-500 mb-1.5">{label}</p>}
+                    <div className="space-y-2">
+                        {items.map((ev, i) => (
+                            <div key={i} className="flex items-start gap-2 text-[10.5px]">
+                                <div className="mt-1 w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
+                                <div className="flex flex-col min-w-0">
+                                    {ev.label && <span className="text-slate-500 font-mono text-[9.5px]">{ev.label}</span>}
+                                    {ev.value && <span className="text-slate-300 break-words">{ev.value}</span>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
         const MultiDonutPanel = ({ panels }) => {
             const items = (panels || []).filter(Boolean);
             if (!items.length) return null;
@@ -1056,6 +1154,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <div key={i} className="bg-slate-950/50 border border-slate-800 rounded-xl p-3">
                             <p className="text-[11px] font-bold text-slate-300 mb-2 text-center">{p.title}</p>
                             <BigCenterDonut panel={p} />
+                            <NamedListRow items={p.namedList} label={p.namedListLabel} />
+                            <EvidenceQuoteList quotes={p.evidenceQuotes} label={p.evidenceQuotesLabel} />
+                            <EvidenceEventList events={p.evidenceEvents} label={p.evidenceEventsLabel} />
                         </div>
                     ))}
                 </div>
@@ -1077,7 +1178,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="space-y-2.5">
                     {items.map((d, i) => {
                         // Optional per-row color override (e.g. the composite score bar,
-                        // or the required qualitative-evidence bar — must be visually
+                        // or the required qualitative-evidence bar - must be visually
                         // distinct from the peer-quintile quant pillars per the A.2 spec).
                         const color = d.color || defaultColor;
                         return (
@@ -1096,8 +1197,75 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
+        // --- Semantic 1-5 scale label sets. Every deterministic sub-point in
+        // this framework already bands its raw fact so 5 is always the
+        // better outcome for the company (see KpiCardPanel's own comment
+        // above) - so every set below is pre-oriented 1=worst, 5=best. The
+        // WORD a reader needs differs by what kind of factor the metric is
+        // (a risk factor reads "Low/High risk", a quality factor reads
+        // "Poor/Excellent", a competitive-strength factor reads "Weak/
+        // Strong") - matched by keyword against the metric's own title so
+        // this generalizes across the whole A-U framework instead of
+        // hardcoding one label set per subpoint_id.
+        const _SCALE_SETS = {
+            risk: ['Very High Risk', 'High Risk', 'Moderate Risk', 'Low Risk', 'Very Low Risk'],
+            barrier: ['Low', 'Moderate', 'Elevated', 'High', 'Very High'],
+            strength: ['Very Weak', 'Weak', 'Moderate', 'Strong', 'Very Strong'],
+            quality: ['Poor', 'Fair', 'Good', 'Very Good', 'Excellent'],
+            maturity: ['Nascent', 'Developing', 'Established', 'Advanced', 'Mature'],
+            default: ['Very Poor', 'Poor', 'Moderate', 'Good', 'Excellent'],
+        };
+        const _SCALE_SET_RULES = [
+            [/risk|dependency|dependence|concentration|exposure|vulnerab|obsolescence|constraint/i, 'risk'],
+            [/barrier/i, 'barrier'],
+            [/strength|switching cost|network effect|moat|pricing power|bargaining/i, 'strength'],
+            [/maturity|lifecycle|pipeline depth/i, 'maturity'],
+            [/quality|disclosure|transparency|clarity|orientation|openness|alignment|rating|depth|control\b/i, 'quality'],
+        ];
+        const scaleSetForTitle = (title) => {
+            const t = title || '';
+            for (const [re, key] of _SCALE_SET_RULES) if (re.test(t)) return _SCALE_SETS[key];
+            return _SCALE_SETS.default;
+        };
+
+        // --- SUBCOMPONENT: a single 1-5 score with its semantic meaning made
+        // explicit - the numeric score alone ("3/5") never says what 3 means
+        // for THIS metric, so every rating bar shows the matching word
+        // (Moderate/Weak/High Risk/...) plus a small labeled 5-step scale
+        // with the current position marked, not just five identical blocks.
+        const SemanticRatingBar = ({ title, score, explanation, full = false }) => {
+            if (score == null || isNaN(score)) return null;
+            const idx = Math.max(1, Math.min(5, Math.round(score))) - 1;
+            const labels = scaleSetForTitle(title);
+            const word = labels[idx];
+            const color = score >= 4 ? '#34d399' : score <= 2 ? '#f87171' : '#fbbf24';
+            return (
+                <div className={`flex flex-col items-center ${full ? 'w-full' : ''}`}>
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-[26px] font-extrabold leading-none" style={{ color }}>{score.toFixed(1)}<span className="text-[14px] font-semibold opacity-60"> / 5</span></span>
+                    </div>
+                    <span className="text-[12px] font-bold uppercase tracking-wide mt-0.5" style={{ color }}>{word}</span>
+                    <div className={`w-full ${full ? '' : 'max-w-[260px]'} mt-2.5`}>
+                        <div className="flex gap-1">
+                            {[0, 1, 2, 3, 4].map((i) => (
+                                <div key={i} className="flex-1 h-2 rounded-sm" style={{ background: i <= idx ? color : '#1e293b' }} />
+                            ))}
+                        </div>
+                        <div className="flex gap-1 mt-1">
+                            {labels.map((lbl, i) => (
+                                <span key={i} className={`flex-1 text-[8.5px] text-center leading-tight ${i === idx ? 'font-bold' : 'text-slate-600'}`} style={i === idx ? { color } : undefined}>
+                                    {lbl}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                    {explanation && <p className="text-[10px] text-slate-500 text-center mt-2.5 leading-snug">{explanation}</p>}
+                </div>
+            );
+        };
+
         // --- SUBCOMPONENT: diverging bar for a signed metric (e.g. company CAGR
-        // minus industry CAGR — can be negative). Fills right of center in green
+        // minus industry CAGR - can be negative). Fills right of center in green
         // for positive, left in red for negative, clamped to ±range. Hover works
         // anywhere over the track.
         const DivergingBar = ({ value, range = 20, label, dark = false }) => {
@@ -1140,10 +1308,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: "spectrum" infographic — a segmented bar of categorical
+        // --- SUBCOMPONENT: "spectrum" infographic - a segmented bar of categorical
         // options with one highlighted as active. Used as the visual fallback when a
         // qualitative sub-point has a category (e.g. revenue model type) but no
-        // numeric %/rating to chart — so every sub-point always has *something*
+        // numeric %/rating to chart - so every sub-point always has *something*
         // visual, not just a bare label. Hover works anywhere over a segment's box.
         const SpectrumChart = ({ options, active, dark = false }) => {
             const [hi, setHi] = useState(null);
@@ -1178,19 +1346,19 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: A.3 Revenue model quality — SPECTRUM_BAR. Five
+        // --- SUBCOMPONENT: A.3 Revenue model quality - SPECTRUM_BAR. Five
         // FIXED zones in fixed left-to-right order (Transactional, Recurring,
         // Annuity, Long-term Contract, Mixed), with a single marker placed by
         // the backend-computed 0-100 revenue-weighted blend position (never
-        // eyeballed here) — see compute_a3_revenue_model_quality. Styling
+        // eyeballed here) - see compute_a3_revenue_model_quality. Styling
         // mirrors SpectrumChart's dark-mode CSS-variable conventions above.
-        // Generic "fixed zones + one marker" bar — takes `options` as a prop
+        // Generic "fixed zones + one marker" bar - takes `options` as a prop
         // so it's reusable across a DIFFERENT zone count/set (A.3's 5
         // contract-type zones, A.5's 4 pricing-power zones incl. the
         // mandatory "Insufficient Data" state), not hardcoded to any one
         // subpoint's zones. A zone literally named "Insufficient Data" (or
         // any other "not enough evidence" style label) gets a visually
-        // distinct, greyed-out treatment when active — the spec's own
+        // distinct, greyed-out treatment when active - the spec's own
         // requirement that this state must never silently render as if it
         // were a real "Moderate"-style finding.
         const INSUFFICIENT_ZONE_LABELS = new Set(['insufficient data', 'unclear', 'not enough evidence']);
@@ -1236,16 +1404,16 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: Clarity of Business Model — Graph 1. One 100%-stacked
+        // --- SUBCOMPONENT: Clarity of Business Model - Graph 1. One 100%-stacked
         // horizontal bar: block width = real reported segment revenue share
         // (deterministic, from the Annual Report's own segment note), block
         // color = that segment's evidence-grounded revenue pattern (Recurring/
-        // Mixed/Cyclical/Unclassified — never inferred from the segment's name).
+        // Mixed/Cyclical/Unclassified - never inferred from the segment's name).
         // Below it: a revenue-weighted Recurring<->Cyclical spectrum position
         // (computed in Python, never an LLM guess) and a deterministic
         // plain-English footer sentence.
         const PATTERN_LABEL = { recurring: 'Recurring', mixed: 'Mixed', cyclical: 'Cyclical', unclassified: 'Unclassified' };
-        // Generic fallback definitions — shown next to a slice only when that
+        // Generic fallback definitions - shown next to a slice only when that
         // specific segment/year has no evidence-grounded reason of its own
         // (pattern_reason_points), never as a substitute for real evidence
         // when it exists.
@@ -1257,20 +1425,20 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
         const BUSINESS_MODEL_TAG_LABEL = { focused_single_business: 'Focused / Single Business', portfolio_diversified: 'Portfolio / Diversified' };
         const PATTERN_DOT_COLOR = {
-            recurring: 'rgb(45 212 191)',   // teal — stable/positive
-            mixed: 'rgb(250 204 21)',       // amber — intermediate
-            cyclical: 'rgb(251 113 60)',    // warm coral — caution
-            unclassified: 'rgb(148 163 184)', // slate — insufficient evidence
+            recurring: 'rgb(45 212 191)',   // teal - stable/positive
+            mixed: 'rgb(250 204 21)',       // amber - intermediate
+            cyclical: 'rgb(251 113 60)',    // warm coral - caution
+            unclassified: 'rgb(148 163 184)', // slate - insufficient evidence
         };
         // Each SEGMENT gets its own distinct fill color (not just one of 4
         // pattern colors) so a bar with several same-pattern segments (e.g.
         // 4 "Recurring" FMCG segments) still reads as visually distinct
-        // blocks — the pattern itself is still shown via a small colored dot
+        // blocks - the pattern itself is still shown via a small colored dot
         // + label on every block, not lost.
         //
         // The 10 standard brand-identity colors (blue/red/green/yellow/
         // orange/purple/black/white/pink/brown), each paired with the text
-        // color that stays readable on it — yellow and white need dark
+        // color that stays readable on it - yellow and white need dark
         // text, everything else needs light text.
         const SEGMENT_FILL_PALETTE_ENTRIES = [
             { bg: 'rgb(37 99 235)', text: 'white' },     // Blue
@@ -1292,7 +1460,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             unclassified: 'Not enough evidence to position',
         };
 
-        // Rich hover popover for one segment — native title="" tooltips can't
+        // Rich hover popover for one segment - native title="" tooltips can't
         // render bullet lists or brand chips, so this is a real floating panel
         // shown on hover, with the same content as the "Why?" drawer. Position
         // is passed in (already clamped to the chart's own width) rather than
@@ -1300,7 +1468,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Never assert the company failed to disclose something when the real
         // reason is that our own classifier didn't run (rate limit / network).
         const patternUnavailableText = (failed) => failed
-            ? "Revenue pattern couldn't be classified on this run — reload to try again."
+            ? "Revenue pattern couldn't be classified on this run - reload to try again."
             : 'Not enough official disclosure to classify this segment’s revenue pattern.';
 
         const SegmentHoverCard = ({ s, classificationFailed }) => (
@@ -1334,11 +1502,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             </div>
         );
 
-        // --- SUBCOMPONENT: Revenue-pattern donut — replaces the old 100%-stacked
+        // --- SUBCOMPONENT: Revenue-pattern donut - replaces the old 100%-stacked
         // bar with a ring chart (segment slices colored by Recurring/Mixed/
         // Cyclical/Unclassified), a center total, a pattern-bucket legend, and
         // an optional "summary" stat panel below (e.g. Classification/Total
-        // Segments) — same visual language across every subpoint that uses it,
+        // Segments) - same visual language across every subpoint that uses it,
         // driven entirely by props so it isn't hardcoded to one subpoint's data.
         const REVENUE_PATTERN_LEGEND_ORDER = ['cyclical', 'recurring', 'mixed', 'unclassified'];
         const RevenuePatternDonut = ({
@@ -1356,7 +1524,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const frac = s.share_pct / total;
                 const a0 = ang, a1 = ang + frac * 2 * Math.PI; ang = a1;
                 const large = (a1 - a0) > Math.PI ? 1 : 0;
-                // Distinct per-SEGMENT color, not per-pattern — two segments
+                // Distinct per-SEGMENT color, not per-pattern - two segments
                 // sharing a pattern (e.g. two "Recurring" segments) previously
                 // got the identical slice color and were impossible to tell
                 // apart on the ring. Pattern is still conveyed separately via
@@ -1406,7 +1574,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             {captionText && <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-2 text-center">{captionText}</p>}
                         </div>
                         {/* Side-of-chart text: every slice listed with its own
-                            colored dot, % share, and a one-line explanation —
+                            colored dot, % share, and a one-line explanation -
                             the segment's OWN reason (pattern_reason_points, real
                             AR/concall evidence) when we have one, else the
                             generic definition of that pattern (never a fabricated
@@ -1453,10 +1621,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: Competitive Moat wheel — equal-wedge ring, one wedge
+        // --- SUBCOMPONENT: Competitive Moat wheel - equal-wedge ring, one wedge
         // per moat factor (Brand/Distribution/Cost Leadership/Network Effects/
         // Switching Costs), each wedge sized EQUALLY (this is a category wheel,
-        // not a value-weighted chart — a factor's 0-5 score is conveyed by its
+        // not a value-weighted chart - a factor's 0-5 score is conveyed by its
         // label + hover value, not by wedge size) with its own fixed color, a
         // radial label outside the ring, and the composite score in the center.
         // A factor missing evidence (score=None) or genuinely Not Applicable is
@@ -1552,7 +1720,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                         {hi != null ? items[hi].label : 'MOAT SCORE'}
                                     </text>
 
-                                    {/* Radial labels — two-word labels ("Switching Costs",
+                                    {/* Radial labels - two-word labels ("Switching Costs",
                                         "Network Effects", "Cost Leadership") are split across
                                         two shorter tspans instead of one long line. A single
                                         line at this label radius ran wide enough to render past
@@ -1586,7 +1754,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         {/* Side Panel: Combined Factors and Explanations */}
                         <div className="flex-1 min-w-0 w-full space-y-3">
                             {slices.map((s, i) => {
-                                const scoreStr = s.value != null ? `${s.value}/5` : (s.applicable === false ? 'N/A' : '—');
+                                const scoreStr = s.value != null ? `${s.value}/5` : (s.applicable === false ? 'N/A' : '-');
                                 const expText = s.explanation || MOAT_FACTOR_EXPLANATION[s.label] || '';
                                 return (
                                     <div key={s.label}
@@ -2003,7 +2171,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             // Proportional fill ring: the filled arc's sweep is the actual
             // pass-through ratio (e.g. 85% of the ring), not an equal 1-of-4
-            // wedge — a fixed quarter-wedge made an 85% figure look like 25%.
+            // wedge - a fixed quarter-wedge made an 85% figure look like 25%.
             const ratioPct = isNaN(ratioNum) ? 0 : Math.max(0, Math.min(100, ratioNum));
             const activeColor = PRICING_POWER_COLOR[effectiveRating] || '#3b82f6';
             const arcPath = (startPct, endPct, color, opacity) => {
@@ -2079,7 +2247,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         {/* Side Panel: Combined Categories and Explanations */}
                         <div className="flex-1 min-w-0 w-full space-y-3">
                             {slices.map((s, i) => {
-                                const activeBadge = s.active ? (s.pct || 'Active') : '—';
+                                const activeBadge = s.active ? (s.pct || 'Active') : '-';
                                 const expText = s.explanation || PRICING_POWER_EXPLANATION[s.label] || '';
                                 return (
                                     <div key={s.label}
@@ -2116,11 +2284,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Fiscal-year label normalizer — annotations come from an LLM's free-text
+        // Fiscal-year label normalizer - annotations come from an LLM's free-text
         // flag ("FY23", "FY 2023", "2023") while table rows come from the real
         // margin series in "YYYY-03" fiscal-period-end form ("2023-03"). Both
         // sides are run through this so "FY23" and "2023-03" (same fiscal year)
-        // match regardless of which format either one happens to use — without
+        // match regardless of which format either one happens to use - without
         // it, the two never collide as plain uppercased strings and every
         // annotation silently fails to attach to its row (that WAS the bug: the
         // "one-off years flagged" bullet had real data, the table just never
@@ -2207,7 +2375,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         EBITDA Margin Analytics
                     </h3>
 
-                    {/* Table (Period/EBITDA% only) side-by-side with the chart — the
+                    {/* Table (Period/EBITDA% only) side-by-side with the chart - the
                         chart now sits in the space the removed Annotations column used
                         to occupy, rather than stacked full-width below the table. */}
                     <div className="flex flex-col lg:flex-row gap-5 mb-2">
@@ -2259,7 +2427,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                     {/* Trend Line Path */}
                                     <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" />
 
-                                    {/* Data points — annotated points get a distinct amber
+                                    {/* Data points - annotated points get a distinct amber
                                         ring color so they're visually flagged on the chart
                                         itself; the annotation TEXT lives in the footnote
                                         below the chart, not as an on-chart callout box. */}
@@ -2281,7 +2449,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             <div className="w-full text-right text-xs text-slate-500 font-semibold mt-1 px-2">
                                 Reporting Period →
                             </div>
-                            {/* Annotation footnotes — the amber point on the chart above
+                            {/* Annotation footnotes - the amber point on the chart above
                                 flags WHICH year, this lists WHY. */}
                             {tableRows.some(r => r.annotation) && (
                                 <div className="w-full mt-3 pt-3 border-t border-slate-800/70 space-y-1.5">
@@ -2312,11 +2480,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: multi-year Recurring vs Cyclical trend — one row per
+        // --- SUBCOMPONENT: multi-year Recurring vs Cyclical trend - one row per
         // fiscal year, a thin 100%-stacked bar (Recurring teal | Cyclical coral).
         // Deliberately NOT another donut: the current-year mix is already shown
         // by RevenuePatternDonut above it on the same card, so this component's
-        // only job is the thing that donut can't show — how the mix moved
+        // only job is the thing that donut can't show - how the mix moved
         // across years, using the SAME per-segment classifier's output (never
         // re-derived or estimated here, just laid out year over year).
         const RecurringCyclicalTrendBars = ({ trend, skippedYears }) => {
@@ -2338,7 +2506,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     ))}
                     {skippedYears?.length > 0 && (
                         <p className="text-[10px] text-slate-600 italic pt-1">
-                            {skippedYears.length} year{skippedYears.length === 1 ? '' : 's'} skipped — no reconciled segment note on file for that Annual Report.
+                            {skippedYears.length} year{skippedYears.length === 1 ? '' : 's'} skipped - no reconciled segment note on file for that Annual Report.
                         </p>
                     )}
                 </div>
@@ -2351,7 +2519,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const hasResidual = residualPct > 0.5;
             const [openWhy, setOpenWhy] = useState(false);
             // A SINGLE shared hover state, rendered as ONE tooltip instance
-            // (not one copy per segment div) — two separate hover surfaces
+            // (not one copy per segment div) - two separate hover surfaces
             // (bar + legend) previously both rendered their own copy whenever
             // hoverIdx matched, which is what produced two overlapping
             // tooltips for the same segment. hoverLeft is measured on
@@ -2368,7 +2536,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const score = chart?.weightedPatternScore;
             const spectrumPct = score != null ? Math.max(0, Math.min(100, score * 100)) : null;
 
-            // Actual revenue-share breakdown by pattern — not just where the
+            // Actual revenue-share breakdown by pattern - not just where the
             // single weighted dot lands, but literally how many % of revenue
             // each bucket represents. Computed straight from this company's
             // own classified segments, so it's identical logic for every
@@ -2391,7 +2559,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const half = TOOLTIP_W / 2 + 4;
                 // Position is computed in absolute VIEWPORT coordinates (not
                 // relative to the bar) because the tooltip is portaled to
-                // document.body with position:fixed — this is required so an
+                // document.body with position:fixed - this is required so an
                 // ancestor's overflow-hidden (the card wrapper) can never clip
                 // it, which previously cut the popover off mid-content.
                 const centerX = segRect.left + segRect.width / 2;
@@ -2409,14 +2577,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div>
                     <p className="text-[12px] text-slate-400 mb-2">{chart?.compositionNote}</p>
 
-                    {/* 100% stacked composition bar — one distinct color per
+                    {/* 100% stacked composition bar - one distinct color per
                         segment (never blurs into a same-color blob), a small
                         pattern-colored dot on every block shows Recurring/Mixed/
                         Cyclical/Unclassified even when the block is too narrow
                         for the full label. Hover any block for the full
                         breakdown (reasoning + brand examples). Blocks too
                         narrow for an inline name+% get a leader-line label
-                        above the bar instead of being left blank — the legend
+                        above the bar instead of being left blank - the legend
                         below repeats the same info in list form, but a reader
                         scanning the bar itself shouldn't have to look away to
                         find out what a given sliver is. */}
@@ -2468,7 +2636,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             })}
                             {hasResidual && (
                                 <div className="flex items-center justify-center" style={{ width: `${residualPct}%`, background: RESIDUAL_COLOR.bg }}
-                                    title={`Unallocated / residual — ₹${chart?.residualCr?.toLocaleString('en-IN')} Cr · ${residualPct}%`}>
+                                    title={`Unallocated / residual - ₹${chart?.residualCr?.toLocaleString('en-IN')} Cr · ${residualPct}%`}>
                                     {residualPct >= 6 && <span className="text-[10px] font-semibold" style={{ color: RESIDUAL_COLOR.text }}>{Math.round(residualPct)}%</span>}
                                 </div>
                             )}
@@ -2485,10 +2653,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         )}
                     </div>
 
-                    {/* Always-visible compact legend — every segment listed by
+                    {/* Always-visible compact legend - every segment listed by
                         name, no matter how small its block is (a block too
                         narrow for inline text is never left unlabeled). Plain
-                        text only, no separate hover surface here — the bar
+                        text only, no separate hover surface here - the bar
                         above is the single hover source for the rich panel. */}
                     <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-2.5">
                         {segs.map((s, i) => (
@@ -2542,9 +2710,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         )}
                         <p className="text-[10px] text-slate-500 mt-1">
                             {WEIGHTED_SPECTRUM_LABEL[chart?.weightedPatternLabel] || 'Not enough evidence to position'}
-                            {spectrumPct != null && ` — ${spectrumPct.toFixed(0)}/100 toward Cyclical (hover the dot for how this is calculated)`}
+                            {spectrumPct != null && ` - ${spectrumPct.toFixed(0)}/100 toward Cyclical (hover the dot for how this is calculated)`}
                         </p>
-                        {/* Literal revenue-share breakdown by pattern — the
+                        {/* Literal revenue-share breakdown by pattern - the
                             dot above shows one weighted position, this shows
                             exactly how many % of revenue sits in each bucket. */}
                         {patternShareParts.length > 0 && (
@@ -2577,7 +2745,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                         <div className="flex items-center gap-1.5 mb-1.5">
                                             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: PATTERN_DOT_COLOR[s.pattern] || PATTERN_DOT_COLOR.unclassified }} />
                                             <span className="font-semibold text-slate-200">{s.name}</span>
-                                            <span className="text-slate-500">— {PATTERN_LABEL[s.pattern] || s.pattern}</span>
+                                            <span className="text-slate-500">- {PATTERN_LABEL[s.pattern] || s.pattern}</span>
                                         </div>
                                         {s.pattern_reason_points?.length > 0 ? (
                                             <ul className="space-y-1 mb-2">
@@ -2600,13 +2768,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                         )}
                                     </div>
                                 ))}
-                                {/* Sources — the actual excerpts the classifier read before
+                                {/* Sources - the actual excerpts the classifier read before
                                     assigning every segment's pattern above, shared across all
                                     segments (the classifier reads them together, not one
                                     excerpt per segment) rather than duplicated per block. When
                                     a segment's reasoning cites no matching excerpt, that's
                                     because it was reasoned from general business-model/sector
-                                    knowledge instead — said explicitly here rather than left
+                                    knowledge instead - said explicitly here rather than left
                                     for the reader to guess. */}
                                 {(() => {
                                     const src = chart?.patternSources;
@@ -2643,7 +2811,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                             ) : (
                                                 <p className="text-[11px] text-slate-500 italic">
                                                     No Annual Report excerpt explicitly discussed recurring/cyclical revenue for
-                                                    this company — segment patterns above were reasoned from general,
+                                                    this company - segment patterns above were reasoned from general,
                                                     well-established business-model knowledge for that kind of business
                                                     instead (e.g. FMCG household products are repeat-purchase but not
                                                     contractual, so not "recurring" in the strict sense used here).
@@ -2652,7 +2820,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                             {pdfUrl && (
                                                 <a href={`${pdfUrl}${chart?.plPage ? `#page=${chart.plPage}` : ''}`} target="_blank" rel="noopener noreferrer"
                                                     className="inline-block text-[10px] font-bold text-blue-400 hover:text-blue-300 hover:underline">
-                                                    VIEW SOURCE — Annual Report{fiscalYear ? ` FY${fiscalYear}` : ''} P&amp;L / segment note
+                                                    VIEW SOURCE - Annual Report{fiscalYear ? ` FY${fiscalYear}` : ''} P&amp;L / segment note
                                                 </a>
                                             )}
                                         </div>
@@ -2665,7 +2833,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: Product lifecycle stage — Row A.4. Adapts
+        // --- SUBCOMPONENT: Product lifecycle stage - Row A.4. Adapts
         // BusinessCompositionChart's 100%-stacked-bar scaffolding above
         // (block width = real segment revenue share, one distinct fill per
         // segment, small colored dot for the classification) but recolored
@@ -2673,17 +2841,17 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // instead of revenue pattern (Recurring/Mixed/Cyclical). Every block
         // comes from compute_a4_product_lifecycle_stage's deterministic,
         // sector-CAGR-benchmarked classifier (tools/product_lifecycle_scoring.py)
-        // — never an LLM guess. A diversified company deliberately never
+        // - never an LLM guess. A diversified company deliberately never
         // collapses to one label here (see that function's docstring on the
         // "Reliance mismatch" institutional knowledge it carries forward).
         const STAGE_LABEL = { growth: 'Growth', maturity: 'Maturity', commoditisation: 'Commoditisation', decline: 'Decline / obsolescence risk' };
         const STAGE_COLOR = {
-            growth: 'rgb(45 212 191)',        // teal — expanding faster than sector
-            maturity: 'rgb(250 204 21)',      // amber — in line with sector
-            commoditisation: 'rgb(251 113 60)', // warm coral — below-sector growth + margin compression
-            decline: 'rgb(220 38 38)',        // red — negative revenue CAGR
+            growth: 'rgb(45 212 191)',        // teal - expanding faster than sector
+            maturity: 'rgb(250 204 21)',      // amber - in line with sector
+            commoditisation: 'rgb(251 113 60)', // warm coral - below-sector growth + margin compression
+            decline: 'rgb(220 38 38)',        // red - negative revenue CAGR
         };
-        const UNCLASSIFIED_COLOR = 'rgb(100 116 139)'; // slate — segment CAGR/benchmark unavailable, never a guess
+        const UNCLASSIFIED_COLOR = 'rgb(100 116 139)'; // slate - segment CAGR/benchmark unavailable, never a guess
 
         const SegmentStageBreakdown = ({ chart }) => {
             const segs = (chart?.segments || []).filter(s => s && s.label && s.share_pct > 0);
@@ -2699,7 +2867,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         </p>
                     )}
 
-                    {/* 100%-stacked bar — block width = segment revenue share, block
+                    {/* 100%-stacked bar - block width = segment revenue share, block
                         color = that segment's classified lifecycle stage. */}
                     <div className="flex w-full h-11 rounded-md overflow-hidden">
                         {segs.map((s, i) => {
@@ -2712,7 +2880,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                         width: `${s.share_pct}%`, background: color,
                                         borderRight: isLast ? 'none' : '1.5px solid rgba(15, 23, 42, 0.5)',
                                     }}
-                                    title={`${s.label} — ${s.share_pct}% of revenue — ${s.stage_label || 'Unclassified'}${s.segment_cagr != null ? ` (segment CAGR ${(s.segment_cagr * 100).toFixed(1)}%)` : ''}\n${s.reasoning || ''}`}
+                                    title={`${s.label} - ${s.share_pct}% of revenue - ${s.stage_label || 'Unclassified'}${s.segment_cagr != null ? ` (segment CAGR ${(s.segment_cagr * 100).toFixed(1)}%)` : ''}\n${s.reasoning || ''}`}
                                     onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}>
                                     {s.share_pct >= 9 && (
                                         <>
@@ -2725,7 +2893,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         })}
                         {unclassifiedPct > 0.5 && (
                             <div className="flex items-center justify-center" style={{ width: `${unclassifiedPct}%`, background: UNCLASSIFIED_COLOR }}
-                                title={`Unclassified — ${unclassifiedPct}% of revenue (segment label not matched across fiscal years, or CAGR/sector-median unavailable — never a guessed stage)`}>
+                                title={`Unclassified - ${unclassifiedPct}% of revenue (segment label not matched across fiscal years, or CAGR/sector-median unavailable - never a guessed stage)`}>
                                 {unclassifiedPct >= 6 && <span className="text-[10px] font-semibold text-white/90">{unclassifiedPct}%</span>}
                             </div>
                         )}
@@ -2836,7 +3004,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: Revenue streams — pie of how the company makes money,
+        // --- SUBCOMPONENT: Revenue streams - pie of how the company makes money,
         // with each stream expandable (tap the row) to reveal its plain-English
         // "how it earns" detail. Falls back to the driver text if no structured
         // streams were produced.
@@ -2848,7 +3016,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const isEstimate = source && /estimate|business-model|derived/i.test(source);
             return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
-                    <p className="text-[11px] text-slate-400 mb-2.5">How the company makes money{s.some(x => x.desc) ? ' — tap a stream for detail' : ''}</p>
+                    <p className="text-[11px] text-slate-400 mb-2.5">How the company makes money{s.some(x => x.desc) ? ' - tap a stream for detail' : ''}</p>
                     {pieData.length > 0 && (
                         <div className="mb-3"><Donut data={pieData} fmt={(v) => Number(v).toFixed(0)} unit="% share" /></div>
                     )}
@@ -2883,10 +3051,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             ))}
                         </ul>
                     ) : (
-                        <p className="text-[10px] text-slate-600 italic">Not yet available — regenerate report to populate.</p>
+                        <p className="text-[10px] text-slate-600 italic">Not yet available - regenerate report to populate.</p>
                     )}
                     {isEstimate && s.length > 0 && (
-                        <p className="text-[9px] text-slate-600 italic mt-2">Approximate revenue mix inferred from the business model — indicative shares, not audited segment figures.</p>
+                        <p className="text-[9px] text-slate-600 italic mt-2">Approximate revenue mix inferred from the business model - indicative shares, not audited segment figures.</p>
                     )}
                 </div>
             );
@@ -2920,7 +3088,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                     ) : (
                                         <span className="text-slate-300">{s.label}</span>
                                     )}
-                                    {s.note && <span className="text-slate-500"> — {s.note}</span>}
+                                    {s.note && <span className="text-slate-500"> - {s.note}</span>}
                                 </div>
                             ))}
                         </div>
@@ -2929,24 +3097,24 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: Qualitative Analysis — main topics as collapsible sections,
+        // --- SUBCOMPONENT: Qualitative Analysis - main topics as collapsible sections,
         // each holding sub-points (LLM finding + chart when numeric + source citation
         // trail). Renders nothing but a "coming soon" note until a topic has data.
         // Confidence tag per the verification protocol (VERIFIED/SINGLE_SOURCE/
-        // CONFLICT_UNRESOLVED/terminal negative code) — only present on subpoints
+        // CONFLICT_UNRESOLVED/terminal negative code) - only present on subpoints
         // computed by the sourcing-pathway-verified engine (tools/qualitative_engine.py),
         // e.g. topic A's first 4 subpoints. Older, un-sourced subpoints simply omit it.
         const QUAL_CONFIDENCE_STYLE = {
             VERIFIED: 'text-emerald-200 bg-emerald-950 border-emerald-500/60',
             SINGLE_SOURCE: 'text-blue-200 bg-blue-950 border-blue-500/60',
             CONFLICT_UNRESOLVED: 'text-red-200 bg-red-950 border-red-500/60',
-            // Deliberately neutral, not amber-warning — N/A means "this
+            // Deliberately neutral, not amber-warning - N/A means "this
             // factor doesn't apply to this business model," not "evidence
             // was checked and found weak" (see A.2.D's network-effects gate).
             NOT_APPLICABLE: 'text-slate-300 bg-slate-800 border-slate-500/60',
         };
         const QualitativeSubpoint = ({ sp, siblingSubpoints }) => {
-            // Chart rendering is opt-in per subpoint `key` — re-added one at a
+            // Chart rendering is opt-in per subpoint `key` - re-added one at a
             // time to an exact spec rather than reviving the old set wholesale.
             // Every chart-shaped field (chart.*, sp.secondaryChart, etc.) always
             // arrives from the backend unchanged regardless of whether a given
@@ -2959,14 +3127,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 // Same threshold compute_business_composition uses to pick
                 // Focused/Single vs Portfolio/Diversified (tools/qualitative_engine.py
                 // "Step 10"): segments are sorted largest-first before this
-                // point, so segs[0] IS the largest reported segment — surfaced
+                // point, so segs[0] IS the largest reported segment - surfaced
                 // here so the label isn't a bare tag with no visible reasoning.
                 const topShare = segs.length ? segs[0].share_pct : null;
                 const tagKey = c.businessModelTag;
                 const classificationNote = topShare != null
                     ? (tagKey === 'focused_single_business'
-                        ? `${segs.length <= 1 ? 'Only one reported segment' : `Largest segment (${segs[0].name}) is ${topShare}% of revenue — at/above the 90% threshold`}, so this is classified Focused/Single Business rather than a diversified portfolio.`
-                        : `Largest segment (${segs[0].name}) is ${topShare}% of revenue — below the 90% threshold for a single dominant business, across ${segs.length} reported segments, so this is classified Portfolio/Diversified.`)
+                        ? `${segs.length <= 1 ? 'Only one reported segment' : `Largest segment (${segs[0].name}) is ${topShare}% of revenue - at/above the 90% threshold`}, so this is classified Focused/Single Business rather than a diversified portfolio.`
+                        : `Largest segment (${segs[0].name}) is ${topShare}% of revenue - below the 90% threshold for a single dominant business, across ${segs.length} reported segments, so this is classified Portfolio/Diversified.`)
                     : null;
                 revenuePatternDonut = (
                     <RevenuePatternDonut
@@ -2975,7 +3143,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         captionText={`${segs.length} ACTIVE SEGMENT${segs.length === 1 ? '' : 'S'}`}
                         summaryTitle="Portfolio Structure"
                         stats={[
-                            { label: 'Classification', value: BUSINESS_MODEL_TAG_LABEL[tagKey] || tagKey || '—' },
+                            { label: 'Classification', value: BUSINESS_MODEL_TAG_LABEL[tagKey] || tagKey || '-' },
                             { label: 'Total Segments', value: segs.length },
                         ]}
                         statsNote={classificationNote}
@@ -2986,7 +3154,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 const trend = sp.chart.trend || [];
                 // Company-specific "why", not a generic definition: pull the
                 // REAL per-segment reasoning from the sibling A.1 card (same
-                // classifier, same run — segments with pattern 'recurring' or
+                // classifier, same run - segments with pattern 'recurring' or
                 // 'mixed' feed the Recurring bucket, 'cyclical'/'mixed' feed
                 // Cyclical, matching compute_a1_2_pattern_trend's own 50/50
                 // mixed-segment split). Falls back to the generic definition
@@ -3011,7 +3179,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 // year ending March 2026) instead of a bare "FY2026", which
                 // reads as ambiguous between the Apr-2025→Mar-2026 and
                 // Apr-2026→Mar-2027 conventions different sources use. This is
-                // the same annual, segment-note-sourced figure as before — no
+                // the same annual, segment-note-sourced figure as before - no
                 // quarterly figure exists for this metric (segment revenue
                 // splits are only disclosed annually in the AR), so a
                 // last-closed-quarter label isn't something we can show
@@ -3023,7 +3191,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             segments={pseudoSegments}
                             hoverEnabled={true}
                             patternClassificationFailed={false}
-                            captionText={fyLabel ? `ANNUAL MIX — ${fyLabel}` : null}
+                            captionText={fyLabel ? `ANNUAL MIX - ${fyLabel}` : null}
                             summaryTitle="Revenue Mix"
                             stats={[
                                 { label: 'Classification', value: leaning },
@@ -3042,10 +3210,22 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 revenuePatternDonut = (
                     <MoatWheelDonut data={sp.secondaryChart?.data} centerValue={sp.secondaryChart?.centerValue} overallLabel="Overall Score" />
                 );
-            } else if ((sp.key === 'founder_ceo_track_record' || sp.key === 'management_incentives' || sp.key === 'management_bench_depth' || sp.key === 'communication_quality' || sp.key === 'execution_credibility' || sp.key === 'culture' || sp.key === 'promoter_shareholding_pattern' || sp.key === 'promoter_share_pledging' || sp.key === 'related_party_transactions' || sp.key === 'group_structural_complexity' || sp.key === 'board_composition_independence' || sp.key === 'auditor_relationships' || sp.key === 'capital_allocation' || sp.key === 'minority_shareholder_treatment' || sp.key === 'promoter_insider_selling' || sp.key === 'promoter_insider_buying' || sp.key === 'secondary_transactions_dilution' || sp.key === 'lockin_expiries_releases' || sp.key === 'promoter_loans' || sp.key === 'pledge_release_forced_sale' || sp.key === 'related_party_payment_leakage' || sp.key === 'customer_concentration' || sp.key === 'supplier_concentration_terms' || sp.key === 'receivables_disclosure_risk' || sp.key === 'inventory_demand_risk' || sp.key === 'off_market_arms_length' || sp.key === 'accounting_policy_risk' || sp.key === 'competitive_landscape' || sp.key === 'new_entrant_threat' || sp.key === 'customer_lockin' || sp.key === 'regulatory_trade_barriers' || sp.key === 'foreign_competition' || sp.key === 'channel_mix_control') && sp.chart?.type === 'multi_donut') {
-                revenuePatternDonut = (
-                    <MultiDonutPanel panels={sp.chart.panels} />
-                );
+            } else if (sp.chart?.type === 'multi_donut') {
+                // Any topic whose backend panel-builder explicitly tagged its
+                // chart 'multi_donut' renders through the same bespoke panel
+                // system - no per-key frontend whitelist to keep in sync as
+                // new sections (H-U) adopt the same real panel-construction
+                // pattern A-G already use.
+                //
+                // NOT_APPLICABLE / NOT_DISCLOSED panels are hidden from the
+                // live UI (per-stock, derived fresh from THIS report's own
+                // panel `status` every render - never a hardcoded metric
+                // list; see agent/stock_agent.py's _ux_status). DATA_MISSING
+                // and INSUFFICIENT_DATA stay visible.
+                const _multiDonutVisible = _visiblePanels(sp.chart.panels);
+                revenuePatternDonut = _multiDonutVisible.length
+                    ? <MultiDonutPanel panels={_multiDonutVisible} />
+                    : null;
             } else if (sp.key === 'revenue_model_quality') {
                 revenuePatternDonut = (
                     <RevenueModelQualityAnalyzer data={sp.chart?.data} renewalRate={sp.chart?.renewalRate} />
@@ -3083,6 +3263,20 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 });
             }
 
+            let mappedChart = null;
+            if (!revenuePatternDonut && sp.title && sp.confidence_tag && QUAL_CHART_MAPPING[normalizeMetricTitle(sp.title)]) {
+                const factsPayload = {};
+                displayFacts.forEach(([label, value]) => {
+                    const key = String(label).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                    if (key) factsPayload[key] = value;
+                });
+                if (sp.finding) factsPayload.rationale = sp.finding;
+                if (sp.chart && typeof sp.chart === 'object') Object.assign(factsPayload, sp.chart);
+                mappedChart = (
+                    <QualChart payload={factsPayload} confidenceTag={sp.confidence_tag} title={sp.title} />
+                );
+            }
+
             return (
                 <div className="border border-slate-800 rounded-lg overflow-hidden">
                     <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-2">
@@ -3107,15 +3301,16 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         ) : (
                             // "Not yet available" is only accurate when there is truly NOTHING
                             // for this sub-point yet (no bullet facts, no finding/rationale text,
-                            // no rendered chart) — showing it whenever `facts` alone happened to
+                            // no rendered chart) - showing it whenever `facts` alone happened to
                             // be empty was misleading real, populated cards (e.g. A.2's moat
                             // rationale with no `facts` list, or the A.1/1B donuts which carry
                             // no `facts` at all) as if the data were missing entirely.
                             !sp.finding && !revenuePatternDonut && (
-                                <p className="text-xs text-slate-500 italic mb-3">Not yet available — regenerate report to populate.</p>
+                                <p className="text-xs text-slate-500 italic mb-3">Not yet available - regenerate report to populate.</p>
                             )
                         )}
                         {revenuePatternDonut && <div className="mb-3">{revenuePatternDonut}</div>}
+                        {mappedChart && <div className="mb-3">{mappedChart}</div>}
                         {sp.finding && <p className="text-[13px] text-slate-400 leading-relaxed">{sp.finding}</p>}
                         <SourcesFooter formula={sp.formula} sources={sp.sources} />
                     </div>
@@ -3126,6 +3321,32 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         const EXCLUDED_MOAT_SUBPOINT_KEYS = new Set([
             'brand_moat', 'distribution_moat', 'cost_leadership_moat', 'network_effects_moat', 'switching_costs_moat'
         ]);
+        // A multi_donut card's panels are each individually NOT_APPLICABLE /
+        // NOT_DISCLOSED / DATA_MISSING / real-data - see the filter inside
+        // QualitativeSubpoint for how that's read off the CURRENT report's
+        // own panel data (never a hardcoded per-metric list). This mirrors
+        // that same check so a subpoint whose every panel is inapplicable/
+        // undisclosed for THIS stock is dropped before it ever renders an
+        // empty card, and a topic whose every subpoint is empty that way
+        // doesn't leave a dangling section header behind.
+        // A panel is hidden only when ITS OWN status on the CURRENT report
+        // says NOT_APPLICABLE or NOT_DISCLOSED (set server-side from that
+        // exact compute_fn's own confidence_tag for the current symbol -
+        // see agent/stock_agent.py's _ux_status/_UX_STATUS_MAP). DATA_MISSING
+        // and INSUFFICIENT_DATA panels - and any panel with no status at all,
+        // i.e. real data - always stay visible. Never keyed off metric name,
+        // section, or a hardcoded list, so the exact same metric can be
+        // hidden for one stock and shown for another based purely on that
+        // stock's own current payload.
+        const _isHiddenStatus = (p) => p.status === 'NOT_APPLICABLE' || p.status === 'NOT_DISCLOSED';
+        const _visiblePanels = (panels) => (panels || []).filter(p => !_isHiddenStatus(p));
+        const _hasVisiblePanels = (panels) => _visiblePanels(panels).length > 0;
+        const _subpointIsEmpty = (sp) => {
+            if (sp.finding) return false;
+            if ((sp.facts || []).length) return false;
+            if (sp.chart?.type === 'multi_donut') return !_hasVisiblePanels(sp.chart.panels);
+            return false; // bespoke non-multi_donut visuals (moat wheel, lifecycle, etc.) always keep their card
+        };
         const QualitativeTopics = ({ topics }) => {
             const list = Object.values(topics || {}).filter(t => t && t.subpoints && t.subpoints.length);
             if (!list.length) {
@@ -3134,7 +3355,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             return (
                 <div className="space-y-4">
                     {list.map((t, ti) => {
-                        const subpointsToRender = (t.subpoints || []).filter(sp => !EXCLUDED_MOAT_SUBPOINT_KEYS.has(sp.key));
+                        const subpointsToRender = (t.subpoints || []).filter(sp => !EXCLUDED_MOAT_SUBPOINT_KEYS.has(sp.key) && !_subpointIsEmpty(sp));
                         if (!subpointsToRender.length) return null;
                         return (
                             <CollapsibleSection key={t.topic || ti} title={t.topic} defaultOpen={true}>
@@ -3265,14 +3486,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // --- SUBCOMPONENT: Peer comparison table — same size-league peers only,
+        // --- SUBCOMPONENT: Peer comparison table - same size-league peers only,
         // per-metric values with percentiles. "Toppers vs toppers": a company is
         // ranked only against its own league, never against index giants. ---
         const PeerComparisonTable = ({ ranking, columns }) => {
             const rows = (ranking || []).filter(r => r.percentile != null);
             if (!rows.length) return null;
             const cols = (columns || []).filter(c => rows.some(r => r.metrics && r.metrics[c.key] && r.metrics[c.key].value != null));
-            const fmtVal = (c, v) => v == null ? '—'
+            const fmtVal = (c, v) => v == null ? '-'
                 : c.fmt === 'pct_raw' ? `${Number(v).toFixed(1)}%`
                 : Number(v) >= 1000 ? Math.round(Number(v)).toLocaleString('en-IN')
                 : Number(v).toFixed(1);
@@ -3330,7 +3551,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                         <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Historical P/E Band (5Y)</h4>
-                        <span className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border ${cheap ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' : 'text-amber-400 bg-amber-500/10 border-amber-500/30'}`}>{cheap ? 'Below median — relatively cheap' : 'Above median — relatively expensive'}</span>
+                        <span className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border ${cheap ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' : 'text-amber-400 bg-amber-500/10 border-amber-500/30'}`}>{cheap ? 'Below median - relatively cheap' : 'Above median - relatively expensive'}</span>
                     </div>
                     <TrendChart rows={rows} series={[{ key: 'PE', label: 'P/E', color: '#2563eb' }]} fmt={(v) => `${v.toFixed(0)}x`} height={160} refLine={{ value: active.v, color: active.c, label: `${active.l} ${active.v}x` }} />
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -3412,7 +3633,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 });
             }
 
-            // Format monetary sums (null/NaN-safe — real data can omit fields)
+            // Format monetary sums (null/NaN-safe - real data can omit fields)
             const formatCurrency = (val) => {
                 if (val === null || val === undefined || isNaN(val)) return 'N/A';
                 if (Math.abs(val) >= 1e7) return `₹${(val / 1e7).toFixed(2)} Cr`;
@@ -3493,12 +3714,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         const ForensicChecklist = ({ parsedJson, checklistItems = [] }) => {
             const f16 = parsedJson?.['F-16'] || {};
             const riskLevel = f16.risk_level || 'Low';
-            // Aggregate EVERY red/amber flag investors look for — forensic accounting
-            // checks + the investor-checklist items — red flags first. Green passes hidden.
+            // Aggregate EVERY red/amber flag investors look for - forensic accounting
+            // checks + the investor-checklist items - red flags first. Green passes hidden.
             // Defensive: LLM payloads occasionally deliver objects where strings
-            // are expected — rendering an object as a React child crashes the app.
+            // are expected - rendering an object as a React child crashes the app.
             const asText = (v) => v == null ? '' : typeof v === 'string' ? v
-                : typeof v === 'object' ? Object.values(v).filter(Boolean).join(' — ') : String(v);
+                : typeof v === 'object' ? Object.values(v).filter(Boolean).join(' - ') : String(v);
             const forensic = (f16.checks || [])
                 .filter(c => String(c.status).toUpperCase() !== 'PASS')
                 .map(c => ({ title: asText(c.name), status: String(c.status).toUpperCase() === 'FAIL' ? 'RED FLAG' : 'WATCH', detail: asText(c.details), cat: 'Forensic accounting' }));
@@ -3516,7 +3737,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex justify-between items-center border-b border-slate-800 pb-3 flex-wrap gap-2">
                         <div>
                             <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Red Flags &amp; Watch-Items</h4>
-                            <p className="text-[10px] text-slate-500 mt-0.5">Everything an investor should check last — accounting quality, governance, leverage &amp; concentration.</p>
+                            <p className="text-[10px] text-slate-500 mt-0.5">Everything an investor should check last - accounting quality, governance, leverage &amp; concentration.</p>
                         </div>
                         <div className="flex items-center gap-1.5">
                             <span className="text-[10px] font-bold border rounded-md px-2 py-1 bg-red-500/10 text-red-400 border-red-500/25">{redCount} Red</span>
@@ -3629,10 +3850,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                         <tr key={i} className="border-t border-slate-900">
                                             <td className="py-2 pr-2"><div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: palette[i % palette.length] }}></span><span className="text-slate-200 font-medium">{s.name}</span></div></td>
                                             <td className="py-2 pr-3 w-[24%]"><div className="flex items-center gap-2"><div className="flex-1 h-1.5 rounded bg-slate-800 overflow-hidden"><div className="h-full" style={{ width: `${s.pct}%`, background: palette[i % palette.length] }}></div></div><span className="text-slate-300 font-mono w-10 text-right">{s.pct}%</span></div></td>
-                                            {hasProfit && <td className="py-2 pr-3 w-[20%]">{s.profit_pct != null ? <div className="flex items-center gap-2"><div className="flex-1 h-1.5 rounded bg-slate-800 overflow-hidden"><div className="h-full" style={{ width: `${Math.min(100, Math.max(0, s.profit_pct))}%`, background: '#16a34a' }}></div></div><span className="text-slate-300 font-mono w-10 text-right">{s.profit_pct}%</span></div> : <span className="text-slate-600">—</span>}</td>}
-                                            {hasProfit && <td className="py-2 text-right font-mono text-slate-300">{s.margin != null ? `${s.margin}%` : '—'}</td>}
-                                            <td className="py-2 text-right font-mono">{s.yoy_growth != null ? <span style={{ color: s.yoy_growth >= 0 ? '#16a34a' : '#dc2626' }}>{s.yoy_growth >= 0 ? '▲' : '▼'} {Math.abs(s.yoy_growth)}%</span> : <span className="text-slate-600">—</span>}</td>
-                                            <td className="py-2 text-right"><span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${impCls(s.importance)}`}>{s.importance || '—'}</span></td>
+                                            {hasProfit && <td className="py-2 pr-3 w-[20%]">{s.profit_pct != null ? <div className="flex items-center gap-2"><div className="flex-1 h-1.5 rounded bg-slate-800 overflow-hidden"><div className="h-full" style={{ width: `${Math.min(100, Math.max(0, s.profit_pct))}%`, background: '#16a34a' }}></div></div><span className="text-slate-300 font-mono w-10 text-right">{s.profit_pct}%</span></div> : <span className="text-slate-600">-</span>}</td>}
+                                            {hasProfit && <td className="py-2 text-right font-mono text-slate-300">{s.margin != null ? `${s.margin}%` : '-'}</td>}
+                                            <td className="py-2 text-right font-mono">{s.yoy_growth != null ? <span style={{ color: s.yoy_growth >= 0 ? '#16a34a' : '#dc2626' }}>{s.yoy_growth >= 0 ? '▲' : '▼'} {Math.abs(s.yoy_growth)}%</span> : <span className="text-slate-600">-</span>}</td>
+                                            <td className="py-2 text-right"><span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${impCls(s.importance)}`}>{s.importance || '-'}</span></td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -3646,12 +3867,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Forward valuation: Current vs 1Y-Fwd vs 3Y-Fwd comparison table + PEG/CAGR chips.
         const ForwardValuation = ({ fv }) => {
-            if (!fv || !fv.available) return <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-500 italic">Forward valuation unavailable — projected financials could not be derived.</div>;
-            const cr = (x) => x == null ? '—' : (Math.abs(x / 1e7) >= 1e5 ? `₹${(x / 1e7 / 1e5).toFixed(2)}L Cr` : `₹${Math.round(x / 1e7).toLocaleString('en-IN')} Cr`);
-            const rs = (x) => x == null ? '—' : `₹${Number(x).toFixed(1)}`;
-            const xx = (x) => x == null ? '—' : `${Number(x).toFixed(2)}x`;
-            const pc = (x) => x == null ? '—' : `${(Number(x) * 100).toFixed(1)}%`;
-            const pex = (x) => x == null ? '—' : `${Number(x).toFixed(1)}x`;
+            if (!fv || !fv.available) return <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-500 italic">Forward valuation unavailable - projected financials could not be derived.</div>;
+            const cr = (x) => x == null ? '-' : (Math.abs(x / 1e7) >= 1e5 ? `₹${(x / 1e7 / 1e5).toFixed(2)}L Cr` : `₹${Math.round(x / 1e7).toLocaleString('en-IN')} Cr`);
+            const rs = (x) => x == null ? '-' : `₹${Number(x).toFixed(1)}`;
+            const xx = (x) => x == null ? '-' : `${Number(x).toFixed(2)}x`;
+            const pc = (x) => x == null ? '-' : `${(Number(x) * 100).toFixed(1)}%`;
+            const pex = (x) => x == null ? '-' : `${Number(x).toFixed(1)}x`;
             const rows = [
                 ['P/E', v => pex(v.pe)], ['EPS', v => rs(v.eps)], ['Revenue', v => cr(v.revenue)],
                 ['Net Profit', v => cr(v.pat)], ['Net Margin', v => pc(v.net_margin)],
@@ -3662,9 +3883,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                     <div className="flex flex-wrap gap-2">
-                        {chip('Revenue CAGR', fv.revenue_cagr != null ? `${fv.revenue_cagr}%` : '—', 'bg-blue-500/10 border-blue-500/25 text-blue-300')}
-                        {chip('Earnings CAGR', fv.earnings_cagr != null ? `${fv.earnings_cagr}%` : '—', 'bg-blue-500/10 border-blue-500/25 text-blue-300')}
-                        {chip('PEG', fv.peg != null ? fv.peg : '—', pegTone)}
+                        {chip('Revenue CAGR', fv.revenue_cagr != null ? `${fv.revenue_cagr}%` : '-', 'bg-blue-500/10 border-blue-500/25 text-blue-300')}
+                        {chip('Earnings CAGR', fv.earnings_cagr != null ? `${fv.earnings_cagr}%` : '-', 'bg-blue-500/10 border-blue-500/25 text-blue-300')}
+                        {chip('PEG', fv.peg != null ? fv.peg : '-', pegTone)}
                         {fv.peg_tag && <div className="px-3 py-1.5 rounded-md border bg-slate-900 border-slate-800 flex items-center"><span className="text-[10px] text-slate-400">{fv.peg_tag}</span></div>}
                     </div>
                     <table className="w-full text-[11px]">
@@ -3694,7 +3915,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         const FinancialAnalysis = ({ fa }) => {
             if (!fa || (!fa.piotroski && !fa.dupont && !fa.health)) {
-                return <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-500 italic">Financial analysis unavailable — statements could not be sourced for this company.</div>;
+                return <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-500 italic">Financial analysis unavailable - statements could not be sourced for this company.</div>;
             }
             const pi = fa.piotroski, du = fa.dupont, h = fa.health;
             const dotColor = (s) => ({ green: '#16a34a', amber: '#d97706', red: '#dc2626', grey: '#475569' }[s] || '#475569');
@@ -3838,7 +4059,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             ];
 
             // Only the moat types actually detected for THIS company (from its own
-            // signals, memo and Screener flags) — no fixed template wheel.
+            // signals, memo and Screener flags) - no fixed template wheel.
             const detected = categories.filter(cat => cat.keywords.some(kw => textToScan.includes(kw)));
 
             // SVG layout values
@@ -3876,7 +4097,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         {dataDriven && <span className="text-[8px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 px-2 py-1 rounded-md whitespace-nowrap">● Data-driven</span>}
                     </div>
 
-                    {/* Interactive Moat Wheel Infographic — only this company's detected moats */}
+                    {/* Interactive Moat Wheel Infographic - only this company's detected moats */}
                     <div className="flex flex-col items-center justify-center p-2 bg-slate-900/50 rounded-lg border border-slate-800/40 relative overflow-hidden">
                         <span className="absolute top-2 left-3 text-[9px] text-slate-500 uppercase font-bold tracking-wider">Moat Profile</span>
                         {spokes.length === 0 ? (
@@ -3935,14 +4156,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         )}
                         {spokes.length > 0 && (
                             <p className="pb-1 text-[9px] text-slate-500 font-semibold text-center">
-                                {spokes.length} moat source{spokes.length > 1 ? 's' : ''} detected for this company — derived from its own signals, filings &amp; fundamentals (not a fixed template).
+                                {spokes.length} moat source{spokes.length > 1 ? 's' : ''} detected for this company - derived from its own signals, filings &amp; fundamentals (not a fixed template).
                             </p>
                         )}
                     </div>
 
                     {/* Single collapsible section with ALL moat detail */}
                     {hasDetail && (
-                        <Expandable title="Moat Details — Strengths, Risks, Narrative & Methodology" defaultOpen={false}>
+                        <Expandable title="Moat Details - Strengths, Risks, Narrative & Methodology" defaultOpen={false}>
                             <div className="space-y-4">
                                 {/* Moat Strengths & Risks side by side */}
                                 {(signals.length > 0 || warnings.length > 0) && (
@@ -3991,7 +4212,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                             <p>Assessment built from these aspects of the company's real multi-year fundamentals (from Screener.in):</p>
                                             <ul className="space-y-1 pl-1">
                                                 {pillars.map((p, i) => (
-                                                    <li key={i}>• <span className="text-slate-300 font-semibold">{p.label}</span> — {p.basis}</li>
+                                                    <li key={i}>• <span className="text-slate-300 font-semibold">{p.label}</span> - {p.basis}</li>
                                                 ))}
                                             </ul>
                                             <p className="text-slate-500">Bands: <span className="text-emerald-400 font-semibold">Wide ≥ 70</span> · <span className="text-blue-400 font-semibold">Narrow-to-Wide 50–69</span> · <span className="text-amber-400 font-semibold">Narrow 30–49</span> · <span className="text-red-400 font-semibold">No moat &lt; 30</span>. {f20.is_financial ? 'This is a lender, so it uses the ROE-led branch.' : ''} <span className="text-slate-400 font-semibold">Confidence = data coverage</span> (how many aspects had real data).</p>
@@ -4011,20 +4232,20 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         const ConcallVisual = ({ f14 }) => {
             if (!f14) return null;
             // Coerce ANY LLM shape (array / string / object / null) into a clean string
-            // list — the fallback model sometimes returns a field as a bare string or an
+            // list - the fallback model sometimes returns a field as a bare string or an
             // object, which would otherwise crash .filter/.map and blank the whole app.
             const toList = (v) => {
                 const norm = (x) => {
                     if (x == null || x === '') return null;
                     if (typeof x === 'string') return x;
-                    if (typeof x === 'object') return Object.values(x).filter(Boolean).map(String).join(' — ') || null;
+                    if (typeof x === 'object') return Object.values(x).filter(Boolean).map(String).join(' - ') || null;
                     return String(x);
                 };
                 if (Array.isArray(v)) return v.map(norm).filter(Boolean);
                 const s = norm(v);
                 return s ? [s] : [];
             };
-            const asText = (v) => (v == null ? '' : typeof v === 'string' ? v : typeof v === 'object' ? Object.values(v).filter(Boolean).map(String).join(' — ') : String(v));
+            const asText = (v) => (v == null ? '' : typeof v === 'string' ? v : typeof v === 'object' ? Object.values(v).filter(Boolean).map(String).join(' - ') : String(v));
             const tone = asText(f14.tone).toLowerCase();
             const toneColor = tone.includes('posit') ? { t: 'text-emerald-400', b: 'bg-emerald-500/10 border-emerald-500/30' }
                 : tone.includes('negat') ? { t: 'text-red-400', b: 'bg-red-500/10 border-red-500/30' }
@@ -4074,7 +4295,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <Group title="What Matters" items={f14.what_matters} accent="#7c3aed" />
                     </div>
                     {/* guidance strip */}
-                    {asText(f14.guidance) && asText(f14.guidance) !== '—' && (
+                    {asText(f14.guidance) && asText(f14.guidance) !== '-' && (
                         <div className="flex items-start gap-2 bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2">
                             <span className="text-[9px] font-bold uppercase tracking-wider text-amber-500 mt-0.5 flex-shrink-0">Guidance</span>
                             <span className="text-[11px] text-slate-300 leading-snug">{asText(f14.guidance)}</span>
@@ -4088,10 +4309,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // computed from the company's OWN audited NSE XBRL filings. Shows the ratio +
         // every number behind it (COGS a+b+c, the two year-end inventories) + source.
         // Lenders (no inventory) render a clean N/A, never a fabricated number.
-        // Small "ⓘ" info button — click to reveal a plain-English explainer, so the
+        // Small "ⓘ" info button - click to reveal a plain-English explainer, so the
         // main view can stay just the number without losing the definition.
         // Hover-only (not click-toggle): shows on mouse-enter / keyboard focus
-        // of the icon itself, hides on mouse-leave / blur — never pinned, never
+        // of the icon itself, hides on mouse-leave / blur - never pinned, never
         // triggered by hovering the surrounding card. Uses visibility+opacity
         // (not conditional mount) so it never affects layout height.
         const InfoTip = ({ text }) => {
@@ -4112,7 +4333,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Confidence dot — a SEPARATE signal from performance colour, per spec:
+        // Confidence dot - a SEPARATE signal from performance colour, per spec:
         // 1.0 solid green (stated directly), 0.95 light green (computed from
         // 2-3 disclosed items), 0.8 amber (estimated/proxy), 0.4 red
         // (incomplete/restated). Never merged into the value's tone colour.
@@ -4123,7 +4344,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 : value >= 0.8 ? { color: '#854F0B', bg: '#FAEEDA', label: 'Estimated using a proxy/approximation' }
                 : { color: '#791F1F', bg: '#FCEBEB', label: 'Incomplete or restated statements' };
             return (
-                <span className="inline-flex items-center gap-1" title={`Confidence ${value.toFixed(2)} — ${cfg.label}`}>
+                <span className="inline-flex items-center gap-1" title={`Confidence ${value.toFixed(2)} - ${cfg.label}`}>
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: cfg.color }}></span>
                     <span className="text-[10px] font-bold whitespace-nowrap" style={{ color: cfg.color }}>{value.toFixed(2)}</span>
                 </span>
@@ -4131,12 +4352,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // ---------------------------------------------------------------- //
-        // Sector tiering / benchmark scaffold — NOT populated yet. Every
+        // Sector tiering / benchmark scaffold - NOT populated yet. Every
         // ratio card queries this instead of hardcoding tier/benchmark
         // assumptions, so real data (Sector Applicability Matrix + verified
         // benchmark sources) can be dropped in later without touching card
         // markup. Until populated, lookups return null and the UI shows an
-        // honest "pending sector matrix" / "no verified benchmark" state —
+        // honest "pending sector matrix" / "no verified benchmark" state -
         // never a fabricated tier or range.
         // ---------------------------------------------------------------- //
         const SECTOR_TIER_MATRIX = {};   // { [sectorId]: { [srNo]: 'core'|'secondary'|'na'|'different_definition' } }
@@ -4160,7 +4381,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Value chip — 5-step deviation-from-benchmark gradient. Falls back to
+        // Value chip - 5-step deviation-from-benchmark gradient. Falls back to
         // a neutral "no verified benchmark" chip (never a fabricated range)
         // when `getRatioBenchmark` has nothing for this sector/ratio yet.
         const DEVIATION_STEPS = [
@@ -4191,13 +4412,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Renders one "Source ↗" link per statement page a ratio drew from
         // (P&L / Balance Sheet), each pointing DIRECTLY at that page via the
-        // PDF's #page=N fragment — clicking opens the Annual Report already
+        // PDF's #page=N fragment - clicking opens the Annual Report already
         // scrolled to the exact page the number came from, not page 1.
         const SourceLinks = ({ sources }) => {
             const list = sources || [];
             if (list.length === 0) return null;
-            // Always label by statement type (P&L / Balance Sheet) — never a
-            // generic "Source" — so the link text is consistent everywhere,
+            // Always label by statement type (P&L / Balance Sheet) - never a
+            // generic "Source" - so the link text is consistent everywhere,
             // whether a ratio cites one page or two.
             return (
                 <>
@@ -4214,9 +4435,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Colour-codes a ratio's headline number so a reader can tell good/bad
         // at a glance without reading the tooltip: green = healthy per the
         // spec's own benchmark range, red = the spec's own warning threshold,
-        // and the default light text otherwise (neither clearly good nor bad —
+        // and the default light text otherwise (neither clearly good nor bad -
         // NOT amber, amber is reserved for "Estimated"/proxy badges elsewhere).
-        // `toneOf(value, {good, bad, higherIsBetter})` — `good`/`bad` are each
+        // `toneOf(value, {good, bad, higherIsBetter})` - `good`/`bad` are each
         // either a number (a one-sided threshold) or [min, max] (a healthy
         // band); `higherIsBetter` picks which side of a one-sided threshold
         // counts as good vs bad.
@@ -4234,7 +4455,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
         // NOTE: an earlier version added a dark text-stroke/shadow here for a
         // subtle "outline" effect, but it visibly distorted bold numeric
-        // glyphs (4, 6, 9 rendered with a doubled/merged stroke) — removed
+        // glyphs (4, 6, 9 rendered with a doubled/merged stroke) - removed
         // entirely per user feedback; colour alone conveys tone.
         const TONE_STYLE = {};
         const TONE_CLASS = { good: 'text-emerald-400', mid: 'text-slate-100', bad: 'text-red-400' };
@@ -4249,7 +4470,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // they used to pop in one-by-one with their own "Reading audited
         // filings…" placeholder as each request settled. Per user feedback,
         // the whole section should appear ALL AT ONCE with no per-card
-        // spinner — RatioSectionGate hides its children (still mounted, so
+        // spinner - RatioSectionGate hides its children (still mounted, so
         // every fetch still fires in parallel exactly as before) behind one
         // shared loading state until every registered ratio has reported
         // done, then reveals everything in a single instant swap.
@@ -4284,12 +4505,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Bounded wait: most ratios (DB-precomputed) resolve in well under a
         // second, but ANY one of the 29 can be a genuine cold-cache miss that
         // falls through to a live multi-page PDF parse (or, rarely, a stuck/
-        // failed fetch) — with no cap, that ONE slow card held the entire
+        // failed fetch) - with no cap, that ONE slow card held the entire
         // section hidden behind the "Reading audited filings…" message
         // indefinitely, even though the other 28 had real data ready to show
         // (confirmed: a 5+ minute stall on a page where only one ratio was
         // actually still in flight). Reveal everything once every ratio is
-        // done, OR after `GATE_TIMEOUT_MS`, whichever comes first — this
+        // done, OR after `GATE_TIMEOUT_MS`, whichever comes first - this
         // never fakes or skips data, it just stops waiting on the single
         // slowest fetch: any card still genuinely loading past the timeout
         // renders its own honest per-card skeleton/spinner (already built
@@ -4322,7 +4543,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // `period`/`onPeriodChange` are optional — when omitted this manages its
+        // `period`/`onPeriodChange` are optional - when omitted this manages its
         // own year-picker state (uncontrolled, original behaviour). When
         // provided (see InventoryTurnoverGroup below) the selected FY is lifted
         // to a shared parent so sibling cards derived from this same ratio
@@ -4336,7 +4557,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [internalPeriod, setInternalPeriod] = React.useState(null); // to_date; null = latest
             const period = onPeriodChange ? controlledPeriod : internalPeriod;
             const setPeriod = onPeriodChange || setInternalPeriod;
-            const [showCalc, setShowCalc] = React.useState(false); // "how we calculated this" — collapsed by default
+            const [showCalc, setShowCalc] = React.useState(false); // "how we calculated this" - collapsed by default
             const [pickerOpen, setPickerOpen] = React.useState(false); // small year dropdown next to the period badge
             React.useEffect(() => { setPeriod(null); setPickerOpen(false); }, [symbol]);
             React.useEffect(() => {
@@ -4352,7 +4573,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -4362,7 +4583,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 </div>
             );
             const d = state.data || {};
-            // Newest FY first — the server already picks the latest year by default
+            // Newest FY first - the server already picks the latest year by default
             // (to_date=null); this just guarantees dropdown order matches.
             const periods = [...(d.available_periods || [])].sort((a, b) => (a.to_date < b.to_date ? 1 : -1));
             const sel = d.selected_period || period;
@@ -4392,7 +4613,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -4418,7 +4639,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Inventory Turnover</span>
-                            <InfoTip text="Measures how efficiently inventory is converted into sales — a key working-capital signal. Formula: Cost of Goods Sold ÷ Average Inventory. Can be distorted by understating COGS or by stale/obsolete stock inflating average inventory. Indicative benchmark: Manufacturing/FMCG 6-12x is healthy, below 3x suggests slow-moving stock (varies by industry)." />
+                            <InfoTip text="Measures how efficiently inventory is converted into sales - a key working-capital signal. Formula: Cost of Goods Sold ÷ Average Inventory. Can be distorted by understating COGS or by stale/obsolete stock inflating average inventory. Indicative benchmark: Manufacturing/FMCG 6-12x is healthy, below 3x suggests slow-moving stock (varies by industry)." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -4454,7 +4675,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             ))}
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1">
-                            <span className="text-[10px] text-slate-600 italic leading-snug">{d.note || 'Consolidated, audited — from NSE XBRL filings.'}</span>
+                            <span className="text-[10px] text-slate-600 italic leading-snug">{d.note || 'Consolidated, audited - from NSE XBRL filings.'}</span>
                             <SourceLinks sources={sources} />
                         </div>
                     </>)}
@@ -4465,11 +4686,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Gross Profit Margin = (Revenue − COGS) ÷ Revenue. Ind AS Schedule III
         // has no explicit "Gross Profit" line, so this is always reconstructed
         // from the SAME COGS (a+b+c) components validated for Inventory
-        // Turnover (Sr No 1) — never taken from a pre-computed Screener figure
+        // Turnover (Sr No 1) - never taken from a pre-computed Screener figure
         // without checking how it was derived. Mirrors InventoryTurnover's
         // structure/UX, but the headline stays NEUTRAL (no green/red) since
         // the healthy range is highly industry-dependent (FMCG/Pharma 40-60%+
-        // vs Trading 10-20%) — a fixed threshold here would mislead.
+        // vs Trading 10-20%) - a fixed threshold here would mislead.
         const GrossProfitMargin = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('gross-profit-margin', state.loading && !state.data);
@@ -4490,7 +4711,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -4526,7 +4747,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -4551,14 +4772,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Gross Profit Margin</span>
-                            <InfoTip text="Shows core product/production profitability before operating overheads. Formula: (Revenue from Operations − Cost of Goods Sold) ÷ Revenue from Operations. Can be manipulated by misclassifying costs between 'Cost of materials' and 'Other Expenses'. Indicative benchmark (highly industry-dependent): FMCG/Pharma 40-60%+, Manufacturing 15-30%, Trading/Distribution 10-20% — always compare within sector, not against a single number." />
+                            <InfoTip text="Shows core product/production profitability before operating overheads. Formula: (Revenue from Operations − Cost of Goods Sold) ÷ Revenue from Operations. Can be manipulated by misclassifying costs between 'Cost of materials' and 'Other Expenses'. Indicative benchmark (highly industry-dependent): FMCG/Pharma 40-60%+, Manufacturing 15-30%, Trading/Distribution 10-20% - always compare within sector, not against a single number." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* No universal good/bad threshold — highly industry-dependent, so this stays neutral rather than risk a misleading colour */}
+                        {/* No universal good/bad threshold - highly industry-dependent, so this stays neutral rather than risk a misleading colour */}
                         <ToneValue value={d.value} unit={d.unit || '%'} tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
@@ -4594,7 +4815,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Operating Profit Margin (EBIT Basis) = (Revenue − COGS − Employee
         // Benefit Expense − Other Expenses) ÷ Revenue. Mirrors GrossProfitMargin's
-        // structure/UX — reuses the same COGS components plus two new P&L line
+        // structure/UX - reuses the same COGS components plus two new P&L line
         // items. Headline stays NEUTRAL for the same reason (industry-dependent
         // benchmark: IT/Services 20-30% vs Trading 3-8%).
         const OperatingProfitMargin = ({ symbol, name }) => {
@@ -4617,7 +4838,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -4653,7 +4874,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -4678,14 +4899,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Operating Profit Margin (EBIT Basis)</span>
-                            <InfoTip text="Shows core operating efficiency, stripping out financing, tax, and one-off items — this is EBIT-basis: excludes Finance Costs, Other Income and Exceptional Items, but DEDUCTS Depreciation & Amortisation as a real operating cost (unlike EBITDA). Formula: (Revenue from Operations − COGS − Employee Benefit Expense − Other Expenses − Depreciation and Amortisation) ÷ Revenue from Operations. Can be manipulated by reclassifying recurring costs as 'Exceptional Items'. Indicative benchmark (highly industry-dependent): IT/Services 20-30%, Manufacturing 10-20%, Trading 3-8% — always compare within sector, not against a single number." />
+                            <InfoTip text="Shows core operating efficiency, stripping out financing, tax, and one-off items - this is EBIT-basis: excludes Finance Costs, Other Income and Exceptional Items, but DEDUCTS Depreciation & Amortisation as a real operating cost (unlike EBITDA). Formula: (Revenue from Operations − COGS − Employee Benefit Expense − Other Expenses − Depreciation and Amortisation) ÷ Revenue from Operations. Can be manipulated by reclassifying recurring costs as 'Exceptional Items'. Indicative benchmark (highly industry-dependent): IT/Services 20-30%, Manufacturing 10-20%, Trading 3-8% - always compare within sector, not against a single number." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* No universal good/bad threshold — highly industry-dependent, so this stays neutral rather than risk a misleading colour */}
+                        {/* No universal good/bad threshold - highly industry-dependent, so this stays neutral rather than risk a misleading colour */}
                         <ToneValue value={d.value} unit={d.unit || '%'} tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
@@ -4724,7 +4945,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // direct P&L line (no components breakdown). "Estimated" badge repurposed
         // here to flag the specific NCI-ambiguity case (consolidated statement,
         // no explicit owners-attribution line found) rather than an averaging
-        // estimate — same visual treatment, different underlying reason, shown
+        // estimate - same visual treatment, different underlying reason, shown
         // via the note text. Headline stays NEUTRAL (industry-dependent: IT/
         // Services 15-25% vs Trading 1-5%).
         const NetProfitMargin = ({ symbol, name }) => {
@@ -4747,7 +4968,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -4783,7 +5004,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -4807,7 +5028,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Net Profit Margin</span>
-                            <InfoTip text="Bottom-line profitability after all costs, financing, and tax. Formula: Profit After Tax (attributable to owners of the company, excluding Non-Controlling Interest for consolidated statements) ÷ Revenue from Operations. Highly susceptible to manipulation via one-off gains, tax adjustments, or exceptional items. Indicative benchmark (highly industry-dependent): IT/Services 15-25%, Manufacturing 5-12%, Trading 1-5% — always compare within sector, not against a single number." />
+                            <InfoTip text="Bottom-line profitability after all costs, financing, and tax. Formula: Profit After Tax (attributable to owners of the company, excluding Non-Controlling Interest for consolidated statements) ÷ Revenue from Operations. Highly susceptible to manipulation via one-off gains, tax adjustments, or exceptional items. Indicative benchmark (highly industry-dependent): IT/Services 15-25%, Manufacturing 5-12%, Trading 1-5% - always compare within sector, not against a single number." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -4815,7 +5036,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* No universal good/bad threshold — highly industry-dependent, so this stays neutral rather than risk a misleading colour */}
+                        {/* No universal good/bad threshold - highly industry-dependent, so this stays neutral rather than risk a misleading colour */}
                         <ToneValue value={d.value} unit={d.unit || '%'} tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
@@ -4847,11 +5068,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Return on Assets (ROA) = Profit After Tax (owners-attributable) ÷
-        // Average Total Assets — pure arithmetic reusing Sr No 16's PAT
+        // Average Total Assets - pure arithmetic reusing Sr No 16's PAT
         // (Net Profit Margin's numerator) and Sr No 7's Average Total Assets
         // (Asset Turnover's denominator). NO new backend code: fetches the
         // SAME two endpoints those cards already use, per spec's "reuse Sr No
-        // 16/7" instruction — never independently re-extracted or re-averaged.
+        // 16/7" instruction - never independently re-extracted or re-averaged.
         const ReturnOnAssets = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('return-on-assets', state.loading);
@@ -4869,14 +5090,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             const pat = state.npm?.applicable ? state.npm.numerator?.value_cr : null;
             const avgAssets = state.at?.applicable ? state.at.denominator?.value_cr : null;
             const applicable = pat != null && avgAssets != null && avgAssets !== 0;
             const roa = applicable ? ((pat / avgAssets) * 100).toFixed(2) : null;
-            // Confidence follows whichever reused figure is less certain — never
+            // Confidence follows whichever reused figure is less certain - never
             // invents a higher confidence than either source component has.
             const confidence = applicable
                 ? Math.min(state.npm.confidence ?? 1, state.at.confidence ?? 1)
@@ -4887,7 +5108,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Return on Assets (ROA)</span>
-                            <InfoTip text="Shows how efficiently total assets (regardless of financing mix) generate profit. Formula: Profit After Tax (owners-attributable) ÷ Average Total Assets. Naturally lower for asset-heavy/leveraged businesses than asset-light ones. Derived directly from Net Profit Margin's PAT and Asset Turnover's Average Total Assets above — never recomputed independently. Indicative benchmark: Asset-light (IT/Services) 10-20%+; Asset-heavy (Manufacturing/Utilities) 3-8%." />
+                            <InfoTip text="Shows how efficiently total assets (regardless of financing mix) generate profit. Formula: Profit After Tax (owners-attributable) ÷ Average Total Assets. Naturally lower for asset-heavy/leveraged businesses than asset-light ones. Derived directly from Net Profit Margin's PAT and Asset Turnover's Average Total Assets above - never recomputed independently. Indicative benchmark: Asset-light (IT/Services) 10-20%+; Asset-heavy (Manufacturing/Utilities) 3-8%." />
                         </div>
                     </div>
                     {state.loading ? (
@@ -4895,21 +5116,21 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     ) : !applicable ? (
                         <div>
                             <div className="flex items-center justify-between gap-2">
-                                <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                                <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             </div>
                             <div className="text-[10px] text-slate-500 mt-1.5 leading-snug">
-                                Requires both Net Profit Margin's PAT and Asset Turnover's Average Total Assets to be available — one or both could not be calculated for this company.
+                                Requires both Net Profit Margin's PAT and Asset Turnover's Average Total Assets to be available - one or both could not be calculated for this company.
                             </div>
                         </div>
                     ) : (
                         <>
                             <div className="flex items-baseline gap-2">
-                                {/* No universal good/bad threshold — highly industry-dependent (asset-light vs asset-heavy), same rationale as Asset Turnover/Gross-Operating-Net Margins */}
+                                {/* No universal good/bad threshold - highly industry-dependent (asset-light vs asset-heavy), same rationale as Asset Turnover/Gross-Operating-Net Margins */}
                                 <ToneValue value={roa} unit="%" tone="mid" />
                                 {confidence != null && (
                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                        title="Confidence: the lower of Net Profit Margin's and Asset Turnover's own confidence — this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
+                                        title="Confidence: the lower of Net Profit Margin's and Asset Turnover's own confidence - this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
                                         Confidence {confidence.toFixed(2)}
                                     </span>
                                 )}
@@ -4930,12 +5151,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Days Inventory Outstanding (DOH) = 365 ÷ Inventory Turnover — a pure
+        // Days Inventory Outstanding (DOH) = 365 ÷ Inventory Turnover - a pure
         // derivation of Sr No 1 (Inventory Turnover), never independently
         // recomputed from raw financials. Shown as its own small card next to
         // Inventory Turnover's card. Fetches the SAME /inventory-turnover
         // endpoint (server-side cached, so this costs nothing extra) purely to
-        // read `value` — no independent calculation happens here.
+        // read `value` - no independent calculation happens here.
         const DaysInventoryOutstanding = ({ symbol, name, toDate }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('days-inventory-outstanding', state.loading && !state.data);
@@ -4959,13 +5180,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="px-4 py-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3">
                     <div className="flex items-center gap-1.5 min-w-0">
                         <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Days Inventory Outstanding (DOH)</span>
-                        <InfoTip text="Days Inventory Outstanding — the average number of days inventory sits before being sold. Formula: 365 ÷ Inventory Turnover. Lower is generally more efficient. Derived directly from Inventory Turnover (same source, confidence and period) — never recomputed independently. Benchmark: Manufacturing/FMCG 30-60 days is healthy, over 120 days suggests slow-moving stock (varies by industry)." />
+                        <InfoTip text="Days Inventory Outstanding - the average number of days inventory sits before being sold. Formula: 365 ÷ Inventory Turnover. Lower is generally more efficient. Derived directly from Inventory Turnover (same source, confidence and period) - never recomputed independently. Benchmark: Manufacturing/FMCG 30-60 days is healthy, over 120 days suggests slow-moving stock (varies by industry)." />
                     </div>
                     {state.loading && !state.data ? (
                         <div className="text-slate-600 text-xs animate-pulse flex-shrink-0">Loading…</div>
                     ) : (
                         <div className={`font-heading text-lg font-extrabold whitespace-nowrap flex-shrink-0 ${TONE_CLASS[toneOf(doh != null ? Number(doh) : null, { good: 60, bad: 120, higherIsBetter: false })]}`} style={TONE_STYLE}>
-                            {doh != null ? doh : '—'}
+                            {doh != null ? doh : '-'}
                             <span className="text-xs text-slate-400 ml-0.5" style={{ textShadow: 'none' }}>{doh != null ? ' days' : ''}</span>
                         </div>
                     )}
@@ -4986,7 +5207,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             </>);
         };
 
-        // Days Sales Outstanding (DSO) = 365 ÷ Receivables Turnover — a pure
+        // Days Sales Outstanding (DSO) = 365 ÷ Receivables Turnover - a pure
         // derivation of Sr No 3 (Receivables Turnover), never independently
         // recomputed from raw financials. Same pattern as DaysInventoryOutstanding:
         // its own small card, fetches the SAME /receivables-turnover endpoint
@@ -5014,13 +5235,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="px-4 py-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3">
                     <div className="flex items-center gap-1.5 min-w-0">
                         <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Days Sales Outstanding (DSO)</span>
-                        <InfoTip text="Days Sales Outstanding — the average collection period in days. Formula: 365 ÷ Receivables Turnover. Lower generally indicates stronger cash conversion. Derived directly from Receivables Turnover (same source, confidence and period) — never recomputed independently. Inherits its proxy-based confidence cap. Benchmark: Manufacturing/Trading 30-60 days is healthy, over 90 days suggests collection risk." />
+                        <InfoTip text="Days Sales Outstanding - the average collection period in days. Formula: 365 ÷ Receivables Turnover. Lower generally indicates stronger cash conversion. Derived directly from Receivables Turnover (same source, confidence and period) - never recomputed independently. Inherits its proxy-based confidence cap. Benchmark: Manufacturing/Trading 30-60 days is healthy, over 90 days suggests collection risk." />
                     </div>
                     {state.loading && !state.data ? (
                         <div className="text-slate-600 text-xs animate-pulse flex-shrink-0">Loading…</div>
                     ) : (
                         <div className={`font-heading text-lg font-extrabold whitespace-nowrap flex-shrink-0 ${TONE_CLASS[toneOf(dso != null ? Number(dso) : null, { good: 60, bad: 90, higherIsBetter: false })]}`} style={TONE_STYLE}>
-                            {dso != null ? dso : '—'}
+                            {dso != null ? dso : '-'}
                             <span className="text-xs text-slate-400 ml-0.5" style={{ textShadow: 'none' }}>{dso != null ? ' days' : ''}</span>
                         </div>
                     )}
@@ -5029,7 +5250,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Owns the shared selected-FY state for Receivables Turnover (Sr 3)
-        // and its derived Days Sales Outstanding (Sr 4) card — same rationale
+        // and its derived Days Sales Outstanding (Sr 4) card - same rationale
         // as InventoryTurnoverGroup above.
         const ReceivablesTurnoverGroup = ({ symbol, name }) => {
             const [period, setPeriod] = React.useState(null);
@@ -5040,7 +5261,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             </>);
         };
 
-        // Days Payables Outstanding (DPO) = 365 ÷ Payables Turnover — a pure
+        // Days Payables Outstanding (DPO) = 365 ÷ Payables Turnover - a pure
         // derivation of Sr No 5 (Payables Turnover), never independently
         // recomputed from raw financials. Same pattern as DaysSalesOutstanding:
         // its own small card, fetches the SAME /payables-turnover endpoint
@@ -5068,13 +5289,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="px-4 py-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3">
                     <div className="flex items-center gap-1.5 min-w-0">
                         <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Days Payables Outstanding (DPO)</span>
-                        <InfoTip text="Days Payables Outstanding — the average number of days taken to pay suppliers; a component of the Cash Conversion Cycle. Formula: 365 ÷ Payables Turnover. Derived directly from Payables Turnover (same source, confidence and period) — never recomputed independently. Lengthening generally favours cash; shortening may mean suppliers have tightened credit terms. Benchmark: Manufacturing/Trading 30-60 days is typical." />
+                        <InfoTip text="Days Payables Outstanding - the average number of days taken to pay suppliers; a component of the Cash Conversion Cycle. Formula: 365 ÷ Payables Turnover. Derived directly from Payables Turnover (same source, confidence and period) - never recomputed independently. Lengthening generally favours cash; shortening may mean suppliers have tightened credit terms. Benchmark: Manufacturing/Trading 30-60 days is typical." />
                     </div>
                     {state.loading && !state.data ? (
                         <div className="text-slate-600 text-xs animate-pulse flex-shrink-0">Loading…</div>
                     ) : (
                         <div className={`font-heading text-lg font-extrabold whitespace-nowrap flex-shrink-0 ${TONE_CLASS[toneOf(dpo != null ? Number(dpo) : null, { good: 30, bad: 15 })]}`} style={TONE_STYLE}>
-                            {dpo != null ? dpo : '—'}
+                            {dpo != null ? dpo : '-'}
                             <span className="text-xs text-slate-400 ml-0.5" style={{ textShadow: 'none' }}>{dpo != null ? ' days' : ''}</span>
                         </div>
                     )}
@@ -5083,7 +5304,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Owns the shared selected-FY state for Payables Turnover (Sr 5) and
-        // its derived Days Payables Outstanding (Sr 6) card — same rationale
+        // its derived Days Payables Outstanding (Sr 6) card - same rationale
         // as InventoryTurnoverGroup/ReceivablesTurnoverGroup above.
         const PayablesTurnoverGroup = ({ symbol, name }) => {
             const [period, setPeriod] = React.useState(null);
@@ -5094,7 +5315,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             </>);
         };
 
-        // Cash Conversion Cycle (CCC) = DSO + DOH − DPO — pure arithmetic on the
+        // Cash Conversion Cycle (CCC) = DSO + DOH − DPO - pure arithmetic on the
         // three already-validated component ratios (Sr No 2, 4, 6). No new
         // extraction, no backend endpoint: fetches the SAME three endpoints those
         // derived cards already use, purely to read `value`. N/A if any of
@@ -5129,7 +5350,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 min-w-0">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Cash Conversion Cycle (CCC)</span>
-                            <InfoTip text="Cash Conversion Cycle — the number of days cash is tied up in the operating cycle. Formula: DSO + DOH − DPO. Lower (or negative, e.g. for retailers who collect before paying suppliers) is generally more efficient. Derived directly from Days Sales/Inventory/Payables Outstanding above — never recomputed independently. Benchmark: Manufacturing 30-90 days typical; negative CCC is a strong efficiency signal, not an error." />
+                            <InfoTip text="Cash Conversion Cycle - the number of days cash is tied up in the operating cycle. Formula: DSO + DOH − DPO. Lower (or negative, e.g. for retailers who collect before paying suppliers) is generally more efficient. Derived directly from Days Sales/Inventory/Payables Outstanding above - never recomputed independently. Benchmark: Manufacturing 30-90 days typical; negative CCC is a strong efficiency signal, not an error." />
                         </div>
                     </div>
                     {state.loading ? (
@@ -5137,11 +5358,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     ) : !applicable ? (
                         <div>
                             <div className="flex items-center justify-between gap-2">
-                                <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                                <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             </div>
                             <div className="text-[10px] text-slate-500 mt-1.5 leading-snug">
-                                Requires DSO, DOH and DPO to all be available — one or more could not be calculated for this company.
+                                Requires DSO, DOH and DPO to all be available - one or more could not be calculated for this company.
                             </div>
                         </div>
                     ) : (
@@ -5168,10 +5389,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Receivables Turnover = Revenue from Operations ÷ Average Trade Receivables
-        // (Revenue used as a proxy for Net Credit Sales — Indian Annual Reports don't
+        // (Revenue used as a proxy for Net Credit Sales - Indian Annual Reports don't
         // split cash vs. credit sales). Mirrors InventoryTurnover's structure/UX:
         // period picker, confidence badge, expandable calculation breakdown.
-        // `period`/`onPeriodChange` optional — see InventoryTurnover's comment
+        // `period`/`onPeriodChange` optional - see InventoryTurnover's comment
         // for why: lets a shared parent (ReceivablesTurnoverGroup) sync the
         // selected FY into Days Sales Outstanding, which is derived from this
         // ratio (365 ÷ this value) but used to always fetch "latest"
@@ -5198,7 +5419,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -5234,7 +5455,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -5270,7 +5491,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={d.value} unit={d.unit || 'x'} tone={toneOf(d.value, { good: 6, bad: 4 })} />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: capped at 0.8 — Revenue from Operations is always used as a proxy for Net Credit Sales, since Indian Annual Reports never disclose the cash/credit sales split; drops to 0.4 if prior-year Trade Receivables also isn't disclosed.">
+                                title="Confidence: capped at 0.8 - Revenue from Operations is always used as a proxy for Net Credit Sales, since Indian Annual Reports never disclose the cash/credit sales split; drops to 0.4 if prior-year Trade Receivables also isn't disclosed.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -5303,7 +5524,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Payables Turnover = Purchases (a+b) ÷ Average Trade Payables. Mirrors
         // ReceivablesTurnover's structure/UX: period picker, confidence badge,
         // expandable calculation breakdown.
-        // `period`/`onPeriodChange` optional — see InventoryTurnover's comment
+        // `period`/`onPeriodChange` optional - see InventoryTurnover's comment
         // for why: lets a shared parent (PayablesTurnoverGroup) sync the
         // selected FY into Days Payables Outstanding, derived from this ratio
         // (365 ÷ this value) but previously fetching "latest" independently.
@@ -5329,7 +5550,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -5365,7 +5586,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -5390,7 +5611,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Payables Turnover</span>
-                            <InfoTip text="Measures how quickly a company pays its suppliers. Formula: Purchases (Cost of materials consumed + Purchases of stock-in-trade) ÷ Average Trade Payables. A rising ratio can look 'healthy' but may actually indicate lost supplier trust/credit terms being withdrawn — always read alongside DPO trend. Indicative benchmark: Manufacturing/Trading 6-10x is typical; very high (>15x) may indicate loss of supplier credit terms." />
+                            <InfoTip text="Measures how quickly a company pays its suppliers. Formula: Purchases (Cost of materials consumed + Purchases of stock-in-trade) ÷ Average Trade Payables. A rising ratio can look 'healthy' but may actually indicate lost supplier trust/credit terms being withdrawn - always read alongside DPO trend. Indicative benchmark: Manufacturing/Trading 6-10x is typical; very high (>15x) may indicate loss of supplier credit terms." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -5454,7 +5675,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -5490,7 +5711,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -5515,7 +5736,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Asset Turnover</span>
-                            <InfoTip text="Measures how efficiently assets generate revenue. Formula: Revenue from Operations ÷ Average Total Assets. Capital-intensive industries (utilities, cement) naturally run low; asset-light industries (IT/services) run high — compare within sector only. Indicative benchmark: Asset-heavy (Manufacturing/Utilities) 0.5-1.5x; Asset-light (IT/Services/Trading) 1.5-3x+." />
+                            <InfoTip text="Measures how efficiently assets generate revenue. Formula: Revenue from Operations ÷ Average Total Assets. Capital-intensive industries (utilities, cement) naturally run low; asset-light industries (IT/services) run high - compare within sector only. Indicative benchmark: Asset-heavy (Manufacturing/Utilities) 0.5-1.5x; Asset-light (IT/Services/Trading) 1.5-3x+." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -5523,7 +5744,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* No universal good/bad threshold — this ratio is only meaningful compared within a sector, so it stays neutral rather than risk a misleading colour */}
+                        {/* No universal good/bad threshold - this ratio is only meaningful compared within a sector, so it stays neutral rather than risk a misleading colour */}
                         <ToneValue value={d.value} unit={d.unit || 'x'} tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
@@ -5558,7 +5779,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Fixed Asset Turnover (Sr No 30) = Revenue from Operations ÷ Average
-        // Net Fixed Assets — same UI shape as Asset Turnover (Sr No 7), just a
+        // Net Fixed Assets - same UI shape as Asset Turnover (Sr No 7), just a
         // cleaner efficiency signal for capital-intensive businesses since it
         // excludes cash/investments that dilute Total Asset Turnover.
         const FixedAssetTurnover = ({ symbol, name }) => {
@@ -5581,7 +5802,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -5617,7 +5838,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -5687,7 +5908,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Capital, where Working Capital = Total Current Assets − Total Current
         // Liabilities. Mirrors AssetTurnover's structure/UX. A negative/zero
         // Average Working Capital is flagged N/A by the backend (never a
-        // sign-inverted, misleading multiple) — the N/A reason states the
+        // sign-inverted, misleading multiple) - the N/A reason states the
         // actual negative figure so it reads as a flag, not a data gap.
         const WorkingCapitalTurnover = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
@@ -5709,7 +5930,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -5754,12 +5975,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             // N/A here usually means "we DID find the real figures, but the
             // ratio itself is withheld" (e.g. negative Average Working
-            // Capital) — not "no data available". Show whatever was actually
+            // Capital) - not "no data available". Show whatever was actually
             // extracted instead of hiding it behind a bare dash.
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -5794,7 +6015,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Working Capital Turnover</span>
-                            <InfoTip text="Shows how efficiently working capital is used to generate sales. Formula: Revenue from Operations ÷ Average Working Capital (Total Current Assets − Total Current Liabilities). Very high values can indicate a lean/efficient operation OR dangerously low (even negative) working capital — read alongside Current Ratio. A negative/zero Average Working Capital is flagged N/A rather than reported, since it would invert the sign and mislead." />
+                            <InfoTip text="Shows how efficiently working capital is used to generate sales. Formula: Revenue from Operations ÷ Average Working Capital (Total Current Assets − Total Current Liabilities). Very high values can indicate a lean/efficient operation OR dangerously low (even negative) working capital - read alongside Current Ratio. A negative/zero Average Working Capital is flagged N/A rather than reported, since it would invert the sign and mislead." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -5802,7 +6023,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* "Very high" here can mean lean & efficient OR dangerously thin working capital — ambiguous sign, so no colour, always read alongside Current Ratio */}
+                        {/* "Very high" here can mean lean & efficient OR dangerously thin working capital - ambiguous sign, so no colour, always read alongside Current Ratio */}
                         <ToneValue value={d.value} unit={d.unit || 'x'} tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
@@ -5837,11 +6058,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Days Working Capital (Sr No 31) = (Average Working Capital ÷ Revenue
-        // from Operations) × 365 — the days-based expression of Working
+        // from Operations) × 365 - the days-based expression of Working
         // Capital Turnover, same pairing pattern as Inventory/Receivables/
         // Payables Turnover with their own Days-Outstanding companion. UNLIKE
         // Working Capital Turnover, a negative value is a real, often-
-        // favourable signal (supplier-funded working capital — retail/
+        // favourable signal (supplier-funded working capital - retail/
         // e-commerce/QSR) and is never withheld as N/A here.
         const DaysWorkingCapital = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
@@ -5863,7 +6084,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -5906,13 +6127,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 </div>
             );
 
-            // N/A here only means Revenue itself was zero/missing — a
+            // N/A here only means Revenue itself was zero/missing - a
             // negative Average Working Capital is NOT withheld (see the
             // component's header comment), so this branch is rare.
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -5927,7 +6148,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Days Working Capital</span>
-                            <InfoTip text="Days-based expression of Working Capital Turnover — shows how many days of sales are effectively tied up in (or funded by) working capital. Formula: (Average Working Capital ÷ Revenue from Operations) × 365. Manufacturing/Trading typically 30-90 days; a NEGATIVE value (common in retail/e-commerce/QSR) means suppliers are funding operations — a favourable, not erroneous, signal. Lower (or more negative) is generally more efficient." />
+                            <InfoTip text="Days-based expression of Working Capital Turnover - shows how many days of sales are effectively tied up in (or funded by) working capital. Formula: (Average Working Capital ÷ Revenue from Operations) × 365. Manufacturing/Trading typically 30-90 days; a NEGATIVE value (common in retail/e-commerce/QSR) means suppliers are funding operations - a favourable, not erroneous, signal. Lower (or more negative) is generally more efficient." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -5935,7 +6156,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* No colour bias — negative is favourable here, not an error, so this never reads as "bad" */}
+                        {/* No colour bias - negative is favourable here, not an error, so this never reads as "bad" */}
                         <ToneValue value={d.value} unit={d.unit || 'days'} tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
@@ -5995,7 +6216,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -6044,7 +6265,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -6076,7 +6297,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Return on Equity</span>
-                            <InfoTip text="Core measure of return generated for shareholders. Formula: Profit After Tax (owners-attributable) ÷ Average Total Equity (owners-attributable, excluding Non-Controlling Interest). Highly sensitive to leverage — a company can boost ROE simply by taking on more debt, which does not necessarily mean better performance (see Financial Leverage). Never calculated when equity is negative — a negative ÷ negative would produce a misleading positive ratio. Indicative benchmark: 15%+ generally considered strong; below 10% may indicate weak capital efficiency (context-dependent by sector and leverage)." />
+                            <InfoTip text="Core measure of return generated for shareholders. Formula: Profit After Tax (owners-attributable) ÷ Average Total Equity (owners-attributable, excluding Non-Controlling Interest). Highly sensitive to leverage - a company can boost ROE simply by taking on more debt, which does not necessarily mean better performance (see Financial Leverage). Never calculated when equity is negative - a negative ÷ negative would produce a misleading positive ratio. Indicative benchmark: 15%+ generally considered strong; below 10% may indicate weak capital efficiency (context-dependent by sector and leverage)." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -6120,7 +6341,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Return on Capital Employed (ROCE) = EBIT (Profit Before Tax +
         // Finance Costs) ÷ Average Capital Employed (Total Assets − Total
         // Current Liabilities, reusing Sr No 7/10). Mirrors WorkingCapitalTurnover's
-        // N/A-with-real-figures pattern — a non-positive Average Capital
+        // N/A-with-real-figures pattern - a non-positive Average Capital
         // Employed is a real finding worth showing, per spec never silently
         // divided through.
         const ReturnOnCapitalEmployed = ({ symbol, name }) => {
@@ -6143,7 +6364,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -6192,7 +6413,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -6227,7 +6448,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Return on Capital Employed</span>
-                            <InfoTip text="Widely used to judge overall capital efficiency regardless of financing structure — considered harder to manipulate than ROE since it isn't distorted by leverage alone. Formula: EBIT (Profit Before Tax + Finance Costs) ÷ Average Capital Employed (Total Assets − Total Current Liabilities). Never adds back Depreciation (that would compute EBITDA and inflate ROCE). Indicative benchmark: 15%+ generally considered strong (above typical cost of capital); below 10% may indicate weak capital efficiency." />
+                            <InfoTip text="Widely used to judge overall capital efficiency regardless of financing structure - considered harder to manipulate than ROE since it isn't distorted by leverage alone. Formula: EBIT (Profit Before Tax + Finance Costs) ÷ Average Capital Employed (Total Assets − Total Current Liabilities). Never adds back Depreciation (that would compute EBITDA and inflate ROCE). Indicative benchmark: 15%+ generally considered strong (above typical cost of capital); below 10% may indicate weak capital efficiency." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -6272,7 +6493,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Debt-to-Equity = Total Debt (Long-term + Short-term Borrowings +
-        // Current Maturities) ÷ Total Equity (owners-attributable) — BOTH
+        // Current Maturities) ÷ Total Equity (owners-attributable) - BOTH
         // closing balance, point-in-time like Current Ratio (never averaged).
         // Mirrors ReturnOnEquity's N/A-with-real-figures pattern for
         // negative/zero equity. Lower is better here (unlike most ratios),
@@ -6297,7 +6518,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period, leaseBasis]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -6345,7 +6566,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -6377,7 +6598,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Debt-to-Equity</span>
-                            <InfoTip text="Core leverage/solvency measure. Formula: Total Debt (Long-term + Short-term Borrowings + Current Maturities of Long-term Debt) ÷ Total Equity (owners-attributable), both closing balance. Lease Liabilities are deliberately excluded (a separate convention some analysts include — flagged here, not silently folded in). Easily distorted by treatment choices around leases and preference shares. Indicative benchmark: below 1x generally conservative; 1x-2x moderate; above 2x higher financial risk (context-dependent — capital-intensive sectors run higher)." />
+                            <InfoTip text="Core leverage/solvency measure. Formula: Total Debt (Long-term + Short-term Borrowings + Current Maturities of Long-term Debt) ÷ Total Equity (owners-attributable), both closing balance. Lease Liabilities are deliberately excluded (a separate convention some analysts include - flagged here, not silently folded in). Easily distorted by treatment choices around leases and preference shares. Indicative benchmark: below 1x generally conservative; 1x-2x moderate; above 2x higher financial risk (context-dependent - capital-intensive sectors run higher)." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -6419,7 +6640,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Debt Ratio (Sr No 21) = Total Debt ÷ Total Assets, both closing
-        // balance — reuses Debt-to-Equity's Total Debt numerator (identical
+        // balance - reuses Debt-to-Equity's Total Debt numerator (identical
         // components/exclusions) paired with Total Assets instead of Equity.
         // Mirrors DebtToEquity's structure/UX exactly, minus the equity-basis
         // confidence caveat (Total Assets has no owners/NCI ambiguity).
@@ -6443,7 +6664,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period, leaseBasis]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -6489,7 +6710,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -6563,9 +6784,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Interest Coverage Ratio (Sr No 22) = EBIT ÷ Interest Expense (Finance
-        // Costs), current year only — reuses ROCE's EBIT numerator (Sr No 19).
+        // Costs), current year only - reuses ROCE's EBIT numerator (Sr No 19).
         // A nil Finance Costs (genuinely debt-free/interest-free company) is
-        // NOT a plain N/A — it renders a distinct "Not Meaningful — Debt-Free"
+        // NOT a plain N/A - it renders a distinct "Not Meaningful - Debt-Free"
         // badge instead of dividing by zero or a bare dash.
         const InterestCoverageRatio = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
@@ -6587,7 +6808,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -6631,7 +6852,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
 
             // Nil Finance Costs is a real, distinct finding ("debt-free"), not
-            // a generic "couldn't compute" N/A — its own badge, not just '—'.
+            // a generic "couldn't compute" N/A - its own badge, not just '-'.
             if (d.not_meaningful) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -6666,7 +6887,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -6681,7 +6902,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Interest Coverage Ratio</span>
-                            <InfoTip text="Shows how comfortably a company can service its interest obligations from operating earnings — a key early-warning solvency signal for lenders and credit analysts. Formula: EBIT (Profit Before Tax + Finance Costs) ÷ Interest Expense (Finance Costs), current year only. Finance Costs used gross, as reported — Interest Income is never netted off. Indicative benchmark: above 4x generally considered safe; below 1.5x signals potential debt-servicing stress." />
+                            <InfoTip text="Shows how comfortably a company can service its interest obligations from operating earnings - a key early-warning solvency signal for lenders and credit analysts. Formula: EBIT (Profit Before Tax + Finance Costs) ÷ Interest Expense (Finance Costs), current year only. Finance Costs used gross, as reported - Interest Income is never netted off. Indicative benchmark: above 4x generally considered safe; below 1.5x signals potential debt-servicing stress." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -6691,7 +6912,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={d.value} unit={d.unit || 'x'} tone={toneOf(d.value, { good: 4, bad: 1.5, higherIsBetter: true })} />
                         {d.confidence != null && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap text-emerald-200 bg-emerald-950 border-emerald-500/60"
-                                title="Confidence: 1.0 — both Profit Before Tax and Finance Costs are single, unambiguous P&L lines.">
+                                title="Confidence: 1.0 - both Profit Before Tax and Finance Costs are single, unambiguous P&L lines.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -6722,10 +6943,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Financial Leverage Ratio (Sr No 23) = Average Total Assets ÷ Average
-        // Shareholders' Equity — the "leverage" leg of the DuPont ROE
+        // Shareholders' Equity - the "leverage" leg of the DuPont ROE
         // decomposition (ROE ≈ Net Profit Margin × Asset Turnover × this).
         // Kept NEUTRAL (no green/red threshold), same rationale as Asset
-        // Turnover — spec describes "2-3x is common" as descriptive context,
+        // Turnover - spec describes "2-3x is common" as descriptive context,
         // not a fixed safe/risky cutoff pair, and leverage norms vary too
         // much by sector for a universal threshold.
         const FinancialLeverageRatio = ({ symbol, name }) => {
@@ -6748,7 +6969,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -6797,7 +7018,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -6829,7 +7050,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Financial Leverage Ratio</span>
-                            <InfoTip text="The 'leverage' leg of the DuPont ROE decomposition — shows how much of the asset base is funded by equity vs. debt/other liabilities. Formula: Average Total Assets ÷ Average Shareholders' Equity (owners-attributable). Cross-check: ROE ≈ Net Profit Margin × Asset Turnover × Financial Leverage. Indicative benchmark: 2-3x is common for moderately leveraged companies; higher values indicate greater reliance on debt/liabilities financing (varies by sector)." />
+                            <InfoTip text="The 'leverage' leg of the DuPont ROE decomposition - shows how much of the asset base is funded by equity vs. debt/other liabilities. Formula: Average Total Assets ÷ Average Shareholders' Equity (owners-attributable). Cross-check: ROE ≈ Net Profit Margin × Asset Turnover × Financial Leverage. Indicative benchmark: 2-3x is common for moderately leveraged companies; higher values indicate greater reliance on debt/liabilities financing (varies by sector)." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -6875,11 +7096,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Price-to-Earnings Ratio (Sr No 24) = Market Price per Share ÷ Basic
         // EPS. The FIRST ratio in this suite whose numerator is MARKET data,
-        // not a statement figure — fetches EPS (from the Annual Report, via
+        // not a statement figure - fetches EPS (from the Annual Report, via
         // its own /api/v1/eps endpoint) and the live quote (/api/quote,
         // already used by LivePriceTicker) in parallel, then divides
         // client-side, same Promise.all pattern as ReturnOnAssets/CCC. A
-        // loss-making company (EPS ≤ 0) is NOT a plain N/A — same
+        // loss-making company (EPS ≤ 0) is NOT a plain N/A - same
         // "Not Meaningful" distinct-badge treatment as Interest Coverage's
         // debt-free case, per spec ("a negative P/E is not meaningful").
         const PriceToEarningsRatio = ({ symbol, name }) => {
@@ -6898,7 +7119,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             const sources = state.eps?.sources || [];
 
@@ -6916,7 +7137,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 </div>
             );
 
-            // Loss-making (EPS ≤ 0) — a distinct finding, never a raw negative P/E.
+            // Loss-making (EPS ≤ 0) - a distinct finding, never a raw negative P/E.
             if (lossMaking) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -6924,7 +7145,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <span className="text-[10px] font-bold uppercase tracking-wider text-red-200 bg-red-950 border border-red-500/60 px-2 py-0.5 rounded whitespace-nowrap">Loss-Making</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
-                        Not Meaningful — Basic EPS is {cr(epsVal)} (negative or nil) for {state.eps?.period || 'the latest reported year'}, so P/E isn't defined rather than being shown as a raw negative number.
+                        Not Meaningful - Basic EPS is {cr(epsVal)} (negative or nil) for {state.eps?.period || 'the latest reported year'}, so P/E isn't defined rather than being shown as a raw negative number.
                     </div>
                 </div>
             );
@@ -6932,7 +7153,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
@@ -6946,7 +7167,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Price-to-Earnings Ratio</span>
-                            <InfoTip text="Widely used valuation multiple — how much investors pay per rupee of earnings. Formula: Market Price per Share ÷ Basic Earnings per Share. Distorted by one-off/exceptional items in earnings and not meaningful for loss-making companies. Highly sector- and growth-dependent — always compare against sector peers and historical average, no universal 'good' range." />
+                            <InfoTip text="Widely used valuation multiple - how much investors pay per rupee of earnings. Formula: Market Price per Share ÷ Basic Earnings per Share. Distorted by one-off/exceptional items in earnings and not meaningful for loss-making companies. Highly sector- and growth-dependent - always compare against sector peers and historical average, no universal 'good' range." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
                             {isLive ? '● Live Price' : 'Delayed Price'}
@@ -6955,7 +7176,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-baseline gap-2">
                         <ToneValue value={pe} unit="x" tone="mid" />
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap text-emerald-200 bg-emerald-950 border-emerald-500/60"
-                            title="Confidence: 1.0 — Basic EPS is a single, unambiguous, mandatorily-disclosed P&L line.">
+                            title="Confidence: 1.0 - Basic EPS is a single, unambiguous, mandatorily-disclosed P&L line.">
                             Confidence 1.00
                         </span>
                     </div>
@@ -6988,7 +7209,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Price-to-Book Ratio (Sr No 25) = Market Price per Share ÷ Book
-        // Value per Share. Same architecture as P/E — Book Value per Share
+        // Value per Share. Same architecture as P/E - Book Value per Share
         // (from the Annual Report, via its own /api/v1/book-value-per-share
         // endpoint) fetched in parallel with the live quote, divided
         // client-side. Negative Book Value (negative equity) is its own
@@ -7009,9 +7230,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-            const crCr = (v) => (v == null || isNaN(v)) ? '—'
+            const crCr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
             const sources = state.bvps?.sources || [];
 
@@ -7029,7 +7250,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 </div>
             );
 
-            // Negative/zero Book Value (negative equity) — a distinct
+            // Negative/zero Book Value (negative equity) - a distinct
             // finding, never a raw negative or fabricated P/B.
             if (negativeBook) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
@@ -7038,7 +7259,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <span className="text-[10px] font-bold uppercase tracking-wider text-red-200 bg-red-950 border border-red-500/60 px-2 py-0.5 rounded whitespace-nowrap">Negative Equity</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
-                        Not Meaningful — Shareholders' Equity is negative ({crCr(state.bvps.numerator.value_cr)}), so Book Value per Share isn't defined rather than being shown as a raw negative number.
+                        Not Meaningful - Shareholders' Equity is negative ({crCr(state.bvps.numerator.value_cr)}), so Book Value per Share isn't defined rather than being shown as a raw negative number.
                     </div>
                 </div>
             );
@@ -7046,7 +7267,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
@@ -7097,7 +7318,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             </div>
                             <div className="pl-3 flex items-baseline justify-between gap-3">
                                 <span className="text-[11px] text-slate-400">÷ Equity Shares Outstanding</span>
-                                <span className="text-[11px] font-mono text-slate-300 whitespace-nowrap">{state.bvps?.denominator?.value_cr != null ? Number(state.bvps.denominator.value_cr).toLocaleString('en-IN') : '—'}</span>
+                                <span className="text-[11px] font-mono text-slate-300 whitespace-nowrap">{state.bvps?.denominator?.value_cr != null ? Number(state.bvps.denominator.value_cr).toLocaleString('en-IN') : '-'}</span>
                             </div>
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1">
@@ -7114,12 +7335,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Price-to-Sales Ratio (Sr No 26) = Market Capitalisation (Market
         // Price per Share × Equity Shares Outstanding, reusing the SAME
         // share count as Sr No 25) ÷ Revenue from Operations (reusing Sr No
-        // 3's revenue field). Third market-data ratio — fetches Revenue and
+        // 3's revenue field). Third market-data ratio - fetches Revenue and
         // Shares Outstanding (both from their own dedicated
         // Annual-Report-only endpoints, independent of Book Value per
         // Share's/Receivables Turnover's own applicability) plus the live
         // quote, all in parallel, then computes Market Cap and the ratio
-        // client-side. N/A only when Revenue is zero/missing — no special
+        // client-side. N/A only when Revenue is zero/missing - no special
         // "Not Meaningful" state needed here (unlike EPS≤0/negative equity),
         // per spec.
         const PriceToSalesRatio = ({ symbol, name }) => {
@@ -7140,7 +7361,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const crCr = (v) => (v == null || isNaN(v)) ? '—'
+            const crCr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
             const sources = state.revenue?.sources || [];
 
@@ -7162,7 +7383,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
@@ -7178,7 +7399,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Price-to-Sales Ratio</span>
-                            <InfoTip text="Useful for valuing companies with volatile or negative earnings where P/E isn't meaningful. Formula: Market Capitalisation (Market Price × Equity Shares Outstanding) ÷ Revenue from Operations. Highly sector-dependent — IT/Services can command 3-8x+, Trading/Manufacturing often below 1-2x; always benchmark against peers." />
+                            <InfoTip text="Useful for valuing companies with volatile or negative earnings where P/E isn't meaningful. Formula: Market Capitalisation (Market Price × Equity Shares Outstanding) ÷ Revenue from Operations. Highly sector-dependent - IT/Services can command 3-8x+, Trading/Manufacturing often below 1-2x; always benchmark against peers." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
                             {isLive ? '● Live Price' : 'Delayed Price'}
@@ -7187,7 +7408,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-baseline gap-2">
                         <ToneValue value={ps} unit="x" tone="mid" />
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap text-emerald-200 bg-emerald-950 border-emerald-500/60"
-                            title="Confidence: 1.0 — both Revenue from Operations and Equity Shares Outstanding are single, unambiguous, mandatorily-disclosed figures.">
+                            title="Confidence: 1.0 - both Revenue from Operations and Equity Shares Outstanding are single, unambiguous, mandatorily-disclosed figures.">
                             Confidence 1.00
                         </span>
                     </div>
@@ -7226,11 +7447,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // FCF Yield (Sr No 37) = Free Cash Flow (reuse Sr No 36) ÷ Market
-        // Capitalisation (reuse Sr No 26 numerator) — pure arithmetic on
+        // Capitalisation (reuse Sr No 26 numerator) - pure arithmetic on
         // already-validated figures, fetched in parallel with the live
         // quote and divided client-side, same pattern as Price-to-Sales.
         // Per spec, a NEGATIVE FCF Yield is mathematically valid and NEVER
-        // withheld as N/A — flagged as a possible investment/capex phase
+        // withheld as N/A - flagged as a possible investment/capex phase
         // instead (same non-judgemental treatment as Free Cash Flow's own
         // "Negative" badge).
         const FCFYield = ({ symbol, name }) => {
@@ -7251,7 +7472,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const crCr = (v) => (v == null || isNaN(v)) ? '—'
+            const crCr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
             const sources = state.fcf?.sources || [];
 
@@ -7274,7 +7495,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
@@ -7290,7 +7511,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">FCF Yield</span>
-                            <InfoTip text="A valuation metric expressing cash generation as a % return on the price paid — directly comparable to bond yields/cost of capital, and harder to game than P/E-based valuation. Formula: Free Cash Flow ÷ Market Capitalisation. Considered by many value investors more reliable than Earnings Yield/P-E since FCF can't be inflated by non-cash accounting items. Indicative benchmark: 3-6% considered attractive for stable cash generators; below 1% (or negative) is typical for high-growth/high-capex companies where the market is pricing in future, not current, cash flows. A negative yield reflects a heavy investment phase, not necessarily distress." />
+                            <InfoTip text="A valuation metric expressing cash generation as a % return on the price paid - directly comparable to bond yields/cost of capital, and harder to game than P/E-based valuation. Formula: Free Cash Flow ÷ Market Capitalisation. Considered by many value investors more reliable than Earnings Yield/P-E since FCF can't be inflated by non-cash accounting items. Indicative benchmark: 3-6% considered attractive for stable cash generators; below 1% (or negative) is typical for high-growth/high-capex companies where the market is pricing in future, not current, cash flows. A negative yield reflects a heavy investment phase, not necessarily distress." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
                             {isLive ? '● Live Price' : 'Delayed Price'}
@@ -7300,7 +7521,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={fcfYield} unit="%" tone={isNegative ? 'bad' : 'mid'} />
                         {isNegative && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Investment Phase</span>}
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap text-emerald-200 bg-emerald-950 border-emerald-500/60"
-                            title="Confidence: 1.0 — Free Cash Flow and Equity Shares Outstanding are both read directly from the Annual Report.">
+                            title="Confidence: 1.0 - Free Cash Flow and Equity Shares Outstanding are both read directly from the Annual Report.">
                             Confidence 1.00
                         </span>
                     </div>
@@ -7339,9 +7560,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Dividend Yield (Sr No 27) = Dividend per Share (declared, ALWAYS
-        // standalone — dividends are declared by the parent entity, not on
+        // standalone - dividends are declared by the parent entity, not on
         // a consolidated basis) ÷ Market Price per Share. Fourth
-        // market-data ratio — fetches DPS from its own endpoint (which never
+        // market-data ratio - fetches DPS from its own endpoint (which never
         // returns a plain N/A for "no dividend", per spec's "0% is a real
         // answer, not missing data") plus the live quote, divides
         // client-side. A LOW-CONFIDENCE 0% (extraction genuinely couldn't
@@ -7363,7 +7584,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             const sources = state.dps?.sources || [];
 
@@ -7384,7 +7605,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
@@ -7410,7 +7631,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Unconfirmed</span>
                         )}
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${state.dps?.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                            title="Confidence: 1.0 = an explicit 'dividend per share paid during the year' disclosure was found; 0.4 = no such disclosure found — defaulted to 0%, which could be a genuine zero-dividend year or an extraction gap.">
+                            title="Confidence: 1.0 = an explicit 'dividend per share paid during the year' disclosure was found; 0.4 = no such disclosure found - defaulted to 0%, which could be a genuine zero-dividend year or an extraction gap.">
                             Confidence {(state.dps?.confidence ?? 1).toFixed(2)}
                         </span>
                     </div>
@@ -7440,14 +7661,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Earnings Yield (Sr No 28) = Basic EPS ÷ Market Price per Share —
+        // Earnings Yield (Sr No 28) = Basic EPS ÷ Market Price per Share -
         // the mathematical INVERSE of P/E (Sr No 24). Per spec, reuses the
-        // EXACT SAME EPS and Market Price sources as P/E — no new backend at
+        // EXACT SAME EPS and Market Price sources as P/E - no new backend at
         // all, just the same two fetches (/api/v1/eps + /api/quote) already
         // built for PriceToEarningsRatio, guaranteeing the two ratios are
         // reciprocals by construction (same inputs) rather than needing a
         // separate runtime consistency check. UNLIKE P/E, a loss-making
-        // company (EPS ≤ 0) is NOT hidden behind a "Not Meaningful" state —
+        // company (EPS ≤ 0) is NOT hidden behind a "Not Meaningful" state -
         // per spec, Earnings Yield stays mathematically defined (it just
         // goes negative), only flagged with a "Loss-Making Period" note.
         const EarningsYield = ({ symbol, name }) => {
@@ -7466,7 +7687,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             const sources = state.eps?.sources || [];
 
@@ -7487,7 +7708,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
@@ -7501,7 +7722,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Earnings Yield</span>
-                            <InfoTip text="The inverse of P/E — useful for comparing equity returns directly against bond yields/cost of capital. Formula: Basic EPS ÷ Market Price per Share. Same manipulation risks as P/E (one-off earnings items). Compare directly against the prevailing risk-free/bond yield; a large positive spread is generally favourable." />
+                            <InfoTip text="The inverse of P/E - useful for comparing equity returns directly against bond yields/cost of capital. Formula: Basic EPS ÷ Market Price per Share. Same manipulation risks as P/E (one-off earnings items). Compare directly against the prevailing risk-free/bond yield; a large positive spread is generally favourable." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
                             {isLive ? '● Live Price' : 'Delayed Price'}
@@ -7513,7 +7734,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             <span className="text-[10px] font-bold uppercase tracking-wider text-red-200 bg-red-950 border border-red-500/60 px-2 py-0.5 rounded whitespace-nowrap">Loss-Making Period</span>
                         )}
                         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap text-emerald-200 bg-emerald-950 border-emerald-500/60"
-                            title="Confidence: 1.0 — Basic EPS is a single, unambiguous, mandatorily-disclosed P&L line, same source as P/E.">
+                            title="Confidence: 1.0 - Basic EPS is a single, unambiguous, mandatorily-disclosed P&L line, same source as P/E.">
                             Confidence 1.00
                         </span>
                     </div>
@@ -7536,7 +7757,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1">
                             <span className="text-[10px] text-slate-600 italic leading-snug">
-                                Mathematical inverse of P/E — reuses the exact same EPS and Market Price figures shown there, so Earnings Yield × P/E always reconciles to 1.
+                                Mathematical inverse of P/E - reuses the exact same EPS and Market Price figures shown there, so Earnings Yield × P/E always reconciles to 1.
                             </span>
                             <SourceLinks sources={sources} />
                         </div>
@@ -7545,12 +7766,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Enterprise Value / EBITDA (Sr No 29) — the LAST ratio in this
+        // Enterprise Value / EBITDA (Sr No 29) - the LAST ratio in this
         // suite. EV = Market Cap (price × shares, reusing Sr No 26's share
         // count) + Total Debt (reusing Sr No 20's full a+b+c protocol, NOT
         // the old simplified Borrowings-only figure) − Cash and Cash
         // Equivalents (reusing Sr No 12's numerator); EBITDA is its OWN
-        // independent calculation (Sr No 93 in the master field registry —
+        // independent calculation (Sr No 93 in the master field registry -
         // it no longer reuses Sr No 15's numerator, since Sr No 15 was
         // redefined to EBIT-basis while EBITDA must stay EBITDA-basis).
         // Five parallel fetches (EBITDA, Total Debt, Cash,
@@ -7558,7 +7779,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Annual-Report-only endpoint so EV/EBITDA stays correct
         // independent of OPM's/D-E's/Cash Ratio's own unrelated N/A gates.
         // Per spec, EBITDA ≤ 0 is a distinct "Not Meaningful" state, same
-        // pattern as EPS≤0 for P/E — never a raw negative/meaningless
+        // pattern as EPS≤0 for P/E - never a raw negative/meaningless
         // multiple.
         const EnterpriseValueToEBITDA = ({ symbol, name, leaseBasis }) => {
             const [state, setState] = React.useState({ loading: true });
@@ -7582,7 +7803,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, leaseBasis]);
 
-            const crCr = (v) => (v == null || isNaN(v)) ? '—'
+            const crCr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
             const sources = state.ebitda?.sources || [];
 
@@ -7613,7 +7834,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <span className="text-[10px] font-bold uppercase tracking-wider text-red-200 bg-red-950 border border-red-500/60 px-2 py-0.5 rounded whitespace-nowrap">Operating Loss</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
-                        Not Meaningful — EBITDA is {crCr(ebitdaVal)} (zero or negative) for {state.ebitda?.period || 'the latest reported year'}, so this multiple isn't defined rather than being shown as a raw/misleading number.
+                        Not Meaningful - EBITDA is {crCr(ebitdaVal)} (zero or negative) for {state.ebitda?.period || 'the latest reported year'}, so this multiple isn't defined rather than being shown as a raw/misleading number.
                     </div>
                 </div>
             );
@@ -7621,7 +7842,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
@@ -7639,7 +7860,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Enterprise Value / EBITDA</span>
-                            <InfoTip text="Capital-structure-neutral valuation multiple — widely used to compare companies with different debt/equity mixes. Formula: (Market Cap + Total Debt − Cash and Cash Equivalents) ÷ EBITDA. Less distorted than P/E by financing choices, depreciation policy, or one-off items. Indicative benchmark: 6-12x common for stable industrials, higher for high-growth sectors — always benchmark against peers." />
+                            <InfoTip text="Capital-structure-neutral valuation multiple - widely used to compare companies with different debt/equity mixes. Formula: (Market Cap + Total Debt − Cash and Cash Equivalents) ÷ EBITDA. Less distorted than P/E by financing choices, depreciation policy, or one-off items. Indicative benchmark: 6-12x common for stable industrials, higher for high-growth sectors - always benchmark against peers." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
                             {isLive ? '● Live Price' : 'Delayed Price'}
@@ -7695,11 +7916,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Net Debt/EBITDA (Sr No 33) = (Total Debt − Cash and Cash
-        // Equivalents) ÷ EBITDA — the single most widely used credit-risk/
+        // Equivalents) ÷ EBITDA - the single most widely used credit-risk/
         // leverage-capacity metric by lenders and rating agencies. Unlike
         // most ratios here, a NEGATIVE Net Debt (Cash > Total Debt) is a
         // distinct "Net Cash" state (favourable, not an error) rather than a
-        // generic N/A — the backend flags this via `net_cash: true`.
+        // generic N/A - the backend flags this via `net_cash: true`.
         const NetDebtToEBITDA = ({ symbol, name, leaseBasis }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('net-debt-to-ebitda', state.loading && !state.data);
@@ -7720,7 +7941,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period, leaseBasis]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -7764,7 +7985,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
 
             // Net Cash is a distinct, FAVOURABLE state (Cash exceeds Total
-            // Debt) — never rendered as a plain grey N/A, and never as a
+            // Debt) - never rendered as a plain grey N/A, and never as a
             // spuriously "low" leverage multiple either, per spec.
             if (!d.applicable && d.net_cash) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
@@ -7798,7 +8019,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -7813,7 +8034,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Net Debt/EBITDA</span>
-                            <InfoTip text="The single most widely used credit-risk metric by lenders and rating agencies — years of EBITDA needed to repay net debt. Formula: (Total Debt − Cash and Cash Equivalents) ÷ EBITDA. More informative than gross Debt-to-Equity since it nets out available cash. Indicative benchmark: below 2x generally comfortable; 2-4x moderate; above 4x elevated financial risk (sector-dependent — capital-intensive sectors like telecom/infra run structurally higher). A negative Net Debt (Cash exceeds Total Debt) is flagged separately as a Net Cash position, not a leverage multiple." />
+                            <InfoTip text="The single most widely used credit-risk metric by lenders and rating agencies - years of EBITDA needed to repay net debt. Formula: (Total Debt − Cash and Cash Equivalents) ÷ EBITDA. More informative than gross Debt-to-Equity since it nets out available cash. Indicative benchmark: below 2x generally comfortable; 2-4x moderate; above 4x elevated financial risk (sector-dependent - capital-intensive sectors like telecom/infra run structurally higher). A negative Net Debt (Cash exceeds Total Debt) is flagged separately as a Net Cash position, not a leverage multiple." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -7854,7 +8075,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Current Ratio = Total Current Assets ÷ Total Current Liabilities — a
+        // Current Ratio = Total Current Assets ÷ Total Current Liabilities - a
         // point-in-time (closing balance) liquidity ratio, unlike the turnover
         // ratios above: no averaging, no period-over-period figures. Mirrors
         // AssetTurnover's structure/UX minus the by-year breakdown.
@@ -7862,7 +8083,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Operating Income proxy) ÷ Total Debt Service (Finance Costs +
         // Principal Repayment of Borrowings, from the Cash Flow Statement's
         // Financing Activities section). A stricter solvency test than
-        // Interest Coverage — accounts for scheduled principal too. Per
+        // Interest Coverage - accounts for scheduled principal too. Per
         // spec, N/A / not calculated if Total Debt Service = 0 (debt-free).
         const DebtServiceCoverageRatio = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
@@ -7884,7 +8105,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -7927,12 +8148,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 </div>
             );
 
-            // N/A here usually means "debt-free — Total Debt Service is ₹0",
+            // N/A here usually means "debt-free - Total Debt Service is ₹0",
             // a real finding worth showing, not a data gap.
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -7965,7 +8186,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Debt Service Coverage Ratio</span>
-                            <InfoTip text="A stricter solvency test than Interest Coverage — accounts for both interest AND scheduled principal repayments. Formula: EBITDA ÷ (Finance Costs + Principal Repayment of Borrowings, from the Cash Flow Statement's Financing Activities section). A company can show comfortable Interest Coverage yet still fail DSCR if large principal repayments fall due — a key early-warning signal used by lenders/covenant tests. Indicative benchmark: above 1.25x generally the minimum for lender comfort; above 2x healthy; below 1x signals the company cannot service debt from operations alone." />
+                            <InfoTip text="A stricter solvency test than Interest Coverage - accounts for both interest AND scheduled principal repayments. Formula: EBITDA ÷ (Finance Costs + Principal Repayment of Borrowings, from the Cash Flow Statement's Financing Activities section). A company can show comfortable Interest Coverage yet still fail DSCR if large principal repayments fall due - a key early-warning signal used by lenders/covenant tests. Indicative benchmark: above 1.25x generally the minimum for lender comfort; above 2x healthy; below 1x signals the company cannot service debt from operations alone." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -8007,7 +8228,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Cash Flow Coverage Ratio (Sr No 35) = Net Cash Flow from Operating
-        // Activities ÷ Total Debt — a cash-based solvency check, more
+        // Activities ÷ Total Debt - a cash-based solvency check, more
         // resistant to manipulation than EBIT/EBITDA-based leverage ratios
         // since it uses real Cash Flow Statement movements rather than
         // accounting profit. Per spec, N/A if Total Debt = 0 (debt-free).
@@ -8031,7 +8252,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period, leaseBasis]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -8074,12 +8295,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 </div>
             );
 
-            // N/A here usually means "debt-free — Total Debt is ₹0", a real
+            // N/A here usually means "debt-free - Total Debt is ₹0", a real
             // finding worth showing, not a data gap.
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -8109,7 +8330,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Cash Flow Coverage Ratio</span>
-                            <InfoTip text="Tests whether the business's ACTUAL cash generation — not accounting profit — alone could retire its total debt, and over what timeframe. Formula: Net Cash Flow from Operating Activities ÷ Total Debt. More resistant to manipulation than EBIT/EBITDA-based leverage ratios since it uses real Cash Flow Statement movements. Indicative benchmark: above 0.2x (debt payback in ~5 years from OCF alone) considered healthy; below 0.1x signals heavy reliance on refinancing rather than organic cash generation." />
+                            <InfoTip text="Tests whether the business's ACTUAL cash generation - not accounting profit - alone could retire its total debt, and over what timeframe. Formula: Net Cash Flow from Operating Activities ÷ Total Debt. More resistant to manipulation than EBIT/EBITDA-based leverage ratios since it uses real Cash Flow Statement movements. Indicative benchmark: above 0.2x (debt payback in ~5 years from OCF alone) considered healthy; below 0.1x signals heavy reliance on refinancing rather than organic cash generation." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -8151,7 +8372,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Free Cash Flow (FCF, Sr No 36) = Net Cash Flow from Operating
-        // Activities − net Capital Expenditure — an ABSOLUTE rupee figure
+        // Activities − net Capital Expenditure - an ABSOLUTE rupee figure
         // (not a divided ratio), same "no universal range" nature as
         // Working Capital. Per spec, a negative FCF is FLAGGED (e.g. a
         // capex/growth investment phase), never treated as an error.
@@ -8175,7 +8396,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -8221,7 +8442,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -8238,7 +8459,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Free Cash Flow</span>
-                            <InfoTip text="The cash actually left over after the business reinvests in itself — the true funding source for dividends, debt repayment, buybacks, and M&A. Considered by many analysts a more honest profitability measure than Net Profit, since it can't be distorted by non-cash accounting items. Formula: Net Cash Flow from Operating Activities − Capital Expenditure (net of disposal proceeds when the filing discloses them, gross otherwise — see 'How we calculated this' below for which basis this company uses). No universal range — an absolute rupee figure; assess as FCF Margin or FCF Yield for comparability across companies/years. A negative value can reflect a genuine capex/growth investment phase, not necessarily weak operations — read alongside Operating Cash Flow." />
+                            <InfoTip text="The cash actually left over after the business reinvests in itself - the true funding source for dividends, debt repayment, buybacks, and M&A. Considered by many analysts a more honest profitability measure than Net Profit, since it can't be distorted by non-cash accounting items. Formula: Net Cash Flow from Operating Activities − Capital Expenditure (net of disposal proceeds when the filing discloses them, gross otherwise - see 'How we calculated this' below for which basis this company uses). No universal range - an absolute rupee figure; assess as FCF Margin or FCF Yield for comparability across companies/years. A negative value can reflect a genuine capex/growth investment phase, not necessarily weak operations - read alongside Operating Cash Flow." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -8269,7 +8490,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // FCF Margin (Sr No 38) = Free Cash Flow ÷ Revenue from Operations —
+        // FCF Margin (Sr No 38) = Free Cash Flow ÷ Revenue from Operations -
         // a cash-based counterpart to Net Profit Margin. Per spec, a
         // negative margin is NOT automatically alarming (can reflect a
         // genuine growth/capex phase), so this stays neutral-toned, same as
@@ -8294,7 +8515,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -8330,7 +8551,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -8355,18 +8576,18 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">FCF Margin</span>
-                            <InfoTip text="A cash-based counterpart to Net Profit Margin — shows what % of every rupee of sales is actually converted into free, reinvestable cash. Formula: Free Cash Flow ÷ Revenue from Operations. A business with a healthy Net Profit Margin but weak/negative FCF Margin is consuming cash to grow — not inherently bad, but changes the investment thesis (self-funding vs. capital-dependent growth). Indicative benchmark: IT/Services and asset-light Consumer 15-25%+; Manufacturing 5-15%; capital-intensive/high-growth-capex sectors can run low or negative for extended periods." />
+                            <InfoTip text="A cash-based counterpart to Net Profit Margin - shows what % of every rupee of sales is actually converted into free, reinvestable cash. Formula: Free Cash Flow ÷ Revenue from Operations. A business with a healthy Net Profit Margin but weak/negative FCF Margin is consuming cash to grow - not inherently bad, but changes the investment thesis (self-funding vs. capital-dependent growth). Indicative benchmark: IT/Services and asset-light Consumer 15-25%+; Manufacturing 5-15%; capital-intensive/high-growth-capex sectors can run low or negative for extended periods." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* No universal good/bad threshold, and a negative margin isn't automatically alarming — stays neutral */}
+                        {/* No universal good/bad threshold, and a negative margin isn't automatically alarming - stays neutral */}
                         <ToneValue value={d.value} unit={d.unit || '%'} tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: 1.0 — Free Cash Flow and Revenue from Operations are both read directly from the Annual Report.">
+                                title="Confidence: 1.0 - Free Cash Flow and Revenue from Operations are both read directly from the Annual Report.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -8397,7 +8618,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Operating Cash Flow Ratio (Sr No 39) = Net Cash Flow from
-        // Operating Activities ÷ Total Current Liabilities (closing) — a
+        // Operating Activities ÷ Total Current Liabilities (closing) - a
         // stricter, cash-based liquidity test than the Current Ratio. A low
         // ratio here alongside a healthy Current Ratio is a red flag.
         const OperatingCashFlowRatio = ({ symbol, name }) => {
@@ -8420,7 +8641,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -8456,7 +8677,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -8480,7 +8701,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Operating Cash Flow Ratio</span>
-                            <InfoTip text="Answers 'can the business's actual operating cash generation, not just its current assets on paper, cover near-term obligations?' — a stricter, cash-based liquidity test than the Current Ratio, since it doesn't assume inventory/receivables will actually convert to cash in time. Formula: Net Cash Flow from Operating Activities ÷ Total Current Liabilities (closing). A low ratio here alongside a healthy Current Ratio is a red flag — the balance-sheet 'liquidity' may not be backed by actual cash generation. Indicative benchmark: above 0.4x generally healthy; below 0.2x may signal reliance on external financing." />
+                            <InfoTip text="Answers 'can the business's actual operating cash generation, not just its current assets on paper, cover near-term obligations?' - a stricter, cash-based liquidity test than the Current Ratio, since it doesn't assume inventory/receivables will actually convert to cash in time. Formula: Net Cash Flow from Operating Activities ÷ Total Current Liabilities (closing). A low ratio here alongside a healthy Current Ratio is a red flag - the balance-sheet 'liquidity' may not be backed by actual cash generation. Indicative benchmark: above 0.4x generally healthy; below 0.2x may signal reliance on external financing." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -8490,7 +8711,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={d.value} unit={d.unit || 'x'} tone={toneOf(d.value, { good: 0.4, bad: 0.2 })} />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: 1.0 — Operating Cash Flow and Total Current Liabilities are both read directly from the Annual Report.">
+                                title="Confidence: 1.0 - Operating Cash Flow and Total Current Liabilities are both read directly from the Annual Report.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -8518,7 +8739,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Capex Intensity (Sr No 40) = Capital Expenditure (net) ÷ Revenue
-        // from Operations — a structural indicator of how capital-hungry
+        // from Operations - a structural indicator of how capital-hungry
         // the business model is (industry-driven, not purely a company
         // choice), so this stays neutral-toned like FCF Margin.
         const CapexIntensity = ({ symbol, name }) => {
@@ -8541,7 +8762,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -8577,7 +8798,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -8602,18 +8823,18 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Capex Intensity</span>
-                            <InfoTip text="A structural indicator of how much of every rupee of sales must be reinvested just to sustain/grow the asset base — central to distinguishing asset-light compounders (low, stable capex intensity) from capital-hungry businesses (telecom, infra, semiconductors) that require continuous heavy reinvestment. Formula: Capital Expenditure (net) ÷ Revenue from Operations. Indicative benchmark: IT/Services below 5%; Manufacturing 5-10%; Telecom/Infra/Capital Goods/Semiconductors 15-30%+. Don't compare across industries without normalising for the underlying capital-intensity of the business model." />
+                            <InfoTip text="A structural indicator of how much of every rupee of sales must be reinvested just to sustain/grow the asset base - central to distinguishing asset-light compounders (low, stable capex intensity) from capital-hungry businesses (telecom, infra, semiconductors) that require continuous heavy reinvestment. Formula: Capital Expenditure (net) ÷ Revenue from Operations. Indicative benchmark: IT/Services below 5%; Manufacturing 5-10%; Telecom/Infra/Capital Goods/Semiconductors 15-30%+. Don't compare across industries without normalising for the underlying capital-intensity of the business model." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* Sector-structural, not good/bad on its own — stays neutral */}
+                        {/* Sector-structural, not good/bad on its own - stays neutral */}
                         <ToneValue value={d.value} unit={d.unit || '%'} tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: 1.0 — Capital Expenditure and Revenue from Operations are both read directly from the Annual Report.">
+                                title="Confidence: 1.0 - Capital Expenditure and Revenue from Operations are both read directly from the Annual Report.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -8663,7 +8884,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -8699,7 +8920,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -8723,7 +8944,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">OCF/Net Profit</span>
-                            <InfoTip text="A core earnings-quality diagnostic — tests whether reported profit is actually converting into cash. Formula: Net Cash Flow from Operating Activities ÷ Net Profit. Persistent, material divergence (profit growing faster than OCF) can indicate aggressive revenue recognition, mounting receivables/inventory, or capitalised costs inflating profit without a cash counterpart. Indicative benchmark: ~0.8x-1.2x considered normal (some quarter-to-quarter volatility from working capital timing is expected); persistently below 0.5x over multiple years warrants scrutiny. Don't treat a single year's dip as automatically alarming — look for a multi-year persistent gap instead." />
+                            <InfoTip text="A core earnings-quality diagnostic - tests whether reported profit is actually converting into cash. Formula: Net Cash Flow from Operating Activities ÷ Net Profit. Persistent, material divergence (profit growing faster than OCF) can indicate aggressive revenue recognition, mounting receivables/inventory, or capitalised costs inflating profit without a cash counterpart. Indicative benchmark: ~0.8x-1.2x considered normal (some quarter-to-quarter volatility from working capital timing is expected); persistently below 0.5x over multiple years warrants scrutiny. Don't treat a single year's dip as automatically alarming - look for a multi-year persistent gap instead." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -8780,9 +9001,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
-            const pctFmt = (v) => (v == null || isNaN(v)) ? '—' : `${Number(v).toFixed(2)}%`;
+            const pctFmt = (v) => (v == null || isNaN(v)) ? '-' : `${Number(v).toFixed(2)}%`;
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
@@ -8817,7 +9038,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -8842,7 +9063,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Return on Invested Capital</span>
-                            <InfoTip text="The single most-used metric to judge whether a business is genuinely creating shareholder value — value is created only when ROIC exceeds the Weighted Average Cost of Capital (WACC); a high-ROE, high-leverage company can still be a poor value creator if ROIC < WACC. Formula: NOPAT (EBIT taxed at the effective rate) ÷ Invested Capital (Total Debt + Total Equity − Cash). Considered harder to distort than ROE since it strips out both tax-rate anomalies and financing structure. Benchmark: ROIC > WACC (typically 10-13% for Indian equities) = value creator; ROIC < WACC = value destroyer regardless of headline growth. Benchmark against the company/sector's own WACC, not a fixed universal number — the ROIC-minus-WACC spread is the real signal." />
+                            <InfoTip text="The single most-used metric to judge whether a business is genuinely creating shareholder value - value is created only when ROIC exceeds the Weighted Average Cost of Capital (WACC); a high-ROE, high-leverage company can still be a poor value creator if ROIC < WACC. Formula: NOPAT (EBIT taxed at the effective rate) ÷ Invested Capital (Total Debt + Total Equity − Cash). Considered harder to distort than ROE since it strips out both tax-rate anomalies and financing structure. Benchmark: ROIC > WACC (typically 10-13% for Indian equities) = value creator; ROIC < WACC = value destroyer regardless of headline growth. Benchmark against the company/sector's own WACC, not a fixed universal number - the ROIC-minus-WACC spread is the real signal." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -8852,7 +9073,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={d.value} unit={d.unit || '%'} tone={toneOf(d.value, { good: 13, bad: 8 })} />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Invested Capital is closing-balance only (not opening+closing averaged, per the spec) — Total Debt has no reliable prior-year signal in this pipeline, so confidence is capped to flag this.">
+                                title="Invested Capital is closing-balance only (not opening+closing averaged, per the spec) - Total Debt has no reliable prior-year signal in this pipeline, so confidence is capped to flag this.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -8905,7 +9126,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -8941,7 +9162,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -8965,18 +9186,18 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Effective Tax Rate</span>
-                            <InfoTip text="Flags one-off tax benefits/credits (e.g. MAT credit recognition, tax holiday expiry, one-time settlement) that can flatter Net Profit Margin and ROE in a single year without reflecting a sustainable improvement. Formula: Total Tax Expense (Current + Deferred Tax) ÷ Profit Before Tax. A sudden drop should be investigated — cross-check against the Annual Report's Tax Reconciliation Note (a mandatory Ind AS disclosure) — before extrapolating profit growth. Indicative benchmark: ~25-26% typical for domestic companies on the post-2019 concessional regime; ~30-35% under the older regime; deviations often reflect one-off items, tax holidays, or carried-forward losses." />
+                            <InfoTip text="Flags one-off tax benefits/credits (e.g. MAT credit recognition, tax holiday expiry, one-time settlement) that can flatter Net Profit Margin and ROE in a single year without reflecting a sustainable improvement. Formula: Total Tax Expense (Current + Deferred Tax) ÷ Profit Before Tax. A sudden drop should be investigated - cross-check against the Annual Report's Tax Reconciliation Note (a mandatory Ind AS disclosure) - before extrapolating profit growth. Indicative benchmark: ~25-26% typical for domestic companies on the post-2019 concessional regime; ~30-35% under the older regime; deviations often reflect one-off items, tax holidays, or carried-forward losses." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* No universal good/bad — a lower rate can be a genuine tax-holiday benefit or a one-off item, stays neutral */}
+                        {/* No universal good/bad - a lower rate can be a genuine tax-holiday benefit or a one-off item, stays neutral */}
                         <ToneValue value={d.value} unit={d.unit || '%'} tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: 1.0 — Tax Expense and Profit Before Tax are both read directly from the Annual Report.">
+                                title="Confidence: 1.0 - Tax Expense and Profit Before Tax are both read directly from the Annual Report.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -9023,7 +9244,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -9059,7 +9280,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -9084,24 +9305,24 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Contribution Margin</span>
-                            <InfoTip text="Core input for break-even analysis and understanding operating leverage — a business with high Contribution Margin and high fixed costs will see profit swing much more sharply with volume changes (both up and down) than a low-Contribution-Margin, low-fixed-cost business. Formula: (Revenue − Variable Costs) ÷ Revenue. APPROXIMATION: Ind AS filings don't disclose a true fixed/variable cost split (that needs MD&A/segment data) — 'Variable Costs' here is only Cost of materials consumed + Purchases of stock-in-trade, so this UNDERSTATES the true figure (freight, power, and other variable items inside Other Expenses are excluded). Treat as directional only. Indicative benchmark: highly business-model-dependent — asset-light/service businesses often run 60-80%+, manufacturing with high raw-material content often runs 20-40%." />
+                            <InfoTip text="Core input for break-even analysis and understanding operating leverage - a business with high Contribution Margin and high fixed costs will see profit swing much more sharply with volume changes (both up and down) than a low-Contribution-Margin, low-fixed-cost business. Formula: (Revenue − Variable Costs) ÷ Revenue. APPROXIMATION: Ind AS filings don't disclose a true fixed/variable cost split (that needs MD&A/segment data) - 'Variable Costs' here is only Cost of materials consumed + Purchases of stock-in-trade, so this UNDERSTATES the true figure (freight, power, and other variable items inside Other Expenses are excluded). Treat as directional only. Indicative benchmark: highly business-model-dependent - asset-light/service businesses often run 60-80%+, manufacturing with high raw-material content often runs 20-40%." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2 flex-wrap">
-                        {/* Highly business-model-dependent — stays neutral, no fixed good/bad */}
+                        {/* Highly business-model-dependent - stays neutral, no fixed good/bad */}
                         <ToneValue value={d.value} unit={d.unit || '%'} tone="mid" />
                         {d.approximation && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap text-amber-200 bg-amber-950 border-amber-500/60"
-                                title="Approximation, not the spec's true fixed/variable cost split — Variable Costs here is only the raw-material COGS lines, which understates the real figure.">
+                                title="Approximation, not the spec's true fixed/variable cost split - Variable Costs here is only the raw-material COGS lines, which understates the real figure.">
                                 Approximation
                             </span>
                         )}
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence capped at 0.4 — this is a rough proxy (raw-material COGS only), not a directly-disclosed figure.">
+                                title="Confidence capped at 0.4 - this is a rough proxy (raw-material COGS only), not a directly-disclosed figure.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -9151,7 +9372,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const rupees = (v) => (v == null || isNaN(v)) ? '—' : `₹${Number(v).toFixed(2)}`;
+            const rupees = (v) => (v == null || isNaN(v)) ? '-' : `₹${Number(v).toFixed(2)}`;
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
@@ -9193,7 +9414,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
 
             // Loss-making/zero prior-year base is its own distinct "N/M" finding
-            // (not a generic "couldn't compute" N/A) — same pattern as Interest
+            // (not a generic "couldn't compute" N/A) - same pattern as Interest
             // Coverage's "Debt-Free" state.
             if (d.not_meaningful) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
@@ -9221,7 +9442,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -9236,7 +9457,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">EPS Growth Rate</span>
-                            <InfoTip text="The core growth input for the PEG Ratio and for judging whether a stock's valuation multiple is justified by its underlying earnings trajectory. Formula: (Current Year Basic EPS ÷ Prior Year Basic EPS) − 1. Highly susceptible to distortion by one-off items in either year's EPS — always check for exceptional items before trusting a single-year growth figure. Should be broadly consistent with Net Profit Margin trend and Revenue growth, adjusted for any share count changes (buybacks/issuances). Indicative benchmark: 10-20% considered healthy sustained growth for mature businesses; high-growth/early-stage companies can post 30%+." />
+                            <InfoTip text="The core growth input for the PEG Ratio and for judging whether a stock's valuation multiple is justified by its underlying earnings trajectory. Formula: (Current Year Basic EPS ÷ Prior Year Basic EPS) − 1. Highly susceptible to distortion by one-off items in either year's EPS - always check for exceptional items before trusting a single-year growth figure. Should be broadly consistent with Net Profit Margin trend and Revenue growth, adjusted for any share count changes (buybacks/issuances). Indicative benchmark: 10-20% considered healthy sustained growth for mature businesses; high-growth/early-stage companies can post 30%+." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -9246,7 +9467,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={d.value} unit={d.unit || '%'} tone={toneOf(d.value, { good: 15, bad: 0 })} />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: 1.0 — both years' Basic EPS are read directly from the Annual Report.">
+                                title="Confidence: 1.0 - both years' Basic EPS are read directly from the Annual Report.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -9277,7 +9498,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('book-value-per-share-standalone', state.loading && !state.data);
             // Sr No 46's dedicated card: unlike the P/B ratio's (consolidated)
-            // Book Value per Share, this one requests consolidated:false — see
+            // Book Value per Share, this one requests consolidated:false - see
             // the fetch below and fetch_book_value_per_share's own docstring.
             const [period, setPeriod] = React.useState(null);
             const [showCalc, setShowCalc] = React.useState(false);
@@ -9296,11 +9517,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
-            const rupees = (v) => (v == null || isNaN(v)) ? '—'
+            const rupees = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-            const shares = (v) => (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString('en-IN');
+            const shares = (v) => (v == null || isNaN(v)) ? '-' : Number(v).toLocaleString('en-IN');
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
@@ -9341,7 +9562,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 </div>
             );
 
-            // Negative/zero Total Equity — a distinct finding, never a raw
+            // Negative/zero Total Equity - a distinct finding, never a raw
             // negative BVPS, same pattern as Price-to-Book's own N/M state.
             const negativeEquity = !d.applicable && num?.value_cr != null && num.value_cr <= 0;
             if (negativeEquity) return (
@@ -9360,7 +9581,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -9375,14 +9596,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Book Value per Share</span>
-                            <InfoTip text="The accounting net-worth per share — a floor-value reference point, especially for asset-heavy businesses (banks, real estate, capital goods). Less relevant for asset-light/IP-driven businesses where most value sits outside the balance sheet (brand, technology, customer relationships). Formula: Total Equity (owners-attributable, closing) ÷ Equity Shares Outstanding (closing). No universal range — always assessed relative to Market Price via Price-to-Book, not in isolation. Feeds the Graham Number and other valuation cross-checks." />
+                            <InfoTip text="The accounting net-worth per share - a floor-value reference point, especially for asset-heavy businesses (banks, real estate, capital goods). Less relevant for asset-light/IP-driven businesses where most value sits outside the balance sheet (brand, technology, customer relationships). Formula: Total Equity (owners-attributable, closing) ÷ Equity Shares Outstanding (closing). No universal range - always assessed relative to Market Price via Price-to-Book, not in isolation. Feeds the Graham Number and other valuation cross-checks." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* No universal good/bad — always assessed relative to Market Price via P/B, not in isolation */}
+                        {/* No universal good/bad - always assessed relative to Market Price via P/B, not in isolation */}
                         <ToneValue value={d.value} unit={d.unit || '₹'} tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
@@ -9433,10 +9654,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
-            const rupees = (v) => (v == null || isNaN(v)) ? '—' : `₹${Number(v).toFixed(2)}`;
-            const shares = (v) => (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString('en-IN');
+            const rupees = (v) => (v == null || isNaN(v)) ? '-' : `₹${Number(v).toFixed(2)}`;
+            const shares = (v) => (v == null || isNaN(v)) ? '-' : Number(v).toLocaleString('en-IN');
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
@@ -9471,7 +9692,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -9509,7 +9730,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         )}
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: 1.0 = an explicit 'dividend paid during the year' disclosure was found; 0.4 = no such disclosure found — defaulted to 0%, which could be a genuine zero-dividend year or an extraction gap.">
+                                title="Confidence: 1.0 = an explicit 'dividend paid during the year' disclosure was found; 0.4 = no such disclosure found - defaulted to 0%, which could be a genuine zero-dividend year or an extraction gap.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -9544,7 +9765,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Retention Ratio (Sr No 48) = 1 − Dividend Payout Ratio (Sr No 47).
         // Pure client-side arithmetic on the SAME /api/v1/dividend-payout-ratio
-        // response Dividend Payout Ratio already uses — no new backend code,
+        // response Dividend Payout Ratio already uses - no new backend code,
         // per spec's explicit "reuse Sr No 47" instruction (same pattern as
         // CCC/Working Capital). Retention + Payout must equal exactly 100%,
         // by construction, since both read the identical payout figure.
@@ -9568,7 +9789,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -9604,7 +9825,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -9630,21 +9851,21 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Retention Ratio</span>
-                            <InfoTip text="The complement of the Dividend Payout Ratio — the proportion of profit retained within the business for reinvestment rather than distributed as dividends. Directly determines organic reinvestment capacity and is the second input (alongside ROE) in the Sustainable Growth Rate. Formula: 1 − Dividend Payout Ratio. A higher Retention Ratio funds faster organic growth, all else equal. Indicative benchmark: growth-focused companies 80-100%; mature dividend payers 30-60%." />
+                            <InfoTip text="The complement of the Dividend Payout Ratio - the proportion of profit retained within the business for reinvestment rather than distributed as dividends. Directly determines organic reinvestment capacity and is the second input (alongside ROE) in the Sustainable Growth Rate. Formula: 1 − Dividend Payout Ratio. A higher Retention Ratio funds faster organic growth, all else equal. Indicative benchmark: growth-focused companies 80-100%; mature dividend payers 30-60%." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2 flex-wrap">
-                        {/* No fixed good/bad — a higher or lower Retention Ratio is a capital-allocation choice, not inherently better/worse */}
+                        {/* No fixed good/bad - a higher or lower Retention Ratio is a capital-allocation choice, not inherently better/worse */}
                         <ToneValue value={retention} unit="%" tone="mid" />
                         {d.dividend_found === false && (
                             <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Unconfirmed</span>
                         )}
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Inherits Dividend Payout Ratio's own confidence — this is a pure 1 minus that figure, not independently sourced.">
+                                title="Inherits Dividend Payout Ratio's own confidence - this is a pure 1 minus that figure, not independently sourced.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -9664,7 +9885,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             <Row label={den.label || 'Net Profit'} val={cr(den.value_cr)} strong />
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1">
-                            <span className="text-[10px] text-slate-600 italic leading-snug">Derived from Dividend Payout Ratio (Sr No 47) — no independent extraction, per spec. Retention + Payout must equal exactly 100%, by construction.</span>
+                            <span className="text-[10px] text-slate-600 italic leading-snug">Derived from Dividend Payout Ratio (Sr No 47) - no independent extraction, per spec. Retention + Payout must equal exactly 100%, by construction.</span>
                             <SourceLinks sources={sources} />
                         </div>
                     </>)}
@@ -9674,7 +9895,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Sustainable Growth Rate (Sr No 49) = Return on Equity (Sr No 18) ×
         // Retention Ratio (Sr No 48). Pure client-side arithmetic on two
-        // already-validated ratios — no new backend code, per spec's explicit
+        // already-validated ratios - no new backend code, per spec's explicit
         // "reuse Sr No 18 and Sr No 48" instruction (same pattern as ROA).
         // Fetches ROE's own endpoint plus the same dividend-payout-ratio
         // response Retention Ratio itself derives from (1 − payout), rather
@@ -9698,7 +9919,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             }, [symbol]);
 
             const roeVal = state.roe?.applicable ? state.roe.value : null;
-            // Per spec, N/A if ROE is N/A (e.g. negative equity) — never
+            // Per spec, N/A if ROE is N/A (e.g. negative equity) - never
             // silently substitute 0 for a missing ROE. If Dividend Payout
             // Ratio itself came back N/A (e.g. loss-making year), Retention
             // is undefined too, so this stays N/A as well.
@@ -9706,7 +9927,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const retentionVal = payoutVal != null ? (100 - payoutVal) : null;
             const applicable = roeVal != null && retentionVal != null;
             const sgr = applicable ? Math.round(((roeVal * retentionVal) / 100) * 100) / 100 : null;
-            // Confidence follows whichever reused figure is less certain — never
+            // Confidence follows whichever reused figure is less certain - never
             // invents a higher confidence than either source component has.
             const confidence = applicable
                 ? Math.min(state.roe.confidence ?? 1, state.payout.confidence ?? 1)
@@ -9717,7 +9938,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Sustainable Growth Rate</span>
-                            <InfoTip text="Represents the maximum growth rate a company can fund purely from internally generated equity (retained earnings) without issuing new shares or increasing leverage — a useful theoretical benchmark to judge whether reported/guided growth is self-funded or dependent on external capital raises. Formula: Return on Equity × Retention Ratio. NOT a growth forecast/target — it is a funding-capacity ceiling under a no-new-financing assumption. Compare actual historical growth against this rate — persistent growth well above it signals reliance on external financing (debt or equity raises), visible in Debt-to-Equity trends or share count changes. Indicative benchmark: 10-20% considered a healthy self-funded growth ceiling for most non-financial businesses; high-ROE, high-retention compounders can exceed 20%." />
+                            <InfoTip text="Represents the maximum growth rate a company can fund purely from internally generated equity (retained earnings) without issuing new shares or increasing leverage - a useful theoretical benchmark to judge whether reported/guided growth is self-funded or dependent on external capital raises. Formula: Return on Equity × Retention Ratio. NOT a growth forecast/target - it is a funding-capacity ceiling under a no-new-financing assumption. Compare actual historical growth against this rate - persistent growth well above it signals reliance on external financing (debt or equity raises), visible in Debt-to-Equity trends or share count changes. Indicative benchmark: 10-20% considered a healthy self-funded growth ceiling for most non-financial businesses; high-ROE, high-retention compounders can exceed 20%." />
                         </div>
                     </div>
                     {state.loading ? (
@@ -9725,11 +9946,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     ) : !applicable ? (
                         <div>
                             <div className="flex items-center justify-between gap-2">
-                                <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                                <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             </div>
                             <div className="text-[10px] text-slate-500 mt-1.5 leading-snug">
-                                Requires both Return on Equity and Dividend Payout Ratio (for Retention Ratio) to be available — one or both could not be calculated for this company (e.g. negative equity, or a loss-making year).
+                                Requires both Return on Equity and Dividend Payout Ratio (for Retention Ratio) to be available - one or both could not be calculated for this company (e.g. negative equity, or a loss-making year).
                             </div>
                         </div>
                     ) : (
@@ -9738,7 +9959,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 <ToneValue value={sgr} unit="%" tone={toneOf(sgr, { good: 15, bad: 5 })} />
                                 {confidence != null && (
                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                        title="Confidence: the lower of Return on Equity's and Dividend Payout Ratio's own confidence — this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
+                                        title="Confidence: the lower of Return on Equity's and Dividend Payout Ratio's own confidence - this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
                                         Confidence {confidence.toFixed(2)}
                                     </span>
                                 )}
@@ -9761,9 +9982,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // PEG Ratio (Sr No 50) = Price-to-Earnings (Sr No 24) ÷ EPS Growth Rate
         // (Sr No 45), growth expressed as a whole number (e.g. 20 for 20%,
-        // never the decimal 0.20 — dividing by the decimal form would produce
+        // never the decimal 0.20 - dividing by the decimal form would produce
         // a result 100x too large). Pure client-side arithmetic on two
-        // already-validated ratios — no new backend code, per spec's explicit
+        // already-validated ratios - no new backend code, per spec's explicit
         // "reuse Sr No 24 and Sr No 45" instruction. Fetches EPS + live quote
         // (the same two inputs P/E's own card uses) plus EPS Growth Rate,
         // rather than composing through P/E's own component.
@@ -9791,12 +10012,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const peApplicable = epsVal != null && epsVal > 0 && price != null;
             const pe = peApplicable ? Math.round((price / epsVal) * 100) / 100 : null;
             // Per spec, growth is already the "whole number" form (e.g. 15.5 for
-            // 15.5%) — /api/v1/eps-growth's own `value` is stored that way, so
+            // 15.5%) - /api/v1/eps-growth's own `value` is stored that way, so
             // no decimal-to-percent conversion is needed here.
             const growthVal = state.growth?.applicable ? state.growth.value : null;
             // Per QA (2026-07-31): do not calculate/display a raw PEG value
             // whenever EPS Growth Rate is negative OR its absolute value is
-            // below a small threshold (~2-3%) — dividing by a growth rate
+            // below a small threshold (~2-3%) - dividing by a growth rate
             // near zero (even a small POSITIVE one) produces an extremely
             // large, misleading number that has no valid valuation
             // interpretation, even though it's mathematically calculable.
@@ -9817,7 +10038,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 </div>
             );
 
-            // Negative OR near-zero EPS Growth Rate — a distinct finding,
+            // Negative OR near-zero EPS Growth Rate - a distinct finding,
             // never a raw negative or extremely large/sign-flipped PEG,
             // same pattern as P/E's own "Loss-Making" state.
             if (peApplicable && negativeGrowth) return (
@@ -9827,7 +10048,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <span className="text-[10px] font-bold uppercase tracking-wider text-red-200 bg-red-950 border border-red-500/60 px-2 py-0.5 rounded whitespace-nowrap">Flat/Declining EPS</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
-                        Not Meaningful — EPS Growth Rate is {growthVal.toFixed(2)}% (negative, or too close to zero), so PEG isn't defined rather than being shown as an extremely large or sign-flipped number.
+                        Not Meaningful - EPS Growth Rate is {growthVal.toFixed(2)}% (negative, or too close to zero), so PEG isn't defined rather than being shown as an extremely large or sign-flipped number.
                     </div>
                 </div>
             );
@@ -9835,11 +10056,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
-                        Requires both Price-to-Earnings (EPS &amp; live price) and EPS Growth Rate to be available — one or both could not be calculated for this company.
+                        Requires both Price-to-Earnings (EPS &amp; live price) and EPS Growth Rate to be available - one or both could not be calculated for this company.
                     </div>
                 </div>
             );
@@ -9849,7 +10070,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">PEG Ratio</span>
-                            <InfoTip text="Corrects the key blind spot of P/E alone — a high P/E might be entirely justified by high earnings growth. Widely used to compare growth stocks against value stocks on a like-for-like basis. Formula: Price-to-Earnings ÷ EPS Growth Rate (whole-number convention, e.g. 20 for 20%). A PEG near 1x is the classic Peter Lynch heuristic for 'fairly valued given growth'. Don't use a single-year growth spike or decline as the input without checking it's representative of a sustainable multi-year trend — a one-off low base can produce a misleadingly low PEG. Indicative benchmark: below 1x often considered undervalued relative to growth; ~1x fairly valued; above 2x potentially overvalued relative to growth (heuristic only)." />
+                            <InfoTip text="Corrects the key blind spot of P/E alone - a high P/E might be entirely justified by high earnings growth. Widely used to compare growth stocks against value stocks on a like-for-like basis. Formula: Price-to-Earnings ÷ EPS Growth Rate (whole-number convention, e.g. 20 for 20%). A PEG near 1x is the classic Peter Lynch heuristic for 'fairly valued given growth'. Don't use a single-year growth spike or decline as the input without checking it's representative of a sustainable multi-year trend - a one-off low base can produce a misleadingly low PEG. Indicative benchmark: below 1x often considered undervalued relative to growth; ~1x fairly valued; above 2x potentially overvalued relative to growth (heuristic only)." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
                             {isLive ? '● Live Price' : 'Delayed Price'}
@@ -9859,7 +10080,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={peg} unit="x" tone={toneOf(peg, { good: 1, bad: 2, higherIsBetter: false })} />
                         {confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: the lower of P/E's (EPS) and EPS Growth Rate's own confidence — this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
+                                title="Confidence: the lower of P/E's (EPS) and EPS Growth Rate's own confidence - this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
                                 Confidence {confidence.toFixed(2)}
                             </span>
                         )}
@@ -9880,10 +10101,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // EV/Sales (Sr No 51) = Enterprise Value (Sr No 29's own components) ÷
         // Revenue from Operations (Sr No 3/26's field). Same 5-way parallel
-        // fetch as EV/EBITDA (Sr No 29), swapping EBITDA for Revenue — per
+        // fetch as EV/EBITDA (Sr No 29), swapping EBITDA for Revenue - per
         // spec's explicit "reuse Sr No 29 and Sr No 3" instruction, no new
         // backend code. Unlike EV/EBITDA, Revenue realistically can't be
-        // negative, so there is no "Operating Loss" N/M state here — only a
+        // negative, so there is no "Operating Loss" N/M state here - only a
         // Revenue = 0 gate, per spec.
         const EVToSales = ({ symbol, name, leaseBasis }) => {
             const [state, setState] = React.useState({ loading: true });
@@ -9907,7 +10128,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, leaseBasis]);
 
-            const crCr = (v) => (v == null || isNaN(v)) ? '—'
+            const crCr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
             const sources = state.revenue?.sources || [];
 
@@ -9933,7 +10154,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
@@ -9952,7 +10173,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">EV/Sales</span>
-                            <InfoTip text="Capital-structure-neutral valuation multiple, like EV/EBITDA, but usable even for pre-profitability or loss-making high-growth companies where earnings-based multiples break down entirely — useful specifically where EBITDA is negative or near-zero. Formula: Enterprise Value ÷ Revenue from Operations. Don't use as a substitute for EV/EBITDA when EBITDA is positive and meaningful — EV/Sales ignores margin differences entirely and can make a low-margin, high-revenue business look artificially cheap next to a high-margin peer. Indicative benchmark: IT/Services and high-growth SaaS-like models 3-8x+; Manufacturing/Trading often below 1-2x — always benchmark against sector peers." />
+                            <InfoTip text="Capital-structure-neutral valuation multiple, like EV/EBITDA, but usable even for pre-profitability or loss-making high-growth companies where earnings-based multiples break down entirely - useful specifically where EBITDA is negative or near-zero. Formula: Enterprise Value ÷ Revenue from Operations. Don't use as a substitute for EV/EBITDA when EBITDA is positive and meaningful - EV/Sales ignores margin differences entirely and can make a low-margin, high-revenue business look artificially cheap next to a high-margin peer. Indicative benchmark: IT/Services and high-growth SaaS-like models 3-8x+; Manufacturing/Trading often below 1-2x - always benchmark against sector peers." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
                             {isLive ? '● Live Price' : 'Delayed Price'}
@@ -10010,10 +10231,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // EV/FCF (Sr No 52) = Enterprise Value (Sr No 29's own components) ÷
         // Free Cash Flow (Sr No 36's field). Same 5-way parallel fetch as
         // EV/EBITDA (Sr No 29)/EV/Sales (Sr No 51), swapping EBITDA/Revenue
-        // for Free Cash Flow — per spec's explicit "reuse Sr No 29 and Sr No
+        // for Free Cash Flow - per spec's explicit "reuse Sr No 29 and Sr No
         // 36" instruction, no new backend code. FCF ≤ 0 (common during heavy
         // capex/growth phases) is its own distinct N/M state, never a raw
-        // negative/distorted multiple — same convention as negative-EPS P/E.
+        // negative/distorted multiple - same convention as negative-EPS P/E.
         const EVToFCF = ({ symbol, name, leaseBasis }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('ev-to-fcf', state.loading && !state.data);
@@ -10036,7 +10257,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, leaseBasis]);
 
-            const crCr = (v) => (v == null || isNaN(v)) ? '—'
+            const crCr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
             const sources = state.fcf?.sources || [];
 
@@ -10067,7 +10288,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <span className="text-[10px] font-bold uppercase tracking-wider text-red-200 bg-red-950 border border-red-500/60 px-2 py-0.5 rounded whitespace-nowrap">Negative FCF</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
-                        Not Meaningful — Free Cash Flow is {crCr(fcfVal)} (zero or negative) for {state.fcf?.period || 'the latest reported year'}, often a genuine heavy capex/growth investment phase rather than an error, so this multiple isn't defined rather than being shown as a raw/distorted number.
+                        Not Meaningful - Free Cash Flow is {crCr(fcfVal)} (zero or negative) for {state.fcf?.period || 'the latest reported year'}, often a genuine heavy capex/growth investment phase rather than an error, so this multiple isn't defined rather than being shown as a raw/distorted number.
                     </div>
                 </div>
             );
@@ -10075,7 +10296,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
@@ -10093,7 +10314,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">EV/FCF</span>
-                            <InfoTip text="Considered by many analysts a superior alternative to EV/EBITDA since it accounts for differences in capex intensity across companies — two businesses with identical EBITDA but very different capex needs will show very different (and more informative) EV/FCF multiples. Formula: Enterprise Value ÷ Free Cash Flow. Strips out both financing-structure distortions AND capex-intensity distortions, making it especially useful when comparing companies across different capex cycles or industries. Should move inversely with FCF Yield for internal consistency. Indicative benchmark: asset-light compounders with low capex often trade 15-25x+; capital-intensive businesses mid-expansion can show very high or not-meaningful multiples temporarily." />
+                            <InfoTip text="Considered by many analysts a superior alternative to EV/EBITDA since it accounts for differences in capex intensity across companies - two businesses with identical EBITDA but very different capex needs will show very different (and more informative) EV/FCF multiples. Formula: Enterprise Value ÷ Free Cash Flow. Strips out both financing-structure distortions AND capex-intensity distortions, making it especially useful when comparing companies across different capex cycles or industries. Should move inversely with FCF Yield for internal consistency. Indicative benchmark: asset-light compounders with low capex often trade 15-25x+; capital-intensive businesses mid-expansion can show very high or not-meaningful multiples temporarily." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
                             {isLive ? '● Live Price' : 'Delayed Price'}
@@ -10150,10 +10371,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Price/Cash Flow (Sr No 53) = Market Capitalisation (Sr No 26's own
         // components: live price × Shares Outstanding) ÷ Net Cash Flow from
-        // Operating Activities, GROSS before capex (never Free Cash Flow —
+        // Operating Activities, GROSS before capex (never Free Cash Flow -
         // that would be an EV/FCF-style variant, a different metric per
         // spec's explicit warning). Equity-level (Market Cap), NOT
-        // Enterprise-level like EV/FCF (Sr No 52) — do not confuse the two.
+        // Enterprise-level like EV/FCF (Sr No 52) - do not confuse the two.
         const PriceToCashFlow = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
             useReportRatioLoading('price-to-cash-flow', state.loading && !state.data);
@@ -10173,7 +10394,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const crCr = (v) => (v == null || isNaN(v)) ? '—'
+            const crCr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
             const sources = state.ocf?.sources || [];
 
@@ -10201,7 +10422,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <span className="text-[10px] font-bold uppercase tracking-wider text-red-200 bg-red-950 border border-red-500/60 px-2 py-0.5 rounded whitespace-nowrap">Negative OCF</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
-                        Not Meaningful — Net Cash Flow from Operating Activities is {crCr(ocfVal)} (zero or negative) for {state.ocf?.period || 'the latest reported year'}, so this multiple isn't defined rather than being shown as a raw/distorted number.
+                        Not Meaningful - Net Cash Flow from Operating Activities is {crCr(ocfVal)} (zero or negative) for {state.ocf?.period || 'the latest reported year'}, so this multiple isn't defined rather than being shown as a raw/distorted number.
                     </div>
                 </div>
             );
@@ -10209,7 +10430,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
@@ -10225,7 +10446,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Price/Cash Flow</span>
-                            <InfoTip text="An equity-level (not enterprise-level) alternative to P/E that uses actual operating cash generation instead of accounting profit, making it harder to distort via depreciation policy, provisioning choices, or other non-cash accrual decisions. Formula: Market Capitalisation ÷ Net Cash Flow from Operating Activities (gross, before capex — never Free Cash Flow; don't confuse with EV/FCF, which uses Enterprise Value and post-capex FCF). Should be lower than the equivalent P/E in most cases, since OCF typically exceeds Net Profit (non-cash depreciation added back) — a Price/Cash Flow higher than P/E is unusual and worth investigating (e.g. large working-capital cash drag). Indicative benchmark: highly sector-dependent — benchmark against sector peers and the company's own P/E for context." />
+                            <InfoTip text="An equity-level (not enterprise-level) alternative to P/E that uses actual operating cash generation instead of accounting profit, making it harder to distort via depreciation policy, provisioning choices, or other non-cash accrual decisions. Formula: Market Capitalisation ÷ Net Cash Flow from Operating Activities (gross, before capex - never Free Cash Flow; don't confuse with EV/FCF, which uses Enterprise Value and post-capex FCF). Should be lower than the equivalent P/E in most cases, since OCF typically exceeds Net Profit (non-cash depreciation added back) - a Price/Cash Flow higher than P/E is unusual and worth investigating (e.g. large working-capital cash drag). Indicative benchmark: highly sector-dependent - benchmark against sector peers and the company's own P/E for context." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
                             {isLive ? '● Live Price' : 'Delayed Price'}
@@ -10270,10 +10491,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Graham Number (Sr No 54) = SQRT(22.5 × Basic EPS × Book Value per
         // Share), where EPS reuses Sr No 24's own field and BVPS reuses Sr No
-        // 46 — pure client-side arithmetic, no new backend code, per spec's
+        // 46 - pure client-side arithmetic, no new backend code, per spec's
         // explicit "reuse Sr No 24 and Sr No 46" instruction. Unlike every
         // market-multiple card in this suite, the Graham Number itself needs
-        // NO live price at all — it's a fair-value-ceiling ESTIMATE, not a
+        // NO live price at all - it's a fair-value-ceiling ESTIMATE, not a
         // ratio of price to anything. A live quote is still fetched purely
         // for context (to show where the current Market Price sits relative
         // to the Graham Number), never as an input to the number itself.
@@ -10290,12 +10511,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 // EPS and Book Value per Share are each independently probed
                 // across the last few Annual Reports (whichever year first
                 // successfully extracts) with NO cross-check that they land
-                // on the SAME year — confirmed on Gopal Snacks: EPS's own
+                // on the SAME year - confirmed on Gopal Snacks: EPS's own
                 // FY25 extraction fails (falls back to FY24), while BVPS's
                 // FY25 extraction succeeds, silently multiplying FY24 EPS by
                 // FY25 Book Value per Share into one number. Fixed by
                 // fetching EPS FIRST, then re-requesting Book Value per
-                // Share pinned to EPS's own resolved `selected_period` —
+                // Share pinned to EPS's own resolved `selected_period` -
                 // if BVPS isn't available for that exact year, this
                 // correctly falls through to N/A rather than mixing years.
                 fetch(`${API_BASE}/api/v1/eps`, { method: 'POST', headers, body }).then(r => r.json())
@@ -10314,14 +10535,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const rupees = (v) => (v == null || isNaN(v)) ? '—' : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const rupees = (v) => (v == null || isNaN(v)) ? '-' : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
             const epsVal = state.eps?.applicable ? state.eps.value : null;
             const bvpsVal = state.bvps?.applicable ? state.bvps.value : null;
             const price = liveQuote?.ltp;
             const isLive = liveQuote?.source === 'angel';
             // Per spec, N/A / DO NOT CALCULATE if EPS <= 0 or Book Value per
-            // Share <= 0 — square root of a negative number is undefined,
+            // Share <= 0 - square root of a negative number is undefined,
             // and the formula is not meaningful for a loss-making or
             // negative-equity company regardless.
             const applicable = epsVal != null && epsVal > 0 && bvpsVal != null && bvpsVal > 0;
@@ -10341,14 +10562,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
                         {epsVal == null ? (state.eps?.reason || 'Could not find Basic EPS.')
-                            : epsVal <= 0 ? 'Not applicable — Basic EPS is zero or negative (loss-making company).'
+                            : epsVal <= 0 ? 'Not applicable - Basic EPS is zero or negative (loss-making company).'
                             : bvpsVal == null ? (state.bvps?.reason || 'Could not find Book Value per Share.')
-                            : 'Not applicable — Book Value per Share is zero or negative (negative equity).'}
+                            : 'Not applicable - Book Value per Share is zero or negative (negative equity).'}
                     </div>
                 </div>
             );
@@ -10358,7 +10579,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Graham Number</span>
-                            <InfoTip text="A classic Benjamin Graham value-investing heuristic for an approximate 'fair value ceiling' — not a rigorous valuation model, best treated as a rough sanity check rather than a precise target price. Formula: √(22.5 × Basic EPS × Book Value per Share), where 22.5 = 15 (max acceptable P/E per Graham) × 1.5 (max acceptable P/B per Graham). If Market Price is meaningfully below the Graham Number, the stock may warrant deeper research; if well above, it may be priced for growth/quality characteristics the formula doesn't capture (brand, moat, high-ROIC compounding). Best suited to stable, asset-backed, profitable businesses — not designed for high-growth, asset-light, or loss-making companies. Cross-check against sector-appropriate P/E and P/B ranges rather than using as a standalone verdict." />
+                            <InfoTip text="A classic Benjamin Graham value-investing heuristic for an approximate 'fair value ceiling' - not a rigorous valuation model, best treated as a rough sanity check rather than a precise target price. Formula: √(22.5 × Basic EPS × Book Value per Share), where 22.5 = 15 (max acceptable P/E per Graham) × 1.5 (max acceptable P/B per Graham). If Market Price is meaningfully below the Graham Number, the stock may warrant deeper research; if well above, it may be priced for growth/quality characteristics the formula doesn't capture (brand, moat, high-ROIC compounding). Best suited to stable, asset-backed, profitable businesses - not designed for high-growth, asset-light, or loss-making companies. Cross-check against sector-appropriate P/E and P/B ranges rather than using as a standalone verdict." />
                         </div>
                         {price != null && (
                             <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
@@ -10370,7 +10591,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={graham} unit="₹" tone="mid" />
                         {confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: the lower of Basic EPS's and Book Value per Share's own confidence — this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
+                                title="Confidence: the lower of Basic EPS's and Book Value per Share's own confidence - this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
                                 Confidence {confidence.toFixed(2)}
                             </span>
                         )}
@@ -10409,7 +10630,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Altman Z-Score (Sr No 55) = 1.2×(WC/TA) + 1.4×(RE/TA) + 3.3×(EBIT/TA)
         // + 0.6×(MktCap/TL) + 1.0×(Sales/TA). Four of five components (WC, TA,
-        // RE, EBIT, TL, Sales — everything except Market Cap) come from the
+        // RE, EBIT, TL, Sales - everything except Market Cap) come from the
         // backend's statement-only components endpoint; Market Cap needs a
         // live price, so it's combined client-side, same architecture as
         // every EV-based ratio in this suite. Per spec, N/A for Banks/NBFC/
@@ -10434,7 +10655,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const crCr = (v) => (v == null || isNaN(v)) ? '—'
+            const crCr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             const d = state.data || {};
@@ -10471,7 +10692,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 leading-snug">
@@ -10487,7 +10708,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Altman Z-Score</span>
-                            <InfoTip text="A composite bankruptcy/financial-distress prediction score combining liquidity, profitability, leverage, solvency, and efficiency signals into a single number — widely used by credit analysts as an early-warning distress indicator. Formula: 1.2×(Working Capital/Total Assets) + 1.4×(Retained Earnings/Total Assets) + 3.3×(EBIT/Total Assets) + 0.6×(Market Cap/Total Liabilities) + 1.0×(Sales/Total Assets), the standard public-manufacturer coefficients. Zones: Z above 2.99 = Safe Zone (low bankruptcy risk); 1.81–2.99 = Grey Zone (some risk, monitor closely); below 1.81 = Distress Zone (high bankruptcy risk within ~2 years, historically). A statistical/historical pattern-based screening tool, not a guarantee — coefficients were calibrated on US GAAP manufacturing data, so treat zone thresholds as indicative for Indian Ind AS filers, not precisely calibrated." />
+                            <InfoTip text="A composite bankruptcy/financial-distress prediction score combining liquidity, profitability, leverage, solvency, and efficiency signals into a single number - widely used by credit analysts as an early-warning distress indicator. Formula: 1.2×(Working Capital/Total Assets) + 1.4×(Retained Earnings/Total Assets) + 3.3×(EBIT/Total Assets) + 0.6×(Market Cap/Total Liabilities) + 1.0×(Sales/Total Assets), the standard public-manufacturer coefficients. Zones: Z above 2.99 = Safe Zone (low bankruptcy risk); 1.81–2.99 = Grey Zone (some risk, monitor closely); below 1.81 = Distress Zone (high bankruptcy risk within ~2 years, historically). A statistical/historical pattern-based screening tool, not a guarantee - coefficients were calibrated on US GAAP manufacturing data, so treat zone thresholds as indicative for Indian Ind AS filers, not precisely calibrated." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
                             {isLive ? '● Live Price' : 'Delayed Price'}
@@ -10575,7 +10796,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // fundamental-strength tests. Fully statement-derived, no live price
         // needed. The backend already assembles all nine test results and
         // skips (never fails) any individual test whose underlying field
-        // lacks a two-year pair — this component just renders that
+        // lacks a two-year pair - this component just renders that
         // pre-computed breakdown, no client-side arithmetic beyond display.
         const PiotroskiFScore = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
@@ -10630,7 +10851,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -10657,7 +10878,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Piotroski F-Score</span>
-                            <InfoTip text="A fundamental-quality scorecard combining profitability, leverage/liquidity trend, and operating-efficiency trend into a single 0-9 score — widely used, particularly by value investors, to filter out 'cheap but deteriorating' stocks from a broader value/low-multiple screen by favouring only those also showing improving fundamentals. Sum of nine binary year-over-year tests. Zones: 8-9 = high fundamental quality/strength; 5-7 = moderate; 0-4 = weak/deteriorating. Most predictive when used to filter an already-cheap (low P/B or P/E) universe of stocks, not as a standalone score across all valuations — never use this in isolation from valuation." />
+                            <InfoTip text="A fundamental-quality scorecard combining profitability, leverage/liquidity trend, and operating-efficiency trend into a single 0-9 score - widely used, particularly by value investors, to filter out 'cheap but deteriorating' stocks from a broader value/low-multiple screen by favouring only those also showing improving fundamentals. Sum of nine binary year-over-year tests. Zones: 8-9 = high fundamental quality/strength; 5-7 = moderate; 0-4 = weak/deteriorating. Most predictive when used to filter an already-cheap (low P/B or P/E) universe of stocks, not as a standalone score across all valuations - never use this in isolation from valuation." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -10711,7 +10932,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         // Beneish M-Score (Sr No 57) = fixed-weight 8-variable earnings-
         // manipulation composite. Fully statement-derived, no live price
         // needed. The backend already computes all 8 index variables and
-        // the final weighted score — this component just renders the
+        // the final weighted score - this component just renders the
         // pre-computed breakdown, no client-side arithmetic beyond display.
         const BeneishMScore = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
@@ -10766,7 +10987,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -10782,7 +11003,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             // < -2.22 suggests low risk; between the two is a grey zone
             // warranting contextual judgment, not a hard cutoff.
             let zone, zoneColor;
-            if (d.value > -1.78) { zone = 'Flagged — Review'; zoneColor = 'text-red-200 bg-red-950 border-red-500/60'; }
+            if (d.value > -1.78) { zone = 'Flagged - Review'; zoneColor = 'text-red-200 bg-red-950 border-red-500/60'; }
             else if (d.value < -2.22) { zone = 'Low Risk'; zoneColor = 'text-emerald-200 bg-emerald-950 border-emerald-500/60'; }
             else { zone = 'Grey Zone'; zoneColor = 'text-amber-200 bg-amber-950 border-amber-500/60'; }
 
@@ -10798,7 +11019,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Beneish M-Score</span>
-                            <InfoTip text="An earnings-manipulation detection model built by academically studying known fraud cases — combines signals like unusual receivables growth relative to sales, deteriorating gross margins, aggressive asset capitalisation, high accruals, and rising leverage into a single fixed-weight score. Zones: above -1.78 flags an elevated probability of earnings manipulation and warrants deeper forensic review; below -2.22 suggests low manipulation risk; in between warrants contextual judgment rather than a hard cutoff. DO NOT treat a flagged score as proof of fraud — it's a statistical probability model with a meaningful false-positive rate, intended to prompt deeper review, not serve as a standalone accusation. Cross-check a flagged score against OCF/Net Profit and the general earnings-quality picture." />
+                            <InfoTip text="An earnings-manipulation detection model built by academically studying known fraud cases - combines signals like unusual receivables growth relative to sales, deteriorating gross margins, aggressive asset capitalisation, high accruals, and rising leverage into a single fixed-weight score. Zones: above -1.78 flags an elevated probability of earnings manipulation and warrants deeper forensic review; below -2.22 suggests low manipulation risk; in between warrants contextual judgment rather than a hard cutoff. DO NOT treat a flagged score as proof of fraud - it's a statistical probability model with a meaningful false-positive rate, intended to prompt deeper review, not serve as a standalone accusation. Cross-check a flagged score against OCF/Net Profit and the general earnings-quality picture." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -10822,14 +11043,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
                     {showCalc && (<>
                         <div className="pt-2 border-t border-slate-800/70 space-y-1">
-                            <VarRow label="DSRI — Days Sales in Receivables Index" val={v.DSRI} />
-                            <VarRow label="GMI — Gross Margin Index" val={v.GMI} />
-                            <VarRow label="AQI — Asset Quality Index" val={v.AQI} />
-                            <VarRow label="SGI — Sales Growth Index" val={v.SGI} />
-                            <VarRow label="DEPI — Depreciation Index" val={v.DEPI} />
-                            <VarRow label="SGAI — SG&A Index (proxy: Other Expenses)" val={v.SGAI} />
-                            <VarRow label="TATA — Total Accruals to Total Assets" val={v.TATA} />
-                            <VarRow label="LVGI — Leverage Index" val={v.LVGI} />
+                            <VarRow label="DSRI - Days Sales in Receivables Index" val={v.DSRI} />
+                            <VarRow label="GMI - Gross Margin Index" val={v.GMI} />
+                            <VarRow label="AQI - Asset Quality Index" val={v.AQI} />
+                            <VarRow label="SGI - Sales Growth Index" val={v.SGI} />
+                            <VarRow label="DEPI - Depreciation Index" val={v.DEPI} />
+                            <VarRow label="SGAI - SG&A Index (proxy: Other Expenses)" val={v.SGAI} />
+                            <VarRow label="TATA - Total Accruals to Total Assets" val={v.TATA} />
+                            <VarRow label="LVGI - Leverage Index" val={v.LVGI} />
                         </div>
                         <div className="flex items-center justify-between gap-2 pt-1">
                             <span className="text-[10px] text-slate-600 italic leading-snug">{d.note || 'From the company\'s own Annual Report.'}</span>
@@ -10860,7 +11081,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -10896,7 +11117,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -10921,7 +11142,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Net Interest Margin</span>
-                            <InfoTip text="The core profitability driver for lending institutions — shows the spread earned between what the bank pays for funds (deposits, borrowings) and what it earns on loans/investments. The single most-watched metric by bank analysts, since it directly drives Net Interest Income and ultimately profitability. Formula: (Interest Income − Interest Expense) ÷ Average Interest-Earning Assets (Gross Advances + Investments). Excludes fee/other income and non-earning assets. Indicative benchmark: private sector banks 3.5-4.5%; PSU banks 2.5-3.5%; NBFCs (higher-risk lending) 5-8%+ depending on the loan book mix." />
+                            <InfoTip text="The core profitability driver for lending institutions - shows the spread earned between what the bank pays for funds (deposits, borrowings) and what it earns on loans/investments. The single most-watched metric by bank analysts, since it directly drives Net Interest Income and ultimately profitability. Formula: (Interest Income − Interest Expense) ÷ Average Interest-Earning Assets (Gross Advances + Investments). Excludes fee/other income and non-earning assets. Indicative benchmark: private sector banks 3.5-4.5%; PSU banks 2.5-3.5%; NBFCs (higher-risk lending) 5-8%+ depending on the loan book mix." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -10984,7 +11205,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -11020,7 +11241,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -11045,7 +11266,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">CASA Ratio</span>
-                            <InfoTip text="A key indicator of a bank's cost of funds — Current and Savings Account deposits are typically the cheapest source of funding (low or no interest paid) compared to Term Deposits, so a higher CASA Ratio generally supports a stronger Net Interest Margin and lower funding-cost risk. Formula: (Demand Deposits + Savings Bank Deposits) ÷ Total Deposits — Term Deposits are never included in the numerator. Cross-check the trend against Net Interest Margin: a declining CASA alongside compressing NIM is a consistent funding-cost story. Indicative benchmark: private sector banks with strong retail franchises 40-50%+; PSU banks typically lower, 35-42%; a declining CASA trend signals rising funding costs ahead." />
+                            <InfoTip text="A key indicator of a bank's cost of funds - Current and Savings Account deposits are typically the cheapest source of funding (low or no interest paid) compared to Term Deposits, so a higher CASA Ratio generally supports a stronger Net Interest Margin and lower funding-cost risk. Formula: (Demand Deposits + Savings Bank Deposits) ÷ Total Deposits - Term Deposits are never included in the numerator. Cross-check the trend against Net Interest Margin: a declining CASA alongside compressing NIM is a consistent funding-cost story. Indicative benchmark: private sector banks with strong retail franchises 40-50%+; PSU banks typically lower, 35-42%; a declining CASA trend signals rising funding costs ahead." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -11105,7 +11326,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -11141,7 +11362,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -11165,7 +11386,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Gross NPA %</span>
-                            <InfoTip text="The primary asset-quality indicator for lending institutions — directly shows what proportion of the loan book has stopped generating income and is at risk of credit loss. Closely watched by regulators, credit rating agencies, and equity analysts as the single most important risk signal for a bank/NBFC. Formula: Gross Non-Performing Assets ÷ Gross Advances (both pre-provision — never Net NPA or Net Advances). Cross-check against Provision Coverage Ratio and Net NPA % — a rising Gross NPA alongside a flat/falling PCR is a compounding risk signal. Indicative benchmark: private sector banks (well-managed) below 2%; PSU banks historically higher, 3-8% (improving in recent cycles); NBFCs vary widely by loan book quality/segment, 1-5%+." />
+                            <InfoTip text="The primary asset-quality indicator for lending institutions - directly shows what proportion of the loan book has stopped generating income and is at risk of credit loss. Closely watched by regulators, credit rating agencies, and equity analysts as the single most important risk signal for a bank/NBFC. Formula: Gross Non-Performing Assets ÷ Gross Advances (both pre-provision - never Net NPA or Net Advances). Cross-check against Provision Coverage Ratio and Net NPA % - a rising Gross NPA alongside a flat/falling PCR is a compounding risk signal. Indicative benchmark: private sector banks (well-managed) below 2%; PSU banks historically higher, 3-8% (improving in recent cycles); NBFCs vary widely by loan book quality/segment, 1-5%+." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -11176,7 +11397,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={d.value} unit={d.unit || '%'} tone={toneOf(d.value, { good: 2, bad: 5, higherIsBetter: false })} />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: 1.0 — Gross NPA and Gross Advances are both read directly from the Annual Report.">
+                                title="Confidence: 1.0 - Gross NPA and Gross Advances are both read directly from the Annual Report.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -11223,7 +11444,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -11259,7 +11480,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -11283,7 +11504,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Net NPA %</span>
-                            <InfoTip text="Shows the unabsorbed credit risk still exposed on the balance sheet after providing for expected losses — a Net NPA % meaningfully lower than Gross NPA % indicates the bank has provisioned conservatively (high Provision Coverage Ratio); a Net NPA % close to Gross NPA % signals under-provisioning and understated risk. Formula: Net Non-Performing Assets ÷ Net Advances (both net of provisions — never Gross NPA or the ambiguous face-value Advances line). Indicative benchmark: private sector banks (well-managed) below 0.5-1%; PSU banks historically 1-4% (improving in recent cycles); very low Net NPA (<0.3%) alongside high Gross NPA indicates strong, conservative provisioning." />
+                            <InfoTip text="Shows the unabsorbed credit risk still exposed on the balance sheet after providing for expected losses - a Net NPA % meaningfully lower than Gross NPA % indicates the bank has provisioned conservatively (high Provision Coverage Ratio); a Net NPA % close to Gross NPA % signals under-provisioning and understated risk. Formula: Net Non-Performing Assets ÷ Net Advances (both net of provisions - never Gross NPA or the ambiguous face-value Advances line). Indicative benchmark: private sector banks (well-managed) below 0.5-1%; PSU banks historically 1-4% (improving in recent cycles); very low Net NPA (<0.3%) alongside high Gross NPA indicates strong, conservative provisioning." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -11294,7 +11515,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={d.value} unit={d.unit || '%'} tone={toneOf(d.value, { good: 0.5, bad: 2, higherIsBetter: false })} />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: 1.0 — Net NPA and Net Advances are both read directly from the Annual Report.">
+                                title="Confidence: 1.0 - Net NPA and Net Advances are both read directly from the Annual Report.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -11323,7 +11544,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Provision Coverage Ratio (Sr No 62) = Total Provisions held against
         // NPAs ÷ Gross NPA, where Provisions = Gross NPA − Net NPA (per spec,
-        // reuses Sr No 60's Gross NPA and Sr No 61's Net NPA — pure client-side
+        // reuses Sr No 60's Gross NPA and Sr No 61's Net NPA - pure client-side
         // arithmetic, no new backend code, same pattern as Retention Ratio).
         const ProvisionCoverageRatio = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
@@ -11342,7 +11563,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             const grossNpaCr = state.gnpa?.applicable ? state.gnpa.numerator?.value_cr : null;
@@ -11362,7 +11583,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Provision Coverage Ratio</span>
-                            <InfoTip text="Shows how conservatively a bank has cushioned itself against its already-recognised bad loans — a higher PCR means less future earnings volatility from additional provisioning needs if those NPAs are eventually written off, and signals more conservative, higher-quality accounting. Formula: Total Provisions held against NPAs ÷ Gross NPA, where Provisions = Gross NPA − Net NPA. RBI's informal guidance treats above 70% as well-provisioned/conservative; below 50% suggests the bank may face future earnings pressure from additional provisioning catch-up. Should be internally consistent with Gross NPA % and Net NPA %: Net NPA ≈ Gross NPA × (1 − PCR)." />
+                            <InfoTip text="Shows how conservatively a bank has cushioned itself against its already-recognised bad loans - a higher PCR means less future earnings volatility from additional provisioning needs if those NPAs are eventually written off, and signals more conservative, higher-quality accounting. Formula: Total Provisions held against NPAs ÷ Gross NPA, where Provisions = Gross NPA − Net NPA. RBI's informal guidance treats above 70% as well-provisioned/conservative; below 50% suggests the bank may face future earnings pressure from additional provisioning catch-up. Should be internally consistent with Gross NPA % and Net NPA %: Net NPA ≈ Gross NPA × (1 − PCR)." />
                         </div>
                     </div>
                     {state.loading ? (
@@ -11370,12 +11591,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     ) : !applicable ? (
                         <div>
                             <div className="flex items-center justify-between gap-2">
-                                <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                                <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             </div>
                             <div className="text-[10px] text-slate-500 mt-1.5 leading-snug">
-                                {grossNpaCr === 0 ? 'Gross NPA is zero — a technically favourable but denominator-driven outcome, not a computable ratio.'
-                                    : 'Requires both Gross NPA % and Net NPA % to be available — one or both could not be calculated for this company.'}
+                                {grossNpaCr === 0 ? 'Gross NPA is zero - a technically favourable but denominator-driven outcome, not a computable ratio.'
+                                    : 'Requires both Gross NPA % and Net NPA % to be available - one or both could not be calculated for this company.'}
                             </div>
                         </div>
                     ) : (
@@ -11384,7 +11605,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 <ToneValue value={pcr} unit="%" tone={toneOf(pcr, { good: 70, bad: 50 })} />
                                 {confidence != null && (
                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                        title="Confidence: the lower of Gross NPA %'s and Net NPA %'s own confidence — this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
+                                        title="Confidence: the lower of Gross NPA %'s and Net NPA %'s own confidence - this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
                                         Confidence {confidence.toFixed(2)}
                                     </span>
                                 )}
@@ -11425,7 +11646,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -11461,7 +11682,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -11486,7 +11707,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Capital Adequacy Ratio (CRAR)</span>
-                            <InfoTip text="The core regulatory solvency buffer — shows how much loss-absorbing capital a bank holds relative to its risk-weighted lending/investment book. A bank operating close to the regulatory minimum has limited capacity to absorb credit losses or grow its loan book without raising fresh capital, and may face RBI-mandated restrictions (Prompt Corrective Action framework) if it falls below thresholds. Formula: (Tier I Capital + Tier II Capital) ÷ Risk-Weighted Assets — never gross Total Assets. Read alongside Credit-to-Deposit Ratio — rapid loan growth without corresponding capital raises will mechanically compress CRAR. Indicative benchmark: RBI minimum ~11.5% including capital conservation buffer (verify the current requirement, periodically revised); well-capitalised private banks often run 15-18%+; PSU banks nearer the regulatory minimum." />
+                            <InfoTip text="The core regulatory solvency buffer - shows how much loss-absorbing capital a bank holds relative to its risk-weighted lending/investment book. A bank operating close to the regulatory minimum has limited capacity to absorb credit losses or grow its loan book without raising fresh capital, and may face RBI-mandated restrictions (Prompt Corrective Action framework) if it falls below thresholds. Formula: (Tier I Capital + Tier II Capital) ÷ Risk-Weighted Assets - never gross Total Assets. Read alongside Credit-to-Deposit Ratio - rapid loan growth without corresponding capital raises will mechanically compress CRAR. Indicative benchmark: RBI minimum ~11.5% including capital conservation buffer (verify the current requirement, periodically revised); well-capitalised private banks often run 15-18%+; PSU banks nearer the regulatory minimum." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -11530,7 +11751,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Credit-to-Deposit Ratio (Sr No 64) = Total Advances (Gross, reuse
         // Sr No 60's denominator) ÷ Total Deposits (reuse Sr No 59's
-        // denominator) — pure client-side arithmetic, no new backend code,
+        // denominator) - pure client-side arithmetic, no new backend code,
         // per spec's explicit "reuse Sr No 60 and Sr No 59" instruction.
         const CreditToDepositRatio = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
@@ -11549,7 +11770,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             const advancesCr = state.gnpa?.applicable ? state.gnpa.denominator?.value_cr : null;
@@ -11565,7 +11786,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Credit-to-Deposit Ratio</span>
-                            <InfoTip text="Shows how much of a bank's deposit base is being deployed into lending versus held in lower-yielding investments/liquid assets. A very high ratio can signal aggressive balance sheet deployment (higher lending income but also higher liquidity/concentration risk); a very low ratio can signal excess liquidity not being productively deployed, dragging on Net Interest Margin. Formula: Total Advances (Gross) ÷ Total Deposits — never include Borrowings/Bonds in the denominator. A rising C-D Ratio should be watched alongside CRAR — rapid loan growth funded disproportionately from deposits, without capital raises, will compress CRAR over time. Indicative benchmark: 70-85% considered a balanced range for most Indian banks; above 90% suggests limited liquidity buffer; below 65% suggests underutilised deposits." />
+                            <InfoTip text="Shows how much of a bank's deposit base is being deployed into lending versus held in lower-yielding investments/liquid assets. A very high ratio can signal aggressive balance sheet deployment (higher lending income but also higher liquidity/concentration risk); a very low ratio can signal excess liquidity not being productively deployed, dragging on Net Interest Margin. Formula: Total Advances (Gross) ÷ Total Deposits - never include Borrowings/Bonds in the denominator. A rising C-D Ratio should be watched alongside CRAR - rapid loan growth funded disproportionately from deposits, without capital raises, will compress CRAR over time. Indicative benchmark: 70-85% considered a balanced range for most Indian banks; above 90% suggests limited liquidity buffer; below 65% suggests underutilised deposits." />
                         </div>
                     </div>
                     {state.loading ? (
@@ -11573,11 +11794,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     ) : !applicable ? (
                         <div>
                             <div className="flex items-center justify-between gap-2">
-                                <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                                <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             </div>
                             <div className="text-[10px] text-slate-500 mt-1.5 leading-snug">
-                                Requires both Gross Advances (from Gross NPA %) and Total Deposits (from CASA Ratio) to be available — one or both could not be calculated for this company (e.g. an NBFC without retail deposit funding).
+                                Requires both Gross Advances (from Gross NPA %) and Total Deposits (from CASA Ratio) to be available - one or both could not be calculated for this company (e.g. an NBFC without retail deposit funding).
                             </div>
                         </div>
                     ) : (
@@ -11586,7 +11807,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                                 <ToneValue value={cdr} unit="%" tone={toneOf(cdr, { good: [70, 85], bad: 90 })} />
                                 {confidence != null && (
                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                        title="Confidence: the lower of Gross Advances's and Total Deposits's own confidence — this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
+                                        title="Confidence: the lower of Gross Advances's and Total Deposits's own confidence - this ratio never adds new uncertainty of its own, only inherits from the two it reuses.">
                                         Confidence {confidence.toFixed(2)}
                                     </span>
                                 )}
@@ -11627,7 +11848,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -11663,7 +11884,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -11688,7 +11909,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Cost-to-Income Ratio</span>
-                            <InfoTip text="The core operating-efficiency metric for lending institutions — a lower ratio indicates the bank generates more income per rupee of operating cost, reflecting stronger cost discipline, technology/digital efficiency, or scale advantages. Banking's structural equivalent of Operating Profit Margin for non-financial companies. Formula: Operating Expenses (Employee Cost + Other Operating Expenses, never Provisions or Tax) ÷ (Net Interest Income + Other Income). Cross-check against Net Interest Margin — a bank improving Cost-to-Income while NIM compresses may be cutting costs to offset margin pressure rather than genuinely improving efficiency. Indicative benchmark: efficient private sector banks 40-50%; PSU banks (legacy branch/staff cost structures) often 45-55%+." />
+                            <InfoTip text="The core operating-efficiency metric for lending institutions - a lower ratio indicates the bank generates more income per rupee of operating cost, reflecting stronger cost discipline, technology/digital efficiency, or scale advantages. Banking's structural equivalent of Operating Profit Margin for non-financial companies. Formula: Operating Expenses (Employee Cost + Other Operating Expenses, never Provisions or Tax) ÷ (Net Interest Income + Other Income). Cross-check against Net Interest Margin - a bank improving Cost-to-Income while NIM compresses may be cutting costs to offset margin pressure rather than genuinely improving efficiency. Indicative benchmark: efficient private sector banks 40-50%; PSU banks (legacy branch/staff cost structures) often 45-55%+." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -11732,7 +11953,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Beta (Sr No 66) — the FIRST ratio in this suite with NO Annual
+        // Beta (Sr No 66) - the FIRST ratio in this suite with NO Annual
         // Report/fiscal-year concept at all: purely a market-data statistical
         // computation (historical weekly price regression against Nifty 50),
         // so this card deliberately has NO period picker, unlike every other
@@ -11765,7 +11986,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 mt-1.5 leading-snug">{d.reason || 'Not applicable for this company.'}</div>
@@ -11780,11 +12001,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Beta</span>
-                            <InfoTip text="The key input for the Capital Asset Pricing Model (CAPM), which in turn drives Cost of Equity and WACC calculations used in DCF valuation and the ROIC-vs-WACC comparison. Also a standalone measure of a stock's volatility/systematic risk relative to the broader market. Formula: Covariance(Stock Returns, Nifty 50 Returns) ÷ Variance(Nifty 50 Returns), over a trailing 2-year window of weekly returns. NOT derived from financial statements — a purely market-data/statistical computation, and a backward-looking historical measure, not a forecast. Indicative benchmark: Beta = 1.0 moves in line with the market; above 1.0 (e.g. 1.3-1.8) indicates higher volatility (common in high-growth/cyclical/leveraged sectors); below 1.0 (e.g. 0.5-0.8) indicates lower volatility (common in defensives — FMCG, Pharma, Utilities); negative Beta is rare." />
+                            <InfoTip text="The key input for the Capital Asset Pricing Model (CAPM), which in turn drives Cost of Equity and WACC calculations used in DCF valuation and the ROIC-vs-WACC comparison. Also a standalone measure of a stock's volatility/systematic risk relative to the broader market. Formula: Covariance(Stock Returns, Nifty 50 Returns) ÷ Variance(Nifty 50 Returns), over a trailing 2-year window of weekly returns. NOT derived from financial statements - a purely market-data/statistical computation, and a backward-looking historical measure, not a forecast. Indicative benchmark: Beta = 1.0 moves in line with the market; above 1.0 (e.g. 1.3-1.8) indicates higher volatility (common in high-growth/cyclical/leveraged sectors); below 1.0 (e.g. 0.5-0.8) indicates lower volatility (common in defensives - FMCG, Pharma, Utilities); negative Beta is rare." />
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* No fixed good/bad — Beta is a volatility/risk descriptor, not a quality signal */}
+                        {/* No fixed good/bad - Beta is a volatility/risk descriptor, not a quality signal */}
                         <ToneValue value={d.value} unit="x" tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
@@ -11820,7 +12041,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Promoter Pledge % (Sr No 67) — sourced from the SEBI Shareholding
+        // Promoter Pledge % (Sr No 67) - sourced from the SEBI Shareholding
         // Pattern filing, NOT the Annual Report. Like Beta (Sr No 66), no
         // fiscal-year concept applies (always the latest quarter), so this
         // card deliberately has no period picker.
@@ -11841,7 +12062,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const shares = (v) => (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString('en-IN');
+            const shares = (v) => (v == null || isNaN(v)) ? '-' : Number(v).toLocaleString('en-IN');
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
@@ -11854,7 +12075,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 mt-1.5 leading-snug">{d.reason || 'Not applicable for this company.'}</div>
@@ -11869,11 +12090,11 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Promoter Pledge %</span>
-                            <InfoTip text="Not strictly a financial ratio but a critical governance/risk signal widely tracked by Indian equity analysts — pledged shares can be forcibly sold by lenders if the share price falls sharply and margin/collateral calls are triggered, creating a self-reinforcing downward price spiral independent of the company's underlying fundamentals. Formula: Pledged Promoter Shares ÷ Total Promoter Shareholding, from the most recent SEBI Shareholding Pattern filing. Do NOT treat 0% pledge as automatically meaning no governance risk — always check for other red flags (related-party transactions, promoter share sales, auditor changes). Indicative benchmark: 0% ideal; below 10% generally low concern; 10-25% warrants monitoring; above 25% is a significant governance/price-risk red flag, especially if trending upward over consecutive quarters." />
+                            <InfoTip text="Not strictly a financial ratio but a critical governance/risk signal widely tracked by Indian equity analysts - pledged shares can be forcibly sold by lenders if the share price falls sharply and margin/collateral calls are triggered, creating a self-reinforcing downward price spiral independent of the company's underlying fundamentals. Formula: Pledged Promoter Shares ÷ Total Promoter Shareholding, from the most recent SEBI Shareholding Pattern filing. Do NOT treat 0% pledge as automatically meaning no governance risk - always check for other red flags (related-party transactions, promoter share sales, auditor changes). Indicative benchmark: 0% ideal; below 10% generally low concern; 10-25% warrants monitoring; above 25% is a significant governance/price-risk red flag, especially if trending upward over consecutive quarters." />
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2 flex-wrap">
-                        {/* Lower is better — 0% is the ideal, rising pledge is a governance red flag */}
+                        {/* Lower is better - 0% is the ideal, rising pledge is a governance red flag */}
                         <ToneValue value={d.value} unit={d.unit || '%'} tone={toneOf(d.value, { good: 10, bad: 25, higherIsBetter: false })} />
                         {d.assumed_zero && (
                             <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Assumed</span>
@@ -11912,7 +12133,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Free Float % (Sr No 68) — sourced from the SAME SEBI Shareholding
+        // Free Float % (Sr No 68) - sourced from the SAME SEBI Shareholding
         // Pattern filing as Promoter Pledge % (Sr No 67). Like Sr No 66/67,
         // no fiscal-year concept applies (always the latest quarter), so
         // this card has no period picker.
@@ -11944,7 +12165,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                     </div>
                     <div className="text-[10px] text-slate-500 mt-1.5 leading-snug">{d.reason || 'Not applicable for this company.'}</div>
@@ -11960,7 +12181,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Free Float %</span>
-                            <InfoTip text="Determines both trading liquidity (a low free float means fewer shares available for public trading, leading to higher price volatility and wider bid-ask spreads) and index eligibility/weighting (major indices like Nifty 50 use free-float market capitalisation, not total market capitalisation, for weighting constituents). Formula: (Total Shares − Promoter Holding − Locked-in Shares) ÷ Total Shares, from the most recent SEBI Shareholding Pattern filing. Do NOT equate Free Float % simply with (100% − Promoter %) without checking for other non-tradeable categories — this figure is a proxy using that simplification, since locked-in categories beyond Promoter/Institutional/Public aren't separately available here. Indicative benchmark: above 50% free float generally supports healthy trading liquidity and index inclusion; below 25% often signals thin liquidity and wider price swings." />
+                            <InfoTip text="Determines both trading liquidity (a low free float means fewer shares available for public trading, leading to higher price volatility and wider bid-ask spreads) and index eligibility/weighting (major indices like Nifty 50 use free-float market capitalisation, not total market capitalisation, for weighting constituents). Formula: (Total Shares − Promoter Holding − Locked-in Shares) ÷ Total Shares, from the most recent SEBI Shareholding Pattern filing. Do NOT equate Free Float % simply with (100% − Promoter %) without checking for other non-tradeable categories - this figure is a proxy using that simplification, since locked-in categories beyond Promoter/Institutional/Public aren't separately available here. Indicative benchmark: above 50% free float generally supports healthy trading liquidity and index inclusion; below 25% often signals thin liquidity and wider price swings." />
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2 flex-wrap">
@@ -11968,7 +12189,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={d.value} unit={d.unit || '%'} tone={toneOf(d.value, { good: 50, bad: 25 })} />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence capped at 0.8 — computed as 100% − Promoter Holding %, a proxy for the full Free Float definition (locked-in categories beyond Promoter/Institutional/Public aren't separately disclosed in this data source).">
+                                title="Confidence capped at 0.8 - computed as 100% − Promoter Holding %, a proxy for the full Free Float definition (locked-in categories beyond Promoter/Institutional/Public aren't separately disclosed in this data source).">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -12028,7 +12249,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -12064,7 +12285,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -12088,7 +12309,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Current Ratio</span>
-                            <InfoTip text="Classic liquidity measure — ability to cover short-term obligations. Formula: Total Current Assets ÷ Total Current Liabilities, closing balance (point-in-time, not averaged like the turnover ratios). Can be manipulated by reclassifying liabilities as non-current near year-end, or by including illiquid/slow-moving inventory. Indicative benchmark: 1.5x-3x generally healthy; below 1x signals potential liquidity stress; very high (above 4x) may indicate idle/inefficient capital." />
+                            <InfoTip text="Classic liquidity measure - ability to cover short-term obligations. Formula: Total Current Assets ÷ Total Current Liabilities, closing balance (point-in-time, not averaged like the turnover ratios). Can be manipulated by reclassifying liabilities as non-current near year-end, or by including illiquid/slow-moving inventory. Indicative benchmark: 1.5x-3x generally healthy; below 1x signals potential liquidity stress; very high (above 4x) may indicate idle/inefficient capital." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -12126,7 +12347,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Receivables-to-Payables Ratio (Sr No 32) = Trade Receivables ÷ Trade
-        // Payables, BOTH closing balance — a self-financing indicator (>1x =
+        // Payables, BOTH closing balance - a self-financing indicator (>1x =
         // net financer of customers; <1x = suppliers effectively fund more of
         // the cycle than customers owe, common in retail/QSR, NOT an error).
         // Mirrors CurrentRatio's structure/UX; N/A only when Trade Payables = 0.
@@ -12150,7 +12371,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -12186,7 +12407,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -12210,14 +12431,14 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Receivables-to-Payables Ratio</span>
-                            <InfoTip text="A self-financing indicator — shows whether receivables are backed by an equivalent (or greater) cushion of payables. Formula: Trade Receivables ÷ Trade Payables, closing balance (point-in-time, not averaged). Above 1x means the company is a net financer of its customers; below 1x means suppliers are effectively funding more of the working-capital cycle than customers owe — common in retail/QSR, a favourable signal, not an error. Complements the Cash Conversion Cycle." />
+                            <InfoTip text="A self-financing indicator - shows whether receivables are backed by an equivalent (or greater) cushion of payables. Formula: Trade Receivables ÷ Trade Payables, closing balance (point-in-time, not averaged). Above 1x means the company is a net financer of its customers; below 1x means suppliers are effectively funding more of the working-capital cycle than customers owe - common in retail/QSR, a favourable signal, not an error. Complements the Cash Conversion Cycle." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        {/* No colour bias — below 1x is often favourable (supplier-funded), not "bad" */}
+                        {/* No colour bias - below 1x is often favourable (supplier-funded), not "bad" */}
                         <ToneValue value={d.value} unit={d.unit || 'x'} tone="mid" />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
@@ -12249,8 +12470,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         };
 
         // Quick Ratio = (Total Current Assets − Inventories) ÷ Total Current
-        // Liabilities — same point-in-time (closing balance) nature as Current
-        // Ratio, excludes ONLY inventory (not Trade Receivables — that would be
+        // Liabilities - same point-in-time (closing balance) nature as Current
+        // Ratio, excludes ONLY inventory (not Trade Receivables - that would be
         // the Cash Ratio). Mirrors CurrentRatio's structure/UX with a components
         // breakdown showing TCA and the inventory deduction.
         const QuickRatio = ({ symbol, name }) => {
@@ -12273,7 +12494,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -12309,7 +12530,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -12334,7 +12555,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Quick Ratio</span>
-                            <InfoTip text="Stricter liquidity test that excludes inventory (the least liquid current asset) — useful where inventory is slow-moving or hard to liquidate at book value. Formula: (Total Current Assets − Inventories) ÷ Total Current Liabilities, closing balance (point-in-time, not averaged). Only Inventory is excluded — Trade Receivables are NOT (that would be the Cash Ratio). Indicative benchmark: ~1.0x is generally healthy; below 0.5x may signal liquidity stress." />
+                            <InfoTip text="Stricter liquidity test that excludes inventory (the least liquid current asset) - useful where inventory is slow-moving or hard to liquidate at book value. Formula: (Total Current Assets − Inventories) ÷ Total Current Liabilities, closing balance (point-in-time, not averaged). Only Inventory is excluded - Trade Receivables are NOT (that would be the Cash Ratio). Indicative benchmark: ~1.0x is generally healthy; below 0.5x may signal liquidity stress." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -12374,7 +12595,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Cash Ratio = Cash and Cash Equivalents ÷ Total Current Liabilities —
+        // Cash Ratio = Cash and Cash Equivalents ÷ Total Current Liabilities -
         // the most conservative liquidity measure (ignores receivables AND
         // inventory), same point-in-time (closing balance) nature as
         // Current/Quick Ratio. Mirrors CurrentRatio's structure/UX.
@@ -12398,7 +12619,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol, period]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             if (state.loading && !state.data) return (
@@ -12434,7 +12655,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (!d.applicable) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                        <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             {PeriodPicker}
@@ -12458,7 +12679,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Cash Ratio</span>
-                            <InfoTip text="Most conservative liquidity measure — pure cash coverage of short-term liabilities, ignoring receivables and inventory entirely. Formula: Cash and Cash Equivalents ÷ Total Current Liabilities, closing balance (point-in-time, not averaged). Excludes any Current Investments (a conservative reading — only added if explicitly disclosed as liquid/unrestricted, which a PDF read can't reliably distinguish). Indicative benchmark: 0.2x-0.5x is common for healthy operating companies; very low (below 0.1x) with high short-term debt warrants scrutiny." />
+                            <InfoTip text="Most conservative liquidity measure - pure cash coverage of short-term liabilities, ignoring receivables and inventory entirely. Formula: Cash and Cash Equivalents ÷ Total Current Liabilities, closing balance (point-in-time, not averaged). Excludes any Current Investments (a conservative reading - only added if explicitly disclosed as liquid/unrestricted, which a PDF read can't reliably distinguish). Indicative benchmark: 0.2x-0.5x is common for healthy operating companies; very low (below 0.1x) with high short-term debt warrants scrutiny." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -12490,7 +12711,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             <div className="pt-2 border-t border-slate-800/70 space-y-1.5">
                                 <Row label="Other Bank Balances (not included)" val={cr(d.other_bank_balances_cr)} />
                                 <div className="text-[10px] text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-md px-2 py-1.5 leading-snug">
-                                    Found on the Balance Sheet but excluded — this line mixes unrestricted deposits
+                                    Found on the Balance Sheet but excluded - this line mixes unrestricted deposits
                                     (would count) with restricted/earmarked amounts like unpaid dividend accounts or
                                     margin money (must be excluded), and splitting them requires the Notes-to-Accounts
                                     breakup, which isn't parsed here. Check the source filing's notes if this balance
@@ -12507,12 +12728,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             );
         };
 
-        // Working Capital = Total Current Assets − Total Current Liabilities — an
+        // Working Capital = Total Current Assets − Total Current Liabilities - an
         // absolute rupee figure (no division), reusing Sr No 10's (Current Ratio)
         // numerator/denominator directly rather than re-extracting. No new backend
         // endpoint: fetches the SAME /current-ratio response the CurrentRatio card
         // already uses. A negative result is flagged for context, never treated as
-        // an error (common in retail/QSR with fast inventory turns) — this is the
+        // an error (common in retail/QSR with fast inventory turns) - this is the
         // same figure Working Capital Turnover (Sr No 8) is built from.
         const WorkingCapital = ({ symbol, name }) => {
             const [state, setState] = React.useState({ loading: true });
@@ -12530,7 +12751,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const cr = (v) => (v == null || isNaN(v)) ? '—'
+            const cr = (v) => (v == null || isNaN(v)) ? '-'
                 : `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
             const d = state.data || {};
@@ -12545,7 +12766,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 min-w-0">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Working Capital</span>
-                            <InfoTip text="Absolute rupee cushion available to fund short-term operations. Formula: Total Current Assets − Total Current Liabilities, closing balance. Negative working capital is not automatically bad — it's common in retail/QSR businesses with fast inventory turns and supplier-funded cycles — but should always be read alongside the Current/Quick Ratio for context. Derived directly from the same Total Current Assets/Liabilities as Current Ratio (Sr No 10) and feeds Working Capital Turnover (Sr No 8)." />
+                            <InfoTip text="Absolute rupee cushion available to fund short-term operations. Formula: Total Current Assets − Total Current Liabilities, closing balance. Negative working capital is not automatically bad - it's common in retail/QSR businesses with fast inventory turns and supplier-funded cycles - but should always be read alongside the Current/Quick Ratio for context. Derived directly from the same Total Current Assets/Liabilities as Current Ratio (Sr No 10) and feeds Working Capital Turnover (Sr No 8)." />
                         </div>
                     </div>
                     {state.loading ? (
@@ -12553,7 +12774,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     ) : !applicable ? (
                         <div>
                             <div className="flex items-center justify-between gap-2">
-                                <div className="font-heading text-2xl font-extrabold text-slate-500">—</div>
+                                <div className="font-heading text-2xl font-extrabold text-slate-500">-</div>
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">N/A</span>
                             </div>
                             <div className="text-[10px] text-slate-500 mt-1.5 leading-snug">{d.reason || 'Total Current Assets/Liabilities could not be found for this company.'}</div>
@@ -12601,12 +12822,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const toList = (v) => Array.isArray(v) ? v.map(x => typeof x === 'object' && x ? Object.values(x).filter(Boolean).join(' — ') : String(x)).filter(Boolean) : (v ? [String(v)] : []);
+            const toList = (v) => Array.isArray(v) ? v.map(x => typeof x === 'object' && x ? Object.values(x).filter(Boolean).join(' - ') : String(x)).filter(Boolean) : (v ? [String(v)] : []);
 
             if (state.loading) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg flex items-center gap-3 text-[12px] text-slate-400">
                     <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping"></span>
-                    Tracking every past earnings call — guidance, sentiment & walk-the-talk… <span className="text-slate-600">(first run can take ~a minute)</span>
+                    Tracking every past earnings call - guidance, sentiment & walk-the-talk… <span className="text-slate-600">(first run can take ~a minute)</span>
                 </div>
             );
             const d = state.data || {};
@@ -12644,7 +12865,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     {/* walk the talk */}
                     {(wtt.scorecard || []).length > 0 && (
                         <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg">
-                            <span className="text-[9px] text-blue-300 font-bold uppercase tracking-wider">Walk the Talk — Guidance vs Outcome</span>
+                            <span className="text-[9px] text-blue-300 font-bold uppercase tracking-wider">Walk the Talk - Guidance vs Outcome</span>
                             <table className="w-full text-[11px] mt-2">
                                 <thead><tr className="text-slate-600 uppercase tracking-wider text-[9px] text-left"><th className="py-1">Period</th><th className="py-1">Guidance</th><th className="py-1">Outcome</th><th className="py-1 text-right">Status</th></tr></thead>
                                 <tbody>
@@ -12690,7 +12911,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             );
                         })}
                     </div>
-                    <p className="text-[10px] text-slate-600 italic">Every concall transcript on Screener, extracted &amp; compared. Cached — updates as new calls are filed.</p>
+                    <p className="text-[10px] text-slate-600 italic">Every concall transcript on Screener, extracted &amp; compared. Cached - updates as new calls are filed.</p>
                 </div>
             );
         };
@@ -12716,7 +12937,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             if (state.loading) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg flex items-center gap-3 text-[12px] text-slate-400">
                     <span className="w-2 h-2 rounded-full bg-violet-500 animate-ping"></span>
-                    Mapping how the business evolved — acquisitions, new businesses, strategy shifts… <span className="text-slate-600">(first run can take ~a minute)</span>
+                    Mapping how the business evolved - acquisitions, new businesses, strategy shifts… <span className="text-slate-600">(first run can take ~a minute)</span>
                 </div>
             );
             const d = state.data || {};
@@ -12736,13 +12957,13 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     {(d.then || d.now) && (
                         <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-2 items-stretch">
                             <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg">
-                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Then — original identity</span>
-                                <p className="text-[11px] text-slate-300 leading-snug mt-1">{d.then || '—'}</p>
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Then - original identity</span>
+                                <p className="text-[11px] text-slate-300 leading-snug mt-1">{d.then || '-'}</p>
                             </div>
                             <div className="hidden md:flex items-center text-slate-600 text-lg">→</div>
                             <div className="p-3 bg-slate-950 border border-blue-500/25 rounded-lg">
-                                <span className="text-[9px] font-bold uppercase tracking-wider text-blue-400">Now — today</span>
-                                <p className="text-[11px] text-slate-300 leading-snug mt-1">{d.now || '—'}</p>
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-blue-400">Now - today</span>
+                                <p className="text-[11px] text-slate-300 leading-snug mt-1">{d.now || '-'}</p>
                             </div>
                         </div>
                     )}
@@ -12781,7 +13002,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             ))}
                         </div>
                     )}
-                    <p className="text-[10px] text-slate-600 italic">Synthesised from the business description &amp; concall history plus major public-record milestones. AI-generated — verify material facts.</p>
+                    <p className="text-[10px] text-slate-600 italic">Synthesised from the business description &amp; concall history plus major public-record milestones. AI-generated - verify material facts.</p>
                 </div>
             );
         };
@@ -12974,15 +13195,31 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             const [statementType, setStatementType] = useState('income'); // income, balance, cashflow
             const [activeTab, setActiveTab] = useState(6); // AI Insights is the default landing tab
             const [activeSubTab, setActiveSubTab] = useState({1:0,2:0,3:0,4:0,5:0,6:0,7:0});
-            const [aiResearchSection, setAiResearchSection] = useState('fundamental'); // 'fundamental' | 'qualitative' — inner tabs of the AI research page
+            const [aiResearchSection, setAiResearchSection] = useState('fundamental'); // 'fundamental' | 'qualitative' - inner tabs of the AI research page
             const [scrolled, setScrolled] = useState(false); // for the floating instrument card
             const [showAllPeers, setShowAllPeers] = useState(false); // Peer table: top-N vs see-more
             const [showSummary, setShowSummary] = useState(false); // AI summary: on-demand collapsible (bottom of AI Insights)
             const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // dashboard left-nav collapse
             const [dashView, setDashView] = useState('overview'); // active sidebar section key
+            // NEW document-analysis workspace (Upload Documents -> Analyse) - a
+            // {symbol, name} object when active. Entirely separate page/state
+            // from the automatic fetchResearch pipeline/dashboard below; the old
+            // per-ratio-fetching pipeline is never invoked for this workflow.
+            // Supports deep-linking straight into an already-analyzed
+            // company's Document Analysis workspace via ?manual=SYMBOL,
+            // instead of only reachable through a fresh file upload -
+            // useful for sharing a link to existing results, and for
+            // verifying a symbol that's already been processed without
+            // re-uploading its Annual Report.
+            const [docAnalysis, setDocAnalysis] = useState(() => {
+                try {
+                    const sym = new URLSearchParams(window.location.search).get('manual');
+                    return sym ? { symbol: sym.toUpperCase(), name: sym.toUpperCase() } : null;
+                } catch (e) { return null; }
+            });
             // Single global per-company toggle for every Total-Debt-based ratio
             // (Debt-to-Equity, Debt Ratio, EV/EBITDA, Net Debt/EBITDA, Cash Flow
-            // Coverage Ratio) — "basis1" (default) includes Lease Liabilities in
+            // Coverage Ratio) - "basis1" (default) includes Lease Liabilities in
             // Total Debt (post-Ind AS 116), "basis2" excludes them. Switching this
             // recalculates every affected ratio consistently in one action, per
             // spec, rather than a per-ratio setting.
@@ -13095,16 +13332,16 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 // Renders the WHOLE page shell immediately (status flips to
                 // SUCCESS right away, no full-screen "Agent Processing
                 // Pipeline" spinner) instead of blocking on the entire
-                // /api/v1/generate-report response — that endpoint runs a
+                // /api/v1/generate-report response - that endpoint runs a
                 // multi-step LLM/scraping pipeline (business model, quality
                 // score, peer synthesis) that can take real seconds even
                 // though the 29 financial ratios (a SEPARATE, already-fast
                 // DB-backed path) are ready almost instantly. The ratio
                 // cards already fetch independently as soon as `symbol` is
-                // known — this just makes `symbol` known immediately instead
+                // known - this just makes `symbol` known immediately instead
                 // of waiting for the qualitative pipeline too. Qualitative
                 // sections (business model, quality score, peer comparison)
-                // show their own lightweight "—"/skeleton state via
+                // show their own lightweight "-"/skeleton state via
                 // `qualitativeLoading` until the background fetch resolves
                 // and merges in, same pattern every ratio card already uses.
                 setErrorMessage('');
@@ -13141,19 +13378,19 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
                     if (response.ok && result.status === 'success') {
                         // Merge the now-ready qualitative data into whatever's
-                        // already rendering — a no-op for the ratio cards
+                        // already rendering - a no-op for the ratio cards
                         // (already fetched independently), fills in business
                         // model / quality score / peers for the rest.
                         setReportData(prev => (prev && prev.data.symbol === targetSymbol)
                             ? { ...result, qualitativeLoading: false }
-                            : prev); // user already moved on to a different symbol — drop this stale response
+                            : prev); // user already moved on to a different symbol - drop this stale response
                         addHistory(targetSymbol, result.data?.calculated_metrics?.company_name || targetSymbol);
                     } else {
                         throw new Error(result.message || 'Report generation failed');
                     }
                 } catch (error) {
                     console.error("Error triggering research (qualitative sections):", error);
-                    // Ratio cards keep working regardless (independent fetches) —
+                    // Ratio cards keep working regardless (independent fetches) -
                     // only the qualitative sections show a quiet error state.
                     setReportData(prev => (prev && prev.data.symbol === targetSymbol)
                         ? { ...prev, qualitativeLoading: false, qualitativeError: error.message || 'Could not load business/quality analysis.' }
@@ -13250,16 +13487,16 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
             };
             // Compact ₹ Cr/L axis formatter for charts.
             const fmtCr = (v) => {
-                if (v == null || isNaN(v)) return '—';
+                if (v == null || isNaN(v)) return '-';
                 const a = Math.abs(v);
                 if (a >= 1e7) return `₹${(v / 1e7).toFixed(a >= 1e9 ? 0 : 1)}Cr`;
                 if (a >= 1e5) return `₹${(v / 1e5).toFixed(1)}L`;
                 return `₹${Number(v).toFixed(0)}`;
             };
-            const fmtPct1 = (v) => (v == null || isNaN(v)) ? '—' : `${(v * 100).toFixed(1)}%`;
+            const fmtPct1 = (v) => (v == null || isNaN(v)) ? '-' : `${(v * 100).toFixed(1)}%`;
             // Standardized YoY/QoQ movement cell used across the dashboard.
             const moveParts = (v, isPP = false) => {
-                if (v == null || isNaN(v)) return { text: '—', cls: 'text-slate-400' };
+                if (v == null || isNaN(v)) return { text: '-', cls: 'text-slate-400' };
                 const up = v >= 0;
                 const text = isPP ? `${up ? '+' : ''}${(v * 100).toFixed(2)} pp` : `${up ? '▲ +' : '▼ '}${(v * 100).toFixed(1)}%`;
                 return { text, cls: up ? 'text-emerald-400' : 'text-red-400' };
@@ -13336,19 +13573,34 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                 return <LoginScreen onLoggedIn={() => setCurrentUser(true)} />;
             }
 
+            // "Upload Documents" (ManualUpload) -> Analyse always lands here, a
+            // completely separate workspace from the automatic dashboard below -
+            // takes priority over both IDLE and SUCCESS.
+            if (docAnalysis) {
+                return (
+                    <DocumentAnalysis
+                        symbol={docAnalysis.symbol}
+                        name={docAnalysis.name}
+                        onBack={() => setDocAnalysis(null)}
+                        onLogout={handleLogout}
+                        onOpenDashboard={(sym, name) => setDocAnalysis({ symbol: sym, name })}
+                    />
+                );
+            }
+
             // Logged in, nothing analysed yet -> the new premium landing (its own hero + search).
             // Ask Navrist is intentionally NOT mounted here: it only makes sense once a
             // company has been searched, since every answer it gives is grounded in that
-            // company's own computed data (same source as the ratio cards) — there is
+            // company's own computed data (same source as the ratio cards) - there is
             // nothing for it to be "about" before a search happens.
             if (status === 'IDLE') {
-                return <Landing onSelect={fetchResearch} onLogout={handleLogout} />;
+                return <Landing onSelect={fetchResearch} onOpenManual={(sym, name) => setDocAnalysis({ symbol: sym, name })} onLogout={handleLogout} />;
             }
 
             // Compact company context handed to Ask Navrist so it can answer
             // "is its ROE good?" against the company actually on screen. Best-effort:
             // stays an empty string until a report has loaded.
-            // Full context handed to Ask Navrist — everything already computed for
+            // Full context handed to Ask Navrist - everything already computed for
             // this company (identity, valuation, the ENTIRE ratio set, multi-year
             // statement trends, peer/sector percentiles, qualitative commentary).
             // Deliberately NOT truncated to a handful of headline metrics: a chat
@@ -13381,7 +13633,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                     margin.net_margin != null ? `Net margin: ${margin.net_margin}%` : '',
                 ].filter(Boolean);
 
-                // Every computed ratio, not a truncated top-14 — this is the fix for
+                // Every computed ratio, not a truncated top-14 - this is the fix for
                 // "what's its X ratio" questions getting a generic non-answer.
                 if (Array.isArray(ratios) && ratios.length) {
                     const r = ratios.map((x) => {
@@ -13389,15 +13641,15 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                         const value = x.value ?? x.result ?? x.ROE ?? x.ROCE;
                         return name && value != null ? `${name}: ${value}` : null;
                     }).filter(Boolean);
-                    if (r.length) lines.push('\nAll computed ratios —\n' + r.join('; '));
+                    if (r.length) lines.push('\nAll computed ratios -\n' + r.join('; '));
                 }
 
                 // Multi-year trend so growth/trend questions have real numbers.
                 try {
                     const rev = seriesFromStatement('income_stmt', ['totalrevenue', 'revenuefromoperations', 'revenue']);
                     const np = seriesFromStatement('income_stmt', ['netprofit', 'profitfortheperiod', 'profitafter']);
-                    if (rev.length) lines.push('\nRevenue by year (Rs Cr) — ' + rev.map((p) => `${p.label}: ${p.value != null ? (p.value / 1e7).toFixed(0) : '—'}`).join(', '));
-                    if (np.length) lines.push('Net profit by year (Rs Cr) — ' + np.map((p) => `${p.label}: ${p.value != null ? (p.value / 1e7).toFixed(0) : '—'}`).join(', '));
+                    if (rev.length) lines.push('\nRevenue by year (Rs Cr) - ' + rev.map((p) => `${p.label}: ${p.value != null ? (p.value / 1e7).toFixed(0) : '-'}`).join(', '));
+                    if (np.length) lines.push('Net profit by year (Rs Cr) - ' + np.map((p) => `${p.label}: ${p.value != null ? (p.value / 1e7).toFixed(0) : '-'}`).join(', '));
                 } catch (e) { /* best-effort */ }
 
                 // Peer / sector standing.
@@ -13405,18 +13657,18 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                 const medians = psd.sector_benchmark?.medians || {};
                 const pcts = psd.screener_peer_view?.percentiles || psd.sector_benchmark?.percentiles || {};
                 const peerLines = [];
-                if (tm.roe != null || medians.roe != null) peerLines.push(`ROE ${tm.roe ?? '—'} vs sector median ${medians.roe ?? '—'}`);
-                if (tm.pe != null || medians.pe != null) peerLines.push(`P/E ${tm.pe ?? '—'} vs sector median ${medians.pe ?? '—'}`);
+                if (tm.roe != null || medians.roe != null) peerLines.push(`ROE ${tm.roe ?? '-'} vs sector median ${medians.roe ?? '-'}`);
+                if (tm.pe != null || medians.pe != null) peerLines.push(`P/E ${tm.pe ?? '-'} vs sector median ${medians.pe ?? '-'}`);
                 if (tm.debtToEquity != null) peerLines.push(`D/E ${tm.debtToEquity}`);
-                if (Object.keys(pcts).length) peerLines.push('Sector percentiles — ' + Object.entries(pcts).map(([k, v]) => `${k}: ${v}th`).join(', '));
-                const peers = (psd.peer_matrix || []).slice(0, 6).map((p) => `${p.symbol || p.name}: P/E ${p.pe ?? '—'}, Price ${p.price ?? '—'}`);
-                if (peers.length) peerLines.push('Peers — ' + peers.join('; '));
-                if (peerLines.length) lines.push('\nPeer/sector comparison —\n' + peerLines.join('\n'));
+                if (Object.keys(pcts).length) peerLines.push('Sector percentiles - ' + Object.entries(pcts).map(([k, v]) => `${k}: ${v}th`).join(', '));
+                const peers = (psd.peer_matrix || []).slice(0, 6).map((p) => `${p.symbol || p.name}: P/E ${p.pe ?? '-'}, Price ${p.price ?? '-'}`);
+                if (peers.length) peerLines.push('Peers - ' + peers.join('; '));
+                if (peerLines.length) lines.push('\nPeer/sector comparison -\n' + peerLines.join('\n'));
 
                 // Qualitative commentary (business model, moat, risks) if already loaded.
                 const qa = d.qualitative_analysis?.parsed_sections || {};
                 const qaText = Object.values(qa).filter(Boolean).join(' ').slice(0, 2500);
-                if (qaText) lines.push('\nQualitative analysis (business/moat/risk commentary) —\n' + qaText);
+                if (qaText) lines.push('\nQualitative analysis (business/moat/risk commentary) -\n' + qaText);
 
                 return lines.join('\n');
             })();
@@ -13460,6 +13712,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                         onExport={() => { setActiveTab(7); setActiveSubTab(p => ({ ...p, 7: 0 })); setDashView('export'); }}
                                         onCompare={() => onSelectSection(SECTIONS.find(s => s.key === 'ai'))}
                                         onSearch={fetchResearch}
+                                        onOpenManual={(sym, name) => setDocAnalysis({ symbol: sym, name })}
                                     />
 
                                     {dashView === 'overview' && (
@@ -13640,7 +13893,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                      const cards = [
                                                          { label: 'Revenue 3Y CAGR', val: formatPercent(gs.cagr_3y_revenue) },
                                                          { label: 'PAT 3Y CAGR', val: formatPercent(gs.cagr_3y_pat) },
-                                                         { label: 'Rev Growth Acceleration', val: gs.revenue_growth_acceleration != null ? `${gs.revenue_growth_acceleration >= 0 ? '+' : ''}${(gs.revenue_growth_acceleration * 100).toFixed(2)} pp` : '—' },
+                                                         { label: 'Rev Growth Acceleration', val: gs.revenue_growth_acceleration != null ? `${gs.revenue_growth_acceleration >= 0 ? '+' : ''}${(gs.revenue_growth_acceleration * 100).toFixed(2)} pp` : '-' },
                                                      ];
                                                      if (gs.cagr_3y_revenue == null && gs.cagr_3y_pat == null) return null;
                                                      return (
@@ -13735,14 +13988,14 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                  const qY = qarr[qarr.length - 5] || {};
                                                  const pctChg = (a, b) => (a != null && b != null && b !== 0) ? (a - b) / Math.abs(b) : null;
                                                  const ppChg = (a, b) => (a != null && b != null) ? (a - b) : null;
-                                                 const snapQuarter = qL.quarter || sig.latest_quarter || '—';
+                                                 const snapQuarter = qL.quarter || sig.latest_quarter || '-';
                                                  const kpiRows = [
                                                      { name: 'Revenue', latest: formatCurrency(qL.revenue), qoq: (qL.qoq_revenue_growth != null ? qL.qoq_revenue_growth : pctChg(qL.revenue, qP.revenue)), yoy: (qL.yoy_revenue_growth != null ? qL.yoy_revenue_growth : pctChg(qL.revenue, qY.revenue)), pp: false },
                                                      { name: 'Net Profit (PAT)', latest: formatCurrency(qL.pat), qoq: pctChg(qL.pat, qP.pat), yoy: pctChg(qL.pat, qY.pat), pp: false },
                                                      { name: 'Operating Margin', latest: formatPercent(qL.ebit_margin), qoq: ppChg(qL.ebit_margin, qP.ebit_margin), yoy: ppChg(qL.ebit_margin, qY.ebit_margin), pp: true },
                                                  ];
                                                  const moveCell = (v, isPP) => {
-                                                     if (v == null || isNaN(v)) return <span className="text-slate-400">—</span>;
+                                                     if (v == null || isNaN(v)) return <span className="text-slate-400">-</span>;
                                                      const up = v >= 0;
                                                      const txt = isPP ? `${up ? '+' : ''}${(v * 100).toFixed(2)} pp` : `${up ? '▲ +' : '▼ '}${(v * 100).toFixed(1)}%`;
                                                      return <span className={`font-mono font-semibold ${up ? 'text-emerald-400' : 'text-red-400'}`}>{txt}</span>;
@@ -13978,21 +14231,21 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                              <td className="p-3 text-left uppercase font-bold">{t.symbol || reportData.data.symbol} <span className="text-[8px] bg-blue-500/15 text-blue-700 px-1 py-0.5 rounded ml-1 font-bold">TARGET</span></td>
                                                                              <td className="p-3 text-right font-mono">{formatCurrency(t.lastPrice)}</td>
                                                                              <td className="p-3 text-right font-mono">{formatNum(t.pe, 2)}</td>
-                                                                             <td className={`p-3 text-right font-mono font-bold ${(medPe && t.pe != null) ? (t.pe < medPe ? 'text-emerald-400' : 'text-red-400') : 'text-slate-400'}`}>{(medPe && t.pe != null) ? `${t.pe < medPe ? 'Cheaper' : 'Pricier'} (${(((t.pe - medPe) / medPe) * 100).toFixed(0)}%)` : '—'}</td>
+                                                                             <td className={`p-3 text-right font-mono font-bold ${(medPe && t.pe != null) ? (t.pe < medPe ? 'text-emerald-400' : 'text-red-400') : 'text-slate-400'}`}>{(medPe && t.pe != null) ? `${t.pe < medPe ? 'Cheaper' : 'Pricier'} (${(((t.pe - medPe) / medPe) * 100).toFixed(0)}%)` : '-'}</td>
                                                                          </tr>
                                                                          {peers.map((p, i) => (
                                                                              <tr key={i} className="hover:bg-slate-850/20">
                                                                                  <td className="p-3 text-left uppercase font-semibold text-slate-400">{p.symbol}</td>
                                                                                  <td className="p-3 text-right font-mono">{formatCurrency(p.lastPrice)}</td>
                                                                                  <td className="p-3 text-right font-mono">{formatNum(p.pe, 2)}</td>
-                                                                                 <td className="p-3 text-right font-mono text-slate-500">{(medPe && p.pe != null) ? `${(((p.pe - medPe) / medPe) * 100).toFixed(0)}%` : '—'}</td>
+                                                                                 <td className="p-3 text-right font-mono text-slate-500">{(medPe && p.pe != null) ? `${(((p.pe - medPe) / medPe) * 100).toFixed(0)}%` : '-'}</td>
                                                                              </tr>
                                                                          ))}
                                                                          <tr className="bg-slate-950 font-semibold text-slate-400">
                                                                              <td className="p-3 text-left">Sector Median</td>
-                                                                             <td className="p-3 text-right font-mono">—</td>
+                                                                             <td className="p-3 text-right font-mono">-</td>
                                                                              <td className="p-3 text-right font-mono">{formatNum(medPe, 2)}</td>
-                                                                             <td className="p-3 text-right font-mono">—</td>
+                                                                             <td className="p-3 text-right font-mono">-</td>
                                                                          </tr>
                                                                      </tbody>
                                                                  </table>
@@ -14200,9 +14453,9 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                      const band = score == null ? 'N/A' : (score >= 75 ? 'STRONG' : (score >= 50 ? 'MODERATE' : 'WEAK'));
                                                      const bandCls = band === 'STRONG' ? 'text-emerald-400' : (band === 'MODERATE' ? 'text-amber-400' : (band === 'WEAK' ? 'text-red-400' : 'text-slate-400'));
                                                      const alerts = [];
-                                                     if (de != null && de > 1) alerts.push({ t: `Elevated leverage — Debt/Equity ${formatNum(de, 2)}x`, sev: de > 2 ? 'high' : 'med' });
-                                                     if (nde != null && nde > 3) alerts.push({ t: `High net debt — ${formatNum(nde, 2)}x EBITDA`, sev: nde > 5 ? 'high' : 'med' });
-                                                     if (ic != null && ic < 3) alerts.push({ t: `Thin interest coverage — ${formatNum(ic, 2)}x`, sev: ic < 1.5 ? 'high' : 'med' });
+                                                     if (de != null && de > 1) alerts.push({ t: `Elevated leverage - Debt/Equity ${formatNum(de, 2)}x`, sev: de > 2 ? 'high' : 'med' });
+                                                     if (nde != null && nde > 3) alerts.push({ t: `High net debt - ${formatNum(nde, 2)}x EBITDA`, sev: nde > 5 ? 'high' : 'med' });
+                                                     if (ic != null && ic < 3) alerts.push({ t: `Thin interest coverage - ${formatNum(ic, 2)}x`, sev: ic < 1.5 ? 'high' : 'med' });
                                                      return (
                                                          <div className="space-y-6">
                                                              <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg flex flex-col">
@@ -14286,13 +14539,13 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                 {(() => {
                                                      const cf = reportData.data.calculated_metrics?.['F-09_Cash_Flow_Conversion'] || {};
                                                      const flags = [];
-                                                     if (cf.CFO_to_PAT != null && cf.CFO_to_PAT < 1) flags.push('Operating cash flow is below reported profit (CFO < PAT) — watch earnings quality.');
+                                                     if (cf.CFO_to_PAT != null && cf.CFO_to_PAT < 1) flags.push('Operating cash flow is below reported profit (CFO < PAT) - watch earnings quality.');
                                                      if (cf.FCF != null && cf.FCF < 0) flags.push('Free cash flow is negative this period.');
                                                      return (
                                                          <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
                                                              <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-2">Cash-Flow Warning Flags</div>
                                                              {flags.length === 0 ? (
-                                                                 <div className="text-[11px] text-emerald-400 flex items-center gap-1.5">✓ Profits are converting to cash cleanly — no warnings.</div>
+                                                                 <div className="text-[11px] text-emerald-400 flex items-center gap-1.5">✓ Profits are converting to cash cleanly - no warnings.</div>
                                                              ) : flags.map((f, i) => (
                                                                  <div key={i} className="text-[11px] text-amber-400 flex items-start gap-1.5 py-0.5"><span>⚠</span><span>{f}</span></div>
                                                              ))}
@@ -14325,10 +14578,10 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                  const dii = market.find(m => (m.category || '').toUpperCase().includes('DII'));
                                                  const isReal = own.data_source === 'NSE' || own.data_source === 'Screener';
                                                  const ownHist = own.ownership_history || [];
-                                                 const inr = (v) => (v === null || v === undefined || isNaN(v)) ? '—' : Number(v).toLocaleString('en-IN');
+                                                 const inr = (v) => (v === null || v === undefined || isNaN(v)) ? '-' : Number(v).toLocaleString('en-IN');
                                                  const netCell = (v) => (
                                                      <span className={`font-mono font-bold ${v > 0 ? 'text-emerald-400' : (v < 0 ? 'text-red-400' : 'text-slate-400')}`}>
-                                                         {(v === null || v === undefined || isNaN(v)) ? '—' : `${v > 0 ? '+' : ''}${Number(v).toLocaleString('en-IN')}`}
+                                                         {(v === null || v === undefined || isNaN(v)) ? '-' : `${v > 0 ? '+' : ''}${Number(v).toLocaleString('en-IN')}`}
                                                      </span>
                                                  );
                                                  return (
@@ -14415,7 +14668,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                          {items.map((it, i) => (
                                                                              <div key={i} className="flex items-center gap-1.5 text-[11px]">
                                                                                  <span className="text-slate-500">{it.k}</span>
-                                                                                 <span className={`font-mono font-bold ${it.d == null ? 'text-slate-400' : (it.d > 0 ? 'text-emerald-400' : (it.d < 0 ? 'text-red-400' : 'text-slate-400'))}`}>{it.d == null ? '—' : `${it.d > 0 ? '▲ +' : (it.d < 0 ? '▼ ' : '')}${it.d.toFixed(2)} pp`}</span>
+                                                                                 <span className={`font-mono font-bold ${it.d == null ? 'text-slate-400' : (it.d > 0 ? 'text-emerald-400' : (it.d < 0 ? 'text-red-400' : 'text-slate-400'))}`}>{it.d == null ? '-' : `${it.d > 0 ? '▲ +' : (it.d < 0 ? '▼ ' : '')}${it.d.toFixed(2)} pp`}</span>
                                                                              </div>
                                                                          ))}
                                                                      </div>
@@ -14430,7 +14683,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                          const pl = own.promoter_pledge_of_stake;
                                                          // Governance risk marker from pledge %
                                                          const risk = pl == null ? { lvl: 'UNKNOWN', cls: 'text-slate-400', bg: 'bg-slate-800 border-slate-700', dot: 'bg-slate-400', note: 'Pledge data appears once an NSE filing is on record for this symbol.' }
-                                                             : pl === 0 ? { lvl: 'LOW', cls: 'text-emerald-400', bg: 'bg-emerald-500/5 border-emerald-500/30', dot: 'bg-emerald-500', note: 'No promoter shares are pledged — a positive governance signal.' }
+                                                             : pl === 0 ? { lvl: 'LOW', cls: 'text-emerald-400', bg: 'bg-emerald-500/5 border-emerald-500/30', dot: 'bg-emerald-500', note: 'No promoter shares are pledged - a positive governance signal.' }
                                                              : pl <= 25 ? { lvl: 'MODERATE', cls: 'text-amber-400', bg: 'bg-amber-500/5 border-amber-500/30', dot: 'bg-amber-500', note: `${formatPercent(pl, false)} of promoter holding is pledged${own.num_shares_pledged ? ` (${inr(own.num_shares_pledged)} shares)` : ''}. Worth monitoring.` }
                                                              : { lvl: 'HIGH', cls: 'text-red-400', bg: 'bg-red-500/5 border-red-500/30', dot: 'bg-red-500', note: `High pledge: ${formatPercent(pl, false)} of promoter holding is pledged${own.num_shares_pledged ? ` (${inr(own.num_shares_pledged)} shares)` : ''}. Elevated governance risk.` };
                                                          return (
@@ -14449,15 +14702,15 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                      </div>
                                                                      <div className="nv-tile p-4 bg-slate-900 border border-slate-800 rounded-lg">
                                                                          <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Shares Pledged</div>
-                                                                         <div className="font-heading text-lg font-extrabold text-slate-200 mt-1">{own.num_shares_pledged ? inr(own.num_shares_pledged) : '—'}</div>
+                                                                         <div className="font-heading text-lg font-extrabold text-slate-200 mt-1">{own.num_shares_pledged ? inr(own.num_shares_pledged) : '-'}</div>
                                                                      </div>
                                                                  </div>
                                                                  {/* Colour-code index */}
                                                                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-slate-800 pt-3">
                                                                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Pledge colour index:</span>
-                                                                     <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>No pledge — safe</span>
-                                                                     <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span>≤ 25% — monitor</span>
-                                                                     <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2.5 h-2.5 rounded-sm bg-red-500"></span>&gt; 25% — high risk</span>
+                                                                     <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>No pledge - safe</span>
+                                                                     <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span>≤ 25% - monitor</span>
+                                                                     <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2.5 h-2.5 rounded-sm bg-red-500"></span>&gt; 25% - high risk</span>
                                                                  </div>
                                                              </div>
                                                              {/* Governance risk marker (separate card) */}
@@ -14486,7 +14739,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                          <div className="p-5 bg-slate-950 border border-slate-800 rounded-lg space-y-4">
                                                              <div className="flex items-center justify-between flex-wrap gap-2">
                                                                  <div>
-                                                                     <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Institutional Flow — FII &amp; DII</h4>
+                                                                     <h4 className="font-heading text-sm font-bold text-slate-200 uppercase tracking-wider">Institutional Flow - FII &amp; DII</h4>
                                                                      {market[0]?.date && <p className="text-[10px] text-slate-500 mt-0.5">Latest trading session · {market[0].date} · net activity in ₹ Cr</p>}
                                                                  </div>
                                                                  {(() => {
@@ -14664,7 +14917,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                 {ai.sector_guess && <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-md">{ai.sector_guess}</span>}
                                                             </div>
                                                         </div>
-                                                        <p className="text-[10px] text-slate-500 mb-3">Size &amp; sector-aware peers from Screener.in — comparables matched on industry and market-cap. Showing {shown.length} of {peers.length}.</p>
+                                                        <p className="text-[10px] text-slate-500 mb-3">Size &amp; sector-aware peers from Screener.in - comparables matched on industry and market-cap. Showing {shown.length} of {peers.length}.</p>
 
                                                         {ai.note && (
                                                             <div className="mb-3 p-3 rounded-lg border border-blue-500/20 bg-blue-500/5">
@@ -14795,7 +15048,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                 })}
                                                                 <tr className="bg-slate-850 font-bold text-slate-200 border-t-2 border-slate-700">
                                                                     <td className="p-3 text-left text-slate-200">Sector Median</td>
-                                                                    <td className="p-3 text-right font-mono">—</td>
+                                                                    <td className="p-3 text-right font-mono">-</td>
                                                                     <td className="p-3 text-right font-mono">{formatNum(psd.sector_benchmark?.medians?.pe, 2)}</td>
                                                                     <td className="p-3 text-right font-mono">{formatPercent(psd.sector_benchmark?.medians?.operatingMargin)}</td>
                                                                     <td className="p-3 text-right font-mono">{formatPercent(psd.sector_benchmark?.medians?.roe)}</td>
@@ -14907,20 +15160,20 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                     ))}
                                                 </div>
                                                 <h2 className="font-heading text-base font-bold text-slate-100">{aiResearchSection === 'fundamental' ? 'Fundamental Ratios' : 'Qualitative Analysis'}</h2>
-                                                <p className="text-[10px] text-slate-500 mt-0.5">{aiResearchSection === 'fundamental' ? 'Sector-aware ratio dashboard — every card is traceable to its source.' : 'Business, management, moat and forensic checks — grounded in filings and management commentary.'}</p>
+                                                <p className="text-[10px] text-slate-500 mt-0.5">{aiResearchSection === 'fundamental' ? 'Sector-aware ratio dashboard - every card is traceable to its source.' : 'Business, management, moat and forensic checks - grounded in filings and management commentary.'}</p>
                                                 {aiResearchSection === 'fundamental' && (
                                                     <div className="flex items-center gap-2 mt-3">
                                                         <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Lease Liabilities in Total Debt:</span>
                                                         <div className="inline-flex rounded-md border border-slate-800 overflow-hidden">
                                                             <button
                                                                 onClick={() => setLeaseBasis('basis1')}
-                                                                title="Total Debt = Borrowings + Lease Liabilities (post-Ind AS 116) — affects Debt-to-Equity, Debt Ratio, EV/EBITDA, Net Debt/EBITDA, Cash Flow Coverage Ratio, EV/Sales, EV/FCF"
+                                                                title="Total Debt = Borrowings + Lease Liabilities (post-Ind AS 116) - affects Debt-to-Equity, Debt Ratio, EV/EBITDA, Net Debt/EBITDA, Cash Flow Coverage Ratio, EV/Sales, EV/FCF"
                                                                 className={`px-2.5 py-1 text-[10px] font-bold transition ${leaseBasis === 'basis1' ? 'bg-blue-600/25 text-blue-300' : 'bg-slate-950/50 text-slate-500 hover:text-slate-300'}`}>
                                                                 With Lease
                                                             </button>
                                                             <button
                                                                 onClick={() => setLeaseBasis('basis2')}
-                                                                title="Total Debt = Borrowings only (excludes Lease Liabilities) — the pre-Ind AS 116 / traditional view"
+                                                                title="Total Debt = Borrowings only (excludes Lease Liabilities) - the pre-Ind AS 116 / traditional view"
                                                                 className={`px-2.5 py-1 text-[10px] font-bold transition border-l border-slate-800 ${leaseBasis === 'basis2' ? 'bg-blue-600/25 text-blue-300' : 'bg-slate-950/50 text-slate-500 hover:text-slate-300'}`}>
                                                                 Without Lease
                                                             </button>
@@ -14938,10 +15191,10 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                         {(() => {
                                                             const rp = { symbol: reportData.data.symbol, name: reportData.data.calculated_metrics?.company_name, leaseBasis };
                                                             // Every built ratio card, tagged with its Sr No from the Sector
-                                                            // Applicability Matrix (frontend/src/lib/sectorMatrix.js) — this
+                                                            // Applicability Matrix (frontend/src/lib/sectorMatrix.js) - this
                                                             // is the join key between "what's actually renderable" and
                                                             // "what tier the matrix says for this sector". Ratios not yet
-                                                            // built as cards (Sr 41-68) simply won't appear in any tier —
+                                                            // built as cards (Sr 41-68) simply won't appear in any tier -
                                                             // never a broken/blank card.
                                                             const RATIO_ITEMS = [
                                                                 { ratio_no: 13, title: 'Working Capital', node: <WorkingCapital {...rp} /> },
@@ -15012,15 +15265,15 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
 
                                                             // Sector resolution: best-effort normalisation of whatever loose
                                                             // sector string this report happened to produce (see
-                                                            // normalizeSectorLabel's own docstring — no canonical NSE
+                                                            // normalizeSectorLabel's own docstring - no canonical NSE
                                                             // taxonomy is stored anywhere in this app yet). Falls back to
                                                             // "sector unknown" (every ratio shown, ungrouped) rather than
                                                             // guessing a tier.
-                                                            // Priority: (1) getNseSector — the verbatim, official NSE
+                                                            // Priority: (1) getNseSector - the verbatim, official NSE
                                                             // industry classification (nseSectorMap.js, ~750 Nifty Total
                                                             // Market symbols) keyed by ticker, no guessing involved; (2)
                                                             // `peer_synthesis_data.sector` (the SECTOR_GROUPS-derived
-                                                            // peer-group label, e.g. "Infra & Realty" — the same value
+                                                            // peer-group label, e.g. "Infra & Realty" - the same value
                                                             // shown in the company header's Sector badge); (3)
                                                             // `ai_guidance.sector_guess` (an optional LLM call), for
                                                             // tickers with neither of the above.
@@ -15045,7 +15298,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                     ];
                                                                     // Sr 69-92 industry-specific ratios have no matching card
                                                                     // built yet, so this section only ever shows a placeholder
-                                                                    // note when the sector qualifies for one — never a section
+                                                                    // note when the sector qualifies for one - never a section
                                                                     // for a sector with none, per spec.
                                                                     if (indspec.length > 0) {
                                                                         result.push({ key: 'industry_specific', name: `${resolvedSector} Specific Metrics`,
@@ -15062,12 +15315,12 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                         <div className="text-[10px] text-slate-500 mb-3">
                                                                             Tiered for <span className="text-slate-300 font-semibold">{resolvedSector}</span>
                                                                             {nseSector
-                                                                                ? ' — official NSE industry classification. A manual sector reclassification isn\'t wired in yet.'
-                                                                                : ' — a manual sector reclassification isn\'t wired in yet, so this is a best-effort match, not a verbatim NSE classification.'}
+                                                                                ? ' - official NSE industry classification. A manual sector reclassification isn\'t wired in yet.'
+                                                                                : ' - a manual sector reclassification isn\'t wired in yet, so this is a best-effort match, not a verbatim NSE classification.'}
                                                                         </div>
                                                                     ) : (
                                                                         <div className="text-[10px] text-amber-400/80 mb-3">
-                                                                            Sector could not be resolved for this company — showing all ratios ungrouped rather than guessing a tier.
+                                                                            Sector could not be resolved for this company - showing all ratios ungrouped rather than guessing a tier.
                                                                         </div>
                                                                     )}
                                                                     <div className="mb-5 sticky top-0 z-10 bg-slate-900/95 backdrop-blur py-1 -mt-1">
@@ -15083,12 +15336,12 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                             className={c.key === 'not_applicable' ? 'opacity-60' : ''}>
                                                                             {c.key === 'not_applicable' && c.items.length > 0 && (
                                                                                 <div className="text-[10px] text-slate-500 mb-3 italic">
-                                                                                    Not typically meaningful for {resolvedSector} — shown per your request; calculation still proceeds.
+                                                                                    Not typically meaningful for {resolvedSector} - shown per your request; calculation still proceeds.
                                                                                 </div>
                                                                             )}
                                                                             {c.key === 'industry_specific' && (
                                                                                 <div className="text-[11px] text-slate-400 italic p-4 bg-slate-950 border border-slate-800 rounded-lg">
-                                                                                    {c.indspecNames.join(', ')} — industry-specific metrics for {resolvedSector} are not yet built as ratio cards.
+                                                                                    {c.indspecNames.join(', ')} - industry-specific metrics for {resolvedSector} are not yet built as ratio cards.
                                                                                 </div>
                                                                             )}
                                                                             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -15159,7 +15412,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                     {/* Mobile bottom navigation (replaces the sidebar below lg) */}
                     <MobileNav activeKey={dashView} onSelect={onSelectSection} />
 
-                    {/* Floating conversational assistant — company-aware via askContext */}
+                    {/* Floating conversational assistant - company-aware via askContext */}
                     <AskNavrist context={askContext} symbol={reportData?.data?.symbol} />
                 </div>
             );

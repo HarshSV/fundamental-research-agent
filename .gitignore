@@ -1,5 +1,6 @@
 .env
 auth.db
+uploads/
 venv/
 .venv/
 __pycache__/
@@ -17,3 +18,10 @@ coverage_gaps*.csv
 progress_check.txt
 server*.log
 _dbg_*.txt
+backend_*.log
+_qual.json
+_tmp_skipped.txt
+batch_tasks.json
+qual_inconclusive_*.txt
+excel_data.json
+_audit_final_table.txt

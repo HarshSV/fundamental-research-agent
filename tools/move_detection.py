@@ -1,7 +1,7 @@
 """
-Move detection — layer 1 of the event-grounded reasoning pipeline (see memory
+Move detection - layer 1 of the event-grounded reasoning pipeline (see memory
 "event-grounded-reasoning-scope"). Flags windows where a stock moved sharply,
-using only price history we already fetch (yfinance via yf_cache) — no new
+using only price history we already fetch (yfinance via yf_cache) - no new
 dependency, no news source needed.
 
 Two kinds of window:
@@ -11,7 +11,7 @@ Two kinds of window:
 
 Each window is also compared against the Nifty 50 (^NSEI) over the same dates
 so the caller can tell stock-specific moves from market-wide ones. Never
-raises — returns [] on any failure so this can't break the chat.
+raises - returns [] on any failure so this can't break the chat.
 """
 
 from tools.yf_cache import cached_history

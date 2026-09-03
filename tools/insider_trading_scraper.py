@@ -87,7 +87,19 @@ def fetch_insider_trades(symbol, quarters=8):
     of dicts (NSE's own field names, newest first) - each row real: a named
     acquirer/relative, transaction type (Buy/Sell), date, shares, value,
     holding before/after, and remarks. Empty list on failure/no data. Never
-    raises."""
+    raises.
+
+    Same guard convention as tools.crisil_scraper.fetch_crisil_rationale:
+    in tools.manual_mode's document-only manual workflow, this NEVER
+    reaches live nseindia.com. Every qualitative caller (D.1.x/D.2.x/R.2.x)
+    already converts a falsy/empty result to None before scoring (e.g.
+    `score_selling_frequency(rows if rows else None)`), so returning []
+    here - this function's own existing "no data" contract - collapses to
+    the same honest SEARCH_INCONCLUSIVE outcome as a real empty fetch,
+    never a fabricated "confirmed zero trades" finding."""
+    from tools.manual_mode import is_manual_mode
+    if is_manual_mode():
+        return []
     sym = (symbol or "").strip().upper().replace(".NS", "")
     ckey = f"pit_{sym}_{quarters}q"
     cached = _read_cache(ckey)

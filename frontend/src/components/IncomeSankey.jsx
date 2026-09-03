@@ -6,13 +6,13 @@ import { IncomeIcicle } from './IncomeIcicle.jsx';
 /*
  * Income-statement flow for the stock Overview page. Builds a nodes/links
  * graph (see `fromApiFlow` / `buildShallowFallback`) and renders it with
- * IncomeIcicle (./IncomeIcicle.jsx) — the same straight-edge icicle chart
+ * IncomeIcicle (./IncomeIcicle.jsx) - the same straight-edge icicle chart
  * used on the Qualitative Analysis page's "Consolidated Income Statement
  * Flow" card, so both pages show the identical chart for the identical
  * tree. `IncomeTree` (below) is kept as the plain indented-row rendering
  * this graph also supports, in case a non-SVG fallback is ever needed.
  *
- * Primary data source: /api/v1/income-statement-flow — built entirely from
+ * Primary data source: /api/v1/income-statement-flow - built entirely from
  * the company's own Annual Report P&L (tools/annual_report_financials.py's
  * fetch_income_statement_flow_from_annual_report), every value either a
  * reported line item or a deterministic subtraction of two reported figures.
@@ -21,7 +21,7 @@ import { IncomeIcicle } from './IncomeIcicle.jsx';
  * Fallback: when the AR-based flow isn't applicable (report not parseable,
  * PBT/PAT not found, etc.), falls back to the shallower Revenue -> Total
  * Expenses/Operating Profit -> Interest & D&A/PBT -> Tax/Net Profit view
- * built from `income_stmt` (Screener-sourced, already loaded on Overview) —
+ * built from `income_stmt` (Screener-sourced, already loaded on Overview) -
  * a simpler truthful chart beats a richer fabricated one.
  */
 
@@ -65,7 +65,7 @@ function fromApiFlow(flow) {
 // Shallow client-side fallback from income_stmt (raw rupees already), used
 // only when the AR-based flow isn't applicable. Screener's generic P&L grid
 // (Total Expenses/EBITDA/Pretax Income) is built for a manufacturing-style
-// statement and is NOT reliable for banks/NBFCs/insurers — their "Expenses"
+// statement and is NOT reliable for banks/NBFCs/insurers - their "Expenses"
 // row includes Interest Expended in a way that can make the derived
 // "Operating Profit" come out negative even in a profitable year. Rather
 // than ever show that kind of nonsensical breakdown, this only renders the
@@ -125,7 +125,7 @@ function buildShallowFallback(incomeStmt) {
   // Fallback of last resort: a single split that's true by construction
   // regardless of company type, never a fabricated/inconsistent breakdown.
   const costsAndTax = revenue - netProfit;
-  if (costsAndTax < -tol) return null; // net profit exceeding revenue — too unusual to chart meaningfully
+  if (costsAndTax < -tol) return null; // net profit exceeding revenue - too unusual to chart meaningfully
   const nodes = [
     { id: 'revenue', label: 'Revenue', value: revenue, category: 'neutral' },
     { id: 'costs_tax', label: 'Total Costs & Tax (net)', value: Math.max(costsAndTax, 0), category: 'cost',
@@ -141,7 +141,7 @@ function buildShallowFallback(incomeStmt) {
 }
 
 // One row of the tree: color dot, label (truncates, never overflows the
-// card — no fixed-width SVG canvas involved), a proportional weight bar,
+// card - no fixed-width SVG canvas involved), a proportional weight bar,
 // and a fixed-width right-aligned value column so numbers line up.
 function TreeRow({ node, depth, parentAbsValue, isMergeSource }) {
   const [expanded] = React.useState(true);
@@ -149,7 +149,7 @@ function TreeRow({ node, depth, parentAbsValue, isMergeSource }) {
     ? Math.min(100, (Math.abs(node.value) / parentAbsValue) * 100)
     : 100;
   const color = colorFor(node);
-  const title = node.note ? `${node.label} — ${node.note}` : node.label;
+  const title = node.note ? `${node.label} - ${node.note}` : node.label;
 
   return (
     <div
@@ -186,7 +186,7 @@ export function IncomeTree({ nodes, links }) {
   if (!rootCandidates.length) return null;
   // Business/geographic segments merging into Revenue (the one legitimate
   // many-to-one case) render as a compact "Revenue sources" list above the
-  // tree, rather than forced into a strict parent/child indentation — a
+  // tree, rather than forced into a strict parent/child indentation - a
   // tree can't visually represent a merge, so this keeps it honest instead
   // of picking one segment to "own" Revenue.
   const mergeSources = rootCandidates.length > 1 ? rootCandidates : [];

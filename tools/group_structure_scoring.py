@@ -91,13 +91,74 @@ _FOREIGN_COUNTRY_HINT = re.compile(
 _FOREIGN_SUFFIX = re.compile(r"\bPte\.?\s?Ltd\b|\bInc\.?\b|\bLLC\b|\bB\.V\.?\b|\bAG\b|\bGmbH\b", re.I)
 _TRUST_HINT = re.compile(r"\bTrust\b|\bFoundation\b|\bFund\b", re.I)
 
+# SEBI's LODR (Sixth Amendment) Regulations, 2021 (as further amended,
+# effective November 2025) MANDATE that every material related-party
+# transaction disclosure include a per-counterparty annexure captioned
+# "ANNEXURE-<letter> (Transaction with <Entity Name>)" - this is a
+# regulatory-mandated, generic caption format used across ANY NSE/BSE-
+# listed company making such disclosures, not a company-specific
+# phrasing. Confirmed real gap on Prime Fresh Limited: its RPT note names
+# real subsidiaries/associates ONLY via this annexure-caption format (no
+# entity is ever printed as "Name (NN%)" inline) - the primary
+# `_ENTITY_WITH_PCT` pattern found nothing despite ~200+ "subsidiary"
+# mentions on the page, because the entity names live in this different,
+# equally standard disclosure shape instead.
+_ANNEXURE_ENTITY_RE = re.compile(
+    # Anchored to the boilerplate "Pursuant to the SEBI Circular" phrase
+    # that immediately follows this caption in EVERY such disclosure
+    # (mandated wording, not company-specific) rather than the first ")" -
+    # the caption itself commonly contains a nested parenthetical (e.g.
+    # "(Formerly Known as ...)") whose own closing ")" would otherwise
+    # truncate the capture early.
+    r"ANNEXURE[-\s]?[A-Z]\s*\(Transaction with\s+(.+?)\)\s*Pursuant to the SEBI Circular", re.I
+)
+# Only Ind AS 24/Companies Act CORPORATE relationship types belong in
+# C.4.x's group-structure entity count - an individual related party
+# (promoter/director/relative, also disclosed via this SAME annexure
+# caption format) is a person, not a group entity, and must not be
+# counted as a subsidiary/SPV/JV.
+_INDIVIDUAL_PARTY_RE = re.compile(r"^(?:Mr\.?|Mrs\.?|Ms\.?|Dr\.?)\s|\(DIN\s*:", re.I)
+# The relationship type for an annexure-named entity is usually stated in
+# the SAME or a nearby "Nature of Relationship"-labelled row/sentence
+# (e.g. "Subsidiary Company", "Associate Concern", "Joint Venture") -
+# checked in a window around each match, generic Ind AS 24/Companies Act
+# relationship vocabulary, not company-specific.
+_RELATIONSHIP_TYPE_RE = re.compile(
+    r"\b(Subsidiary(?:\s+Company)?|Wholly[- ]Owned\s+Subsidiary|Associate(?:\s+Concern)?|"
+    r"Joint\s+Venture|Step[- ]Down\s+Subsidiary)\b", re.I
+)
+
+# Form AOC-1 (Companies Act 2013, Section 129(3)/Rule 5) - "Statement
+# containing salient features of the financial statement of
+# subsidiaries/associate companies/joint ventures" - a THIRD, separately
+# UNIVERSALLY MANDATED disclosure format (every Indian company with
+# subsidiaries must file this exact statement), structurally different
+# again from both `_ENTITY_WITH_PCT` and `_ANNEXURE_ENTITY_RE`: numbered
+# rows of "S.No  Entity Name  Date of acquisition/incorporation
+# Country..." with no inline percentage and no per-entity caption -
+# anchored on the DATE that always immediately follows the entity name
+# (DD-Mon-YY/YYYY, e.g. "8-Jun-10"), the one reliably-placed, non-
+# company-specific landmark in this row shape. Confirmed real gap on
+# Bharti Airtel: its 100+ subsidiaries are named ONLY in this AOC-1
+# statement, never inline with a percentage nor via the SEBI RPT-
+# annexure caption format.
+_AOC1_ROW_RE = re.compile(
+    r"\b\d{1,3}\s+([A-Z][\w&.'\-\(\)$ ]{2,80}?)\s+\d{1,2}[-\s][A-Za-z]{3}[-\s]\d{2,4}\b"
+)
+
 
 def extract_group_entities(text):
     """Parses the Related Party Disclosures note's own "Subsidiaries
     (Extent of holding)" listing - "EntityName (NN%)" - into structured
     rows. Dedups by entity name (case-insensitive). Returns
-    [{'name','ownership_pct','is_trust','is_overseas'}, ...] or [] if no
-    such listing is present. Never raises."""
+    [{'name','ownership_pct','is_trust','is_overseas','relationship'},
+    ...] or [] if no such listing is present. Never raises.
+
+    Falls back to the SEBI-mandated "ANNEXURE-X (Transaction with Entity
+    Name)" caption format (see `_ANNEXURE_ENTITY_RE`'s comment) when the
+    primary inline-percentage format isn't found at all - a genuinely
+    different, equally standard RPT disclosure shape, not a company-
+    specific pattern."""
     if not text:
         return []
     seen = {}
@@ -112,7 +173,52 @@ def extract_group_entities(text):
             pct = None
         is_overseas = bool(_FOREIGN_COUNTRY_HINT.search(name) or _FOREIGN_SUFFIX.search(name))
         is_trust = bool(_TRUST_HINT.search(name))
-        seen[key] = {"name": name, "ownership_pct": pct, "is_trust": is_trust, "is_overseas": is_overseas}
+        seen[key] = {"name": name, "ownership_pct": pct, "is_trust": is_trust, "is_overseas": is_overseas,
+                     "relationship": None}
+    if seen:
+        return list(seen.values())
+
+    for m in _ANNEXURE_ENTITY_RE.finditer(text):
+        name = re.sub(r"\s+", " ", m.group(1)).strip().rstrip(".,")
+        if _INDIVIDUAL_PARTY_RE.search(name):
+            continue  # a person (promoter/director/relative), not a group entity
+        # "Formerly Known as ..." qualifiers are a name-change footnote,
+        # not part of the operating entity's current legal name. The
+        # capture group above stops right where this parenthetical's own
+        # closing ")" would be (consumed by the outer pattern's literal
+        # `\)\s*Pursuant`), so it's always unbalanced/open here - strip
+        # from the opening "(Formerly Known as" to the end, not a
+        # balanced-parens match.
+        name = re.sub(r"\s*\(Formerly\s+Known\s+as.*$", "", name, flags=re.I).strip()
+        key = name.lower()
+        if key in seen or not name:
+            continue
+        window = text[m.end():m.end() + 500]
+        rel_m = _RELATIONSHIP_TYPE_RE.search(window)
+        is_overseas = bool(_FOREIGN_COUNTRY_HINT.search(name) or _FOREIGN_SUFFIX.search(name))
+        is_trust = bool(_TRUST_HINT.search(name))
+        seen[key] = {"name": name, "ownership_pct": None, "is_trust": is_trust, "is_overseas": is_overseas,
+                     "relationship": rel_m.group(1) if rel_m else None}
+    if seen:
+        return list(seen.values())
+
+    # Third fallback: Form AOC-1's numbered-row table (see
+    # `_AOC1_ROW_RE`'s comment). A stray trailing note-marker (e.g. a
+    # dangling "$" footnote reference, confirmed real on Bharti Airtel's
+    # "Channel Sea Management Company (Mauritius) Limited $") is stripped
+    # the same way a page/note reference is trimmed elsewhere in this
+    # codebase - it's punctuation, never part of the legal name.
+    for m in _AOC1_ROW_RE.finditer(text):
+        name = re.sub(r"\s+", " ", m.group(1)).strip().rstrip("$*#").strip()
+        if _INDIVIDUAL_PARTY_RE.search(name) or not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        is_overseas = bool(_FOREIGN_COUNTRY_HINT.search(name) or _FOREIGN_SUFFIX.search(name))
+        is_trust = bool(_TRUST_HINT.search(name))
+        seen[key] = {"name": name, "ownership_pct": None, "is_trust": is_trust, "is_overseas": is_overseas,
+                     "relationship": None}
     return list(seen.values())
 
 

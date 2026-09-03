@@ -37,7 +37,7 @@ export default function StockSearch({ onSelect, placeholder = 'Search a company 
     if (!open || !matches.length) {
       // No dropdown match yet (e.g. typed and hit Enter faster than the
       // debounced search resolved). Try one direct lookup for the exact
-      // symbol/name before falling back to raw text — otherwise a full
+      // symbol/name before falling back to raw text - otherwise a full
       // company name like "Gopal Snacks" gets sent as the "symbol" to the
       // backend instead of the real ticker "GOPAL".
       if (e.key === 'Enter' && q.trim()) {

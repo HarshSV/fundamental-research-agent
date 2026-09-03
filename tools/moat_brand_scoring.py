@@ -1,11 +1,11 @@
 """
-A.2.A — Brand moat: deterministic (no-LLM) 0-5 evidence scorer.
+A.2.A - Brand moat: deterministic (no-LLM) 0-5 evidence scorer.
 
 Per the sheet's row 2A: score 0-5 from CRISIL/ICRA rating rationale, AR MD&A,
 and earnings-call commentary, on pricing power / customer preference /
 premium positioning / repeat business / market-share evidence.
 
-This deliberately does NOT call any LLM — regex/keyword pattern matching
+This deliberately does NOT call any LLM - regex/keyword pattern matching
 against real source text only. Chosen over an LLM read specifically to
 avoid touching the shared Groq/OpenRouter quota for a 2,409-company bulk
 run. Cruder than an LLM's nuance, but fully reproducible and auditable:
@@ -15,17 +15,17 @@ Rubric (mirrors the LLM qualitative-evidence rubric's spirit, made
 deterministic):
   5 = a CRISIL/ICRA sentence carries a brand-evidence keyword AND a
       concrete anchor (a number, %, "since <year>", or a named exclusive
-      arrangement) — specific, third-party, verifiable.
+      arrangement) - specific, third-party, verifiable.
   4 = a CRISIL/ICRA sentence carries a brand-evidence keyword with no
-      numeric/named anchor — specific claim, but generic phrasing.
+      numeric/named anchor - specific claim, but generic phrasing.
   3 = a CRISIL/ICRA sentence exists but only touches ONE evidence
-      category (see below) — narrower coverage than 4/5.
+      category (see below) - narrower coverage than 4/5.
   2 = brand-evidence keywords found ONLY in the company's own
-      description/MD&A text (not corroborated by CRISIL/ICRA) —
+      description/MD&A text (not corroborated by CRISIL/ICRA) -
       management's own claim, no third-party corroboration.
   1 = only generic boilerplate phrasing anywhere ("strong brand",
       "leading player") with no specifics from any source.
-  None (Missing) = no brand-evidence keyword found in ANY source text —
+  None (Missing) = no brand-evidence keyword found in ANY source text -
       flags QUANT_PROXY_ONLY for this sub-point, never silently scored 1.
 
 Evidence categories (need >=1 keyword hit each to count as "covered"):
@@ -78,8 +78,8 @@ def _sentences(text):
     if not text:
         return []
     # PDF-extracted text routinely line-wraps MID-PHRASE (table/form layouts
-    # splitting a two-word term across lines — confirmed on HDFCLIFE's
-    # "Persistency"/"ratio") — splitting on every newline the way a
+    # splitting a two-word term across lines - confirmed on HDFCLIFE's
+    # "Persistency"/"ratio") - splitting on every newline the way a
     # prose-sentence splitter would broke those phrases apart entirely, so
     # newlines are normalized to spaces first and only real sentence-ending
     # punctuation is treated as a boundary.
@@ -105,7 +105,7 @@ def score_brand_moat(crisil_text="", business_description="", ar_mdna_text=""):
     Deterministic 0-5 brand-moat score. `business_description` (yfinance
     blurb) and `ar_mdna_text` (real Annual Report MD&A/Business Overview
     excerpts, see tools/annual_report_financials.fetch_brand_evidence_from_annual_report)
-    are both "the company's own words" per the rubric's tier (2) — neither is
+    are both "the company's own words" per the rubric's tier (2) - neither is
     independent third-party corroboration the way a CRISIL/ICRA rationale is,
     so both are capped at 2/5 and tagged MANAGEMENT_CLAIM, combined into one
     search so a category can be found in either without double-counting.
@@ -114,12 +114,12 @@ def score_brand_moat(crisil_text="", business_description="", ar_mdna_text=""):
       {"score": 0-5|None, "categories_covered": [...], "evidence_quote": "...",
        "source": "CRISIL rationale"|"MANAGEMENT_CLAIM"|"none",
        "reasoning": "...", "numeric_anchor": bool}
-    Never raises, never fabricates — a score of 1 vs None is meaningfully
+    Never raises, never fabricates - a score of 1 vs None is meaningfully
     different (boilerplate found vs nothing found at all), per the
     DON'T/DO INSTEAD guardrails.
     """
     crisil_matches = _matches_in(crisil_text)
-    # Company's own words, from either source — merged since both sit at the
+    # Company's own words, from either source - merged since both sit at the
     # SAME evidence tier (MANAGEMENT_CLAIM), not independently corroborating.
     own_words_text = "\n".join(t for t in (business_description, ar_mdna_text) if t)
     desc_matches = _matches_in(own_words_text)
@@ -162,7 +162,7 @@ def score_brand_moat(crisil_text="", business_description="", ar_mdna_text=""):
         }
 
     # Only the company's own words (business description and/or its own
-    # Annual Report MD&A) mention brand evidence — no third-party (CRISIL)
+    # Annual Report MD&A) mention brand evidence - no third-party (CRISIL)
     # corroboration, capped at 2 per the rubric and tagged MANAGEMENT_CLAIM.
     categories = list(desc_matches.keys())
     all_sentences = [s for sents in desc_matches.values() for s in sents]
@@ -170,5 +170,5 @@ def score_brand_moat(crisil_text="", business_description="", ar_mdna_text=""):
         "score": 2, "categories_covered": categories, "numeric_anchor": False,
         "evidence_quote": all_sentences[0][:300], "source": "MANAGEMENT_CLAIM",
         "reasoning": f"Brand-evidence language ({', '.join(categories)}) found only in the company's own "
-                     f"description/Annual Report MD&A — no independent CRISIL/ICRA corroboration.",
+                     f"description/Annual Report MD&A - no independent CRISIL/ICRA corroboration.",
     }

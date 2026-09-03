@@ -122,7 +122,7 @@ def suggest_comparison_parameters(target_name: str, peer_names: list, cap_tier: 
                 # ROCE/operating-margin style metrics are not meaningful for lenders;
                 # lead with valuation, growth and size instead.
                 "recommended": ["pe", "qtrProfitGrowth", "marketCapCr", "divYield"],
-                "note": "For lenders & financials, ROCE/operating margin are not comparable — "
+                "note": "For lenders & financials, ROCE/operating margin are not comparable - "
                         "focus on P/E, quarterly profit growth, size and dividend yield.",
             }
         return {
@@ -169,7 +169,7 @@ def suggest_comparison_parameters(target_name: str, peer_names: list, cap_tier: 
         if not rec:
             return _heuristic()
         return {
-            "sector_guess": parsed.get("sector_guess") or "—",
+            "sector_guess": parsed.get("sector_guess") or "-",
             "recommended": rec,
             "note": parsed.get("note") or "",
         }
@@ -203,7 +203,7 @@ def build_screener_peer_comparison(symbol: str, screener_peers: list,
         if tn:
             target_row = next((r for r in rows if _norm(r.get("name")) == tn), None)
     if target_row is None:
-        # Screener didn't include the target in its own peer list — synthesize a
+        # Screener didn't include the target in its own peer list - synthesize a
         # minimal target row so the table still anchors on it.
         target_row = {
             "name": target_name or target_sym, "symbol": target_sym,
@@ -252,7 +252,7 @@ def build_screener_peer_comparison(symbol: str, screener_peers: list,
 
     # --- Tier-matched benchmark: rank the target ONLY among similar-sized peers
     # (comparing a small-cap against index heavyweights is like comparing a 5th-
-    # grader's marks with a 12th-class topper — meaningless). Needs >=3 same-tier
+    # grader's marks with a 12th-class topper - meaningless). Needs >=3 same-tier
     # rows (target included) to be statistically sensible.
     tier = target_row.get("capTier")
     tier_rows = [r for r in all_rows if tier and r.get("capTier") == tier]
@@ -305,7 +305,7 @@ def build_screener_peer_comparison(symbol: str, screener_peers: list,
             "peer_names": [r.get("name") for r in tier_rows if not r.get("isTarget")],
         }
 
-    # Full-peer-set ranking — EVERY peer's composite percentile (always available, so
+    # Full-peer-set ranking - EVERY peer's composite percentile (always available, so
     # the peer-standing chart shows all peers even when there aren't enough same-tier
     # ones for a tier benchmark).
     def _composite_all(row):
@@ -369,7 +369,7 @@ class PeerSectorEvaluator:
 
     def _fetch_stock_metrics(self, symbol: str) -> dict:
         """Fetch valuation/return/growth/leverage metrics for a single symbol via
-        yfinance `info` (fast). The slow Apify per-peer call was removed — it made
+        yfinance `info` (fast). The slow Apify per-peer call was removed - it made
         peer synthesis take minutes."""
         clean_symbol = symbol.strip().upper()
         if clean_symbol.endswith('.NS'):
@@ -419,7 +419,7 @@ class PeerSectorEvaluator:
         """
         Build the size/sector-aware peer view from Screener.in's per-company peer
         list. Prefers peers already present in the fetched payload (free); otherwise
-        calls the cached Screener API. Best-effort — returns None on any failure so
+        calls the cached Screener API. Best-effort - returns None on any failure so
         the legacy sector-group matrix remains the fallback.
         """
         try:
@@ -436,7 +436,7 @@ class PeerSectorEvaluator:
                     target_market_cap_cr = mc / 1e7  # absolute INR -> ₹ crore
 
             # Not in the payload (yfinance was primary). Use the FREE direct
-            # Screener.in scrape — it has no API-key/cost and works from cloud hosts
+            # Screener.in scrape - it has no API-key/cost and works from cloud hosts
             # (screener.in is globally reachable; yfinance per-peer is rate-limited).
             if not screener_peers:
                 try:

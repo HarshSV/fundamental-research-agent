@@ -1,11 +1,11 @@
 """
 Seeds `companies` with EVERY NSE-listed symbol (via app.py's own
-`load_scrip_master_async()` — same source the live dashboard's autocomplete
+`load_scrip_master_async()` - same source the live dashboard's autocomplete
 uses) and, for each one, resolves its BSE scrip code and finds the actual
-Annual Report PDF it will be extracted from — the "source document" the
+Annual Report PDF it will be extracted from - the "source document" the
 user explicitly asked to have recorded before any ratio precompute runs.
 
-This does NOT compute any ratios — it only answers "does this company
+This does NOT compute any ratios - it only answers "does this company
 resolve to a real BSE filing, and which PDF/year would we use." That makes
 it fast to run to completion (one BSE lookup per company, not 21x), and it
 gives a genuinely useful company-level health signal on its own: any
@@ -80,7 +80,7 @@ def run(companies, force=False):
     if not force:
         try:
             # Paginated: a single .execute() call caps out at Supabase's
-            # default page size (~1000 rows) — with 1800+ resolved companies
+            # default page size (~1000 rows) - with 1800+ resolved companies
             # that silently truncated already_resolved, causing already-done
             # companies past the cap to be needlessly re-checked.
             start, page_size = 0, 1000

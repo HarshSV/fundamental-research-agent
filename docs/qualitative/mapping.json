@@ -1,0 +1,886 @@
+[
+  {
+    "name": "Past successes / failures",
+    "how": "Horizontal comparison bar"
+  },
+  {
+    "name": "Management tenure",
+    "how": "Horizontal bar chart"
+  },
+  {
+    "name": "Relevance to current strategy",
+    "how": "Progress bar"
+  },
+  {
+    "name": "Pay structure",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Equity ownership",
+    "how": "Donut chart"
+  },
+  {
+    "name": "Vesting structure",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Long-term orientation",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Leadership depth",
+    "how": "Horizontal bar chart"
+  },
+  {
+    "name": "Succession readiness",
+    "how": "Binary status chart"
+  },
+  {
+    "name": "Key executive dependency",
+    "how": "Horizontal risk bar"
+  },
+  {
+    "name": "Transparency in disclosures",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Openness in investor communication",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Delivered vs stated milestones",
+    "how": "Two-value comparison bar"
+  },
+  {
+    "name": "Capital allocation execution",
+    "how": "Two-value comparison bar"
+  },
+  {
+    "name": "Strategic execution consistency",
+    "how": "Line chart"
+  },
+  {
+    "name": "Innovation focus",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Compliance orientation",
+    "how": "Horizontal comparison bar"
+  },
+  {
+    "name": "Employee morale",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Attrition evidence",
+    "how": "Line chart"
+  },
+  {
+    "name": "Control levels",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Changes over time",
+    "how": "Line chart"
+  },
+  {
+    "name": "Direction (buying / selling)",
+    "how": "Diverging directional bar"
+  },
+  {
+    "name": "Presence of pledging",
+    "how": "Progress bar"
+  },
+  {
+    "name": "Size of pledged shares",
+    "how": "Progress bar"
+  },
+  {
+    "name": "Trend in pledging",
+    "how": "Line chart"
+  },
+  {
+    "name": "Margin-call risk",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Frequency of RPTs",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Counterparty identity",
+    "how": "Horizontal comparison bar"
+  },
+  {
+    "name": "Disclosure quality of RPTs",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Off-balance-sheet vehicles",
+    "how": "Horizontal bar chart"
+  },
+  {
+    "name": "Special purpose vehicles (SPVs)",
+    "how": "Horizontal comparison bar"
+  },
+  {
+    "name": "Subsidiaries abroad",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Complexity / transparency of group structure",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Independent directors’ quality",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Audit committee activity",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Nomination & remuneration committee activity",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Board attendance and committee participation",
+    "how": "Horizontal bar chart"
+  },
+  {
+    "name": "Auditor tenure",
+    "how": "Single-value horizontal bar"
+  },
+  {
+    "name": "Auditor switches",
+    "how": "Timeline"
+  },
+  {
+    "name": "Qualifications in audit reports",
+    "how": "Binary audit-status chart"
+  },
+  {
+    "name": "Reservations / emphasis of matter",
+    "how": "Single-value horizontal bar"
+  },
+  {
+    "name": "Capital expenditure (capex)",
+    "how": "Line chart"
+  },
+  {
+    "name": "Acquisitions",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Buybacks",
+    "how": "Single-value horizontal bar"
+  },
+  {
+    "name": "Dividends",
+    "how": "Line chart"
+  },
+  {
+    "name": "Capital allocation rationale",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Disclosure quality",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Minority shareholder voting and treatment",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Disclosure consistency and timeliness",
+    "how": "Line chart"
+  },
+  {
+    "name": "Frequency of insider selling",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Timing of insider selling",
+    "how": "Timeline"
+  },
+  {
+    "name": "Size of insider selling",
+    "how": "Horizontal bar chart"
+  },
+  {
+    "name": "Rationale for insider selling",
+    "how": "Horizontal evidence bar"
+  },
+  {
+    "name": "Frequency of insider buying",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Size of insider buying",
+    "how": "Horizontal bar chart"
+  },
+  {
+    "name": "Repeat buying / conviction pattern",
+    "how": "Timeline"
+  },
+  {
+    "name": "Placements / preferential allotments",
+    "how": "Timeline"
+  },
+  {
+    "name": "Dilution to existing shareholders",
+    "how": "Progress bar"
+  },
+  {
+    "name": "Pricing / discount and rationale",
+    "how": "Two-value comparison bar"
+  },
+  {
+    "name": "Lock-in expiry date",
+    "how": "Timeline"
+  },
+  {
+    "name": "Potential sellable block size",
+    "how": "Progress bar"
+  },
+  {
+    "name": "Promoter/company loan direction",
+    "how": "Diverging directional bar"
+  },
+  {
+    "name": "Interest rate and terms",
+    "how": "Two-value comparison bar"
+  },
+  {
+    "name": "Outstanding balance / concentration",
+    "how": "Horizontal ranked bar"
+  },
+  {
+    "name": "Pledge release / unwinding",
+    "how": "Line chart"
+  },
+  {
+    "name": "Forced-sale / invocation signals",
+    "how": "Timeline"
+  },
+  {
+    "name": "Related-party payment frequency",
+    "how": "Single-value horizontal bar"
+  },
+  {
+    "name": "Payment rationale / arm’s-length basis",
+    "how": "Horizontal evidence bar"
+  },
+  {
+    "name": "Top customer revenue concentration",
+    "how": "Horizontal ranked bar"
+  },
+  {
+    "name": "Customer dependency",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Supplier concentration",
+    "how": "Horizontal ranked bar"
+  },
+  {
+    "name": "Supplier terms / dependence",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Receivables growth",
+    "how": "Line chart"
+  },
+  {
+    "name": "Receivables aging / overdue quality",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Revenue-recognition disclosure risk",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Inventory trend",
+    "how": "Line chart"
+  },
+  {
+    "name": "Inventory vs demand",
+    "how": "Diverging two-value bar"
+  },
+  {
+    "name": "Obsolete / slow-moving inventory",
+    "how": "Progress bar"
+  },
+  {
+    "name": "Off-market transactions",
+    "how": "Horizontal comparison bar"
+  },
+  {
+    "name": "Non-arm’s-length contracts",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Accounting policy changes",
+    "how": "Timeline"
+  },
+  {
+    "name": "Changes in accounting estimates",
+    "how": "Timeline"
+  },
+  {
+    "name": "One-off adjustments / special items",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Earnings smoothing signals",
+    "how": "Line chart"
+  },
+  {
+    "name": "Number of material competitors",
+    "how": "Horizontal bar chart"
+  },
+  {
+    "name": "Relative market position",
+    "how": "Horizontal ranked bar"
+  },
+  {
+    "name": "Competitor strength",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Entry barriers",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Price-war evidence",
+    "how": "Line chart"
+  },
+  {
+    "name": "Regulatory barriers",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Trade barriers",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Foreign competitor presence",
+    "how": "Binary status chart"
+  },
+  {
+    "name": "Import competition",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Switching costs",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Network effects",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Channel mix",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Channel control",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Group-channel overlap",
+    "how": "Binary risk status chart"
+  },
+  {
+    "name": "Contract duration / renewal",
+    "how": "Two-value comparison bar"
+  },
+  {
+    "name": "Customer churn / retention",
+    "how": "Line chart"
+  },
+  {
+    "name": "Distribution reach",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Peer distribution advantage",
+    "how": "Horizontal comparison bar"
+  },
+  {
+    "name": "Patent / trademark expiry",
+    "how": "Timeline"
+  },
+  {
+    "name": "R&D pipeline depth",
+    "how": "Pipeline progression chart"
+  },
+  {
+    "name": "Legacy technology dependence",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Cybersecurity posture",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Third-party technology dependence",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "License continuity risk",
+    "how": "Timeline"
+  },
+  {
+    "name": "Single-source suppliers",
+    "how": "Progress/risk bar"
+  },
+  {
+    "name": "Geographic concentration / China exposure",
+    "how": "Horizontal ranked bar"
+  },
+  {
+    "name": "Inventory buffers",
+    "how": "Progress bar"
+  },
+  {
+    "name": "Capacity vs demand",
+    "how": "Two-value comparison bar"
+  },
+  {
+    "name": "Capital constraints to scale",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Price protection clauses",
+    "how": "Binary status chart"
+  },
+  {
+    "name": "Currency clauses",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Lead time / throughput",
+    "how": "Line chart"
+  },
+  {
+    "name": "Quality defects / warranty claims",
+    "how": "Line chart"
+  },
+  {
+    "name": "Renewal burden",
+    "how": "Progress/risk bar"
+  },
+  {
+    "name": "Litigation count and materiality",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Probability / management assessment",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Competition investigations",
+    "how": "Timeline"
+  },
+  {
+    "name": "Potential financial / operational impact",
+    "how": "Horizontal bar chart"
+  },
+  {
+    "name": "Tax disputes",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Historic tax exposures",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Ongoing tax audits / assessments",
+    "how": "Timeline"
+  },
+  {
+    "name": "Subsidy dependence",
+    "how": "Progress bar"
+  },
+  {
+    "name": "Environmental regulation exposure",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Commodity input dependence",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Export/import dependence",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Geopolitical trade risk",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Interest-rate sensitivity",
+    "how": "Progress/risk bar"
+  },
+  {
+    "name": "Economic cyclicality",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Hedging protection",
+    "how": "Progress bar"
+  },
+  {
+    "name": "Leverage policy",
+    "how": "Line chart"
+  },
+  {
+    "name": "Covenant management",
+    "how": "Progress bar"
+  },
+  {
+    "name": "Refinancing history",
+    "how": "Timeline"
+  },
+  {
+    "name": "Covenant breaches / remedies",
+    "how": "Timeline"
+  },
+  {
+    "name": "Dividend consistency",
+    "how": "Line chart"
+  },
+  {
+    "name": "Rationale for changes",
+    "how": "Horizontal evidence bar"
+  },
+  {
+    "name": "Lease commitments",
+    "how": "Horizontal bar chart"
+  },
+  {
+    "name": "Structured / off-balance-sheet arrangements",
+    "how": "Binary risk status chart"
+  },
+  {
+    "name": "M&A frequency",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Acquisitive vs disciplined pattern",
+    "how": "Horizontal status/evidence bar"
+  },
+  {
+    "name": "Related-party acquisitions",
+    "how": "Binary risk status chart"
+  },
+  {
+    "name": "Assets sold to affiliates",
+    "how": "Binary risk status chart"
+  },
+  {
+    "name": "M&A pipeline",
+    "how": "Pipeline progression chart"
+  },
+  {
+    "name": "Value-creation rationale",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "ESG targets",
+    "how": "Progress bar"
+  },
+  {
+    "name": "Community impact",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Displacement / resettlement",
+    "how": "Binary risk status chart"
+  },
+  {
+    "name": "Pollution / environmental incidents",
+    "how": "Line chart"
+  },
+  {
+    "name": "Hazardous waste",
+    "how": "Line chart"
+  },
+  {
+    "name": "Pending clearances",
+    "how": "Bar chart"
+  },
+  {
+    "name": "Union / collective bargaining exposure",
+    "how": "Binary risk status chart"
+  },
+  {
+    "name": "Strikes / disputes",
+    "how": "Line chart"
+  },
+  {
+    "name": "Employee grievances",
+    "how": "Line chart"
+  },
+  {
+    "name": "Human-rights policy / supplier screening",
+    "how": "Binary status chart"
+  },
+  {
+    "name": "Forced/child labour incidents",
+    "how": "Line chart"
+  },
+  {
+    "name": "Material controversies",
+    "how": "Timeline"
+  },
+  {
+    "name": "Stakeholder complaints",
+    "how": "Line chart"
+  },
+  {
+    "name": "Safety incidents",
+    "how": "Line chart"
+  },
+  {
+    "name": "Negative campaigns / reputation response",
+    "how": "Timeline"
+  },
+  {
+    "name": "Regulatory fines",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Public investigations",
+    "how": "Timeline"
+  },
+  {
+    "name": "Disclosure detail",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Timeliness / frequency",
+    "how": "Line chart"
+  },
+  {
+    "name": "RPT completeness",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "RPT explanation quality",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Audit opinion",
+    "how": "Binary audit-status chart"
+  },
+  {
+    "name": "Emphasis of matter / key audit matters",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Restatements",
+    "how": "Timeline"
+  },
+  {
+    "name": "Financial statement complexity",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Multiple currencies",
+    "how": "Single-value horizontal bar"
+  },
+  {
+    "name": "Subsidiary complexity",
+    "how": "Horizontal bar chart"
+  },
+  {
+    "name": "CFO / finance leadership churn",
+    "how": "Timeline"
+  },
+  {
+    "name": "Group structure opacity",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Dormant / non-operating entities",
+    "how": "Single-value horizontal bar"
+  },
+  {
+    "name": "Year-end transaction concentration",
+    "how": "Monthly bar chart"
+  },
+  {
+    "name": "Explanation quality",
+    "how": "5-point horizontal rating bar"
+  },
+  {
+    "name": "Sudden departures",
+    "how": "Timeline"
+  },
+  {
+    "name": "Succession response",
+    "how": "Binary status chart"
+  },
+  {
+    "name": "Rapid insider selling",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Concentrated block sales",
+    "how": "Horizontal bar chart"
+  },
+  {
+    "name": "Capital raise frequency",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Discount / pricing",
+    "how": "Two-value comparison bar"
+  },
+  {
+    "name": "One-off transaction frequency",
+    "how": "Bar chart over time"
+  },
+  {
+    "name": "Transfer pricing / rationale",
+    "how": "Horizontal risk/evidence bar"
+  },
+  {
+    "name": "Auditor resignation",
+    "how": "Timeline"
+  },
+  {
+    "name": "Internal control issues",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Response cadence",
+    "how": "Line chart"
+  },
+  {
+    "name": "Substance of response",
+    "how": "Horizontal risk/evidence bar"
+  },
+  {
+    "name": "Asset quality",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Related-party exposures",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Regulatory capital",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Loan underwriting quality",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Patent cliffs",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Regulatory inspections",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Price controls",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Model refresh cycle",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Channel inventory",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Export dependency",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Client concentration",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Contract renewal risk",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Visa / immigration dependence",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Brand strength",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Distribution depth",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Commodity input volatility",
+    "how": "Binary status chart (Applicable vs Not Applicable)"
+  },
+  {
+    "name": "Sanctions / embargo exposure",
+    "how": "Binary risk status chart"
+  },
+  {
+    "name": "Tariff exposure",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "GST sensitivity",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Import duty sensitivity",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Convertibility risk",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Repatriation risk",
+    "how": "5-point horizontal risk bar"
+  },
+  {
+    "name": "Top management-identified risk",
+    "how": "Horizontal ranked bar"
+  },
+  {
+    "name": "Capital allocation framework",
+    "how": "100% stacked horizontal bar"
+  },
+  {
+    "name": "Management-named competitors",
+    "how": "Horizontal ranked bar"
+  },
+  {
+    "name": "Revenue sensitivity",
+    "how": "Horizontal ranked bar"
+  },
+  {
+    "name": "Margin sensitivity",
+    "how": "Horizontal ranked bar"
+  },
+  {
+    "name": "Management explanation of material RPTs",
+    "how": "Horizontal evidence bar"
+  },
+  {
+    "name": "CEO succession",
+    "how": "Binary status chart"
+  },
+  {
+    "name": "CFO succession",
+    "how": "Binary status chart"
+  }
+]

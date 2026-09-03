@@ -5,11 +5,11 @@ On Windows, many corporate / ISP / antivirus setups run a TLS-inspecting proxy
 that re-signs HTTPS with a private root CA. That root lives in the Windows
 certificate store but NOT in certifi's bundle, so Python `requests` AND the
 `curl_cffi` transport used by yfinance fail with "unable to get local issuer
-certificate" — leaving the app with no market data.
+certificate" - leaving the app with no market data.
 
 This module exports the machine's ROOT + CA stores (which include that private
 root) into a single PEM and points every HTTP layer at it via the standard
-environment variables. Verification stays ON and correct — this is not an
+environment variables. Verification stays ON and correct - this is not an
 insecure bypass; it simply trusts the certificates the machine already trusts.
 
 On Linux / macOS (i.e. the production cloud box) this is a no-op and the normal

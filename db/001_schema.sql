@@ -62,6 +62,20 @@ create table if not exists price_intraday (
 );
 create index if not exists idx_price_intraday_symbol_ts on price_intraday(symbol, ts desc);
 
+-- One row per (symbol, qualitative sub-point) - the A-U sourcing-pathway spec
+-- (121 sub-points total, e.g. "A.1"), built one sub-point at a time. Separate
+-- from ratio_values because these are narrative judgments (with a confidence
+-- tag + pathway-by-pathway sourcing record), not numeric Sr 1-92 ratios.
+create table if not exists qualitative_values (
+    symbol           text not null references companies(symbol) on delete cascade,
+    subpoint_id      text not null,           -- "A.1", "A.2", ... per the spec sheet
+    payload          jsonb not null,          -- full computed result (model_type, rationale, pathway_results, ...)
+    confidence_tag   text not null,           -- VERIFIED | SINGLE_SOURCE | CONFLICT_UNRESOLVED | <terminal negative code>
+    retrieved_at     timestamptz not null default now(),
+    primary key (symbol, subpoint_id)
+);
+create index if not exists idx_qualitative_values_symbol on qualitative_values(symbol);
+
 -- Tracks the precompute worker's progress per (symbol, ratio) so a
 -- full-registry run is resumable, not an all-or-nothing multi-hour job.
 create table if not exists refresh_jobs (
@@ -75,11 +89,12 @@ create table if not exists refresh_jobs (
 create index if not exists idx_refresh_jobs_status on refresh_jobs(status);
 
 -- Row Level Security: lock every table down by default. The backend talks
--- to Supabase using the service_role key, which bypasses RLS entirely — so
+-- to Supabase using the service_role key, which bypasses RLS entirely - so
 -- these policies only matter if the anon/public key is ever used directly
 -- (e.g. accidentally shipped to the frontend). Belt-and-braces.
 alter table companies enable row level security;
 alter table ratio_values enable row level security;
+alter table qualitative_values enable row level security;
 alter table price_eod enable row level security;
 alter table price_intraday enable row level security;
 alter table refresh_jobs enable row level security;

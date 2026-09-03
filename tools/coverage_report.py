@@ -1,5 +1,5 @@
 """
-Coverage report — answers "across all NSE companies, which (symbol, ratio)
+Coverage report - answers "across all NSE companies, which (symbol, ratio)
 pairs are missing, errored, or never attempted?" in one run.
 
 Pulls companies, refresh_jobs, and ratio_values from Supabase into memory

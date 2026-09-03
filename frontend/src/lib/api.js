@@ -1,4 +1,4 @@
-// Centralised API layer — same backend endpoints and JWT bearer scheme the app
+// Centralised API layer - same backend endpoints and JWT bearer scheme the app
 // has always used. New components import from here instead of threading fetch
 // helpers through props.
 
@@ -27,11 +27,11 @@ export async function authFetch(path, options = {}) {
   return res;
 }
 
-// POST helper for the /api/v1/* ratio endpoints — every one of these is
+// POST helper for the /api/v1/* ratio endpoints - every one of these is
 // backed by the fast Supabase precompute table first (falling back to a
 // live PDF parse only on a cache miss), so they resolve in ~1s for any
 // already-precomputed company instead of waiting on the slow multi-LLM
-// /api/v1/generate-report pipeline. Never throws — callers get `null` on
+// /api/v1/generate-report pipeline. Never throws - callers get `null` on
 // any failure (network, 401, non-2xx) and treat that the same as "not
 // applicable" rather than crashing the caller's Promise.all.
 export async function fetchRatio(path, symbol, name, to_date = null) {

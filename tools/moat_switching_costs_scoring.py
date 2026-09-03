@@ -1,20 +1,20 @@
 """
-A.2.E — Switching costs moat: deterministic (no-LLM) 0-5 evidence scorer.
+A.2.E - Switching costs moat: deterministic (no-LLM) 0-5 evidence scorer.
 
 Per the sheet's row 2E: evidence a customer faces real friction (financial,
-operational, contractual, or regulatory) to switch to a competitor — not
+operational, contractual, or regulatory) to switch to a competitor - not
 just that customers "seem loyal."
 
-Deliberately does NOT call any LLM — same rationale as the other A.2.x
+Deliberately does NOT call any LLM - same rationale as the other A.2.x
 scorers (reproducible, auditable, avoids the shared Groq/OpenRouter quota).
 
-Rubric — note the 5/5 tier specifically requires BOTH a contract-term
+Rubric - note the 5/5 tier specifically requires BOTH a contract-term
 length AND a renewal-rate percentage cited TOGETHER, not just one:
   5 = a contract-term length (e.g. "5-year contract") AND a renewal-rate %
       (e.g. "92% renewal rate") both cited, in the same evidence pool.
   4 = the same kind of evidence but only ONE of the two (a term length OR a
       renewal rate, with an actual number), or a regulatory/certification
-      switching barrier named specifically — or the same as 5/5 but stale
+      switching barrier named specifically - or the same as 5/5 but stale
       (>2yr, not distinguished here since this codebase doesn't track filing
       recency at the sentence level; treated as 4 conservatively when only
       one metric is present).
@@ -40,7 +40,7 @@ _CATEGORY_PATTERNS = {
     "renewal_rate": [
         r"\brenewal rate\b", r"\bcustomer retention rate\b", r"\bcontract renewal\b",
         r"\brenewed at\b",
-        # Insurance-sector renewal-equivalent term of art — confirmed
+        # Insurance-sector renewal-equivalent term of art - confirmed
         # (HDFCLIFE) "renewal rate" alone misses real, disclosed data here.
         # \s+ (not a literal space) since PDF text extraction routinely
         # inserts irregular whitespace/line-breaks between words.
@@ -71,8 +71,8 @@ def _sentences(text):
     if not text:
         return []
     # PDF-extracted text routinely line-wraps MID-PHRASE (table/form layouts
-    # splitting a two-word term across lines — confirmed on HDFCLIFE's
-    # "Persistency"/"ratio") — splitting on every newline the way a
+    # splitting a two-word term across lines - confirmed on HDFCLIFE's
+    # "Persistency"/"ratio") - splitting on every newline the way a
     # prose-sentence splitter would broke those phrases apart entirely, so
     # newlines are normalized to spaces first and only real sentence-ending
     # punctuation is treated as a boundary.
@@ -96,7 +96,7 @@ def score_switching_costs_moat(ar_mdna_text="", crisil_text="", business_descrip
     """
     Deterministic 0-5 switching-costs score. `ar_mdna_text` (real AR MD&A +
     Ind-AS-115-note-adjacent excerpts) and `crisil_text` are both treated as
-    PRIMARY per spec (CRISIL/ICRA rationale, AR MD&A) — whichever has the
+    PRIMARY per spec (CRISIL/ICRA rationale, AR MD&A) - whichever has the
     stronger evidence wins; `business_description` is the own-words/
     MANAGEMENT_CLAIM tier, same convention as the other A.2.x factors.
 
@@ -128,7 +128,7 @@ def score_switching_costs_moat(ar_mdna_text="", crisil_text="", business_descrip
             score = 5
             best = next((s for s in (matches.get("contract_term") or []) if _TERM_LENGTH_ANCHOR.search(s)),
                         next((s for s in (matches.get("renewal_rate") or []) if _PERCENT_ANCHOR.search(s)), all_sentences[0]))
-            reasoning = f"{source_label} cites BOTH a contract-term length AND a renewal-rate percentage — specific, verifiable switching-cost evidence."
+            reasoning = f"{source_label} cites BOTH a contract-term length AND a renewal-rate percentage - specific, verifiable switching-cost evidence."
             return {"score": score, "categories_covered": categories, "numeric_anchor": True,
                     "evidence_quote": best[:300], "source": source_label, "reasoning": reasoning}
 
@@ -151,7 +151,7 @@ def score_switching_costs_moat(ar_mdna_text="", crisil_text="", business_descrip
     ar_matches = _matches_in(ar_mdna_text)
     crisil_matches = _matches_in(crisil_text)
 
-    # PRIMARY: whichever of AR/CRISIL has the stronger evidence wins — both
+    # PRIMARY: whichever of AR/CRISIL has the stronger evidence wins - both
     # are PRIMARY per spec, so compare rather than strictly order one first.
     ar_result = _evaluate(ar_matches, "Annual Report MD&A")
     crisil_result = _evaluate(crisil_matches, "CRISIL rationale")
@@ -168,7 +168,7 @@ def score_switching_costs_moat(ar_mdna_text="", crisil_text="", business_descrip
             "score": 2, "categories_covered": categories, "numeric_anchor": False,
             "evidence_quote": all_sentences[0][:300], "source": "MANAGEMENT_CLAIM",
             "reasoning": f"Switching-cost language ({', '.join(categories)}) found only in the company's own "
-                         f"description — no AR/CRISIL corroboration.",
+                         f"description - no AR/CRISIL corroboration.",
         }
 
     has_boilerplate = bool(_GENERIC_BOILERPLATE.search(ar_mdna_text or "") or

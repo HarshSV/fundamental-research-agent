@@ -168,6 +168,15 @@ def score_audit_opinion(opinion_text):
 
 _KAM_HEADING = re.compile(r"how (?:our audit|we) addressed the key audit matter", re.I)
 _EOM_MARKER = re.compile(r"emphasis of matter|material uncertainty related to going concern", re.I)
+# SA 701's own explicit "zero KAMs" outcome - the auditor determined there
+# are none to communicate at all, so the per-matter "How our audit
+# addressed..." subheading (which only exists to introduce each KAM one
+# by one) never appears, not because the Key Audit Matters section itself
+# is missing. Confirmed real on Prime Fresh Limited: "We have determined
+# that there are no key audit matters to communicate in our report." -
+# without this, a genuinely clean, explicit zero-KAM finding was treated
+# identically to "the Auditor's Report text wasn't fetched at all."
+_NO_KAM_RE = re.compile(r"(?:no|none)\s+key\s+audit\s+matters?\s+to\s+communicate", re.I)
 
 
 def score_audit_observations(opinion_text):
@@ -176,14 +185,18 @@ def score_audit_observations(opinion_text):
     and flags an explicit Emphasis of Matter / Material Uncertainty
     paragraph (a real, recurring-concern signal distinct from a routine
     KAM). Returns {'kam_count','has_emphasis_of_matter',
-    'observation_classification','audit_observation_score'} or all-None
-    if the Independent Auditor's Report text itself isn't present (no
-    KAM heading AND no EOM marker at all)."""
+    'observation_classification','audit_observation_score'} - a genuine,
+    explicit "no KAMs to communicate" finding scores as a real
+    kam_count=0 (the cleanest possible outcome), never conflated with
+    all-None, which is reserved for when the Independent Auditor's Report
+    text itself isn't present (no KAM heading, no explicit zero-KAM
+    statement, AND no EOM marker at all)."""
     if not opinion_text:
         return {"kam_count": None, "has_emphasis_of_matter": None, "observation_classification": None, "audit_observation_score": None}
     kam_count = len(_KAM_HEADING.findall(opinion_text))
     has_eom = bool(_EOM_MARKER.search(opinion_text))
-    if kam_count == 0 and not has_eom:
+    explicit_zero_kam = kam_count == 0 and bool(_NO_KAM_RE.search(opinion_text))
+    if kam_count == 0 and not has_eom and not explicit_zero_kam:
         return {"kam_count": None, "has_emphasis_of_matter": None, "observation_classification": None, "audit_observation_score": None}
     if has_eom:
         classification, score = "Recurring Observation", 2

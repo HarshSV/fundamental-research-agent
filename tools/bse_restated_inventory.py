@@ -1,24 +1,24 @@
 """
-Restated prior-year Inventory — fixes a real accuracy gap in NSE-XBRL-only
+Restated prior-year Inventory - fixes a real accuracy gap in NSE-XBRL-only
 Inventory Turnover: NSE's annual XBRL only tags the CURRENT year-end balance
 sheet, never the prior-year comparative. So Average Inventory was built from
 two DIFFERENT filings (this year's XBRL + last year's OWN separately-filed
-XBRL) — which is wrong whenever the company restates prior-year comparatives
+XBRL) - which is wrong whenever the company restates prior-year comparatives
 (e.g. after a merger/amalgamation). The company's OWN annual result PDF shows
 the correct RESTATED comparative next to this year's figure; this module reads
 that specific number.
 
-Method: DETERMINISTIC position-based extraction (no LLM) — pdfplumber gives
+Method: DETERMINISTIC position-based extraction (no LLM) - pdfplumber gives
 each word's real (x, y) pixel position on the page; we cluster words into rows
 by y-coordinate, so a jumbled linear-text-extraction problem becomes a real
 table read. Two proven LLM attempts on this same filing (read-the-number,
-then just-find-the-line-number) both returned wrong values — this coordinate
+then just-find-the-line-number) both returned wrong values - this coordinate
 method is the one that reproduced the correct figure, verified against the
 filing manually.
 
 SAFETY: the extracted CURRENT-year figure must match the already-trusted XBRL
 value (within a tiny tolerance) before the paired PRIOR-year figure is trusted
-and used. If it doesn't match, return None — never a fabricated number.
+and used. If it doesn't match, return None - never a fabricated number.
 """
 
 import re
@@ -44,7 +44,7 @@ _MONTH_NUM = {"Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04", "May": "05", "
 def _find_annual_result_pdf(symbol, name, to_date):
     """Find the BSE FULL-YEAR 'Financial Results For ... Year Ended <to_date>'
     announcement and return its PDF attachment URL, or None. `to_date` like
-    '31-Mar-2024'. Excludes half-year/quarter filings — "Half Year Ended" and
+    '31-Mar-2024'. Excludes half-year/quarter filings - "Half Year Ended" and
     "Quarter Ended" both contain the substring "Year Ended", so a plain
     substring match on 'year ended' wrongly grabs half-year filings; this
     requires the FULL month name + day + year (e.g. 'March 31, 2024') and
@@ -155,7 +155,7 @@ def _extract_prior_inventory(pdf_bytes, current_value_cr):
                     return b, None
                 if abs(b - current_value_cr) < 1.0:
                     return a, None
-            return None, f"Extracted values {vals} didn't match the trusted current-year figure {current_value_cr} — rejected."
+            return None, f"Extracted values {vals} didn't match the trusted current-year figure {current_value_cr} - rejected."
         return None, "Consolidated Balance Sheet page not found in the filing."
     except Exception as e:
         return None, f"PDF parse error: {e}"

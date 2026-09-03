@@ -1,5 +1,5 @@
 """
-B.1.1-B.1.3 — Founders/CEO track record: deterministic (no-LLM) scorers.
+B.1.1-B.1.3 - Founders/CEO track record: deterministic (no-LLM) scorers.
 
 Same design as tools/moat_brand_scoring.py (A.2.A): regex/keyword pattern
 matching against real Annual Report text only, no LLM call. Chosen because

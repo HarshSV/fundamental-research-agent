@@ -2,18 +2,18 @@ import React from 'react';
 import { inrCrore, pct, isNum } from '../lib/format.js';
 
 /*
- * Multi-Year Financial Comparison — grouped vertical bar chart, sits beside
+ * Multi-Year Financial Comparison - grouped vertical bar chart, sits beside
  * IncomeSankey on the Overview page (does not touch or depend on it).
  *
- * Data sources — no mock values, nothing new fetched:
+ * Data sources - no mock values, nothing new fetched:
  *  - `incomeStmt`  : F-01 income_stmt (same prop already passed to IncomeSankey)
  *    -> Revenue / Cost / Net Profit / EBITDA / Operating Profit, per year.
  *  - `ratios`      : F-02_Ratio_Analysis array (already computed in Overview.jsx)
  *    -> ROE / ROCE / EBITDA Margin, per year.
  *  - `peer`        : data.peer_synthesis_data (tools/peer_synthesis.py), a
  *    CURRENT-YEAR-ONLY sector snapshot. Only 'roe' has a matching, unit-
- *    consistent peer figure (sector_averages.roe, a fraction — same
- *    convention as ratios[].ROE) — every other metric here has no real peer
+ *    consistent peer figure (sector_averages.roe, a fraction - same
+ *    convention as ratios[].ROE) - every other metric here has no real peer
  *    benchmark in the codebase, so no Peer Average bar is fabricated for
  *    them; the metric selector just omits a peer series in that case rather
  *    than inventing one.
@@ -52,7 +52,7 @@ function buildMetrics(incomeStmt, ratios, peer) {
       // Default/first view: Revenue, Cost and Net Profit grouped together per
       // year (one cluster of 3 bars per FY), rather than one metric at a
       // time. Revenue and Cost keep their own fixed identity color always
-      // (blue / red) — they're basically never negative in practice, and
+      // (blue / red) - they're basically never negative in practice, and
       // Cost in particular should always read as "cost" regardless of sign.
       // Only the Profit bar is sign-driven (green if >=0, red if negative,
       // via `signFlip: true`), since a loss-making year needs to read as a
@@ -106,10 +106,10 @@ function buildMetrics(incomeStmt, ratios, peer) {
       ],
     },
   ];
-  // Only offer metrics that actually have >=2 real data points — never show
+  // Only offer metrics that actually have >=2 real data points - never show
   // an empty/near-empty chart for a metric this company's filings don't support.
   // The primary/reference series is always bars[0] (a real byDate series,
-  // never the 'peer' constant-only bar) — the combined Revenue/Cost/Profit
+  // never the 'peer' constant-only bar) - the combined Revenue/Cost/Profit
   // metric doesn't use the 'company' key like the single-series metrics do.
   return metrics.filter((m) => {
     const primary = m.bars[0];
@@ -118,7 +118,7 @@ function buildMetrics(incomeStmt, ratios, peer) {
 }
 
 function formatVal(v, unit) {
-  if (!isNum(v)) return '—';
+  if (!isNum(v)) return '-';
   return unit === 'pct' ? pct(v) : inrCrore(v);
 }
 
@@ -160,12 +160,12 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
 
   const primaryBar = metric.bars.find((b) => b.key === 'company') || metric.bars[0];
   // Some sources key a trailing-twelve-months column as "TTM" alongside real
-  // fiscal-year-end dates — filter to genuinely parseable dates only, or the
+  // fiscal-year-end dates - filter to genuinely parseable dates only, or the
   // x-axis renders "FYaN" for that column.
   const dates = Object.keys(primaryBar.byDate).filter((d) => !isNaN(new Date(d).getTime())).sort();
   const years = dates.slice(-6).reverse(); // latest first, up to 6 years
 
-  // Signed range — a loss-making year has a genuinely negative Net Profit
+  // Signed range - a loss-making year has a genuinely negative Net Profit
   // etc., and must be drawn dipping BELOW a zero baseline, not clamped to 0
   // or shown as a positive magnitude (that would misrepresent a loss as a
   // profit of the same size).
@@ -186,7 +186,7 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
   const clusterW = plotW / years.length;
   const barGap = 4;
   const barW = Math.max(6, (clusterW - barGap * (metric.bars.length + 1)) / metric.bars.length);
-  // y-pixel of the value-0 line — at the very bottom when nothing is negative.
+  // y-pixel of the value-0 line - at the very bottom when nothing is negative.
   const baselineY = pad.t + (maxVal / range) * plotH;
 
   const yTicks = 4;
@@ -220,7 +220,7 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} className="max-w-[640px]" overflow="visible">
           <defs>
             {/* orient="auto" rotates this marker to match each line's own
-                direction, so ONE triangle — apex pointing along local +x —
+                direction, so ONE triangle - apex pointing along local +x -
                 works correctly for both the upward Y-axis and rightward
                 X-axis; the previous separate "fc-arrow-y" had its apex
                 pointing along local +y instead, which orient="auto" then
@@ -259,7 +259,7 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
                   const x = cx0 + barGap + bi * (barW + barGap);
                   const y = raw >= 0 ? baselineY - h : baselineY;
                   // YoY: previous (older) date relative to this bar's own series
-                  // — applies to any real (non-constant/non-peer) series, not
+                  // - applies to any real (non-constant/non-peer) series, not
                   // only the single-metric views' 'company' bar.
                   const prevDate = dates[dates.indexOf(d) - 1];
                   const prevVal = isNum(bar.byDate?.[prevDate]) ? bar.byDate[prevDate] : null;
@@ -268,7 +268,7 @@ export default function FinancialComparisonChart({ incomeStmt, ratios, peer, com
                     ? raw - metric.bars.find((b) => b.key === 'peer').constant
                     : null;
                   // Only a bar explicitly marked signFlip (the Profit series)
-                  // switches color by sign — Revenue/Cost keep their fixed
+                  // switches color by sign - Revenue/Cost keep their fixed
                   // identity color regardless of value, same as every other
                   // metric in this chart.
                   const fillColor = bar.signFlip ? (raw >= 0 ? PROFIT_COLOR : COST_COLOR) : bar.color;

@@ -1,5 +1,5 @@
 """
-A.4 — Product lifecycle stage: deterministic (no-LLM) segment classifier.
+A.4 - Product lifecycle stage: deterministic (no-LLM) segment classifier.
 
 Per the sheet's row 4: classify each of a company's reported segments as
 Growth / Maturity / Commoditisation / Decline by comparing that segment's OWN
@@ -8,7 +8,7 @@ tools/sector_cagr_universe.py), then A.4's orchestration in
 tools/qualitative_engine.py blends the classified segments into a company-
 level, revenue-weighted result.
 
-Deliberately does NOT call any LLM — same rationale as the A.2.x moat scorers
+Deliberately does NOT call any LLM - same rationale as the A.2.x moat scorers
 and A.3's revenue_model_scoring.py (reproducible, auditable, avoids the
 shared Groq/OpenRouter quota, and a classification that can be wrong
 because of a bad LLM guess is a much bigger problem for a lifecycle-stage
@@ -26,7 +26,7 @@ Two scoping decisions were locked in with the user (do not relitigate):
     extract).
 
 Rubric (relative_growth = segment_cagr - sector_median_cagr):
-  Decline:         segment_cagr < 0 (negative CAGR) — ALWAYS wins, checked
+  Decline:         segment_cagr < 0 (negative CAGR) - ALWAYS wins, checked
                     first, regardless of the sector comparison. A company
                     losing revenue outright is in decline/obsolescence risk
                     even if the whole sector is also shrinking (relative
@@ -35,7 +35,7 @@ Rubric (relative_growth = segment_cagr - sector_median_cagr):
   Commoditisation:  relative_growth <= -3pp AND company-level EBITDA margin
                      is compressing over the same lookback window (latest
                      margins_annual entry < margin N years back). BOTH
-                     conditions required — if only the below-sector-growth
+                     conditions required - if only the below-sector-growth
                      leg holds without confirmed margin compression, this
                      returns "Maturity" with a `margin_inconclusive` flag
                      rather than forcing a Commoditisation label the margin
@@ -44,7 +44,7 @@ Rubric (relative_growth = segment_cagr - sector_median_cagr):
                      growth without confirmed margin compression).
 
 The +/-3pp threshold is a documented placeholder, same convention as A.5's
-pricing-power bands (the spec itself doesn't pre-define exact bands) — kept
+pricing-power bands (the spec itself doesn't pre-define exact bands) - kept
 as a single named constant so it's easy to find and reconsider later.
 """
 
@@ -59,7 +59,7 @@ def classify_segment_lifecycle_stage(segment_cagr, sector_median_cagr, company_m
       segment_cagr: float (e.g. 0.08 for 8%) or None.
       sector_median_cagr: float or None (from
         tools.sector_cagr_universe.get_sector_median_cagr's "median_cagr").
-      company_margin_trend: optional dict {"compressing": bool} — pass the
+      company_margin_trend: optional dict {"compressing": bool} - pass the
         result of `company_margin_trend_compressing()` below. None means the
         margin leg could not be evaluated (margin data unavailable).
 
@@ -69,31 +69,43 @@ def classify_segment_lifecycle_stage(segment_cagr, sector_median_cagr, company_m
        "margin_inconclusive": bool,
        "reasoning": str}
       Returns stage=None (never a guess) if segment_cagr or
-      sector_median_cagr is unavailable — a segment that cannot be
+      sector_median_cagr is unavailable - a segment that cannot be
       classified is surfaced as such by the caller (`unclassified_pct`),
       never silently defaulted to "Maturity" or any other label.
     """
-    if segment_cagr is None or sector_median_cagr is None:
+    if segment_cagr is None:
         return {
             "stage": None, "relative_growth_pct": None, "margin_inconclusive": True,
-            "reasoning": "Segment CAGR or sector-median CAGR unavailable — cannot classify without guessing.",
+            "reasoning": "Segment CAGR unavailable - cannot classify without guessing.",
+        }
+    # Decline is genuinely determinable from segment_cagr ALONE (see the
+    # branch below - it never reads sector_median_cagr), so a company with
+    # no sector benchmark at all (routinely the case for BSE-SME/small-cap
+    # filers outside the fixed NSE Total Market universe - confirmed real
+    # on Prime Fresh Limited) can still be correctly classified Decline
+    # rather than left permanently Unclassified just because the OTHER
+    # three stages (which do need the sector comparison) can't be reached.
+    if sector_median_cagr is None and segment_cagr >= 0:
+        return {
+            "stage": None, "relative_growth_pct": None, "margin_inconclusive": True,
+            "reasoning": "Sector-median CAGR unavailable - Growth/Maturity/Commoditisation need a sector comparison, but Decline is ruled out (segment revenue is not shrinking).",
         }
 
-    relative_growth_pct = round((segment_cagr - sector_median_cagr) * 100, 2)
+    relative_growth_pct = round((segment_cagr - sector_median_cagr) * 100, 2) if sector_median_cagr is not None else None
 
     # Decline takes priority over everything else, regardless of the sector
-    # comparison — a segment that is genuinely shrinking is in decline even
+    # comparison - a segment that is genuinely shrinking is in decline even
     # if it happens to be shrinking slightly LESS than a collapsing sector.
     if segment_cagr < 0:
         return {
             "stage": "decline", "relative_growth_pct": relative_growth_pct, "margin_inconclusive": False,
-            "reasoning": f"Segment revenue CAGR is negative ({segment_cagr * 100:.1f}%) — declining regardless of sector comparison.",
+            "reasoning": f"Segment revenue CAGR is negative ({segment_cagr * 100:.1f}%) - declining regardless of sector comparison.",
         }
 
     if relative_growth_pct >= RELATIVE_GROWTH_THRESHOLD_PP:
         return {
             "stage": "growth", "relative_growth_pct": relative_growth_pct, "margin_inconclusive": False,
-            "reasoning": f"Segment CAGR beats the sector median by {relative_growth_pct:+.1f}pp — outgrowing the sector.",
+            "reasoning": f"Segment CAGR beats the sector median by {relative_growth_pct:+.1f}pp - outgrowing the sector.",
         }
 
     if relative_growth_pct <= -RELATIVE_GROWTH_THRESHOLD_PP:
@@ -102,13 +114,13 @@ def classify_segment_lifecycle_stage(segment_cagr, sector_median_cagr, company_m
             return {
                 "stage": "commoditisation", "relative_growth_pct": relative_growth_pct, "margin_inconclusive": False,
                 "reasoning": (f"Segment CAGR trails the sector median by {relative_growth_pct:.1f}pp AND the "
-                              f"company's overall EBITDA margin is compressing over the same window — consistent "
+                              f"company's overall EBITDA margin is compressing over the same window - consistent "
                               f"with commoditisation pressure (company-level margin proxy, not true segment margin)."),
             }
         return {
             "stage": "maturity", "relative_growth_pct": relative_growth_pct, "margin_inconclusive": True,
             "reasoning": (f"Segment CAGR trails the sector median by {relative_growth_pct:.1f}pp, but company-level "
-                          f"EBITDA margin is NOT confirmed compressing — below-sector growth alone is not enough to "
+                          f"EBITDA margin is NOT confirmed compressing - below-sector growth alone is not enough to "
                           f"call this Commoditisation without the margin-compression evidence; treated as Maturity."),
         }
 
@@ -121,20 +133,20 @@ def classify_segment_lifecycle_stage(segment_cagr, sector_median_cagr, company_m
 def company_margin_trend_compressing(margins_annual, lookback_years=3):
     """
     Company-level EBITDA-margin-compression check (the documented proxy for
-    Commoditisation's margin leg — see module docstring). `margins_annual` is
+    Commoditisation's margin leg - see module docstring). `margins_annual` is
     the SAME chronological (oldest-first) list tools/metrics_engine.py
     already returns (`F-06_Margin_Analysis.margins_annual`, entries with an
-    'ebitda_margin' key) — that list appends a trailing "TTM" (trailing
+    'ebitda_margin' key) - that list appends a trailing "TTM" (trailing
     twelve months) entry after the fiscal-year ones. TTM is excluded here:
     treating it as "latest" would shift the N-year lookback off a clean
-    fiscal-year-to-fiscal-year comparison (confirmed on RELIANCE — with TTM
+    fiscal-year-to-fiscal-year comparison (confirmed on RELIANCE - with TTM
     included, "3 years back" from a 13-entry list landed on FY2024, not
     FY2023, since TTM occupies the final slot). Excluding it keeps "latest"
     and "N years back" both anchored to real, whole fiscal years.
 
     Returns {"compressing": bool} or None if there isn't enough margin
     history to compare (< 2 fiscal-year points, or the two endpoints being
-    compared both have a None ebitda_margin) — None, not a guessed False, so
+    compared both have a None ebitda_margin) - None, not a guessed False, so
     the caller can tell "margin data didn't confirm compression" apart from
     "no margin data at all".
     """
@@ -152,7 +164,7 @@ def company_margin_trend_compressing(margins_annual, lookback_years=3):
 def normalize_segment_label(label):
     """Lowercase, whitespace-collapsed normalization for exact-match segment
     label comparison across fiscal years. No fuzzy/approximate matching per
-    the approved plan — a company that renamed or restructured a segment
+    the approved plan - a company that renamed or restructured a segment
     mid-window must show that segment as unclassified (honest None), not a
     guessed match."""
     if not label:
@@ -168,14 +180,14 @@ def compute_segment_cagr_from_multi_year(multi_year_segments):
 
     Matching rule (per the approved plan): a segment only gets a computed
     CAGR if its normalized label appears in BOTH the oldest and newest
-    available year — exact normalized-string match only, no fuzzy matching.
+    available year - exact normalized-string match only, no fuzzy matching.
     CAGR is annualized over the actual number of years spanned (oldest to
     newest), not hardcoded to 3yr, since AR history availability varies by
     company.
 
     Returns {"label": {"cagr": float|None, "oldest_year": int, "newest_year": int,
                         "oldest_value_cr": float, "newest_value_cr": float}, ...}
-    for every label present in the newest year — matched entries get a real
+    for every label present in the newest year - matched entries get a real
     `cagr`; unmatched/unresolvable ones get `cagr: None` (never guessed) so
     the caller can report them as unclassified rather than silently dropping
     them.

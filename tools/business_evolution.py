@@ -1,5 +1,5 @@
 """
-Business Evolution (#4) — how the company changed over time.
+Business Evolution (#4) - how the company changed over time.
 
 Produces a structured then-vs-now view plus a categorized list/timeline of business
 changes: old identity, acquisitions, divestitures/discontinued businesses, new
@@ -62,7 +62,7 @@ def _list(v):
         out = []
         for x in v:
             if isinstance(x, dict):
-                out.append(" — ".join(str(t) for t in x.values() if t))
+                out.append(" - ".join(str(t) for t in x.values() if t))
             elif x:
                 out.append(str(x))
         return out[:10]
@@ -71,7 +71,7 @@ def _list(v):
 
 def _concall_digest(symbol, name):
     """Compact digest of the concall corpus (reuses the cached Concall Intelligence
-    build) — commitments/positives here are where M&A, JVs, launches, capex show up."""
+    build) - commitments/positives here are where M&A, JVs, launches, capex show up."""
     try:
         from tools.concall_intelligence import build_concall_intelligence
         ci = build_concall_intelligence(symbol, name=name)
@@ -118,7 +118,7 @@ def build_business_evolution(symbol, name=None, description=""):
             prompt = (
                 "You are an equity analyst mapping how a company's business has EVOLVED over time. "
                 "Using the context below (and well-known public-record milestones for this company), "
-                "produce a factual Business Evolution. NEVER speculate or invent — if unsure, omit. "
+                "produce a factual Business Evolution. NEVER speculate or invent - if unsure, omit. "
                 "Prefer facts from the provided description/calls; you may add major, verifiable public "
                 "milestones (founding identity, large acquisitions, demergers) even if not in the text.\n\n"
                 "Return ONLY JSON:\n"
@@ -127,7 +127,7 @@ def build_business_evolution(symbol, name=None, description=""):
                 '  "now": "1-2 sentences: what the company IS TODAY",\n'
                 '  "summary": "2-3 sentences on the arc of how it transformed",\n'
                 '  "timeline": [{"year":"2016","category":"acquisition|divestiture|new_business|jv_partnership|expansion|technology|management|strategy","event":"short factual description"}],\n'
-                '  "acquisitions": ["name/year — what & why"],\n'
+                '  "acquisitions": ["name/year - what & why"],\n'
                 '  "divestitures": ["businesses sold, exited or discontinued"],\n'
                 '  "new_businesses": ["new segments/products the company entered"],\n'
                 '  "partnerships_jvs": ["notable JVs / partnerships and the partner"],\n'

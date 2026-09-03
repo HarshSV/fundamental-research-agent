@@ -5,10 +5,10 @@ Public, free, no login: crisilratings.com exposes a JSON "rating result
 listing" search behind its Credit Ratings List page, and rationale documents
 are plain static HTML pages under /mnt/winshare/Ratings/RatingList/RatingDocs/.
 Both were confirmed live (network-request capture + direct GET) before this
-was written — this is not a guessed integration.
+was written - this is not a guessed integration.
 
 Design: curl_cffi (real-browser TLS, same as tools/screener_scraper.py),
-disk cache (24h — rating rationales change on rating actions, not
+disk cache (24h - rating rationales change on rating actions, not
 intraday), never raises. Returns an explicit NOT_FOUND / ACCESS_RESTRICTED
 result rather than None on failure, per the DON'T/DO INSTEAD hallucination
 guardrails (zero-result != clean).
@@ -194,7 +194,24 @@ def fetch_crisil_rationale(company_name, symbol=None, force=False):
        "note": "..."}
     Never raises.
     """
-    cache_key = f"{(symbol or company_name or '').upper()}"
+    # Keyed on the ACTUAL search term (company_name), not just `symbol` - CRISIL's
+    # search is name-driven, so a prior failed search using a bare ticker (e.g. a
+    # caller that didn't have the full company name yet) must not poison a later,
+    # correct search using the real name for the same symbol. Confirmed bug: an
+    # earlier bulk-refresh test call passed name=None (fell back to the ticker),
+    # cached NOT_DISCLOSED under the symbol-only key, and a subsequent correct
+    # call with the real name kept reading that stale negative result back out.
+    from tools.manual_mode import is_manual_mode
+    if is_manual_mode():
+        # Document-only manual workflow: never reach live crisilratings.com.
+        # A.2.x's own AR-evidence fetchers already search the uploaded
+        # Credit Rating Report (extra_manual_document_types) as the
+        # document-based equivalent of this pathway.
+        return {"result": "NOT_CHECKED",
+                "note": "Live CRISIL lookup skipped in the document-only manual workflow - "
+                        "see the uploaded Credit Rating Report evidence pathway instead."}
+
+    cache_key = f"{(symbol or '').upper()}_{(company_name or '').strip().upper()}"
     if not force:
         cached = _read_cache(cache_key)
         if cached is not None:
@@ -212,7 +229,7 @@ def fetch_crisil_rationale(company_name, symbol=None, force=False):
             if not rows:
                 result = {
                     "result": "NOT_DISCLOSED",
-                    "note": f"No CRISIL-rated instrument found for '{company_name}' — company may be "
+                    "note": f"No CRISIL-rated instrument found for '{company_name}' - company may be "
                             f"unrated by CRISIL, or rated under a different registered name.",
                 }
                 _write_cache(cache_key, result)

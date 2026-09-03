@@ -3,10 +3,10 @@ import React from 'react';
 const { useState } = React;
 
 /*
- * 1B — "Current year mix" donut + "N-year trend" stacked bar, real
+ * 1B - "Current year mix" donut + "N-year trend" stacked bar, real
  * revenue-weighted Recurring/Cyclical % per year from
  * tools/qualitative_engine.py's compute_a1_2_pattern_trend (never a fixed
- * 5-year mockup — the trend only shows years that actually had a
+ * 5-year mockup - the trend only shows years that actually had a
  * reconciled segment note; a company with fewer resolvable years just
  * shows fewer bars).
  */
@@ -74,7 +74,7 @@ const CurrentYearDonut = ({ mix }) => {
     );
 };
 
-// A single data point is NOT a trend — labelling one bar "1-Year Trend" (or,
+// A single data point is NOT a trend - labelling one bar "1-Year Trend" (or,
 // worse, padding the chart with years that were never actually measured) is
 // how this card previously showed a fabricated 3-year swing for HINDUNILVR.
 // One plottable year is labelled as a single year and says why the others
@@ -99,7 +99,7 @@ const SkippedYearsNote = ({ skippedYears }) => {
             {Object.entries(byReason).map(([reason, yrs], i) => (
                 <span key={reason}>
                     {i > 0 && ' '}
-                    {`FY${yrs.sort().map((y) => String(y).slice(-2)).join(', FY')} not plotted — ${SKIP_REASON_TEXT[reason] || reason}.`}
+                    {`FY${yrs.sort().map((y) => String(y).slice(-2)).join(', FY')} not plotted - ${SKIP_REASON_TEXT[reason] || reason}.`}
                 </span>
             ))}
         </p>
@@ -120,7 +120,7 @@ const TrendBars = ({ trend, skippedYears }) => {
     return (
         <div className="flex-1 min-w-0">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                {n === 1 ? `FY${String(trend[0].fiscal_year).slice(-2)} only — single year, not a trend` : `${n}-Year Trend`}
+                {n === 1 ? `FY${String(trend[0].fiscal_year).slice(-2)} only - single year, not a trend` : `${n}-Year Trend`}
             </div>
             <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" style={{ maxHeight: 200 }}>
                 {[0, 25, 50, 75, 100].map((g) => {

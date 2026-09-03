@@ -1,21 +1,21 @@
 """
-C.3 — Related-party transactions (RPTs): LLM-assisted structured-row
+C.3 - Related-party transactions (RPTs): LLM-assisted structured-row
 extraction from the Annual Report's Ind AS 24 "Related Party Disclosures"
 note, with the same mandatory fabrication-risk guardrail used by
 tools/pricing_realisation_extractor.py (A.5's 5A leg).
 
 WHY a separate module (not folded into qualitative_engine.py directly):
-same reasoning as pricing_realisation_extractor.py — an LLM producing a
+same reasoning as pricing_realisation_extractor.py - an LLM producing a
 specific counterparty name + amount looks exactly as confident whether it's
 real or hallucinated, so this extraction step gets its own cache namespace
 and its own guardrail, isolated from every other LLM call in this codebase.
 
-FABRICATION-RISK GUARDRAIL (mandatory, do not weaken — mirrors
+FABRICATION-RISK GUARDRAIL (mandatory, do not weaken - mirrors
 pricing_realisation_extractor.py's _validate_quarter_record / v2 fix):
   Every extracted row MUST come with a verbatim quoted source sentence/
   table-row-text (`quote`). A row is only accepted if:
     (a) the quote is a real, whitespace-normalized FULL substring of the
-        actual AR evidence text (not a truncated-prefix check — the
+        actual AR evidence text (not a truncated-prefix check - the
         already-fixed full-match approach, not the weaker prefix-check bug
         found and fixed once this session in pricing_realisation_extractor.py).
     (b) the claimed amount (if any) is a real digit anchor present in that
@@ -42,7 +42,7 @@ try:
 except Exception:
     pass
 
-# Own cache namespace — deliberately not sharing any other module's cache
+# Own cache namespace - deliberately not sharing any other module's cache
 # dir/keys, same reasoning as pricing_realisation_extractor.py's own cache.
 _CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "rpt_extractor")
 _EXTRACT_TTL = 90 * 24 * 3600  # a past fiscal year's AR note never changes; matches other AR-evidence caches' 90-day TTL
@@ -78,7 +78,7 @@ def _normalize_ws(text):
 
 
 def _quote_verbatim_in_text(quote, source_text):
-    """Whitespace-normalized FULL-substring check — same fix as
+    """Whitespace-normalized FULL-substring check - same fix as
     pricing_realisation_extractor.py's _quote_verbatim_in_transcript (v2):
     the entire quote, not just a prefix, must genuinely appear in the
     source. Closes the gap where a real quote prefix could have a
@@ -97,7 +97,7 @@ def _numeric_anchors(text):
 
 def _amount_anchored_in_quote(amount, quote):
     """True only if some numeric token of `amount` also appears as a
-    numeric token inside `quote` — same digit-anchor comparison as
+    numeric token inside `quote` - same digit-anchor comparison as
     pricing_realisation_extractor._number_anchored_in_quote."""
     if amount is None or not quote:
         return False
@@ -120,22 +120,22 @@ def _validate_row(rec, source_text):
     """Applies the quote-verbatim + numeric-anchor guardrail to one raw
     LLM-extracted RPT row. A row missing a usable quote, or whose quote
     isn't a real substring of the source text, is rejected outright
-    (returns None) — never defaulted to a guessed record. A row with a
+    (returns None) - never defaulted to a guessed record. A row with a
     quote but NO amount is still accepted (counterparty/relationship rows
-    without a disclosed amount are legitimate — e.g. "guarantees given",
+    without a disclosed amount are legitimate - e.g. "guarantees given",
     qualitative-only disclosures), but its amount stays None rather than
     being fabricated."""
     quote = str(rec.get("quote") or "").strip()
     counterparty = str(rec.get("counterparty") or "").strip()
     if not quote or not counterparty:
-        return None, "Missing counterparty name or quote — rejected, never trust a bare row."
+        return None, "Missing counterparty name or quote - rejected, never trust a bare row."
     if not _quote_verbatim_in_text(quote, source_text):
         return None, "Quoted text not found verbatim in the source Annual Report evidence."
 
     amount_cr = rec.get("amount_cr")
     if amount_cr is not None:
         if not _amount_anchored_in_quote(amount_cr, quote):
-            # Amount claimed but not anchored in its own quote — drop ONLY
+            # Amount claimed but not anchored in its own quote - drop ONLY
             # the amount (per CLAUDE.md: never convert to zero/guess), keep
             # the row if counterparty/relationship/quote are still valid.
             amount_cr = None
@@ -164,14 +164,14 @@ def _extract_rows_llm(evidence_text, fiscal_year, api_key=None):
         from tools.groq_client import groq_chat, parse_json_loose
         prompt = (
             "You are an equity analyst extracting RELATED-PARTY TRANSACTION (RPT) rows from this Annual Report "
-            "excerpt (Ind AS 24 'Related Party Disclosures' note). Base EVERYTHING strictly on the text below — "
+            "excerpt (Ind AS 24 'Related Party Disclosures' note). Base EVERYTHING strictly on the text below - "
             "never estimate, infer, or invent a counterparty, amount, or relationship that isn't explicitly stated.\n\n"
             "For EACH row you report, you MUST quote the EXACT sentence or table-row text from the excerpt that "
             "contains it, verbatim (copy it exactly, do not paraphrase or reformat numbers). If an amount is not "
-            "explicitly stated for a row, leave amount_cr null — do NOT invent a plausible-sounding figure. If there "
+            "explicitly stated for a row, leave amount_cr null - do NOT invent a plausible-sounding figure. If there "
             "are no related-party transaction rows at all in this excerpt, return an empty list.\n\n"
             "If there are more than 15 distinct rows, report only the 15 with the LARGEST disclosed amounts "
-            "(and any qualitative-only rows with no amount, up to 15 total) — do not truncate a row's own text, "
+            "(and any qualitative-only rows with no amount, up to 15 total) - do not truncate a row's own text, "
             "only limit the row COUNT, to keep the response complete rather than cut off.\n\n"
             "Return ONLY JSON:\n"
             "{\n"
@@ -179,7 +179,7 @@ def _extract_rows_llm(evidence_text, fiscal_year, api_key=None):
             "    {\n"
             '      "counterparty": "<entity/person name exactly as stated>",\n'
             '      "relationship_type": "<e.g. Subsidiary, Associate, Promoter, Key Management Personnel, '
-            'Relative of KMP, Enterprise controlled by KMP, Joint Venture — exactly as characterized in the text>",\n'
+            'Relative of KMP, Enterprise controlled by KMP, Joint Venture - exactly as characterized in the text>",\n'
             '      "transaction_type": "<e.g. Sale of goods, Purchase of goods, Rent paid, Remuneration, '
             'Loan given, Guarantee given, Investment>",\n'
             '      "amount_cr": <number in Rs. crore, or null if not explicitly stated or units unclear>,\n'
@@ -235,7 +235,7 @@ def extract_rpt_records(symbol, name=None, fiscal_year=None):
 
     # Dedup excerpt windows by text. Kept as individual (page, text) pairs
     # (not joined yet) so they can be prioritized by information density
-    # before capping — see the BUG FIX note below.
+    # before capping - see the BUG FIX note below.
     seen = set()
     uniq = []
     for ex in excerpts:
@@ -254,8 +254,8 @@ def extract_rpt_records(symbol, name=None, fiscal_year=None):
     # JSON response past the free-tier fallback model's ~4000-completion-
     # token cap, truncating mid-string and making every row unparseable
     # (confirmed: "Unterminated string..." from parse_json_loose, 0 rows
-    # recovered even though real RPT-note text — with actual counterparty
-    # names and Rs. crore amounts — was genuinely present in the excerpts).
+    # recovered even though real RPT-note text - with actual counterparty
+    # names and Rs. crore amounts - was genuinely present in the excerpts).
     # Fix: prioritize excerpts by DIGIT DENSITY (the real Ind AS 24 table
     # rows are digit-heavy; AGM procedural boilerplate is not) and cap the
     # total blob so the response can complete, instead of naively taking
@@ -280,7 +280,7 @@ def extract_rpt_records(symbol, name=None, fiscal_year=None):
         return {"status": "NOT_DISCLOSED", "records": [], "reason": "Related Party Disclosures excerpt text too short to extract from."}
 
     # v2: de-dup identical (counterparty, transaction_type, quote) rows with
-    # conflicting column-attributed amounts (see de-dup comment below) —
+    # conflicting column-attributed amounts (see de-dup comment below) -
     # bumped so a v1-cached record (built before the fix) isn't served as
     # if it were already de-duplicated.
     ckey = "rpt_ex_v2_" + hashlib.md5(f"{sym}_{fy}_{evidence_text[:2000]}".encode("utf-8")).hexdigest()
@@ -307,12 +307,12 @@ def extract_rpt_records(symbol, name=None, fiscal_year=None):
         # line) legitimately contains SEVERAL numeric anchors in the same
         # quoted row-text. The LLM sometimes re-emits the same
         # (counterparty, transaction_type, quote) with a DIFFERENT column's
-        # number attributed to it across repeated calls/samples — each
+        # number attributed to it across repeated calls/samples - each
         # individually passes the numeric-anchor guardrail (the number IS
         # really in the quote), but presenting all of them as separate rows
         # would show the same fact 3-4x with conflicting amounts. Keep only
         # the first validated occurrence per (counterparty, transaction_type,
-        # quote) — never averaged/merged/guessed, just de-duplicated.
+        # quote) - never averaged/merged/guessed, just de-duplicated.
         row_key = (validated["counterparty"], validated["transaction_type"], validated["quote"])
         if row_key in seen_row_keys:
             rejected += 1
@@ -333,7 +333,7 @@ def extract_rpt_records(symbol, name=None, fiscal_year=None):
     # BUG FIX (found during real-company testing): a transient LLM failure
     # (rate limit, timeout) previously produced the exact same empty-records
     # payload as a genuine "note located, nothing extractable" result, and
-    # BOTH got cached for the full 90-day TTL — a temporary quota exhaustion
+    # BOTH got cached for the full 90-day TTL - a temporary quota exhaustion
     # would have silently looked like a confirmed absence of RPTs for three
     # months. Only cache when the LLM call actually completed (mirrors
     # `_get_extracted_financials_impl`'s documented convention: transient

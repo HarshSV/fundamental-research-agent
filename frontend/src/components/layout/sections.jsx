@@ -1,6 +1,6 @@
 import React from 'react';
 
-// Sidebar navigation. Deliberately minimal — Overview and AI Research only.
+// Sidebar navigation. Deliberately minimal - Overview and AI Research only.
 // AI Research routes to tab 6, the rich ratio dashboard (every ratio card carries
 // an info tooltip + "How we calculated this" drawer + source, grouped into
 // Liquidity/Efficiency/Profitability/Returns/Leverage/Valuation categories).
@@ -24,7 +24,7 @@ export const SECTIONS = [
   { key: 'history',   label: 'History',     Icon: Icons.history,  view: { kind: 'history' } },
 ];
 
-// Settings isn't a main nav item — it's a small icon in the sidebar/mobile-nav
+// Settings isn't a main nav item - it's a small icon in the sidebar/mobile-nav
 // footer so theme control stays reachable without cluttering the nav list.
 export const SETTINGS_SECTION = { key: 'settings', label: 'Settings', Icon: Icons.settings, view: { kind: 'settings' } };
 

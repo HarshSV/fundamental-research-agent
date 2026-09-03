@@ -1,5 +1,5 @@
 """
-NSE Corporate Governance quarterly filing (SEBI LODR Reg. 27) — real board
+NSE Corporate Governance quarterly filing (SEBI LODR Reg. 27) - real board
 composition, committee composition, and meeting-attendance data, straight
 from the company's own quarterly Corporate Governance Report filing.
 
@@ -86,7 +86,21 @@ def fetch_latest_governance_filing(symbol):
     recent filed quarter - board composition, committee composition,
     board/committee meeting attendance. Returns a dict with keys
     'cobod','coc','bodmeeting','meetingcomm' (each NSE's raw structure)
-    plus 'as_of_quarter', or {} on failure/no data. Never raises."""
+    plus 'as_of_quarter', or {} on failure/no data. Never raises.
+
+    Same guard convention as tools.crisil_scraper.fetch_crisil_rationale:
+    in tools.manual_mode's document-only manual workflow, this NEVER
+    reaches live nseindia.com - C.5.2/C.5.3 are already gated at
+    document_analysis_engine._requires_external_source to
+    EXTERNAL_DATA_REQUIRED unless a "quarterly_corporate_governance_filing"
+    document was uploaded, but neither of those compute_fns actually reads
+    an uploaded document today (no extra_manual_document_types wiring
+    exists for this data yet) - so without this guard, uploading ANY
+    unrelated document that opens that gate would let this live call fire.
+    Returns {} (its existing "no data" contract) in manual mode."""
+    from tools.manual_mode import is_manual_mode
+    if is_manual_mode():
+        return {}
     sym = (symbol or "").strip().upper().replace(".NS", "")
     ckey = f"cg_{sym}"
     cached = _read_cache(ckey)

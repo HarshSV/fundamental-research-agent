@@ -61,6 +61,19 @@ _POLICY_CHANGE = re.compile(
 # lettered lists elsewhere in the report.
 _POLICY_CHANGE_TRIGGER = re.compile(r"notified\s+(?:the\s+following\s+)?amendments?\s+to", re.I)
 _LETTERED_STANDARD_ITEM = re.compile(r"\b[a-z]\.\s*ind\s*as\s*(\d+)\b", re.I)
+# Companies Act 2013 Sec. 134(5) Directors' Responsibility Statement's own
+# mandated NEGATIVE boilerplate ("There have been no significant changes
+# in accounting policies during the year...") - a real, explicit,
+# year-specific answer that must be scored as policy_change_count=0, NOT
+# discarded as "no evidence found" (the old behaviour) NOR miscounted as
+# a real change simply because the sentence contains the words "changes
+# in accounting policies" (confirmed real false-positive risk on Prime
+# Fresh Limited once the matching anchor above was added - without this
+# negation check, the plain keyword count would have reported "1 policy
+# change" for a company that explicitly disclosed having none).
+_NO_POLICY_CHANGE_RE = re.compile(
+    r"no\s+(?:significant\s+|material\s+)?changes?\s+in\s+accounting\s+polic(?:y|ies)", re.I,
+)
 
 
 def score_policy_changes(text):
@@ -69,13 +82,18 @@ def score_policy_changes(text):
     of every policy change made during the year - real, current-year
     data, not a fabricated 5-year retrospective this codebase has no
     source for). Counts distinct standard numbers named (or distinct
-    change statements when no standard number is given). Returns
-    {'policy_change_count'} or all-None if no policy-change/standard-
-    amendment language was located (a real, common case - most years,
-    most companies adopt no new mandatory amendments with any real
-    effect)."""
+    change statements when no standard number is given), EXCEPT a
+    sentence containing this year's real "no changes" Directors'
+    Responsibility Statement boilerplate is excluded from that count and
+    the whole result is 0, not a fabricated positive count. Returns
+    {'policy_change_count'} - 0 for a genuine, explicit "no changes this
+    year" disclosure, a positive count for genuine changes, or None only
+    if no policy-change/standard-amendment/no-change language was located
+    at all."""
     if not text:
         return {"policy_change_count": None}
+    if _NO_POLICY_CHANGE_RE.search(text):
+        return {"policy_change_count": 0}
     standards = set()
     generic_count = 0
     for m in _POLICY_CHANGE.finditer(text):
@@ -167,7 +185,26 @@ def score_estimate_changes(text):
 # line itself.
 _EXCEPTIONAL_QUALIFIER_LOOKBEHIND = r"(?<!before )(?<!excluding )(?<!net of )(?<!after )(?<!less )"
 _EXCEPTIONAL_ITEMS_ROW = re.compile(
-    rf"{_EXCEPTIONAL_QUALIFIER_LOOKBEHIND}Exceptional items?\s*(?:\[[^\]]{{0,20}}\])?\s*(?:\d{{1,3}}\s+)?({_NUM})\s+({_NUM}|-)\b",
+    # The CURRENT-year group now also accepts "-" (a bare dash/nil), not
+    # just a real number - "Exceptional Items - -" (BOTH years nil) is
+    # the single MOST COMMON real disclosure shape for this line (most
+    # companies genuinely have zero exceptional items in most years), and
+    # the previous pattern required the current-year group to be a real
+    # number, silently failing to match this extremely common case at
+    # all - confirmed real on Prime Fresh Limited ("VI. Exceptional Items
+    # - -"). A dash here is a CONFIRMED zero, not missing data - the same
+    # established "no dividend declared is a real 0%, not missing data"
+    # policy already used elsewhere in this codebase (see
+    # tools/annual_report_financials.py's dividend-per-share handling).
+    # Trailing `\b` (word boundary) previously followed the second number
+    # group - but a bare "-" (nil disclosure) is a non-word character, and
+    # `\b` never matches between two non-word characters (or a non-word
+    # character and end-of-string), so the match silently failed for the
+    # single MOST COMMON case ("Exceptional Items - -", both years nil)
+    # even after allowing "-" as a valid group value. `(?!\d)` achieves
+    # the same "don't swallow into a longer number" protection without
+    # requiring a word-boundary transition.
+    rf"{_EXCEPTIONAL_QUALIFIER_LOOKBEHIND}Exceptional items?\s*(?:\[[^\]]{{0,20}}\])?\s*(?:\d{{1,3}}\s+)?({_NUM}|-)\s+({_NUM}|-)(?!\d)",
     re.I,
 )
 
@@ -189,7 +226,7 @@ def score_oneoff_adjustments(text):
     m = _EXCEPTIONAL_ITEMS_ROW.search(text)
     if not m:
         return {"current_exceptional_cr": None, "prior_exceptional_cr": None, "recurring_flag": None}
-    current = _to_float(m.group(1))
+    current = _to_float(m.group(1)) if m.group(1) != "-" else 0.0
     prior = _to_float(m.group(2)) if m.group(2) != "-" else 0.0
     if current is None:
         return {"current_exceptional_cr": None, "prior_exceptional_cr": None, "recurring_flag": None}

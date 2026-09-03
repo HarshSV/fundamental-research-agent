@@ -1,20 +1,20 @@
 """
-Qualitative analysis (A-U spec, 121 sub-points total) — built one sub-point at a
+Qualitative analysis (A-U spec, 121 sub-points total) - built one sub-point at a
 time per the sourcing-pathway workbook. Each sub-point:
   1. Follows its own Sourcing Sequence (an ordered list of Pathway IDs from the
      Document Pathway Reference tab), in order, recording an explicit result for
-     EACH step attempted — never stopping at the first one that returned something
+     EACH step attempted - never stopping at the first one that returned something
      (DON'T/DO INSTEAD rule #22).
   2. Tags the final value with exactly one confidence tag: VERIFIED (2+ independent
      pathways agreed), SINGLE_SOURCE (only one pathway exists/was checked),
-     CONFLICT_UNRESOLVED (pathways disagreed — must not feed a decision unreviewed),
-     or a terminal negative-result code (NOT_DISCLOSED etc — never silently zero).
+     CONFLICT_UNRESOLVED (pathways disagreed - must not feed a decision unreviewed),
+     or a terminal negative-result code (NOT_DISCLOSED etc - never silently zero).
   3. Never fabricates: a pathway not wired into this codebase yet is recorded as
      NOT_DISCLOSED for that step, not skipped silently.
   4. Is timestamped at read time via `qualitative_db.write_qualitative`.
 
 LLM calls go through `groq_client.groq_chat`, which already tries the OpenRouter
-free-model chain BEFORE falling back to the Groq API key (see groq_client.py) — so
+free-model chain BEFORE falling back to the Groq API key (see groq_client.py) - so
 using it here does not add extra Groq-key load beyond what every other feature
 already does.
 """
@@ -30,13 +30,13 @@ CACHE_TTL = 30 * 24 * 3600  # business-model classification changes slowly
 def _llm_json(sym, label, system_msg, user_prompt, max_tokens, temperature):
     """Shared LLM-call-then-parse step for every A/B sub-point below. Returns
     (data, failed) where `failed=True` means the classifier genuinely never
-    produced a usable answer — either groq_chat raised (network/rate limit),
+    produced a usable answer - either groq_chat raised (network/rate limit),
     or it returned something that isn't a JSON object.
 
     This distinction matters because every caller feeds `data` straight into
     a payload it then hands to `write_qualitative` for a 30-day cache. Before
     this helper existed, every one of these ~12 sub-points called
-    `parse_json_loose(raw) or {}` and cached the result unconditionally —
+    `parse_json_loose(raw) or {}` and cached the result unconditionally -
     confirmed on A.1.3 (business composition): a transient failure produced
     an all-"unclassified"/empty payload that got cached for a month and
     rendered as "the company didn't disclose this", which is a claim about
@@ -45,7 +45,7 @@ def _llm_json(sym, label, system_msg, user_prompt, max_tokens, temperature):
     let the next request retry, instead of freezing a non-answer into a
     month of wrong output. `failed=False` with an empty-ish `data` (e.g. the
     model validly answered "unclear"/"not disclosed") is a REAL finding and
-    should still be cached — this only guards against the call never having
+    should still be cached - this only guards against the call never having
     produced a usable answer at all.
     """
     try:
@@ -66,7 +66,7 @@ def _llm_json(sym, label, system_msg, user_prompt, max_tokens, temperature):
 
 
 def _concall_digest(symbol, name):
-    """Proxy for the AR-13 (MD&A) narrative pathway — reuses the same grounded
+    """Proxy for the AR-13 (MD&A) narrative pathway - reuses the same grounded
     concall corpus digest business_evolution.py builds from, since MD&A and concall
     commentary cover overlapping ground (segment performance, outlook, mix)."""
     try:
@@ -93,7 +93,7 @@ _MONTH_ABBR = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
 
 def _concall_date_to_iso(date_str):
     """screener_scraper/concall_intelligence dates are formatted 'Mon YYYY'
-    (e.g. 'Feb 2026') — NOT the ISO 'YYYY-MM-DD' FRED series use. Used by
+    (e.g. 'Feb 2026') - NOT the ISO 'YYYY-MM-DD' FRED series use. Used by
     A.5 to align a concall quarter to the right point in a commodity price
     series without a raw string compare silently misaligning the two
     different date formats. Returns None (not a guess) if unparseable."""
@@ -109,7 +109,7 @@ def _concall_date_to_iso(date_str):
 def _fetch_segment_revenue_context(sym, name):
     """AR-14 pathway: real, self-validated business-segment revenue shares
     for the current year (see tools/annual_report_financials.py's
-    `_extract_segment_revenue` — only returned when the segments reconcile
+    `_extract_segment_revenue` - only returned when the segments reconcile
     to the P&L's own Revenue within 6%, so this is either real audited data
     or nothing, never a guess). Returns (segments_pct, fiscal_year) where
     segments_pct is [{'label', 'pct'}] summing to ~100, or (None, None) if
@@ -125,7 +125,14 @@ def _fetch_segment_revenue_context(sym, name):
             return None, None
         segments = parsed.get("segments")
         revenue = parsed.get("revenue")
-        if not segments or len(segments) < 2 or not revenue or not revenue[0]:
+        # A genuinely SINGLE reportable segment (Ind AS 108's own
+        # materiality-threshold outcome, not a parsing shortfall - see
+        # tools.annual_report_financials._extract_prose_dominant_segment_pct)
+        # is exactly the "1 segment = Single Product" case the A.1.A spec
+        # formula itself calls for; requiring 2+ segments here discarded
+        # that real, unambiguous case before it ever reached the
+        # classifier, which already handles len==1 correctly.
+        if not segments or len(segments) < 1 or not revenue or not revenue[0]:
             return None, None
         total = revenue[0]
         return [{"label": s["label"], "pct": round(s["value_cr"] / total * 100, 1)} for s in segments], fy
@@ -134,7 +141,7 @@ def _fetch_segment_revenue_context(sym, name):
         return None, None
 
 
-# Bumped whenever the payload shape or sourcing methodology changes — same
+# Bumped whenever the payload shape or sourcing methodology changes - same
 # cache-invalidation pattern as _A12_SCHEMA_VERSION/_BIZ_COMP_SCHEMA_VERSION
 # below. A.1 previously had no explicit version, relying only on the
 # old-field-name heuristic a few lines down; that heuristic still runs for
@@ -144,18 +151,18 @@ _A1_SCHEMA_VERSION = 1
 
 
 def compute_a1_business_model_clarity(symbol, name=None, description="", force=False):
-    """A.1.1 — Clarity of business model: single product vs portfolio (business
+    """A.1.1 - Clarity of business model: single product vs portfolio (business
     diversification). Cyclical vs recurring revenue is a SEPARATE analysis, see
-    `compute_a1_2_revenue_characteristics` below — the two must not be merged.
+    `compute_a1_2_revenue_characteristics` below - the two must not be merged.
 
     Sourcing Sequence: AR-13 (MD&A narrative) -> AR-14 (revenue/segment note) ->
     AGG-01 (Screener.in, fallback/cross-check only).
 
     AR-13 is approximated here via the company's business description (from the
-    report) plus the grounded concall digest — both are narrative/MD&A-adjacent
+    report) plus the grounded concall digest - both are narrative/MD&A-adjacent
     text already in this codebase. AR-14 (the structured segment-revenue note
     inside the Annual Report) is NOT wired into this codebase yet, so that pathway
-    step is recorded as NOT_DISCLOSED rather than guessed — per the DON'T/DO
+    step is recorded as NOT_DISCLOSED rather than guessed - per the DON'T/DO
     INSTEAD guardrails, a missing pathway is never silently skipped or faked.
     Because only one of the two Sourcing Sequence pathways was actually checked,
     the result is tagged SINGLE_SOURCE, not VERIFIED (cross-verification rule).
@@ -167,7 +174,7 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
         cached = read_qualitative(sym, subpoint_id)
         # A cached row written by the old methodology (which classified
         # per-segment recurring/cyclical revenue from segment NAMES and
-        # carried 'revenue_pattern'/'recurring_revenue_pct') is stale schema —
+        # carried 'revenue_pattern'/'recurring_revenue_pct') is stale schema -
         # treat it as a cache miss so no invalid recurring-revenue conclusion
         # can keep being served just because the TTL hasn't expired. Revenue
         # recurringness/cyclicality now live entirely in
@@ -198,7 +205,7 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
         "result": "CHECKED" if ar13_checked else "NOT_DISCLOSED",
     })
     # AR-14: real, self-validated segment revenue shares (see
-    # tools/annual_report_financials.py's `_extract_segment_revenue`) — only
+    # tools/annual_report_financials.py's `_extract_segment_revenue`) - only
     # present when the segments reconcile to the P&L's own Revenue, so this
     # is genuinely CHECKED (real data) or NOT_DISCLOSED (nothing found/didn't
     # reconcile), never a guess.
@@ -222,7 +229,7 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
         "pathway_id": "AGG-01",
         "source": "Screener.in (fallback/cross-check only)",
         "result": "NOT_CHECKED",
-        "note": "Cross-check pathway, only used if primary+secondary conflict or are unavailable — not invoked this run.",
+        "note": "Cross-check pathway, only used if primary+secondary conflict or are unavailable - not invoked this run.",
     })
 
     if not ar13_checked:
@@ -240,7 +247,7 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
         return payload
 
     # NOTE: this function intentionally does NOT classify per-segment revenue
-    # as recurring/cyclical from segment names/descriptions — a segment's
+    # as recurring/cyclical from segment names/descriptions - a segment's
     # revenue composition (e.g. "Retail", "Services") does not establish
     # whether that revenue is recurring. Recurring-vs-cyclical revenue
     # characteristics are handled separately by
@@ -253,7 +260,7 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
         "portfolio) for an Indian listed company, using ONLY the grounded context below. Do not invent "
         "facts not supported by the context. If the context does not clearly support a judgment, say so "
         "explicitly rather than guessing. Do not comment on whether revenue is recurring or cyclical here "
-        "— that is assessed elsewhere from different evidence.\n"
+        "- that is assessed elsewhere from different evidence.\n"
         "Return ONLY JSON:\n"
         "{\n"
         '  "model_type": "single_product" | "portfolio" | "unclear",\n'
@@ -273,14 +280,14 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
     rationale = str(data.get("rationale") or "").strip()
     segments = [str(s).strip() for s in (data.get("segments_mentioned") or []) if str(s).strip()][:10]
 
-    # Real revenue shares only (segments_pct, deterministic from the AR) —
+    # Real revenue shares only (segments_pct, deterministic from the AR) -
     # no recurring/cyclical classification is attached here; that dimension
     # is computed separately (see module docstring above) from real evidence,
     # never from a segment's name.
     segment_shares = [{"label": s["label"], "pct": s["pct"]} for s in segments_pct] if segments_pct else None
 
     # Only one of the two Sourcing Sequence pathways (AR-13) was actually checked;
-    # AR-14 is a recorded gap, not an independent second source — so this is
+    # AR-14 is a recorded gap, not an independent second source - so this is
     # SINGLE_SOURCE per the cross-verification rule, never VERIFIED.
     confidence_tag = "SINGLE_SOURCE" if rationale else "SEARCH_INCONCLUSIVE"
 
@@ -299,7 +306,7 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
     if not llm_failed:
         write_qualitative(sym, subpoint_id, payload, confidence_tag)
     else:
-        print(f"[qualitative_engine] A.1 NOT cached for {sym} — LLM call did not run; will retry next request.")
+        print(f"[qualitative_engine] A.1 NOT cached for {sym} - LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -307,25 +314,25 @@ def compute_a1_business_model_clarity(symbol, name=None, description="", force=F
 
 _RECURRING_STATUS = ("reported", "calculated", "qualitative_only", "not_disclosed", "unable_to_determine")
 _CYCLICALITY_CLASS = ("low", "moderate", "high", "unable_to_determine")
-# Bump whenever the payload shape or classification rules change materially —
+# Bump whenever the payload shape or classification rules change materially -
 # a cached row written by an older schema version is treated as a cache miss
 # and recomputed, so a methodology change (e.g. this one, which replaced the
 # old segment-name-based recurring % with evidence-gated extraction) can never
 # keep serving stale results just because the TTL hasn't expired yet.
 # v8: a transient LLM failure (rate limit/network) no longer gets cached as a
-# real "unable_to_determine"/"not_disclosed" finding — same class of bug fixed
+# real "unable_to_determine"/"not_disclosed" finding - same class of bug fixed
 # for A.1.3's business-composition classifier, confirmed to affect this
 # sub-point too since it shares the identical `parse_json_loose(raw) or {}`
 # pattern. Bumped to invalidate any stale all-punted payload already cached
 # under v7.
 _A12_SCHEMA_VERSION = 8
-# A recurring-revenue conclusion requires an EXPLICIT repeat/renewal signal —
+# A recurring-revenue conclusion requires an EXPLICIT repeat/renewal signal -
 # the mere presence of "contract asset(s)", "contract liabilit(y/ies)",
 # "customer contract(s)", "order book", "maintenance", "service(s)" or
 # "software" is NOT evidence of recurring revenue on its own (those are
 # accounting/business terms that appear in almost every annual report
 # regardless of revenue model). Only used as a secondary safety net on top of
-# the LLM prompt rules below — defense in depth, same pattern as never
+# the LLM prompt rules below - defense in depth, same pattern as never
 # trusting the LLM to do numerator/denominator division itself.
 _RECURRING_SIGNAL_RE = re.compile(
     r"recurr|subscript|renew|annuity\b|\bamc\b|annual maintenance|repeat (purchase|custom)|"
@@ -335,32 +342,32 @@ _RECURRING_SIGNAL_RE = re.compile(
 
 
 def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
-    """A.1.2 — Revenue characteristics: how recurring/predictable is revenue, and
+    """A.1.2 - Revenue characteristics: how recurring/predictable is revenue, and
     how sensitive is the business to economic/industry cycles. A SEPARATE
-    analysis from A.1.1 (business diversification) — see module note on
+    analysis from A.1.1 (business diversification) - see module note on
     `compute_a1_business_model_clarity`. Two independent dimensions, never
     forced onto one recurring<->cyclical spectrum: a business can have
     recurring revenue while still operating in a cyclical industry.
 
-    Sourcing Sequence: AR-14b (Annual Report narrative evidence — revenue
+    Sourcing Sequence: AR-14b (Annual Report narrative evidence - revenue
     recognition, subscription/AMC/contract/renewal language, demand-cycle
     risk disclosures) -> AR-13 (MD&A/concall digest, secondary corroboration).
 
     Hard rules (do not weaken without explicit approval):
       - Revenue-pattern (recurring/cyclical) is NEVER inferred from a segment
-        or product NAME — only from explicit textual evidence about how that
+        or product NAME - only from explicit textual evidence about how that
         revenue is earned (contracts, subscriptions, renewals, etc).
       - A recurring-revenue PERCENTAGE is only ever populated when either (a)
         the company explicitly states it (`status="reported"`), or (b) both a
         numerator and a relevant-total denominator are explicitly disclosed in
         the evidence text, in which case Navrist computes the ratio itself
-        deterministically (`status="calculated"`) — the LLM is never trusted
+        deterministically (`status="calculated"`) - the LLM is never trusted
         to do the division. Every other case leaves pct=None.
       - Zero is a real, evidence-backed value, not a default: pct=0 can only
         occur via the above two paths, never as a stand-in for missing data.
       - `confidence_tag` (retrieval quality: SINGLE_SOURCE/SEARCH_INCONCLUSIVE/
         NOT_FOUND) is a SEPARATE concept from `recurring.status`/
-        `cyclicality.classification` (business-evidence quality) — a
+        `cyclicality.classification` (business-evidence quality) - a
         SEARCH_INCONCLUSIVE run must never render as a 0% result.
       - Cyclicality is classified independently, never as `100 - recurring%`.
     """
@@ -441,66 +448,66 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
 
     context = (
         f"COMPANY: {company}\n\n"
-        f"=== ANNUAL REPORT EXCERPTS — RECURRING/CONTRACT/SUBSCRIPTION LANGUAGE ===\n{_fmt_excerpts(recurring_excerpts)}\n\n"
-        f"=== ANNUAL REPORT EXCERPTS — CYCLICALITY/DEMAND-SENSITIVITY LANGUAGE ===\n{_fmt_excerpts(cyclicality_excerpts)}\n"
+        f"=== ANNUAL REPORT EXCERPTS - RECURRING/CONTRACT/SUBSCRIPTION LANGUAGE ===\n{_fmt_excerpts(recurring_excerpts)}\n\n"
+        f"=== ANNUAL REPORT EXCERPTS - CYCLICALITY/DEMAND-SENSITIVITY LANGUAGE ===\n{_fmt_excerpts(cyclicality_excerpts)}\n"
     )
     if digest:
         context += f"\n=== RECENT CONCALL HIGHLIGHTS (secondary) ===\n{digest[:2000]}\n"
 
     prompt = (
         "You are an equity analyst assessing REVENUE PREDICTABILITY and CYCLICALITY for an Indian listed "
-        "company, using ONLY the grounded Annual Report excerpts below. These are two SEPARATE dimensions — "
+        "company, using ONLY the grounded Annual Report excerpts below. These are two SEPARATE dimensions - "
         "a company can have recurring revenue while still operating in a cyclical industry; do not force one "
         "into the other, and do not compute cyclicality as the inverse of recurring revenue.\n\n"
         "STRICT RULES:\n"
-        "- Never infer a revenue-pattern from a product/segment NAME alone — only from explicit statements "
+        "- Never infer a revenue-pattern from a product/segment NAME alone - only from explicit statements "
         "about how revenue is earned.\n"
         "- IMPORTANT FALSE-POSITIVE GUARD: the mere presence of the words/phrases \"contract asset(s)\", "
         "\"contract liabilit(y/ies)\", \"customer contract(s)\", \"order book\", \"maintenance\", \"service(s)\", "
-        "or \"software\" does NOT by itself prove recurring revenue — these are routine accounting/business terms "
+        "or \"software\" does NOT by itself prove recurring revenue - these are routine accounting/business terms "
         "that appear in almost every annual report regardless of revenue model. \"Contract liabilities\" is a "
         "standard Ind AS 115 balance-sheet line (deferred revenue not yet earned) and does NOT mean that revenue "
-        "repeats/renews. \"Order book\" describes revenue VISIBILITY (future revenue already contracted/booked) — "
+        "repeats/renews. \"Order book\" describes revenue VISIBILITY (future revenue already contracted/booked) - "
         "a different concept from RECURRINGNESS (whether revenue repeats from the same customers over time); a "
         "large order book alone is NOT recurring revenue. Only conclude a revenue stream is recurring when the "
-        "text explicitly indicates it REPEATS or RENEWS — e.g. subscriptions, annual maintenance contracts (AMC), "
+        "text explicitly indicates it REPEATS or RENEWS - e.g. subscriptions, annual maintenance contracts (AMC), "
         "renewal rates, annuity income, repeat/recurring customer relationships, long-term recurring service "
         "agreements. If all you have is contract-asset/liability, order-book, or generic maintenance/service/"
-        "software language WITHOUT an explicit repeat/renewal statement, do not use \"qualitative_only\" — use "
+        "software language WITHOUT an explicit repeat/renewal statement, do not use \"qualitative_only\" - use "
         "\"not_disclosed\" instead.\n"
         "- Only set recurring_status to \"reported\" if the excerpts contain an EXPLICIT company-stated "
         "recurring-revenue percentage AND that percentage is semantically tied to recurring/subscription revenue "
         "in the same sentence (e.g. \"recurring revenue represented 72% of revenue\", \"subscription revenue "
-        "accounted for 64% of total revenue\") — never a percentage that merely appears near recurring-revenue "
+        "accounted for 64% of total revenue\") - never a percentage that merely appears near recurring-revenue "
         "language but describes something else (e.g. a margin, growth rate, or unrelated metric). Copy the exact "
         "sentence into recurring_reported_quote.\n"
         "- Only set recurring_status to \"calculated\" if the excerpts contain BOTH an explicit recurring-type "
         "revenue rupee value (numerator, clearly described as recurring/subscription/AMC/renewal revenue) AND an "
         "explicit total/relevant revenue rupee value (denominator) from the SAME reporting period and SAME "
-        "consolidated/standalone scope — extract both numbers exactly as stated (with units, e.g. crore) into "
+        "consolidated/standalone scope - extract both numbers exactly as stated (with units, e.g. crore) into "
         "calc_numerator_cr/calc_denominator_cr and their source labels; do NOT do the division yourself, Navrist "
         "will calculate it deterministically. If you are not confident the numerator and denominator are from the "
         "same period/scope, or that the denominator is the relevant total revenue, do not use \"calculated\".\n"
         "- If recurring characteristics are described with an explicit repeat/renewal signal but not quantifiable, "
-        "use \"qualitative_only\" and leave numeric fields null — actively look for this before giving up. Signals "
+        "use \"qualitative_only\" and leave numeric fields null - actively look for this before giving up. Signals "
         "include: renewal-based contracts, maintenance/AMC arrangements, annuity-style income, long-term recurring "
         "service commitments, repeat-customer relationships, or management describing revenue as committed/steady/"
         "predictable. If the excerpts contain ANY such signal, even a brief one, use \"qualitative_only\" rather "
-        "than \"not_disclosed\" — \"not_disclosed\" is for excerpts with NO repeat/renewal signal at all (pure "
+        "than \"not_disclosed\" - \"not_disclosed\" is for excerpts with NO repeat/renewal signal at all (pure "
         "accounting boilerplate about contract assets/liabilities/order book with no repeat/renewal language).\n"
         "- If nothing relevant is disclosed, use \"not_disclosed\". If you genuinely cannot tell, use "
         "\"unable_to_determine\". NEVER guess a percentage to fill a gap, and NEVER report 0% unless the "
         "company explicitly states recurring revenue is zero/none.\n"
         "- Classify cyclicality (low/moderate/high) from actual DESCRIBED sensitivity, resilience, or impact on "
-        "demand/revenue — the mere presence of a word like \"commodity\", \"cycle\", or \"interest rate\" is NOT "
+        "demand/revenue - the mere presence of a word like \"commodity\", \"cycle\", or \"interest rate\" is NOT "
         "itself evidence; the text must describe how conditions actually affect (or don't affect) the business. "
         "This cuts both ways: a statement that the business has maintained stability/resilience through economic "
-        "cycles over many years IS real evidence supporting LOW cyclicality — don't discard it just because it's "
+        "cycles over many years IS real evidence supporting LOW cyclicality - don't discard it just because it's "
         "phrased as reassurance rather than a warning. Weigh mitigants (long-term contracts, regulated revenue, "
         "essential consumption, stable renewals, demonstrated multi-year resilience) against drivers (discretionary "
         "demand, commodity/rate/credit sensitivity actually described as affecting results). USE \"unable_to_"
         "determine\" ONLY when the excerpts contain no real discussion of economic/demand sensitivity or "
-        "resilience either way — if they discuss it at all, even briefly, commit to your best-supported "
+        "resilience either way - if they discuss it at all, even briefly, commit to your best-supported "
         "classification (low/moderate/high) rather than defaulting to unable_to_determine.\n\n"
         "Return ONLY JSON with EXACTLY these field names (do not rename, nest, or omit any of them):\n"
         "{\n"
@@ -533,7 +540,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
             raise ValueError(f"no usable JSON object (raw[:200]={(raw or '')[:200]!r})")
         return data
 
-    # Tracks the FIRST call only — the retry below is a best-effort attempt
+    # Tracks the FIRST call only - the retry below is a best-effort attempt
     # to improve a punted answer, not the thing that determines whether this
     # sub-point produced a real result worth caching.
     try:
@@ -557,12 +564,12 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
 
     # A rate-limited free-tier fallback model sometimes punts on a dimension
     # ("not_disclosed"/"unable_to_determine") even when the retrieved
-    # excerpts genuinely contain repeat/renewal or cyclicality language —
+    # excerpts genuinely contain repeat/renewal or cyclicality language -
     # this is a model-quality gap, not evidence absence. Give it ONE more
     # attempt with a more directive nudge before accepting the punt, but
     # only for a dimension that actually has retrieved excerpts to re-read
     # (never retries into fabricating something from nothing), and merge in
-    # only the retry's improvement for that specific dimension — a
+    # only the retry's improvement for that specific dimension - a
     # borderline recurring call on the first pass is not a license to let a
     # second, higher-temperature pass silently overwrite a good cyclicality
     # answer with a worse one.
@@ -572,7 +579,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
         try:
             nudge = (
                 "\n\nIMPORTANT: your first attempt at this defaulted to not_disclosed/unable_to_determine. Before "
-                "doing that again, re-read the excerpts above carefully — real annual reports rarely say NOTHING "
+                "doing that again, re-read the excerpts above carefully - real annual reports rarely say NOTHING "
                 "relevant. If there is ANY genuine repeat/renewal signal (however brief) or ANY genuine discussion "
                 "of economic/demand sensitivity or resilience (however brief), you MUST use it and commit to a "
                 "non-default classification for that dimension. Only keep not_disclosed/unable_to_determine if, "
@@ -608,7 +615,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
             v = None
         # Safety net on top of the prompt rule: the claimed quote must (a)
         # actually exist, (b) contain a real recurring/subscription/renewal
-        # signal word — not just sit near one — and (c) contain the same
+        # signal word - not just sit near one - and (c) contain the same
         # number being reported, so a nearby-but-unrelated % (e.g. an EBITDA
         # margin mentioned in the same paragraph) can never be captured as
         # the recurring-revenue figure.
@@ -618,7 +625,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
         if v is not None and 0 <= v <= 100 and quote and _RECURRING_SIGNAL_RE.search(quote) and num_in_quote:
             recurring_pct = round(v, 1)
         else:
-            recurring_status = "unable_to_determine"  # claimed reported but quote didn't substantiate it — don't trust it
+            recurring_status = "unable_to_determine"  # claimed reported but quote didn't substantiate it - don't trust it
     elif recurring_status == "calculated":
         num_label = str(data.get("calc_numerator_label") or "")
         den_label = str(data.get("calc_denominator_label") or "")
@@ -627,7 +634,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
             den = float(data.get("calc_denominator_cr"))
         except (TypeError, ValueError):
             num = den = None
-        # The numerator's own label must carry a real recurring signal —
+        # The numerator's own label must carry a real recurring signal -
         # otherwise a contract-liability or order-book figure could slip in
         # as if it were recurring revenue just because it's a number near the
         # right keywords.
@@ -638,12 +645,12 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
                 "denominator_cr": den, "denominator_label": den_label.strip(),
             }
         else:
-            recurring_status = "unable_to_determine"  # claimed calculable but didn't substantiate it — don't trust it
-    # qualitative_only / not_disclosed / unable_to_determine: pct stays None — never defaulted to 0.
+            recurring_status = "unable_to_determine"  # claimed calculable but didn't substantiate it - don't trust it
+    # qualitative_only / not_disclosed / unable_to_determine: pct stays None - never defaulted to 0.
 
     # Tolerate the weak fallback model dropping the exact list field and
     # instead returning a free-form description string under a differently
-    # named key — wrap it as a single bullet rather than losing the evidence
+    # named key - wrap it as a single bullet rather than losing the evidence
     # entirely (the false-positive signal-word gate right below still applies
     # to whatever text ends up here, so this doesn't weaken that guard).
     _rec_bullets_raw = data.get("recurring_evidence_bullets")
@@ -653,7 +660,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
     recurring_bullets = [str(b).strip() for b in (_rec_bullets_raw or []) if str(b).strip()][:6]
     if recurring_status == "qualitative_only":
         # Second false-positive guard: qualitative_only requires at least one
-        # bullet to actually carry a repeat/renewal signal — a bullet that
+        # bullet to actually carry a repeat/renewal signal - a bullet that
         # only mentions "contract liabilities"/"order book"/"maintenance"/
         # "services"/"software" without a recur/subscribe/renew/annuity word
         # is not evidence of recurring revenue, per the hard rule above.
@@ -663,7 +670,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
 
     # Weaker fallback models (the free-tier chain in groq_client can bottom
     # out at a small model under heavy rate limiting) sometimes echo a
-    # differently-named or nested key instead of the exact schema field —
+    # differently-named or nested key instead of the exact schema field -
     # e.g. a bare "cyclicality": "low" instead of "cyclicality_classification".
     # Tolerate the common variants rather than silently discarding a real
     # answer and falling back to "unable_to_determine".
@@ -679,7 +686,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
     _drivers_raw = data.get("cyclicality_drivers") or _cyc_dict.get("drivers") or []
     _mitigants_raw = data.get("cyclicality_mitigants") or _cyc_dict.get("mitigants") or []
     # Same free-form-description tolerance as recurring_evidence_bullets
-    # above — a model that answers with "cyclicality_description": "..."
+    # above - a model that answers with "cyclicality_description": "..."
     # instead of the drivers/mitigants list fields shouldn't lose its
     # reasoning entirely; fold it in as a driver bullet.
     if not _drivers_raw and not _mitigants_raw:
@@ -723,7 +730,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
     if not llm_failed:
         write_qualitative(sym, subpoint_id, payload, confidence_tag)
     else:
-        print(f"[qualitative_engine] A.1.2 NOT cached for {sym} — LLM call did not run; will retry next request.")
+        print(f"[qualitative_engine] A.1.2 NOT cached for {sym} - LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -731,7 +738,7 @@ def compute_a1_2_revenue_characteristics(symbol, name=None, force=False):
 
 _SEGMENT_PATTERN = ("recurring", "mixed", "cyclical", "unclassified")
 _PATTERN_SCORE = {"recurring": 0.0, "mixed": 0.5, "cyclical": 1.0}
-# Broader than _RECURRING_SIGNAL_RE — accepts general, well-established
+# Broader than _RECURRING_SIGNAL_RE - accepts general, well-established
 # business-model reasoning as valid grounds for a "recurring" classification
 # (per-segment classifier only), not just literal repeat/renewal language
 # quoted from a filing. Still excludes bare order-book/contract-asset/
@@ -746,11 +753,11 @@ _GENERAL_RECURRING_REASONING_RE = re.compile(
 # v8: the Ind AS 108 segment parser was fixed (see
 # annual_report_financials._extract_segment_revenue_matrix), so companies that
 # previously fell back to the single-block "Focused / Single Business" view
-# purely because their segment note failed to parse — Reliance among them — now
+# purely because their segment note failed to parse - Reliance among them - now
 # resolve real reportable segments.
 # v9: a classifier reply that fails to parse as usable JSON (no exception, just
 # an empty/malformed structure) is now treated as a failed run rather than
-# silently cached as "every segment unclassified" — confirmed on ITC, which
+# silently cached as "every segment unclassified" - confirmed on ITC, which
 # had exactly that result cached with no error ever recorded. Bumped so that
 # stale all-unclassified payload (and any sibling from the same silent gap)
 # gets recomputed instead of being served for another month.
@@ -762,7 +769,7 @@ _GENERAL_RECURRING_REASONING_RE = re.compile(
 # v11 (1B): the classifier now sees each segment's OWN AR excerpts (windows
 # whose text actually names that segment) as PRIMARY evidence, falling back
 # to the shared company-wide excerpt pool + general business-type reasoning
-# only when no segment-named excerpt exists — previously every segment was
+# only when no segment-named excerpt exists - previously every segment was
 # classified from the same shared pool regardless of whether it actually
 # mentioned that segment. Added `segment_sourced` per segment. Bumped so
 # already-cached companies get reclassified under the corrected sourcing
@@ -770,24 +777,24 @@ _GENERAL_RECURRING_REASONING_RE = re.compile(
 # v12: the single-block fallback (no reconciled segment note -> one block
 # labelled with the COMPANY NAME) is no longer run through the
 # Recurring/Cyclical classifier at all. v11 and earlier persisted the noise
-# it produced — confirmed live: LT="recurring", SUNPHARMA="cyclical", both
+# it produced - confirmed live: LT="recurring", SUNPHARMA="cyclical", both
 # effectively backwards, each shown as a confident 100% mix. Every such
 # payload must be recomputed, so this bump is mandatory, not cosmetic.
 _BIZ_COMP_SCHEMA_VERSION = 12
 
-# Per-fiscal-year cache for _classify_segments_pattern's LLM result — see
+# Per-fiscal-year cache for _classify_segments_pattern's LLM result - see
 # that function's cache_subpoint block below for why this exists (shared
 # Groq/OpenRouter daily quota exhaustion, confirmed on HINDUNILVR: 3 of 5
 # historical years failed with HTTP 429 on one run, forcing
 # compute_a1_2_pattern_trend to report NOT_FOUND even though 2 years HAD
-# genuinely classified successfully moments earlier in the SAME run — without
+# genuinely classified successfully moments earlier in the SAME run - without
 # per-year caching, the next retry burns quota re-classifying those same 2
 # already-successful years all over again instead of only retrying the ones
 # that actually failed).
 # v2: MUST be bumped past every v1 entry. v1 was written before the
 # single-block fallback was removed from compute_a1_2_pattern_trend and
 # before unrequested/hallucinated labels were rejected, so v1 entries can
-# hold exactly the garbage this cache then FROZE for 30 days — confirmed on
+# hold exactly the garbage this cache then FROZE for 30 days - confirmed on
 # HINDUNILVR, whose v1 entries were {FY22: "hindunilvr"=recurring, FY23:
 # "hindunilvr"=mixed, FY24: "hindunilvr"=cyclical + hallucinated "water"/
 # "home care"/"beauty & wellbeing" labels}. Bumping makes every one of those
@@ -797,7 +804,7 @@ _SEGMENT_PATTERN_YEAR_CACHE_VERSION = 2
 
 def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_year=None):
     """Shared segment-pattern (Recurring/Mixed/Cyclical/Unclassified)
-    classifier — extracted out of `compute_business_composition` so the same
+    classifier - extracted out of `compute_business_composition` so the same
     grounded, per-segment-sourced (1B) classification logic can be reused for
     a SPECIFIC historical fiscal year too (see `compute_a1_2_pattern_trend`
     below), not only the latest Annual Report. `fiscal_year=None` keeps the
@@ -807,20 +814,20 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
       - patterns_by_label: {label.lower(): {pattern, reason_points, brands,
         segment_sourced}}, only for segments the classifier actually returned.
       - classification_error: the exception if the LLM call never produced
-        usable JSON (a transient failure, never persisted as a real result —
+        usable JSON (a transient failure, never persisted as a real result -
         same "ITC postmortem" guardrail as compute_business_composition), else None.
       - evidence: the raw fetch_revenue_characteristics_evidence() result,
         for callers that also want the excerpts themselves.
     """
-    # Per-year result cache — only for a SPECIFIC historical fiscal_year
+    # Per-year result cache - only for a SPECIFIC historical fiscal_year
     # (compute_a1_2_pattern_trend's multi-year loop). fiscal_year=None (the
     # "latest year" case used by compute_business_composition) is
-    # deliberately always freshly classified, unchanged — that call site
+    # deliberately always freshly classified, unchanged - that call site
     # already has its own subpoint-level cache/TTL and calling it once per
     # request isn't the quota-burning multi-year retry pattern this exists
     # to fix. A cached entry is only ever WRITTEN below after a genuine
     # successful classification (classification_error is None), never for a
-    # rate-limited/failed run — same "never persist a fake result" guardrail
+    # rate-limited/failed run - same "never persist a fake result" guardrail
     # as the rest of this function.
     cache_subpoint = f"A.1.2y_{fiscal_year}" if fiscal_year is not None else None
     if cache_subpoint:
@@ -839,7 +846,7 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
         return "\n".join(f"[p.{e['page']}] ...{e['text']}..." for e in (items or [])) or "(none found)"
 
     # 1B requires each segment's pattern to be grounded in that segment's OWN
-    # AR/MD&A description — never a single company-wide impression. The
+    # AR/MD&A description - never a single company-wide impression. The
     # underlying excerpt scan (`fetch_revenue_characteristics_evidence`) is
     # not segment-aware, so filter its excerpts here: a window whose text
     # actually names the segment is that segment's OWN evidence (primary); a
@@ -849,7 +856,7 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
     def _mentions_segment(text, seg_label):
         tl = (text or "").lower()
         # A multi-word label (e.g. "Consumer Care") must match as a whole
-        # phrase or by its most distinctive word (>=4 chars) — matching any
+        # phrase or by its most distinctive word (>=4 chars) - matching any
         # short/common word (e.g. "and", "the") would false-positive on
         # nearly every excerpt.
         label_l = seg_label.lower().strip()
@@ -868,7 +875,7 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
 
     # Concall commentary is already an approved, existing Navrist source (same
     # grounded corpus digest used by A.1's business-model-clarity judgment and
-    # elsewhere) — wiring it in here too gives the segment classifier real
+    # elsewhere) - wiring it in here too gives the segment classifier real
     # management commentary to work from (e.g. management describing a
     # specific segment's contracts/demand pattern) in addition to the Annual
     # Report excerpts, without adding any new external source. Generic across
@@ -878,13 +885,13 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
     seg_names = [s["label"] for s in segments_for_calc]
     patterns_by_label = {}
     seg_sourced_by_label = {}
-    # Always attempt classification — the classifier is explicitly allowed to
+    # Always attempt classification - the classifier is explicitly allowed to
     # reason from well-established business-model/sector knowledge (e.g.
     # "FMCG household/personal-care products are repeat-purchase, driven by
     # everyday consumer demand" or "auto manufacturing is capex/demand
     # cyclical") even without a literal quote, not only when AR/concall text
     # happened to contain matching language. Still grounded reasoning, not a
-    # blind guess — the order-book-only false-positive guard below still
+    # blind guess - the order-book-only false-positive guard below still
     # applies regardless of source.
     per_segment_blocks = []
     for seg_label in seg_names:
@@ -893,13 +900,13 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
         seg_sourced_by_label[seg_label.lower()] = has_own
         if has_own:
             per_segment_blocks.append(
-                f"--- SEGMENT: {seg_label} (own AR excerpts naming this segment — PRIMARY for this segment) ---\n"
+                f"--- SEGMENT: {seg_label} (own AR excerpts naming this segment - PRIMARY for this segment) ---\n"
                 f"Recurring/contract language: {_fmt_excerpts(own['recurring'])}\n"
                 f"Cyclicality/demand language: {_fmt_excerpts(own['cyclicality'])}\n"
             )
         else:
             per_segment_blocks.append(
-                f"--- SEGMENT: {seg_label} (NO own-named excerpt found — no segment-specific AR text located; "
+                f"--- SEGMENT: {seg_label} (NO own-named excerpt found - no segment-specific AR text located; "
                 f"classify from general company-wide excerpts below plus well-established business-type "
                 f"reasoning, per the rules above) ---\n"
             )
@@ -907,7 +914,7 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
         f"COMPANY: {company}\n"
         f"REPORTED SEGMENTS: {', '.join(seg_names)}\n\n"
         + "\n".join(per_segment_blocks) + "\n"
-        f"=== COMPANY-WIDE AR EXCERPTS (fallback only — use ONLY for a segment with no own-named excerpt above) ===\n"
+        f"=== COMPANY-WIDE AR EXCERPTS (fallback only - use ONLY for a segment with no own-named excerpt above) ===\n"
         f"Recurring/contract language: {_fmt_excerpts(evidence.get('recurring_excerpts'))}\n"
         f"Cyclicality/demand language: {_fmt_excerpts(evidence.get('cyclicality_excerpts'))}\n"
         + (f"\n=== RECENT CONCALL / MANAGEMENT COMMENTARY (secondary corroboration, newest first) ===\n{digest}\n" if digest else "")
@@ -915,36 +922,36 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
     prompt = (
         "You are an equity analyst classifying the REVENUE PATTERN of each individually reported business "
         "segment for an Indian listed company. For each segment, the excerpts under that SEGMENT's own heading "
-        "above (if any) are its PRIMARY evidence and must be used first — never substitute the company-wide "
+        "above (if any) are its PRIMARY evidence and must be used first - never substitute the company-wide "
         "impression for a segment that has its own named excerpts. Only fall back to the company-wide excerpts "
         "and/or well-established general business-type knowledge for a segment explicitly marked 'NO own-named "
         "excerpt found'. The concall/management commentary (if present) is SECONDARY corroboration for any "
         "segment. When neither a segment-specific nor a company-wide source discusses a segment, you MUST STILL "
         "classify it using well-established, general knowledge of how that kind of business actually earns "
-        "revenue — e.g. FMCG household/personal-care/food products are repeat-purchase, driven by everyday "
+        "revenue - e.g. FMCG household/personal-care/food products are repeat-purchase, driven by everyday "
         "consumer demand (typically Cyclical or Mixed, not purely discretionary); auto/industrial manufacturing "
         "is capex- and demand-cycle sensitive (typically Cyclical); IT services delivery is often Mixed "
         "(project-based plus renewing maintenance); banking/lending interest income and insurance premiums are "
         "typically Recurring. Reserve \"unclassified\" for the rare case where you genuinely cannot reason about "
-        "the segment's business model at all — it should be UNUSUAL, not the default outcome.\n\n"
+        "the segment's business model at all - it should be UNUSUAL, not the default outcome.\n\n"
         "FALSE-POSITIVE GUARD (still applies regardless of source): order book, contract assets, contract "
         "liabilities, customer contracts, or the mere existence of a contract do NOT by themselves prove "
-        "recurring revenue — order book reflects revenue VISIBILITY (future revenue already booked), a DIFFERENT "
+        "recurring revenue - order book reflects revenue VISIBILITY (future revenue already booked), a DIFFERENT "
         "concept from RECURRINGNESS (whether revenue repeats from the same customers over time). Never cite an "
-        "order book figure, alone, as your reason for \"recurring\" — if that is genuinely your only evidence, use "
+        "order book figure, alone, as your reason for \"recurring\" - if that is genuinely your only evidence, use "
         "\"cyclical\" or \"unclassified\" instead, or pair it with real reasoning about repeat/renewal.\n\n"
         "Only use \"mixed\" when the segment demonstrably has BOTH meaningful recurring/stable AND cyclical/"
-        "transactional characteristics, and you can state both reasons — never as a stand-in for uncertainty, "
+        "transactional characteristics, and you can state both reasons - never as a stand-in for uncertainty, "
         "and never default to \"mixed\" just because the pattern is unclear (use \"unclassified\" instead).\n\n"
         "For EACH segment also provide:\n"
-        "- reason_points: 2-3 short bullet points (not a paragraph) explaining the classification — what the "
+        "- reason_points: 2-3 short bullet points (not a paragraph) explaining the classification - what the "
         "segment's business actually does, and why that supports the pattern chosen. If based on that segment's "
         "own named excerpts, say so; if based on company-wide/general reasoning because no own-named excerpt "
         "existed, make that clear too.\n"
         "- example_brands: 2-4 well-known, real brand/product names commonly associated with that segment for "
         "this company, from general public knowledge (e.g. for an FMCG 'Beauty & Wellbeing' segment: real, "
         "well-known personal-care brand names). ONLY include names you are confident are real and genuinely "
-        "associated with this company — leave the list empty rather than guessing or inventing a name.\n\n"
+        "associated with this company - leave the list empty rather than guessing or inventing a name.\n\n"
         "Return ONLY JSON:\n"
         '{ "segments": [ {"label": "<EXACT segment label from REPORTED SEGMENTS, one entry per segment, same order>", '
         '"pattern": "recurring" | "mixed" | "cyclical" | "unclassified", '
@@ -967,25 +974,25 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
         data = parse_json_loose(raw)
         # A model can return a reply that fails to parse as JSON at all (or
         # parses but without a "segments" list) without groq_chat itself
-        # raising — that's structurally the same "the classifier didn't
+        # raising - that's structurally the same "the classifier didn't
         # actually run" case as a network/rate-limit exception (confirmed:
         # ITC's cache held all-"unclassified" from exactly this, with no
         # exception ever thrown), so it must be treated the same way rather
         # than silently defaulting to {} and letting every segment fall
         # through as "unclassified" for real judgment reasons it never gave.
         # A genuine "the model classified every segment as unclassified" is
-        # NOT this case — that's a valid segments list where each entry's
+        # NOT this case - that's a valid segments list where each entry's
         # own pattern value happens to be "unclassified", handled normally
         # below.
         if data is None or not isinstance(data.get("segments"), list):
             raise ValueError(f"Classifier reply had no usable 'segments' array (raw[:200]={(raw or '')[:200]!r})")
         # Only labels that were ACTUALLY REQUESTED are accepted. The model
-        # does sometimes return segments that were never in the input —
+        # does sometimes return segments that were never in the input -
         # confirmed on HINDUNILVR FY2024, where a single requested segment
         # came back as four ("water", "home care", "beauty & wellbeing", plus
         # the requested one). Previously every returned label was stored, and
         # a requested segment the model simply omitted got NO classification
-        # and then silently dropped out of the percentage base downstream —
+        # and then silently dropped out of the percentage base downstream -
         # so a year where only 1 of 5 real segments came back would render
         # that one segment's pattern as ~100% of the mix. Unrequested labels
         # are now discarded and low coverage is treated as a failed run.
@@ -1011,7 +1018,7 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
             # backed by either a literal repeat/renewal signal word OR
             # general, well-established business-model reasoning (consumer
             # staple, essential/everyday demand, membership, deposits/loans,
-            # insurance premiums, maintenance/service contracts, warranty) —
+            # insurance premiums, maintenance/service contracts, warranty) -
             # NOT trusted when the reasoning cites only order-book/contract-
             # asset/contract-liability language with nothing else, which is
             # revenue visibility, not recurringness.
@@ -1046,7 +1053,7 @@ def _classify_segments_pattern(sym, name, company, segments_for_calc, fiscal_yea
 def compute_business_composition(symbol, name=None, description="", force=False):
     """Business-model composition (Graph 1): a 100%-stacked, revenue-weighted
     view of the company's reported segments, each classified Recurring/Mixed/
-    Cyclical/Unclassified from real evidence — never from the segment's name
+    Cyclical/Unclassified from real evidence - never from the segment's name
     or the company's sector alone. Replaces the older split
     business-diversification / revenue-characteristics presentation with one
     unified, evidence-grounded composition view.
@@ -1058,16 +1065,16 @@ def compute_business_composition(symbol, name=None, description="", force=False)
       - business-model tag: single segment, or one segment >= 90% of revenue
         -> Focused/Single Business; otherwise Portfolio/Diversified.
       - residual/unallocated: consolidated revenue minus the sum of reported
-        segment revenue — shown neutrally, never assigned a pattern unless
+        segment revenue - shown neutrally, never assigned a pattern unless
         explicit evidence exists for it.
       - the portfolio-level Recurring<->Cyclical position is a revenue-
         weighted average of the segment classifications (Recurring=0,
-        Mixed=0.5, Cyclical=1), computed in Python — the LLM never outputs
+        Mixed=0.5, Cyclical=1), computed in Python - the LLM never outputs
         this position directly, only the per-segment classification + reason.
     Only the per-segment classification is LLM-assisted, grounded in the same
     Annual Report evidence extraction used for A.1.2 (recurring/cyclicality
     narrative excerpts), and defaults to "unclassified" (not "mixed") when
-    evidence is insufficient — uncertainty is never mixed.
+    evidence is insufficient - uncertainty is never mixed.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "A.1.3"
@@ -1129,7 +1136,7 @@ def compute_business_composition(symbol, name=None, description="", force=False)
     # CRITICAL: that single block must NOT be run through the
     # Recurring/Cyclical pattern classifier. Its "label" is the company name,
     # so the classifier is being asked to pattern-classify a bare ticker
-    # string, and it answers with noise — confirmed live: L&T (engineering &
+    # string, and it answers with noise - confirmed live: L&T (engineering &
     # construction, textbook project-cyclical) came back "recurring" and Sun
     # Pharma (pharmaceuticals, textbook defensive) came back "cyclical",
     # each then rendered as a confident "100% Recurring"/"100% Cyclical"
@@ -1153,7 +1160,7 @@ def compute_business_composition(symbol, name=None, description="", force=False)
     residual_pct = round(max(0.0, residual) / consolidated_revenue * 100, 1) if consolidated_revenue else 0.0
 
     # --- Step 6-7: segment-specific pattern classification, evidence-grounded ---
-    # Skipped entirely in the single-block case (see the comment above) —
+    # Skipped entirely in the single-block case (see the comment above) -
     # every segment stays "unclassified", which the pattern-mix code below
     # already handles by excluding it from the base, so no mix is shown
     # rather than a fabricated one.
@@ -1176,7 +1183,7 @@ def compute_business_composition(symbol, name=None, description="", force=False)
             "example_brands": cls.get("brands") or [],
             # True only when an AR excerpt actually NAMES this segment (1B:
             # "each segment's OWN business description... never the
-            # company-wide description") — False means the classification
+            # company-wide description") - False means the classification
             # fell back to company-wide excerpts + general business-type
             # reasoning, which the UI should show as a weaker sourcing basis.
             "segment_sourced": cls.get("segment_sourced", False),
@@ -1211,7 +1218,7 @@ def compute_business_composition(symbol, name=None, description="", force=False)
         weighted_pattern_label = "unclassified"
 
     # Recomputed here (cheap/cached) since the classification helper now
-    # owns its own local `digest` — this call just needs the same bool for
+    # owns its own local `digest` - this call just needs the same bool for
     # the payload's `used_concall`/`grounded` flags below.
     digest = _concall_digest(sym, name)
 
@@ -1262,7 +1269,7 @@ def compute_business_composition(symbol, name=None, description="", force=False)
         # company failed to disclose something, which would be a claim we have
         # no evidence for.
         "pattern_classification_failed": bool(classification_error),
-        # The full company-wide excerpt pool the classifier drew from — each
+        # The full company-wide excerpt pool the classifier drew from - each
         # segment above additionally carries its own `segment_sourced` flag
         # (True when at least one of these excerpts actually names that
         # segment and was used as its PRIMARY evidence; False means that
@@ -1283,14 +1290,14 @@ def compute_business_composition(symbol, name=None, description="", force=False)
         },
     }
     # A transient LLM failure (rate limit, network) leaves every segment
-    # "unclassified" — persisting that would bake a non-finding into a
+    # "unclassified" - persisting that would bake a non-finding into a
     # 30-day cache and render it as though the filings lacked the disclosure.
     # Same convention as _get_extracted_financials_impl, which deliberately
     # does not cache transient download failures.
     if not classification_error:
         write_qualitative(sym, subpoint_id, payload, confidence_tag)
     else:
-        print(f"[qualitative_engine] business_composition NOT cached for {sym} — "
+        print(f"[qualitative_engine] business_composition NOT cached for {sym} - "
               f"segment classification did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -1310,7 +1317,7 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
     """1B, current-year + multi-year view: revenue-weighted Recurring vs
     Cyclical % for the latest Annual Report ("current year mix") and for as
     many of the up-to-5 most recent Annual Reports as actually have a
-    reconciled segment note ("N-year trend") — real per-year classification,
+    reconciled segment note ("N-year trend") - real per-year classification,
     reusing the SAME segment-pattern classifier as `compute_business_composition`
     (`_classify_segments_pattern`), just run once per historical filing
     instead of only the latest. A year with no usable segment/revenue data is
@@ -1319,7 +1326,7 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
     Mixed-pattern segments split 50/50 between Recurring and Cyclical for
     this two-way % (the 3-way Recurring/Mixed/Cyclical view lives on the A.1
     sunburst); Unclassified segments' revenue is excluded from the base a
-    year's % is computed over — never silently folded into either side.
+    year's % is computed over - never silently folded into either side.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "A.1.2b"
@@ -1375,11 +1382,11 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
         # A year WITHOUT a reconciled multi-segment note contributes NOTHING
         # to this trend. There used to be a "graceful single-block fallback"
         # here that classified the whole company as one segment labelled with
-        # the COMPANY NAME — that was actively harmful, not graceful:
+        # the COMPANY NAME - that was actively harmful, not graceful:
         # confirmed on HINDUNILVR, whose segment note only reconciles for
         # FY2026, so FY2022/23/24 each fell back to asking the classifier to
         # label the bare string "HINDUNILVR". It answered recurring / mixed /
-        # cyclical on three different years — three independent coin flips on
+        # cyclical on three different years - three independent coin flips on
         # a company name, rendered to the user as a real 3-year
         # Recurring-vs-Cyclical TREND (FY24 showing "0% Recurring" for an
         # FMCG staples business) and awarded a VERIFIED badge purely because
@@ -1415,7 +1422,7 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
             # "unclassified" (or missing) segments are excluded from the base.
         if classified_rev <= 0:
             skipped_years.append({"fiscal_year": fy, "reason": "NO_SEGMENT_CLASSIFIED"})
-            continue  # nothing usable this year — skip rather than guess
+            continue  # nothing usable this year - skip rather than guess
 
         trend.append({
             "fiscal_year": fy,
@@ -1427,11 +1434,11 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
     if not trend:
         no_segment_years = [s["fiscal_year"] for s in skipped_years if s["reason"] == "NO_RECONCILED_SEGMENT_NOTE"]
         if any_llm_failure:
-            reason = "Classifier could not be reached for any year this run — will retry next request."
+            reason = "Classifier could not be reached for any year this run - will retry next request."
         elif no_segment_years:
             reason = (f"No Annual Report year on file has a reconciled multi-segment revenue note "
                       f"(checked FY{', FY'.join(str(y) for y in sorted(no_segment_years))}). A "
-                      f"Recurring-vs-Cyclical split is measured from reported segments — without a segment "
+                      f"Recurring-vs-Cyclical split is measured from reported segments - without a segment "
                       f"note there is nothing to measure, and this is reported as unavailable rather than "
                       f"inferred from the company as a single block.")
         else:
@@ -1443,7 +1450,7 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
             "skipped_years": skipped_years,
         }
         # A run where every year failed purely on a transient LLM error must
-        # not be cached as a real "no data" finding — same guardrail as
+        # not be cached as a real "no data" finding - same guardrail as
         # compute_business_composition's classification_error handling.
         if not any_llm_failure:
             write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
@@ -1455,7 +1462,7 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
     # VERIFIED requires 3+ years that were each measured from a real reported
     # segment note. Before the single-block fallback was removed above, three
     # company-name coin flips satisfied this and earned a VERIFIED badge on
-    # data that measured nothing (see the HINDUNILVR case in that comment) —
+    # data that measured nothing (see the HINDUNILVR case in that comment) -
     # every entry in `trend` is now genuinely segment-derived, so the count
     # means what the badge claims it means.
     confidence_tag = "VERIFIED" if len(trend) >= 3 else "SINGLE_SOURCE"
@@ -1475,7 +1482,7 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
     if not any_llm_failure:
         write_qualitative(sym, subpoint_id, payload, confidence_tag)
     else:
-        print(f"[qualitative_engine] a1_2_pattern_trend partially NOT cached for {sym} — "
+        print(f"[qualitative_engine] a1_2_pattern_trend partially NOT cached for {sym} - "
               f"{len(years) - len(trend)}/{len(years)} year(s) hit a classifier failure; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -1483,25 +1490,25 @@ def compute_a1_2_pattern_trend(symbol, name=None, description="", force=False):
 
 
 def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr=None, force=False, skip_llm=False):
-    """A.2 — Competitive advantage / moats: brand, distribution, cost leadership,
+    """A.2 - Competitive advantage / moats: brand, distribution, cost leadership,
     network effects, switching costs. Composite Moat Rating Breakdown per spec:
     8 peer-quintile-ranked quant pillars (a-h) + a required qualitative-evidence
     score (i) sourced from CRISIL's rating rationale + management commentary.
 
-    Sourcing Sequence: PORTAL-07 (CRISIL rating rationale — tools/crisil_scraper.py,
-    verified live) -> AGG-01 (Screener.in fundamentals — fallback/cross-check only,
+    Sourcing Sequence: PORTAL-07 (CRISIL rating rationale - tools/crisil_scraper.py,
+    verified live) -> AGG-01 (Screener.in fundamentals - fallback/cross-check only,
     also the same-source basis for the peer-quintile pillars).
 
     HARD RULE (per spec): if the qualitative-evidence score (i) cannot be sourced,
-    no composite is shown — the whole rating is flagged QUANT_PROXY_ONLY rather
+    no composite is shown - the whole rating is flagged QUANT_PROXY_ONLY rather
     than presented as a full moat assessment. Peers are drawn ONLY from the fixed,
     auditable universe in tools/peer_universe.py (NSE sector map + market-cap-band
-    widening) — never an open search or free-text "similar companies" guess.
+    widening) - never an open search or free-text "similar companies" guess.
 
-    skip_llm=True: never calls any LLM API (Groq direct key or OpenRouter) — for
+    skip_llm=True: never calls any LLM API (Groq direct key or OpenRouter) - for
     bulk runs where the shared LLM quota must not be touched. This skips BOTH the
     qualitative-evidence classifier AND `_concall_digest` (which itself calls
-    groq_chat to summarize concalls) — result is always QUANT_PROXY_ONLY with the
+    groq_chat to summarize concalls) - result is always QUANT_PROXY_ONLY with the
     8 quant pillars + CRISIL rating rationale text populated, ready for a later
     LLM-enabled pass to score without re-scraping.
     """
@@ -1535,7 +1542,7 @@ def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr
         peers = breakdown["peer_set"]["peers"]
         pathway_results.append({
             "pathway_id": "AGG-01",
-            "source": "Screener.in fundamentals — peer-quintile scoring (tools/moat_peer_scoring.py)",
+            "source": "Screener.in fundamentals - peer-quintile scoring (tools/moat_peer_scoring.py)",
             "result": "CHECKED",
             "note": f"Scored against {len(peers)} peers in sector '{breakdown['peer_set']['sector']}' "
                     f"(fixed NSE-universe, market-cap band {breakdown['peer_set']['band']}).",
@@ -1543,7 +1550,7 @@ def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr
     else:
         pathway_results.append({
             "pathway_id": "AGG-01",
-            "source": "Screener.in fundamentals — peer-quintile scoring (tools/moat_peer_scoring.py)",
+            "source": "Screener.in fundamentals - peer-quintile scoring (tools/moat_peer_scoring.py)",
             "result": "NOT_DISCLOSED",
             "note": (breakdown.get("peer_set") or {}).get("reason", "Peer set could not be built."),
         })
@@ -1559,7 +1566,7 @@ def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr
             "peer_set": breakdown.get("peer_set"),
             "qualitative_evidence": breakdown["qualitative_evidence"],
             "rationale": "Neither the peer-quintile quant pillars nor the qualitative evidence score "
-                         "could be sourced this run — see peer_set/qualitative_evidence for the specific reason.",
+                         "could be sourced this run - see peer_set/qualitative_evidence for the specific reason.",
             "pathway_results": pathway_results,
         }
         confidence_tag = "SEARCH_INCONCLUSIVE"
@@ -1586,7 +1593,7 @@ def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr
             "pathway_results": pathway_results,
         }
         # PORTAL-07 (qualitative evidence) and AGG-01 (quant peer score) feed
-        # DIFFERENT parts of the composite, not the same fact — so even when
+        # DIFFERENT parts of the composite, not the same fact - so even when
         # both succeed this is never VERIFIED (VERIFIED requires 2+ pathways
         # corroborating the SAME value, per the cross-verification rule).
         # SINGLE_SOURCE whenever at least one produced usable data.
@@ -1600,7 +1607,7 @@ def compute_a2_competitive_moat(symbol, name=None, description="", market_cap_cr
     return payload
 
 
-# Bumped whenever the AR-13 pathway's actual data source changes materially —
+# Bumped whenever the AR-13 pathway's actual data source changes materially -
 # v2 replaced the thin yfinance business-description proxy for AR-13 with a
 # real Annual Report MD&A/Business Overview text extraction
 # (fetch_brand_evidence_from_annual_report), which was causing near-universal
@@ -1617,22 +1624,22 @@ _A2A_SCHEMA_VERSION = 4  # v4: fixed _sentences() splitting mid-phrase terms acr
 
 
 def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
-    """A.2.A ("2A" in the sheet) — Brand moat: 0-5 score based on pricing
+    """A.2.A ("2A" in the sheet) - Brand moat: 0-5 score based on pricing
     power, customer preference, premium positioning, repeat business, and
     market-share evidence.
 
     Sources: CRISIL/ICRA rating rationale (PORTAL-07, tools/crisil_scraper.py),
     Annual Report MD&A (AR-13, tools/annual_report_financials.py's
-    fetch_brand_evidence_from_annual_report — the REAL MD&A/Business Overview
-    narrative, not a proxy), Earnings call — NOT_CHECKED this run (see below).
+    fetch_brand_evidence_from_annual_report - the REAL MD&A/Business Overview
+    narrative, not a proxy), Earnings call - NOT_CHECKED this run (see below).
 
     Deliberately deterministic (tools/moat_brand_scoring.py) rather than
     LLM-scored: every score traces to a literal matched sentence, fully
-    reproducible, and avoids the shared Groq/OpenRouter quota entirely —
+    reproducible, and avoids the shared Groq/OpenRouter quota entirely -
     chosen for the 2,409-company bulk pass. The earnings-call pathway is
     marked NOT_CHECKED (deliberately not attempted), not NOT_DISCLOSED,
     because this codebase's only earnings-call digest
-    (tools/concall_intelligence.py) itself calls an LLM to summarize —
+    (tools/concall_intelligence.py) itself calls an LLM to summarize -
     using it here would defeat the point of avoiding LLM calls.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
@@ -1686,7 +1693,7 @@ def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
         {
             "pathway_id": "QUAL-01", "source": "Earnings call commentary",
             "result": "NOT_CHECKED",
-            "note": "Deliberately skipped — this codebase's earnings-call digest itself requires an "
+            "note": "Deliberately skipped - this codebase's earnings-call digest itself requires an "
                     "LLM call, which this deterministic sub-point avoids by design.",
         },
     ]
@@ -1706,7 +1713,7 @@ def compute_a2a_brand_moat(symbol, name=None, description="", force=False):
     }
 
     # Only one pathway ever feeds the actual score (CRISIL OR the company's own
-    # words, never both corroborating) — SINGLE_SOURCE whenever a score exists, per
+    # words, never both corroborating) - SINGLE_SOURCE whenever a score exists, per
     # the cross-verification rule; SEARCH_INCONCLUSIVE when nothing was found at all.
     confidence_tag = "SEARCH_INCONCLUSIVE" if scored["score"] is None else "SINGLE_SOURCE"
 
@@ -1720,18 +1727,18 @@ _A2B_SCHEMA_VERSION = 2  # v2: fixed _sentences() splitting mid-phrase terms acr
 
 
 def compute_a2b_distribution_moat(symbol, name=None, description="", force=False):
-    """A.2.B ("2B" in the sheet) — Distribution moat: 0-5 score based on
+    """A.2.B ("2B" in the sheet) - Distribution moat: 0-5 score based on
     distribution-network reach, exclusivity, and channel depth vs named
     competitors.
 
     Sources, PRIMARY-first (unlike A.2.A/Brand): Annual Report MD&A/Business
     Overview (AR-13, tools/annual_report_financials.py's
-    fetch_distribution_evidence_from_annual_report) is PRIMARY — a specific,
+    fetch_distribution_evidence_from_annual_report) is PRIMARY - a specific,
     numeric, dated AR claim (dealer/outlet/state counts, exclusivity terms)
     can reach 5/5 on its own, since operational distribution stats in a
     regulated filing are verifiable facts, not marketing prose. CRISIL/ICRA
     rating rationale (PORTAL-07) is SECONDARY, scored the same way as a
-    fallback. Earnings call — NOT_CHECKED this run, same reason as A.2.A
+    fallback. Earnings call - NOT_CHECKED this run, same reason as A.2.A
     (the only earnings-call digest requires an LLM call).
 
     Deliberately deterministic (tools/moat_distribution_scoring.py), same
@@ -1777,11 +1784,11 @@ def compute_a2b_distribution_moat(symbol, name=None, description="", force=False
 
     pathway_results = [
         {
-            "pathway_id": "AR-13", "source": "Annual Report MD&A (Business Overview) — PRIMARY",
+            "pathway_id": "AR-13", "source": "Annual Report MD&A (Business Overview) - PRIMARY",
             "result": ar13_result, "note": ar13_note,
         },
         {
-            "pathway_id": "PORTAL-07", "source": "CRISIL/ICRA Rating Rationale — SECONDARY",
+            "pathway_id": "PORTAL-07", "source": "CRISIL/ICRA Rating Rationale - SECONDARY",
             "result": "CHECKED" if crisil_text else crisil_result.get("result", "NOT_DISCLOSED"),
             "note": crisil_result.get("note") if crisil_result.get("result") != "CHECKED" else
                     f"Rated {crisil_result.get('rating')}, {crisil_result.get('rationale_date')}.",
@@ -1789,7 +1796,7 @@ def compute_a2b_distribution_moat(symbol, name=None, description="", force=False
         {
             "pathway_id": "QUAL-01", "source": "Earnings call commentary",
             "result": "NOT_CHECKED",
-            "note": "Deliberately skipped — this codebase's earnings-call digest itself requires an "
+            "note": "Deliberately skipped - this codebase's earnings-call digest itself requires an "
                     "LLM call, which this deterministic sub-point avoids by design.",
         },
     ]
@@ -1808,7 +1815,7 @@ def compute_a2b_distribution_moat(symbol, name=None, description="", force=False
         "pathway_results": pathway_results,
     }
 
-    # Only one pathway ever feeds the actual score — SINGLE_SOURCE whenever a
+    # Only one pathway ever feeds the actual score - SINGLE_SOURCE whenever a
     # score exists, per the cross-verification rule; SEARCH_INCONCLUSIVE when
     # nothing was found at all.
     confidence_tag = "SEARCH_INCONCLUSIVE" if scored["score"] is None else "SINGLE_SOURCE"
@@ -1823,21 +1830,21 @@ _A2C_SCHEMA_VERSION = 2  # v2: fixed _sentences() splitting mid-phrase terms acr
 
 
 def compute_a2c_cost_leadership_moat(symbol, name=None, description="", market_cap_cr=None, force=False):
-    """A.2.C ("2C" in the sheet) — Cost leadership moat: 0-5 score combining
+    """A.2.C ("2C" in the sheet) - Cost leadership moat: 0-5 score combining
     a QUANT proxy (operating margin vs the peer set, identical Peer Set
     Protocol as the main A.2 Moat row, reusing
-    tools/moat_peer_scoring.score_quant_pillars's `opm_level` pillar — never
+    tools/moat_peer_scoring.score_quant_pillars's `opm_level` pillar - never
     text-scanned) with a QUALITATIVE requirement that CRISIL/ICRA or the AR
     MD&A NAME the source of the cost advantage (scale, captive input,
-    proprietary technology) — a margin lead alone, with no stated reason,
+    proprietary technology) - a margin lead alone, with no stated reason,
     scores lower per the rubric (see tools/moat_cost_leadership_scoring.py).
 
     Sources, PRIMARY-first for the qualitative leg (same ordering as A.2.B):
     Annual Report MD&A (AR-13) is PRIMARY, CRISIL/ICRA rationale (PORTAL-07)
     is SECONDARY. The peer cost-structure comparison (PEER-01) is the quant
     leg, sourced via the same fixed-universe/market-cap-band protocol used
-    by the main A.2 Moat row (tools/peer_universe.py) — never re-derived
-    here. Earnings call — NOT_CHECKED this run, same reason as A.2.A/A.2.B.
+    by the main A.2 Moat row (tools/peer_universe.py) - never re-derived
+    here. Earnings call - NOT_CHECKED this run, same reason as A.2.A/A.2.B.
 
     Deliberately deterministic for the qualitative leg (no LLM), same
     rationale as A.2.A/A.2.B: reproducible, auditable, avoids the shared
@@ -1872,13 +1879,20 @@ def compute_a2c_cost_leadership_moat(symbol, name=None, description="", market_c
     ar_excerpts = ar_evidence.get("excerpts") or []
     ar_mdna_text = "\n".join(e["text"] for e in ar_excerpts)
 
-    # Quant leg — same peer-set machinery as the main A.2 composite, not
-    # re-derived: just pull the `opm_level` pillar's percentile.
-    try:
-        quant = score_quant_pillars(sym, market_cap_cr=market_cap_cr)
-    except Exception as e:
-        print(f"[qualitative_engine] A.2.C peer OPM lookup failed for {sym}: {e}")
-        quant = {"status": "ERROR", "pillars": []}
+    # Quant leg - same peer-set machinery as the main A.2 composite, not
+    # re-derived: just pull the `opm_level` pillar's percentile. Skipped
+    # entirely in the document-only manual workflow (Screener.in peer data
+    # is a live external source, not an uploaded document) - the AR/Credit
+    # Rating Report evidence leg above still runs normally.
+    from tools.manual_mode import is_manual_mode
+    if is_manual_mode():
+        quant = {"status": "NOT_CHECKED", "pillars": []}
+    else:
+        try:
+            quant = score_quant_pillars(sym, market_cap_cr=market_cap_cr)
+        except Exception as e:
+            print(f"[qualitative_engine] A.2.C peer OPM lookup failed for {sym}: {e}")
+            quant = {"status": "ERROR", "pillars": []}
     opm_pillar = next((p for p in (quant.get("pillars") or []) if p.get("key") == "opm_level"), None)
     opm_percentile = opm_pillar.get("percentile") if opm_pillar else None
     peer_status = quant.get("status")
@@ -1897,11 +1911,11 @@ def compute_a2c_cost_leadership_moat(symbol, name=None, description="", market_c
 
     pathway_results = [
         {
-            "pathway_id": "AR-13", "source": "Annual Report MD&A (Business Overview) — PRIMARY (qualitative)",
+            "pathway_id": "AR-13", "source": "Annual Report MD&A (Business Overview) - PRIMARY (qualitative)",
             "result": ar13_result, "note": ar13_note,
         },
         {
-            "pathway_id": "PORTAL-07", "source": "CRISIL/ICRA Rating Rationale — SECONDARY (qualitative)",
+            "pathway_id": "PORTAL-07", "source": "CRISIL/ICRA Rating Rationale - SECONDARY (qualitative)",
             "result": "CHECKED" if crisil_text else crisil_result.get("result", "NOT_DISCLOSED"),
             "note": crisil_result.get("note") if crisil_result.get("result") != "CHECKED" else
                     f"Rated {crisil_result.get('rating')}, {crisil_result.get('rationale_date')}.",
@@ -1915,7 +1929,7 @@ def compute_a2c_cost_leadership_moat(symbol, name=None, description="", market_c
         {
             "pathway_id": "QUAL-01", "source": "Earnings call commentary",
             "result": "NOT_CHECKED",
-            "note": "Deliberately skipped — this codebase's earnings-call digest itself requires an "
+            "note": "Deliberately skipped - this codebase's earnings-call digest itself requires an "
                     "LLM call, which this deterministic sub-point avoids by design.",
         },
     ]
@@ -1937,14 +1951,14 @@ def compute_a2c_cost_leadership_moat(symbol, name=None, description="", market_c
 
     # A score built from BOTH a named qualitative source AND a supporting
     # quant percentile is the only case genuinely corroborated by two
-    # independent legs — everything else (named-source-only, or
+    # independent legs - everything else (named-source-only, or
     # margin-lead-only) is a single pathway feeding the score.
     if scored["score"] is None:
         confidence_tag = "SEARCH_INCONCLUSIVE"
     elif (scored["source"] not in ("none", "peer margin comparison (quant only)")
           and opm_percentile is not None and opm_percentile > 50):
         # A named qualitative source (AR/CRISIL) whose claim is ALSO backed
-        # by an actual above-average peer-relative margin — two independent
+        # by an actual above-average peer-relative margin - two independent
         # legs genuinely corroborating each other, not just one pathway
         # feeding the score.
         confidence_tag = "VERIFIED"
@@ -1957,45 +1971,45 @@ def compute_a2c_cost_leadership_moat(symbol, name=None, description="", market_c
     return payload
 
 
-# v2: dropped bare "platform"/"ecosystem" from the applicability gate —
+# v2: dropped bare "platform"/"ecosystem" from the applicability gate -
 # confirmed (HGINFRA) they matched generic corporate boilerplate ("SAP
 # S/4HANA Enterprise platform") with zero marketplace meaning, making
 # nearly every non-platform company incorrectly "applicable". Bumped so
 # every already-cached company re-evaluates under the tightened gate.
 # v4: fixed _sentences() splitting mid-phrase terms across PDF line-wraps
 # v5: added "network of merchants"/"merchant engagement"/"expanding customer
-# base" anchors — confirmed false-negative N/A on RELIANCE, whose AR
+# base" anchors - confirmed false-negative N/A on RELIANCE, whose AR
 # genuinely describes JioMart Digital (a real platform business connecting a
 # merchant network to a growing customer base) but used retail-tech
 # vocabulary none of the v4 anchors matched, so the whole factor wrongly
 # fell through to Not Applicable instead of a real (if presence-only) score.
-# v6: max_excerpts raised 8->20 in the AR fetcher — the new v5 anchors alone
+# v6: max_excerpts raised 8->20 in the AR fetcher - the new v5 anchors alone
 # weren't enough on RELIANCE because 8 pages of digit-dense "transaction
 # value" RPT-boilerplate false positives filled the entire default excerpt
 # cap before the genuine "network of merchants" sentence was ever reached.
-# v7: max_per_page raised 1->3 — the default of 1 excerpt/page was still
+# v7: max_per_page raised 1->3 - the default of 1 excerpt/page was still
 # discarding "network of merchants" in favour of a same-page, higher-
 # digit-scoring "merchant engagement" sentence 30-40 words later.
 _A2D_SCHEMA_VERSION = 7
 
 
 def compute_a2d_network_effects_moat(symbol, name=None, description="", force=False):
-    """A.2.D ("2D" in the sheet) — Network effects moat: 0-5 score, or "N/A"
+    """A.2.D ("2D" in the sheet) - Network effects moat: 0-5 score, or "N/A"
     for a business with no platform/marketplace element at all (see
-    tools/moat_network_effects_scoring.py — N/A is NOT a low score, it means
+    tools/moat_network_effects_scoring.py - N/A is NOT a low score, it means
     the factor doesn't apply to this business model).
 
     Requires an actual GROWTH-LINKAGE figure (a value metric like GMV/
-    transaction value tracked AGAINST a user/seller/buyer-base metric) — mere
+    transaction value tracked AGAINST a user/seller/buyer-base metric) - mere
     platform/marketplace existence is explicitly insufficient per the spec.
 
     Sources: Annual Report MD&A (AR-13) is PRIMARY. Industry reports
     (INDUSTRY-01) are SECONDARY per the spec but have no fetcher wired in
-    this codebase yet — recorded as NOT_CHECKED, not NOT_DISCLOSED, since it
+    this codebase yet - recorded as NOT_CHECKED, not NOT_DISCLOSED, since it
     was never attempted (never silently skipped without saying so).
     Management commentary/investor presentation is approximated via the
     business description, same AR-13-adjacent proxy convention used
-    elsewhere, capped at MANAGEMENT_CLAIM tier. Earnings call — NOT_CHECKED,
+    elsewhere, capped at MANAGEMENT_CLAIM tier. Earnings call - NOT_CHECKED,
     same reason as A.2.A-C (the only digest tool requires an LLM call).
 
     Deliberately deterministic (no LLM), same rationale as the other A.2.x
@@ -2036,18 +2050,18 @@ def compute_a2d_network_effects_moat(symbol, name=None, description="", force=Fa
 
     pathway_results = [
         {
-            "pathway_id": "AR-13", "source": "Annual Report MD&A (Business Overview) — PRIMARY",
+            "pathway_id": "AR-13", "source": "Annual Report MD&A (Business Overview) - PRIMARY",
             "result": ar13_result, "note": ar13_note,
         },
         {
-            "pathway_id": "INDUSTRY-01", "source": "Industry reports — SECONDARY",
+            "pathway_id": "INDUSTRY-01", "source": "Industry reports - SECONDARY",
             "result": "NOT_CHECKED",
-            "note": "No industry-report source is wired into this codebase yet — never silently skipped without saying so.",
+            "note": "No industry-report source is wired into this codebase yet - never silently skipped without saying so.",
         },
         {
             "pathway_id": "QUAL-01", "source": "Earnings call commentary",
             "result": "NOT_CHECKED",
-            "note": "Deliberately skipped — this codebase's earnings-call digest itself requires an "
+            "note": "Deliberately skipped - this codebase's earnings-call digest itself requires an "
                     "LLM call, which this deterministic sub-point avoids by design.",
         },
     ]
@@ -2081,27 +2095,27 @@ def compute_a2d_network_effects_moat(symbol, name=None, description="", force=Fa
 
 
 # v2: added "persistency ratio" (the insurance-sector term of art for a
-# renewal rate) — confirmed HDFCLIFE had real, disclosed renewal-equivalent
+# renewal rate) - confirmed HDFCLIFE had real, disclosed renewal-equivalent
 # data that "renewal rate" alone missed entirely. Bumped so cached
 # insurers reclassify under the corrected anchors.
 _A2E_SCHEMA_VERSION = 2
 
 
 def compute_a2e_switching_costs_moat(symbol, name=None, description="", force=False):
-    """A.2.E ("2E" in the sheet) — Switching costs moat: 0-5 score based on
+    """A.2.E ("2E" in the sheet) - Switching costs moat: 0-5 score based on
     contract lock-in term length, renewal rate, and regulatory/certification
     switching barriers (see tools/moat_switching_costs_scoring.py). The 5/5
     tier specifically requires BOTH a contract-term length AND a
-    renewal-rate percentage cited together — either alone caps at 4.
+    renewal-rate percentage cited together - either alone caps at 4.
 
     Sources: CRISIL/ICRA rationale (PORTAL-07) and Annual Report MD&A
-    (AR-13) are BOTH PRIMARY per spec — whichever has the stronger evidence
+    (AR-13) are BOTH PRIMARY per spec - whichever has the stronger evidence
     wins, neither is ordered ahead of the other. SECONDARY is the Ind AS 115
     revenue-recognition note's contract-balance/performance-obligation
     disclosures (CONTRACT-01), approximated by scanning the same AR text for
     its characteristic phrasing rather than parsing the note's structured
-    table — consistent with every other A.2.x factor's text-anchor approach.
-    Earnings call — NOT_CHECKED, same reason as A.2.A-D (the only digest
+    table - consistent with every other A.2.x factor's text-anchor approach.
+    Earnings call - NOT_CHECKED, same reason as A.2.A-D (the only digest
     tool requires an LLM call).
 
     Deliberately deterministic (no LLM), same rationale as the other A.2.x
@@ -2146,24 +2160,24 @@ def compute_a2e_switching_costs_moat(symbol, name=None, description="", force=Fa
 
     pathway_results = [
         {
-            "pathway_id": "AR-13", "source": "Annual Report MD&A — PRIMARY",
+            "pathway_id": "AR-13", "source": "Annual Report MD&A - PRIMARY",
             "result": ar13_result, "note": ar13_note,
         },
         {
-            "pathway_id": "PORTAL-07", "source": "CRISIL/ICRA Rating Rationale — PRIMARY",
+            "pathway_id": "PORTAL-07", "source": "CRISIL/ICRA Rating Rationale - PRIMARY",
             "result": "CHECKED" if crisil_text else crisil_result.get("result", "NOT_DISCLOSED"),
             "note": crisil_result.get("note") if crisil_result.get("result") != "CHECKED" else
                     f"Rated {crisil_result.get('rating')}, {crisil_result.get('rationale_date')}.",
         },
         {
-            "pathway_id": "CONTRACT-01", "source": "Ind AS 115 revenue-recognition note — SECONDARY",
+            "pathway_id": "CONTRACT-01", "source": "Ind AS 115 revenue-recognition note - SECONDARY",
             "result": "CHECKED" if ar_excerpts else "NOT_DISCLOSED",
             "note": None if ar_excerpts else "Approximated via the same AR MD&A text scan (no dedicated note-table parser); nothing located.",
         },
         {
             "pathway_id": "QUAL-01", "source": "Earnings call commentary",
             "result": "NOT_CHECKED",
-            "note": "Deliberately skipped — this codebase's earnings-call digest itself requires an "
+            "note": "Deliberately skipped - this codebase's earnings-call digest itself requires an "
                     "LLM call, which this deterministic sub-point avoids by design.",
         },
     ]
@@ -2190,25 +2204,91 @@ def compute_a2e_switching_costs_moat(symbol, name=None, description="", force=Fa
     return payload
 
 
-def _fetch_company_growth_and_margin(sym):
-    """Company-level 3yr revenue CAGR + chronological EBITDA-margin history
-    for A.4's single-segment fallback and its Commoditisation margin leg.
-    Reuses the SAME live yfinance-backed pipeline as the main research run
-    (tools/angel_scraper.AngelDataScraper -> tools/metrics_engine's F-05/F-06)
-    rather than a second hand-rolled fetch — fast/live, not an AR PDF fetch.
-    Returns (cagr_3y_revenue: float|None, margins_annual: list). Never
-    raises; an empty/failed fetch returns (None, [])."""
+def _fetch_ar_growth_and_margin(sym, name):
+    """Uploaded-Annual-Report-only fallback for `_fetch_company_growth_and_margin`,
+    used when the live Angel/yfinance pipeline has no ticker to look up -
+    the normal case for the manual document-upload workflow (BSE-SME/small-
+    cap filers routinely have no NSE listing and no yfinance coverage at
+    all, confirmed on Prime Fresh Limited: no NSE trading token, yfinance
+    404s). The uploaded Annual Report's OWN Statement of Profit & Loss
+    already carries the current AND prior year's Revenue/Total Expenses
+    side by side (the same figures already extracted for every fundamental
+    ratio) - real, audited numbers, just only 2 fiscal years' worth from a
+    single filing rather than a true 3-year CAGR window. Returns
+    (yoy_growth_pct: float|None, margins_annual: list[{'date','ebitda_margin'}])
+    - the growth figure is a genuine 1-year YoY rate, never mislabeled as a
+    3-year CAGR; callers must present it as such. (None, []) if the AR's
+    own P&L doesn't have both years' Revenue."""
     try:
-        from tools.angel_scraper import AngelDataScraper
-        from tools.metrics_engine import FundamentalMetricsEngine
-        raw_data = AngelDataScraper().fetch_fundamental_payload(sym)
-        metrics = FundamentalMetricsEngine.calculate_all_metrics(raw_data)
-        growth = metrics.get("F-05_Growth_Summary") or {}
-        margin = metrics.get("F-06_Margin_Analysis") or {}
-        return growth.get("cagr_3y_revenue"), (margin.get("margins_annual") or [])
+        from tools.annual_report_financials import list_annual_report_years, _get_extracted_financials
+        years = list_annual_report_years(sym, name) or []
+        if not years:
+            return None, []
+        parsed = _get_extracted_financials(sym, name, years[0], consolidated=True)
+        if not parsed or "error" in parsed:
+            return None, []
+        revenue = parsed.get("revenue")
+        expenses = parsed.get("total_expenses")
+        if not revenue or len(revenue) < 2 or not revenue[1]:
+            return None, []
+        # Fraction, not percentage (e.g. 0.08 for 8%) - matches the SAME
+        # convention tools.metrics_engine's cagr_3y_revenue already uses
+        # (`(end_rev/start_rev)**(1/3) - 1`), which classify_segment_
+        # lifecycle_stage's own math (`segment_cagr - sector_median_cagr`)
+        # is written against.
+        yoy_growth_pct = round((revenue[0] - revenue[1]) / revenue[1], 4)
+        margins_annual = []
+        if expenses and len(expenses) >= 2:
+            for i, fy_label in ((1, years[0] - 1), (0, years[0])):
+                if revenue[i] and expenses[i] is not None:
+                    margins_annual.append({
+                        "date": str(fy_label),
+                        "ebitda_margin": round(100 * (revenue[i] - expenses[i]) / revenue[i], 2),
+                    })
+        return yoy_growth_pct, margins_annual
     except Exception as e:
-        print(f"[qualitative_engine] A.4 company-level growth/margin fetch failed for {sym}: {e}")
+        print(f"[qualitative_engine] A.4 AR-only growth/margin fallback failed for {sym}: {e}")
         return None, []
+
+
+def _fetch_company_growth_and_margin(sym, name=None):
+    """Company-level revenue growth + chronological EBITDA-margin history
+    for A.4's single-segment fallback and its Commoditisation margin leg.
+    Tries the live yfinance-backed pipeline first (tools/angel_scraper.
+    AngelDataScraper -> tools/metrics_engine's F-05/F-06, a real 3yr CAGR
+    when it's available), then falls back to `_fetch_ar_growth_and_margin`
+    (the uploaded AR's own 2-year P&L) when the live pipeline has no
+    ticker at all - never silently returns nothing just because a company
+    isn't NSE/yfinance-covered when its own uploaded Annual Report already
+    has the real figures. Returns (growth_pct: float|None, margins_annual:
+    list, is_cagr_3y: bool - False means the growth figure is a 1-year AR-
+    only YoY rate, not a true 3-year CAGR, so callers can label it
+    correctly). Never raises; an empty/failed fetch returns (None, [], False).
+
+    Same guard convention as tools.crisil_scraper.fetch_crisil_rationale: in
+    tools.manual_mode's document-only manual workflow, the live yfinance-
+    backed AngelDataScraper pipeline is never reached (A.4's own primary
+    source isn't one of the 4 NSE-portal markers document_analysis_engine.py
+    gates on, so without this guard it would fire unconditionally on every
+    manual-mode run, upload or no upload). The AR-only fallback below is the
+    document-based equivalent and already runs unconditionally regardless."""
+    from tools.manual_mode import is_manual_mode
+    if not is_manual_mode():
+        try:
+            from tools.angel_scraper import AngelDataScraper
+            from tools.metrics_engine import FundamentalMetricsEngine
+            raw_data = AngelDataScraper().fetch_fundamental_payload(sym)
+            metrics = FundamentalMetricsEngine.calculate_all_metrics(raw_data)
+            growth = metrics.get("F-05_Growth_Summary") or {}
+            margin = metrics.get("F-06_Margin_Analysis") or {}
+            cagr = growth.get("cagr_3y_revenue")
+            margins_annual = margin.get("margins_annual") or []
+            if cagr is not None or margins_annual:
+                return cagr, margins_annual, True
+        except Exception as e:
+            print(f"[qualitative_engine] A.4 company-level live growth/margin fetch failed for {sym}: {e}")
+    yoy_growth_pct, ar_margins = _fetch_ar_growth_and_margin(sym, name)
+    return yoy_growth_pct, ar_margins, False
 
 
 _LIFECYCLE_STAGE_LABEL = {
@@ -2217,17 +2297,17 @@ _LIFECYCLE_STAGE_LABEL = {
 }
 
 # v1: initial deterministic rewrite (replaces the old LLM-narrative stub,
-# which had no schema_version key at all — old payloads are correctly
+# which had no schema_version key at all - old payloads are correctly
 # treated as a cache miss).
 # v2: company_margin_trend_compressing now excludes the trailing "TTM" entry
 # from margins_annual before applying the N-year lookback (see that
-# function's docstring) — confirmed on RELIANCE, the lookback previously
+# function's docstring) - confirmed on RELIANCE, the lookback previously
 # landed on FY2024 instead of FY2023 because TTM occupied the "latest" slot.
 _A4_SCHEMA_VERSION = 2
 
 
 def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=False):
-    """A.4 — Product lifecycle stage: growth, maturity, commoditisation,
+    """A.4 - Product lifecycle stage: growth, maturity, commoditisation,
     obsolescence risk. Formula: Relative growth = Segment revenue CAGR -
     Sector-median revenue CAGR (see tools/sector_cagr_universe.py).
 
@@ -2235,35 +2315,35 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
     tools.annual_report_financials.fetch_multi_year_segment_revenue) ->
     SECTOR-CAGR-01 (this company's own NSE sector's peer-median 3yr revenue
     CAGR, via tools.sector_cagr_universe) -> PORTAL-07 (rating-agency
-    rationale) -> QUAL-01 (news/analyst commentary), both NOT_CHECKED — no
+    rationale) -> QUAL-01 (news/analyst commentary), both NOT_CHECKED - no
     fetcher for either is wired into this codebase.
 
-    Deliberately deterministic (no LLM), same rationale as A.2.x/A.3 — see
+    Deliberately deterministic (no LLM), same rationale as A.2.x/A.3 - see
     tools/product_lifecycle_scoring.py for the segment classifier itself.
 
-    IMPORTANT — a diversified company must NEVER get a single-word lifecycle
+    IMPORTANT - a diversified company must NEVER get a single-word lifecycle
     label. (Institutional knowledge carried over from the old LLM-stub
     version of this function, which discovered this the hard way: "Reliance
-    mismatch found 1-Aug-2026" — a single-word "Growth"/"Maturity" label for
+    mismatch found 1-Aug-2026" - a single-word "Growth"/"Maturity" label for
     a genuinely multi-segment conglomerate like Reliance is actively
     misleading, since different segments can be in completely different
     lifecycle stages at once.) This version enforces that by construction:
     when 2+ segments are classified, the payload's `blend_summary` is always
     a revenue-weighted composite string (e.g. "Mature core (62.3% of
     revenue) + Growth segments (28.1% of revenue)"), never collapsed to one
-    word — only a genuinely single-segment company gets a single-stage
+    word - only a genuinely single-segment company gets a single-stage
     summary.
 
     DOCUMENTED SCOPING LIMITATIONS (surfaced in the payload, not hidden):
       - Sector benchmark is COMPANY-level (this company's one NSE sector's
-        peer-median CAGR), applied to every segment — not a genuine
+        peer-median CAGR), applied to every segment - not a genuine
         per-segment sector reclassification (this codebase has no
         segment-level sector taxonomy).
       - Commoditisation's margin-compression leg uses the COMPANY-LEVEL
         EBITDA margin trend, not true segment-level margin (not extractable
         from this codebase's AR parsing today).
       - Segment CAGR requires the SAME normalized segment label to appear in
-        both the oldest and newest fetched Annual Report years — a company
+        both the oldest and newest fetched Annual Report years - a company
         that renamed/restructured a segment mid-window shows that segment
         as unclassified (`unclassified_pct`), never a guessed CAGR.
     """
@@ -2301,7 +2381,7 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
     ar14_checked = bool(multi_year_segments)
     pathway_results.append({
         "pathway_id": "AR-14",
-        "source": "Revenue/segment note — multi-year Annual Report segment revenue",
+        "source": "Revenue/segment note - multi-year Annual Report segment revenue",
         "result": "CHECKED" if ar14_checked else "NOT_DISCLOSED",
         "note": None if ar14_checked else "No Annual Report segment note reconciled for any of the latest fiscal years on file.",
     })
@@ -2320,7 +2400,7 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
     })
     pathway_results.append({
         "pathway_id": "PORTAL-07",
-        "source": "Rating Agency Rationale (CRISIL/ICRA/CARE) — industry growth context",
+        "source": "Rating Agency Rationale (CRISIL/ICRA/CARE) - industry growth context",
         "result": "NOT_CHECKED",
         "note": "No rating-agency rationale fetcher is wired into this codebase yet.",
     })
@@ -2328,12 +2408,12 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
         "pathway_id": "QUAL-01",
         "source": "News / analyst research (Moneycontrol etc, corroborative only)",
         "result": "NOT_CHECKED",
-        "note": "Corroborative-only pathway — not invoked this run.",
+        "note": "Corroborative-only pathway - not invoked this run.",
     })
 
     # --- Company-level revenue CAGR + margin trend (fallback + Commoditisation leg) ---
-    company_cagr, margins_annual = _fetch_company_growth_and_margin(sym)
-    margin_trend = company_margin_trend_compressing(margins_annual)
+    company_cagr, margins_annual, company_cagr_is_3y = _fetch_company_growth_and_margin(sym, name)
+    margin_trend = company_margin_trend_compressing(margins_annual, lookback_years=(3 if company_cagr_is_3y else 1))
 
     # --- Segment revenue weights (latest year), same AR-14 fetch A.1/A.3 reuse ---
     segments_pct, segments_fy = _fetch_segment_revenue_context(sym, name)
@@ -2356,18 +2436,24 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
                 "matched_across_years": bool(entry and entry.get("matched_across_years")),
             })
     elif company_cagr is not None:
-        # Single-segment (or no reconciled segment note) company — classify
+        # Single-segment (or no reconciled segment note) company - classify
         # at company level directly, as ONE 100%-weight "segment" so the
         # same blend machinery below still applies uniformly.
         result = classify_segment_lifecycle_stage(company_cagr, sector_median_cagr, margin_trend)
+        reasoning = result["reasoning"]
+        if not company_cagr_is_3y:
+            reasoning = (f"{reasoning} (Growth figure is a 1-year YoY revenue rate from the uploaded "
+                         "Annual Report's own P&L, not a true 3-year CAGR - no NSE/yfinance ticker "
+                         "coverage or additional prior-year filings were available this run.)")
         classified_segments.append({
             "label": "Company (single-segment)",
             "share_pct": 100.0,
             "segment_cagr": company_cagr,
+            "segment_cagr_is_3y": company_cagr_is_3y,
             "stage": result["stage"],
             "stage_label": _LIFECYCLE_STAGE_LABEL.get(result["stage"]),
             "relative_growth_pct": result["relative_growth_pct"],
-            "reasoning": result["reasoning"],
+            "reasoning": reasoning,
             "matched_across_years": None,
         })
 
@@ -2380,7 +2466,7 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
             stage_weight[seg["stage"]] = stage_weight.get(seg["stage"], 0.0) + seg["share_pct"]
     unclassified_pct = round(unclassified_pct, 1)
 
-    # Company-level blend string — NEVER a single word once there are 2+
+    # Company-level blend string - NEVER a single word once there are 2+
     # segments (see docstring's "Reliance mismatch" note). A genuinely
     # single-segment company naturally produces a one-term blend, which is
     # correct (there is nothing to diversify across), not a violation of
@@ -2392,7 +2478,7 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
             label = "Mature core" if stg == "maturity" else f"{_LIFECYCLE_STAGE_LABEL[stg]} segments"
             blend_parts.append(f"{label} ({w}% of revenue)")
     if unclassified_pct > 0.05:
-        blend_parts.append(f"Unclassified ({unclassified_pct}% of revenue — segment label not matched across fiscal years, or CAGR/sector-median unavailable)")
+        blend_parts.append(f"Unclassified ({unclassified_pct}% of revenue - segment label not matched across fiscal years, or CAGR/sector-median unavailable)")
     blend_summary = " + ".join(blend_parts) if blend_parts else None
 
     available = bool(classified_segments)
@@ -2411,16 +2497,16 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    # Rationale sentence for the card's "finding" field — deterministic,
+    # Rationale sentence for the card's "finding" field - deterministic,
     # built from the same classified data, never LLM-authored.
     if blend_parts:
         rationale = f"{sym}: {blend_summary}."
         if sector_median_cagr is not None:
             rationale += f" Benchmarked against sector '{sector}' peer-median 3yr revenue CAGR of {sector_median_cagr * 100:.1f}%."
         else:
-            rationale += f" Sector-median CAGR benchmark unavailable ({sector_result.get('status')}) — classification limited to what the Decline (negative-CAGR) check alone could determine."
+            rationale += f" Sector-median CAGR benchmark unavailable ({sector_result.get('status')}) - classification limited to what the Decline (negative-CAGR) check alone could determine."
     else:
-        rationale = "Segment revenue history was found but none could be classified — see 'unclassified_pct' and per-segment reasoning."
+        rationale = "Segment revenue history was found but none could be classified - see 'unclassified_pct' and per-segment reasoning."
 
     confidence_tag = "SINGLE_SOURCE" if any(s["stage"] is not None for s in classified_segments) else "SEARCH_INCONCLUSIVE"
 
@@ -2442,7 +2528,7 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
         "rationale": rationale,
         "limitations": [
             "Sector benchmark is company-level (this company's own single NSE sector's peer-median CAGR), "
-            "applied uniformly to every segment — not a genuine per-segment sector reclassification.",
+            "applied uniformly to every segment - not a genuine per-segment sector reclassification.",
             "Commoditisation's margin-compression check uses the company-level EBITDA margin trend, not "
             "true segment-level margin.",
         ],
@@ -2457,30 +2543,30 @@ def compute_a4_product_lifecycle_stage(symbol, name=None, description="", force=
 # v2: full deterministic rewrite (replaces the old pure-LLM-guess stub).
 # v3: pricing_realisation_extractor's quote-verification guardrail tightened
 # (whitespace-normalized FULL quote match instead of a 40-char prefix check)
-# — bumped so a v2 A.5 payload built on the weaker guardrail is never served
+# - bumped so a v2 A.5 payload built on the weaker guardrail is never served
 # as current.
 _A5_SCHEMA_VERSION = 3
 
 
 def compute_a5_pricing_power(symbol, name=None, description="", force=False):
-    """A.5 — Pricing power: ability to raise prices without losing customers;
+    """A.5 - Pricing power: ability to raise prices without losing customers;
     pass-through of cost inflation. Formula: Price pass-through ratio = Change in
     realisation % / Change in input cost %.
 
     Sourcing Sequence: QUAL-02 (concall transcripts, realisation/volume numeric
-    extraction — tools.pricing_realisation_extractor) -> NICHE-14 (MCX/LME
-    commodity input-cost index, FRED proxy — tools.commodity_price_fetcher) ->
+    extraction - tools.pricing_realisation_extractor) -> NICHE-14 (MCX/LME
+    commodity input-cost index, FRED proxy - tools.commodity_price_fetcher) ->
     AR-13 (MD&A narrative, LLM narrative fallback ONLY when the ratio genuinely
     can't be computed) -> AGG-01 (fallback/cross-check only, not invoked).
 
     Deliberately deterministic for the CLASSIFICATION itself (see
-    tools/pricing_power_scoring.py) — same rationale as A.2.x/A.3/A.4: a
+    tools/pricing_power_scoring.py) - same rationale as A.2.x/A.3/A.4: a
     pricing-power label built on a bare LLM guess is exactly the anti-pattern
     the spec's own guardrail #23 forbids ("if the pass-through ratio cannot be
-    computed, the result MUST be Insufficient Data — never default to
+    computed, the result MUST be Insufficient Data - never default to
     Moderate"). The ONLY LLM call in this pipeline is the upstream
     realisation/volume NUMBER extraction (tools.pricing_realisation_extractor),
-    and even that is gated by a numeric-anchor-in-quote guardrail — every
+    and even that is gated by a numeric-anchor-in-quote guardrail - every
     accepted number carries a verbatim transcript quote. A short LLM-authored
     narrative is still produced as a clearly-labeled qualitative supplement
     (never blended into the rating itself), using AR-13/QUAL-02 context, same
@@ -2488,13 +2574,13 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
 
     DOCUMENTED SCOPING LIMITATIONS (surfaced in the payload, not hidden):
       - NICHE-14 is a FRED-published IMF commodity price INDEX used as an
-        explicitly-labeled PROXY for MCX/LME — neither offers a free,
+        explicitly-labeled PROXY for MCX/LME - neither offers a free,
         programmatic, historical spot-price feed (see
         tools/commodity_price_fetcher.py's module docstring). Every source
         field referencing it says so; never claim it's literally MCX/LME.
       - The company->commodity mapping is a static, sector-level lookup
         (tools/commodity_price_fetcher.py's `_SECTOR_COMMODITY_MAP`), generic
-        across every company in a sector — a company with no mapped sector, or
+        across every company in a sector - a company with no mapped sector, or
         a sector this pass didn't map, honestly gets Insufficient Data for 5B
         rather than a guessed commodity.
       - 5A (realisation/volume) requires a transcript to have EXPLICITLY
@@ -2532,7 +2618,7 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
     qual02_checked = rv_result.get("status") == "OK"
     pathway_results.append({
         "pathway_id": "QUAL-02",
-        "source": "Concall Transcript — realisation/volume numeric extraction (verbatim-quote-anchored)",
+        "source": "Concall Transcript - realisation/volume numeric extraction (verbatim-quote-anchored)",
         "result": "CHECKED" if qual02_checked else "NOT_DISCLOSED",
         "note": rv_result.get("reason"),
     })
@@ -2550,14 +2636,14 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
     niche14_checked = bool(commodity_series_result and commodity_series_result.get("status") == "OK")
     if not commodity:
         niche14_note = (f"No commodity mapping for sector '{sector}'." if sector
-                         else f"{sym} has no NSE sector tag in the fixed universe — cannot infer an input commodity.")
+                         else f"{sym} has no NSE sector tag in the fixed universe - cannot infer an input commodity.")
     elif not niche14_checked:
         niche14_note = commodity_series_result.get("reason") if commodity_series_result else "Fetch did not run."
     else:
         niche14_note = None
     pathway_results.append({
         "pathway_id": "NICHE-14",
-        "source": commodity_series_result.get("source") if niche14_checked else "MCX / LME — commodity input-cost index (FRED proxy; no free historical MCX/LME feed exists)",
+        "source": commodity_series_result.get("source") if niche14_checked else "MCX / LME - commodity input-cost index (FRED proxy; no free historical MCX/LME feed exists)",
         "result": "CHECKED" if niche14_checked else "NOT_IN_UNIVERSE" if not commodity else "NOT_DISCLOSED",
         "note": niche14_note,
         "commodity_name": commodity.get("commodity_name") if commodity else None,
@@ -2568,14 +2654,14 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
     ar13_checked = bool(description)
     pathway_results.append({
         "pathway_id": "AR-13",
-        "source": "MD&A narrative (business description proxy) — narrative supplement only, never feeds the rating",
+        "source": "MD&A narrative (business description proxy) - narrative supplement only, never feeds the rating",
         "result": "CHECKED" if ar13_checked else "NOT_DISCLOSED",
     })
     pathway_results.append({
         "pathway_id": "AGG-01",
         "source": "Screener.in (fallback/cross-check only)",
         "result": "NOT_CHECKED",
-        "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
+        "note": "Cross-check pathway, only used if primary is unavailable or conflicting - not invoked this run.",
     })
 
     # --- 5A confirmation + 5B pass-through ratio (both deterministic) ------
@@ -2590,7 +2676,7 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
                 realisation_change_pct = round((r1 - r0) / r0 * 100, 2)
             # Align the commodity series to the SAME quarter window. Concall
             # dates come from screener_scraper as "Mon YYYY" (e.g. "Feb 2026"),
-            # NOT the FRED series' ISO "YYYY-MM-DD" — a raw string compare
+            # NOT the FRED series' ISO "YYYY-MM-DD" - a raw string compare
             # between the two formats would silently misalign every lookup
             # (e.g. "Feb 2026" > "2026-01-01" lexicographically is FALSE even
             # though Feb 2026 is chronologically later), so convert to ISO
@@ -2622,7 +2708,7 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
         prompt = (
             "You are an equity analyst writing a SHORT supplementary narrative on PRICING POWER for an Indian "
             "listed company, using ONLY the grounded context below. Do not invent facts not supported by the "
-            "context. This narrative is a supplement to an already-computed quantitative rating — do not assign "
+            "context. This narrative is a supplement to an already-computed quantitative rating - do not assign "
             "your own rating, just describe what the context shows about price hikes taken / realization trends / "
             "cost pass-through commentary in 2-4 sentences.\n\n"
             'Return ONLY JSON: {"narrative": "2-4 sentences"}\n\n'
@@ -2675,17 +2761,17 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
         "grounded": bool(digest),
         "limitations": [
             "NICHE-14 (input-cost leg) uses FRED's published IMF commodity price index as an explicitly-labeled "
-            "PROXY for MCX/LME — neither offers a free, programmatic, historical spot-price feed.",
+            "PROXY for MCX/LME - neither offers a free, programmatic, historical spot-price feed.",
             "The company->commodity mapping is a static, sector-level lookup (generic across every company in a "
             "sector), not a company-specific input-cost basket.",
             "5A realisation/volume figures only include quarters where a transcript EXPLICITLY stated the number "
-            "with a verbatim quote — quarters without one are simply absent from the trend, never guessed.",
+            "with a verbatim quote - quarters without one are simply absent from the trend, never guessed.",
         ],
     }
     if not llm_failed:
         write_qualitative(sym, subpoint_id, payload, confidence_tag)
     else:
-        print(f"[qualitative_engine] A.5 NOT cached for {sym} — LLM narrative call did not run; will retry next request.")
+        print(f"[qualitative_engine] A.5 NOT cached for {sym} - LLM narrative call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -2693,7 +2779,7 @@ def compute_a5_pricing_power(symbol, name=None, description="", force=False):
 
 def compute_a6_margin_sustainability(symbol, name=None, description="", force=False,
                                       ebitda_margin_series=None, margin_volatility=None):
-    """A.6 — Margin sustainability: structurally defensible margins vs temporary
+    """A.6 - Margin sustainability: structurally defensible margins vs temporary
     tailwinds. Formula: Margin volatility = Std dev of EBITDA margin (5Y) / Mean
     EBITDA margin (5Y).
 
@@ -2703,7 +2789,7 @@ def compute_a6_margin_sustainability(symbol, name=None, description="", force=Fa
     Unlike A.1-A.5, the FORMULA here is not an LLM estimate at all: `margin_volatility`
     and `ebitda_margin_series` are computed upstream (agent/stock_agent.py) directly
     from the company's own audited annual/quarterly EBITDA margins (the same
-    financial-statement pipeline every Sr 1-92 ratio card uses) and passed in here —
+    financial-statement pipeline every Sr 1-92 ratio card uses) and passed in here -
     real numbers, sourced via PORTAL-01 (the AR PDF fetch) and AR-10 (the same filing's
     Exceptional Items line, which is what a real one-off flag should be checked
     against). Only the STRUCTURAL-vs-temporary judgment and the one-off-year flags
@@ -2711,7 +2797,7 @@ def compute_a6_margin_sustainability(symbol, name=None, description="", force=Fa
     the concall digest (QUAL-02). AR-15 (ESG/BRSR) has no fetcher wired and isn't
     actually margin-relevant, but is recorded per the Sourcing Sequence rather than
     silently dropped. Even with a real, audited quantitative figure, this stays
-    SINGLE_SOURCE — PORTAL-01 and AR-10 both read the SAME annual report (not two
+    SINGLE_SOURCE - PORTAL-01 and AR-10 both read the SAME annual report (not two
     independent tiers), so the cross-verification rule for VERIFIED isn't met.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
@@ -2733,25 +2819,25 @@ def compute_a6_margin_sustainability(symbol, name=None, description="", force=Fa
         "pathway_id": "PORTAL-01",
         "source": "BSE Corporate Announcements -> Annual/Quarterly filing PDF",
         "result": "CHECKED" if has_series else "NOT_DISCLOSED",
-        "note": None if has_series else "Fewer than 3 years of EBITDA margin history available — cannot compute a meaningful volatility figure.",
+        "note": None if has_series else "Fewer than 3 years of EBITDA margin history available - cannot compute a meaningful volatility figure.",
     })
     pathway_results.append({
         "pathway_id": "AR-10",
         "source": "Exceptional Items note (one-off P&L flags)",
         "result": "CHECKED" if has_series else "NOT_DISCLOSED",
-        "note": "One-off years are flagged by the LLM against the real margin series below, not detected from a structured Exceptional Items extraction — treat flagged years as a lead to verify against the actual AR note, not a citable fact on its own.",
+        "note": "One-off years are flagged by the LLM against the real margin series below, not detected from a structured Exceptional Items extraction - treat flagged years as a lead to verify against the actual AR note, not a citable fact on its own.",
     })
     pathway_results.append({
         "pathway_id": "AR-15",
         "source": "Business Responsibility and Sustainability Report (ESG/BRSR)",
         "result": "NOT_APPLICABLE",
-        "note": "ESG/BRSR disclosures are not margin-relevant in practice — listed in the Sourcing Sequence but not queried for this sub-point.",
+        "note": "ESG/BRSR disclosures are not margin-relevant in practice - listed in the Sourcing Sequence but not queried for this sub-point.",
     })
     pathway_results.append({
         "pathway_id": "AGG-01",
-        "source": "Screener.in — 5-8Y margin trend (fallback/cross-check only)",
+        "source": "Screener.in - 5-8Y margin trend (fallback/cross-check only)",
         "result": "NOT_CHECKED",
-        "note": "Cross-check pathway, only used if the primary filing is unavailable or conflicting — not invoked this run.",
+        "note": "Cross-check pathway, only used if the primary filing is unavailable or conflicting - not invoked this run.",
     })
 
     digest = _concall_digest(sym, name)
@@ -2759,7 +2845,7 @@ def compute_a6_margin_sustainability(symbol, name=None, description="", force=Fa
         "pathway_id": "QUAL-02",
         "source": "Concall Transcript (grounded digest)",
         "result": "CHECKED" if digest else "NOT_HELD",
-        "note": None if digest else "No transcript found for a recent quarter — do not assume one happened unseen.",
+        "note": None if digest else "No transcript found for a recent quarter - do not assume one happened unseen.",
     })
 
     if not has_series:
@@ -2787,7 +2873,7 @@ def compute_a6_margin_sustainability(symbol, name=None, description="", force=Fa
     prompt = (
         "You are an equity analyst assessing MARGIN SUSTAINABILITY for an Indian listed company, "
         "using ONLY the real EBITDA margin series and grounded context below. Do not invent facts. "
-        "If a year's margin looks like an outlier, you may flag it as a possible one-off — but say so "
+        "If a year's margin looks like an outlier, you may flag it as a possible one-off - but say so "
         "as a lead to verify, not a confirmed fact, since you have no direct visibility into the "
         "Exceptional Items note itself.\n\n"
         "Return ONLY JSON:\n"
@@ -2826,7 +2912,7 @@ def compute_a6_margin_sustainability(symbol, name=None, description="", force=Fa
     if not llm_failed:
         write_qualitative(sym, subpoint_id, payload, confidence_tag)
     else:
-        print(f"[qualitative_engine] A.6 NOT cached for {sym} — LLM call did not run; will retry next request.")
+        print(f"[qualitative_engine] A.6 NOT cached for {sym} - LLM call did not run; will retry next request.")
     payload["confidence_tag"] = confidence_tag
     payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
@@ -3022,11 +3108,11 @@ def compute_b1_2_management_tenure(symbol, name=None, force=False):
 
     # STRUCTURAL pass first: reads a real detected table by column/value
     # pattern (tools/ar_table_extractor.py) rather than exact wording in
-    # flowing text — this generalizes across companies that disclose the
+    # flowing text - this generalizes across companies that disclose the
     # SAME information with different headings/phrasing than the sample
     # filings the regex patterns below were tuned against. Falls back to
     # the regex-window pass only when no table-based match is found (the
-    # two strategies catch different, overlapping subsets of companies —
+    # two strategies catch different, overlapping subsets of companies -
     # confirmed live neither alone covers every filing format).
     result = {"average_tenure_years": None, "tenure_score": None, "executives": []}
     try:
@@ -3046,7 +3132,7 @@ def compute_b1_2_management_tenure(symbol, name=None, force=False):
                 result = {"average_tenure_years": avg, "tenure_score": score, "executives": execs}
                 pathway_results.insert(0, {
                     "pathway_id": "AR-06-TABLE",
-                    "source": "Corporate Governance Report — structural table extraction (pdfplumber)",
+                    "source": "Corporate Governance Report - structural table extraction (pdfplumber)",
                     "result": "CHECKED",
                     "note": f"{len(execs)} executive(s) found via real table structure, cross-referenced against a board-role table.",
                 })
@@ -3300,7 +3386,7 @@ def compute_b2_1_pay_structure(symbol, name=None, force=False):
             result = table_result
             pathway_results.insert(0, {
                 "pathway_id": "AR-02-TABLE",
-                "source": "KMP Remuneration table — Salary/Perquisites vs Bonus/Commission columns (structural table extraction)",
+                "source": "KMP Remuneration table - Salary/Perquisites vs Bonus/Commission columns (structural table extraction)",
                 "result": "CHECKED",
                 "note": f"Fixed {table_result['fixed_amount']} vs Variable {table_result['variable_amount']} summed from real table columns.",
             })
@@ -3389,7 +3475,7 @@ def compute_b2_2_equity_ownership(symbol, name=None, force=False):
         from tools.nse_xbrl import fetch_shares_outstanding
         fiscal_year = gov.get("fiscal_year")
         # Each director's profile is its own page, so the anchor phrase
-        # scores identically (1 hit) on every one of them — the usual
+        # scores identically (1 hit) on every one of them - the usual
         # top-3-pages cap would arbitrarily keep only a few directors.
         # Raised to capture a full board (typically well under 25 people).
         tabs = extract_tables_near_anchors(sym, name, {"profiles": ["number of equity shares held in the"]}, fiscal_year=fiscal_year, max_tables_per_key=25, max_pages_per_key=25)
@@ -3400,7 +3486,7 @@ def compute_b2_2_equity_ownership(symbol, name=None, force=False):
             result = table_result
             pathway_results.insert(0, {
                 "pathway_id": "AR-02-TABLE",
-                "source": "Director Corporate Governance profiles — Number of Equity Shares held (structural table extraction)",
+                "source": "Director Corporate Governance profiles - Number of Equity Shares held (structural table extraction)",
                 "result": "CHECKED",
                 "note": f"{table_result.get('director_share_count')} shares summed across director profiles, vs {total_shares} total shares outstanding.",
             })
@@ -3412,7 +3498,7 @@ def compute_b2_2_equity_ownership(symbol, name=None, force=False):
         result = score_equity_ownership(shareholding_text) if shareholding_text else {"management_ownership_pct": None, "ownership_score": None}
 
     # Third tier: PROMOTER holding % from the NSE Shareholding Pattern
-    # (the same real, live-verified source already powering C.1 — see
+    # (the same real, live-verified source already powering C.1 - see
     # compute_c1_promoter_shareholding). Per the updated sourcing
     # direction ("use promoter holding, director holdings, and KMP
     # holdings from shareholding tables") - for most Indian listed
@@ -3436,9 +3522,9 @@ def compute_b2_2_equity_ownership(symbol, name=None, force=False):
                     promoter_used = True
                     pathway_results.insert(0, {
                         "pathway_id": "PORTAL-02",
-                        "source": "NSE Shareholding Pattern — Promoter and Promoter Group holding (live endpoint)",
+                        "source": "NSE Shareholding Pattern - Promoter and Promoter Group holding (live endpoint)",
                         "result": "CHECKED",
-                        "note": f"Promoter/promoter-group holding used as the management-ownership proxy — no per-director share count or % was separately disclosed this run.",
+                        "note": f"Promoter/promoter-group holding used as the management-ownership proxy - no per-director share count or % was separately disclosed this run.",
                     })
         except Exception as e:
             print(f"[qualitative_engine] B.2.2 promoter-holding fallback failed for {sym}: {e}")
@@ -3525,7 +3611,7 @@ def compute_b2_3_vesting_structure(symbol, name=None, force=False):
             result = table_result
             pathway_results.insert(0, {
                 "pathway_id": "AR-03-TABLE",
-                "source": "ESOP reconciliation table — Options Outstanding vs Exercisable (structural table extraction)",
+                "source": "ESOP reconciliation table - Options Outstanding vs Exercisable (structural table extraction)",
                 "result": "CHECKED",
                 "note": f"{table_result['vested_count']} exercisable (vested) vs {table_result['unvested_count']} unvested, from a real Ind AS 102 table.",
             })
@@ -3551,7 +3637,7 @@ def compute_b2_3_vesting_structure(symbol, name=None, force=False):
                 result = grant_result
                 pathway_results.insert(0, {
                     "pathway_id": "AR-03-GRANT",
-                    "source": "ESOP grant schedule — Date of Grant / Options Granted / Vesting Conditions (raw-text extraction, no ruled table lines)",
+                    "source": "ESOP grant schedule - Date of Grant / Options Granted / Vesting Conditions (raw-text extraction, no ruled table lines)",
                     "result": "CHECKED",
                     "note": f"{len(tranches)} grant tranche(s) found; vested/unvested inferred from elapsed time since each grant vs its own stated vesting period.",
                 })
@@ -3652,7 +3738,7 @@ def compute_b2_4_long_term_orientation(symbol, name=None, force=False):
             result = {**result, **table_result}
             pathway_results.insert(0, {
                 "pathway_id": "AR-03-TABLE",
-                "source": "ESOP Vesting Schedule note — vesting horizon + performance-linkage (structural table extraction)",
+                "source": "ESOP Vesting Schedule note - vesting horizon + performance-linkage (structural table extraction)",
                 "result": "CHECKED",
                 "note": f"{table_result['vesting_horizon_years']}-year vesting horizon, performance-linked={table_result['performance_linked']}.",
             })
@@ -3674,12 +3760,37 @@ def compute_b2_4_long_term_orientation(symbol, name=None, force=False):
                 result = {**result, **grant_result}
                 pathway_results.insert(0, {
                     "pathway_id": "AR-03-GRANT",
-                    "source": "ESOP grant schedule — vesting horizon + performance-linkage (raw-text extraction, no ruled table lines)",
+                    "source": "ESOP grant schedule - vesting horizon + performance-linkage (raw-text extraction, no ruled table lines)",
                     "result": "CHECKED",
                     "note": f"{len(tranches)} grant tranche(s) found; {grant_result['vesting_horizon_years']}-year horizon, performance-linked={grant_result['performance_linked']}.",
                 })
         except Exception as e:
             print(f"[qualitative_engine] B.2.4 grant-schedule pass failed for {sym}: {e}")
+
+    # Third tier: single-grant SEBI SBEB Reg. 14 field-label table shape
+    # (Grant Date/Date of Vesting/Vesting Period) - a company with only
+    # ONE ESOP tranche outstanding never produces the multi-tranche "after
+    # N years from date of grant" phrasing either of the two passes above
+    # look for (confirmed real on Prime Fresh Limited).
+    if result["alignment_score"] is None:
+        try:
+            from tools.ar_table_extractor import extract_text_near_anchors
+            from tools.management_incentives_scoring import extract_esop_single_grant_vesting, score_long_term_orientation_from_grant_schedule
+            fiscal_year = gov.get("fiscal_year")
+            texts = extract_text_near_anchors(sym, name, {"esop": ["date of vesting", "vesting period", "esos", "employee stock option scheme"]}, fiscal_year=fiscal_year, max_pages_per_key=8)
+            single = extract_esop_single_grant_vesting(texts.get("esop", ""))
+            if single:
+                grant_result = score_long_term_orientation_from_grant_schedule([{**single, "grant_year": fiscal_year, "options_granted": 1}])
+                if grant_result["alignment_score"] is not None:
+                    result = {**result, **grant_result}
+                    pathway_results.insert(0, {
+                        "pathway_id": "AR-03-SINGLE-GRANT",
+                        "source": "ESOP single-grant vesting disclosure (SEBI SBEB Reg. 14 field-label table)",
+                        "result": "CHECKED",
+                        "note": f"{grant_result['vesting_horizon_years']}-year vesting horizon, performance-linked={grant_result['performance_linked']}.",
+                    })
+        except Exception as e:
+            print(f"[qualitative_engine] B.2.4 single-grant pass failed for {sym}: {e}")
 
     if result["alignment_score"] is None:
         from tools.management_incentives_scoring import score_long_term_orientation
@@ -4403,7 +4514,7 @@ def compute_b5_2_capital_execution(symbol, name=None, force=False):
     if result["capital_execution_score"] is not None:
         _pathway_note = None
     elif result.get("actual_capex_cr") is not None:
-        _pathway_note = f"Actual capex of ₹{result['actual_capex_cr']} cr was located, but no explicitly-stated planned/budgeted capex figure was found across the available Annual Reports this run — an absolute-₹ capex plan/target is genuinely rare in Indian filings."
+        _pathway_note = f"Actual capex of ₹{result['actual_capex_cr']} cr was located, but no explicitly-stated planned/budgeted capex figure was found across the available Annual Reports this run - an absolute-₹ capex plan/target is genuinely rare in Indian filings."
     else:
         _pathway_note = "No explicitly-stated planned capex figure (Board's Report) alongside an actual capex figure (Cash Flow Statement) was located this run."
     pathway_results = [{
@@ -4417,7 +4528,7 @@ def compute_b5_2_capital_execution(symbol, name=None, force=False):
         if result.get("actual_capex_cr") is not None:
             rationale = (f"Actual capex of ₹{result['actual_capex_cr']} cr was located, but no explicitly-stated "
                          "planned/budgeted/guided capex figure was found across the available Annual Reports this run "
-                         "— an absolute-₹ capex plan/target is genuinely rare in Indian filings.")
+                         "- an absolute-₹ capex plan/target is genuinely rare in Indian filings.")
         else:
             rationale = "No explicitly-stated planned-vs-actual capex comparison was located across the available Annual Reports this run."
         payload = {
@@ -4503,7 +4614,7 @@ def compute_b5_3_strategic_consistency(symbol, name=None, force=False):
 
 
 def compute_b5_execution_credibility(symbol, name=None, force=False):
-    """B.5 — Execution credibility: combines the three sub-points (B.5.1
+    """B.5 - Execution credibility: combines the three sub-points (B.5.1
     delivered vs stated milestones, B.5.2 capital allocation execution,
     B.5.3 strategic execution consistency) into a single grounded payload,
     each sourced from real, multi-year Annual Report text and scored
@@ -4795,7 +4906,7 @@ def compute_b6_4_attrition_evidence(symbol, name=None, force=False):
 
 
 def compute_b6_culture(symbol, name=None, force=False):
-    """B.6 — Culture: combines the four sub-points (B.6.1 innovation
+    """B.6 - Culture: combines the four sub-points (B.6.1 innovation
     focus, B.6.2 compliance orientation, B.6.3 employee morale, B.6.4
     attrition evidence) into a single grounded payload, each sourced from
     real Annual Report text and scored deterministically (no LLM call -
@@ -4842,12 +4953,29 @@ def _fetch_promoter_history(sym, max_quarters=8):
     return get_provider().fetch_promoter_holding_history(sym, max_quarters=max_quarters) or []
 
 
+def _manual_shareholding_snapshot(sym):
+    """Single-snapshot promoter/pledge/public data from the uploaded
+    Shareholding Pattern filing (tools.nse_xbrl._shareholding_from_manual_
+    upload) - document-based, never a live NSE/BSE fetch. Returns None if
+    no Shareholding Pattern was uploaded for this symbol or nothing usable
+    was tagged in it (never fabricated). Only usable in manual mode - the
+    caller must guard with is_manual_mode() itself, since this snapshot
+    has no historical quarters and must never be presented as a trend."""
+    from tools.nse_xbrl import _shareholding_from_manual_upload
+    try:
+        return _shareholding_from_manual_upload(sym)
+    except Exception as e:
+        print(f"[qualitative_engine] manual shareholding snapshot read failed for {sym}: {e}")
+        return None
+
+
 def compute_c1_1_control_levels(symbol, name=None, force=False):
     """C.1.1 - Control levels. Spec formula: Promoter Control Score (1-5).
     Deterministic (no LLM) - the latest quarter's Promoter vs Public
-    holding split, banded by promoter %. Sourcing: NSE Corporate Filings
-    - Shareholding Pattern - latest quarterly filing - Promoter and
-    Promoter Group Holding.
+    holding split, banded by promoter %. Sourcing: the uploaded
+    Shareholding Pattern filing (document-only manual workflow) - the same
+    real promoter_holding_pct already used for the Fundamental engine's
+    Sr 67/68 (Promoter Pledge %/Free Float %), never a live NSE/BSE fetch.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
     subpoint_id = "C.1.1"
@@ -4862,25 +4990,23 @@ def compute_c1_1_control_levels(symbol, name=None, force=False):
             except Exception:
                 return cached
 
-    try:
-        history = _fetch_promoter_history(sym, max_quarters=8)
-    except Exception as e:
-        print(f"[qualitative_engine] C.1.1 fetch failed for {sym}: {e}")
-        history = []
+    snap = _manual_shareholding_snapshot(sym)
+    promoter_pct = snap.get("promoter_holding_pct") if snap else None
+    public_pct = snap.get("public_holding_pct") if snap else None
 
     pathway_results = [{
-        "pathway_id": "PORTAL-02",
-        "source": "NSE Corporate Filings - Shareholding Pattern - latest quarterly filing - Promoter and Promoter Group Holding",
-        "result": "CHECKED" if history else "NOT_DISCLOSED",
-        "note": None if history else "NSE's live Shareholding Pattern endpoint returned no data for this symbol this run.",
+        "pathway_id": "UPLOAD-SHP",
+        "source": "Uploaded Shareholding Pattern filing - Promoter and Promoter Group Holding",
+        "result": "CHECKED" if promoter_pct is not None else "NOT_DISCLOSED",
+        "note": None if promoter_pct is not None else "No uploaded Shareholding Pattern filing, or promoter holding % not tagged in it.",
     }]
 
-    if not history:
+    if promoter_pct is None:
         payload = {
             "subpoint_id": subpoint_id, "title": "Control levels", "available": True,
-            "promoter_pct": None, "public_pct": None, "as_of_quarter": None,
+            "promoter_pct": None, "public_pct": None,
             "control_level": None, "control_score": None,
-            "rationale": "NSE's live Shareholding Pattern endpoint returned no data for this symbol this run.",
+            "rationale": "No uploaded Shareholding Pattern filing, or promoter holding % not tagged in it.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "NOT_FOUND")
@@ -4888,8 +5014,6 @@ def compute_c1_1_control_levels(symbol, name=None, force=False):
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
-    latest = history[-1]
-    promoter_pct, public_pct = latest["promoter_pct"], latest.get("public_pct")
     if promoter_pct >= 75:
         control_level, control_score = "Majority control", 5
     elif promoter_pct >= 50:
@@ -4903,9 +5027,9 @@ def compute_c1_1_control_levels(symbol, name=None, force=False):
 
     payload = {
         "subpoint_id": subpoint_id, "title": "Control levels", "available": True,
-        "promoter_pct": promoter_pct, "public_pct": public_pct, "as_of_quarter": latest.get("quarter"),
+        "promoter_pct": promoter_pct, "public_pct": public_pct,
         "control_level": control_level, "control_score": control_score,
-        "rationale": f"Promoter holding of {promoter_pct}% as of {latest.get('quarter')} -> {control_level} (score {control_score}/5).",
+        "rationale": f"Promoter holding of {promoter_pct}% (uploaded Shareholding Pattern filing) -> {control_level} (score {control_score}/5).",
         "pathway_results": pathway_results,
     }
     confidence_tag = "SINGLE_SOURCE"
@@ -5081,10 +5205,10 @@ def _band_direction_score(pct_increased):
 
 
 def compute_c1_promoter_shareholding(symbol, name=None, force=False):
-    """C.1 — Promoter shareholding patterns: combines the three
+    """C.1 - Promoter shareholding patterns: combines the three
     sub-points (C.1.1 control levels, C.1.2 changes over time, C.1.3
     direction) into a single grounded payload, each sourced from NSE's
-    real Shareholding Pattern filing (corporate-share-holdings-master —
+    real Shareholding Pattern filing (corporate-share-holdings-master -
     the actual per-quarter master, not the pledge-data byproduct
     previously used, which was silently empty for zero-pledge
     companies).
@@ -5140,6 +5264,21 @@ def compute_c1_promoter_shareholding(symbol, name=None, force=False):
 
 
 def _fetch_current_pledge(sym):
+    """Document-only manual workflow: reads the uploaded Shareholding
+    Pattern filing's own pledge tags (tools.nse_xbrl._shareholding_from_
+    manual_upload), never the live NSE/BSE scraper - this workflow's
+    isolation rule forbids that live fetch entirely, not just as a
+    fallback."""
+    from tools.manual_mode import is_manual_mode
+    if is_manual_mode():
+        snap = _manual_shareholding_snapshot(sym)
+        if not snap:
+            return {}
+        return {
+            "promoter_pledge_pct": snap.get("promoter_pledge_pct"),
+            "as_of_quarter": snap.get("as_of_quarter"),
+            "status": snap.get("pledge_status"),
+        }
     from tools.shareholding_scraper import get_provider
     return get_provider().fetch_pledge(sym) or {}
 
@@ -5176,14 +5315,14 @@ def compute_c2_1_presence(symbol, name=None, force=False):
         "pathway_id": "PORTAL-02",
         "source": "NSE Corporate Filings - Shareholding Pattern - Promoter and Promoter Group - Pledged / Encumbered Shares",
         "result": "CHECKED" if status in ("ok", "zero") else "NOT_DISCLOSED",
-        "note": None if status in ("ok", "zero") else "NSE's live pledge endpoint was unreachable or returned nothing this run — a real 0% cannot be confirmed, only assumed.",
+        "note": None if status in ("ok", "zero") else "NSE's live pledge endpoint was unreachable or returned nothing this run - a real 0% cannot be confirmed, only assumed.",
     }]
 
     if status not in ("ok", "zero"):
         payload = {
             "subpoint_id": subpoint_id, "title": "Presence of pledging", "available": True,
             "pledge_pct": None, "unpledged_pct": None, "presence_score": None,
-            "rationale": "NSE's live pledge endpoint was unreachable this run — presence of pledging cannot be confirmed.",
+            "rationale": "NSE's live pledge endpoint was unreachable this run - presence of pledging cannot be confirmed.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -5207,7 +5346,7 @@ def compute_c2_1_presence(symbol, name=None, force=False):
         "subpoint_id": subpoint_id, "title": "Presence of pledging", "available": True,
         "pledge_pct": round(pledge_pct, 2), "unpledged_pct": round(100 - pledge_pct, 2), "presence_score": presence_score,
         "as_of_quarter": pledge.get("as_of_quarter"),
-        "rationale": f"{pledge_pct:.2f}% of promoter shareholding is pledged as of {pledge.get('as_of_quarter') or 'the latest quarter'} (confirmed {'zero' if status == 'zero' else 'non-zero'} — not assumed) -> score {presence_score}/5.",
+        "rationale": f"{pledge_pct:.2f}% of promoter shareholding is pledged as of {pledge.get('as_of_quarter') or 'the latest quarter'} (confirmed {'zero' if status == 'zero' else 'non-zero'} - not assumed) -> score {presence_score}/5.",
         "pathway_results": pathway_results,
     }
     confidence_tag = "SINGLE_SOURCE"
@@ -5255,7 +5394,7 @@ def compute_c2_2_size(symbol, name=None, force=False):
         payload = {
             "subpoint_id": subpoint_id, "title": "Size of pledged shares", "available": True,
             "pledge_pct": None, "size_classification": None, "size_score": None,
-            "rationale": "NSE's live pledge endpoint was unreachable this run — pledge size cannot be confirmed.",
+            "rationale": "NSE's live pledge endpoint was unreachable this run - pledge size cannot be confirmed.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -5295,7 +5434,7 @@ def compute_c2_3_trend(symbol, name=None, force=False):
     Deterministic (no LLM) - compares pledged % across every quarter NSE
     has an on-record pledge for. NSE only lists a row for quarters where
     SOME pledge existed, so a company with no pledge history at all
-    genuinely has no trend to show — reported as unavailable, not a
+    genuinely has no trend to show - reported as unavailable, not a
     fabricated flat-zero line. Sourcing: NSE Corporate Filings -
     Shareholding Pattern - pledged % across multiple quarters.
     """
@@ -5323,7 +5462,7 @@ def compute_c2_3_trend(symbol, name=None, force=False):
         "pathway_id": "PORTAL-02",
         "source": "NSE Corporate Filings - Shareholding Pattern - pledged % across multiple quarters",
         "result": "CHECKED" if len(trend) >= 2 else "NOT_DISCLOSED",
-        "note": None if len(trend) >= 2 else "Fewer than 2 quarters with an on-record pledge were available from NSE's live endpoint this run — a company with no pledge history has no trend to show.",
+        "note": None if len(trend) >= 2 else "Fewer than 2 quarters with an on-record pledge were available from NSE's live endpoint this run - a company with no pledge history has no trend to show.",
     }]
 
     if len(trend) < 2:
@@ -5401,7 +5540,7 @@ def compute_c2_4_margin_call_risk(symbol, name=None, force=False):
         payload = {
             "subpoint_id": subpoint_id, "title": "Margin-call risk", "available": True,
             "pledge_pct": None, "risk_level": None, "risk_score": None,
-            "rationale": "NSE's live pledge endpoint was unreachable this run — margin-call risk cannot be confirmed.",
+            "rationale": "NSE's live pledge endpoint was unreachable this run - margin-call risk cannot be confirmed.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
@@ -5435,7 +5574,7 @@ def compute_c2_4_margin_call_risk(symbol, name=None, force=False):
 
 
 def compute_c2_promoter_pledging(symbol, name=None, force=False):
-    """C.2 — Promoter pledging of shares: combines the four sub-points
+    """C.2 - Promoter pledging of shares: combines the four sub-points
     (C.2.1 presence, C.2.2 size, C.2.3 trend, C.2.4 margin-call risk)
     into a single grounded payload, all sourced from NSE's real
     Shareholding Pattern pledge disclosure (tools/shareholding_scraper.py).
@@ -5482,7 +5621,7 @@ _C3_SCHEMA_VERSION = 1
 
 # Relationship-type substrings that flag a counterparty as promoter/KMP-
 # adjacent. Ind AS 24 vocabulary only (generic across every filer, per
-# CLAUDE.md's no-ticker-specific-logic rule) — this ROUTES the row to a
+# CLAUDE.md's no-ticker-specific-logic rule) - this ROUTES the row to a
 # human analyst as a flag, it never asserts wrongdoing or a conclusion
 # (same precedent as C.8's minority-shareholder-treatment handling).
 _C3_PROMOTER_KMP_RELATIONSHIP_MARKERS = [
@@ -5501,7 +5640,7 @@ def _compute_c3_rpt_records(symbol, name=None, force=False):
     context: RPT intensity = Total RPT value / Total revenue.
 
     Sourcing Sequence: AR-04 (RPT note) -> AR-05 (group structure) -> PORTAL-05
-    (director registry, NOT bio — counterparty cross-check) -> AGG-01 (Tofler,
+    (director registry, NOT bio - counterparty cross-check) -> AGG-01 (Tofler,
     fallback/cross-check only).
 
     AR-04 is now backed by a real fetcher: tools.annual_report_financials.
@@ -5509,9 +5648,9 @@ def _compute_c3_rpt_records(symbol, name=None, force=False):
     Party Disclosures" note text, and tools.rpt_extractor LLM-extracts
     counterparty/relationship/transaction/amount rows with a mandatory
     verbatim-quote + numeric-anchor guardrail (a row failing either check is
-    dropped, never guessed — per CLAUDE.md).
+    dropped, never guessed - per CLAUDE.md).
 
-    AR-05 (group structure — subsidiary list / Form AOC-1) has NO parser in
+    AR-05 (group structure - subsidiary list / Form AOC-1) has NO parser in
     this codebase; that's a separate, deliberately untouched future build
     (see C.4, the adjacent group-structural-complexity sub-point). Left
     NOT_DISCLOSED here, honestly.
@@ -5519,11 +5658,11 @@ def _compute_c3_rpt_records(symbol, name=None, force=False):
     PORTAL-05 (MCA Company/Director Master Data) has no free, programmatic
     path: the public MCA Company/LLP Master Data search now returns 403
     Forbidden (MCA locked down no-login access in Dec 2025), and no MCA API
-    exists. Left NOT_DISCLOSED with that explanation — same class of honest
+    exists. Left NOT_DISCLOSED with that explanation - same class of honest
     limitation as NICHE-14/MCX-LME for A.5's pricing power. No fetcher was
     built for it (there is nothing free to build against).
 
-    AGG-01 (Tofler) stays NOT_CHECKED — fallback/cross-check only, never
+    AGG-01 (Tofler) stays NOT_CHECKED - fallback/cross-check only, never
     invoked, same as every other fallback-only pathway in this codebase.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
@@ -5556,7 +5695,7 @@ def _compute_c3_rpt_records(symbol, name=None, force=False):
     amounts = [r["amount_cr"] for r in records if r.get("amount_cr") is not None]
     total_rpt_value_cr = round(sum(amounts), 2) if amounts else None
 
-    # Total revenue — reuse the SAME cached AR P&L extraction every other
+    # Total revenue - reuse the SAME cached AR P&L extraction every other
     # AR-sourced ratio in this codebase uses (_get_extracted_financials),
     # not a second hand-rolled fetch. Only computed if a real fiscal-year
     # figure is available; never estimated.
@@ -5573,17 +5712,17 @@ def _compute_c3_rpt_records(symbol, name=None, force=False):
     except Exception as e:
         print(f"[qualitative_engine] C.3 total-revenue fetch failed for {sym}: {e}")
 
-    # RPT intensity % — only when BOTH numerator and denominator are real
+    # RPT intensity % - only when BOTH numerator and denominator are real
     # numbers (per CLAUDE.md: unknown/not-quantifiable values are never
     # converted to zero or a fabricated estimate).
     rpt_intensity_pct = None
     if total_rpt_value_cr is not None and total_revenue_cr:
         rpt_intensity_pct = round((total_rpt_value_cr / total_revenue_cr) * 100, 2)
 
-    # rpt_frequency — a qualitative bucket (None/Occasional/Frequent) rather
+    # rpt_frequency - a qualitative bucket (None/Occasional/Frequent) rather
     # than the raw validated-row count. Chosen because the raw count is a
     # function of how many distinct rows the AR note happens to enumerate
-    # (which varies hugely by filer's disclosure granularity — one filer
+    # (which varies hugely by filer's disclosure granularity - one filer
     # might list 3 aggregated line items, another 30 individually-named
     # counterparties, for genuinely comparable underlying activity), so a
     # bare count isn't comparable across companies the way a bucket is.
@@ -5593,13 +5732,13 @@ def _compute_c3_rpt_records(symbol, name=None, force=False):
     # separately (rpt_row_count) for full auditability/testing.
     row_count = len(records)
     if row_count == 0:
-        rpt_frequency = None  # not "None" the bucket — genuinely not computed, distinct from a confirmed-zero count
+        rpt_frequency = None  # not "None" the bucket - genuinely not computed, distinct from a confirmed-zero count
     elif row_count <= 3:
         rpt_frequency = "Occasional"
     else:
         rpt_frequency = "Frequent"
 
-    # counterparty_flags — routes promoter/KMP-adjacent counterparties to a
+    # counterparty_flags - routes promoter/KMP-adjacent counterparties to a
     # human analyst; never asserts wrongdoing (same precedent as C.8).
     counterparty_flags = []
     seen_flags = set()
@@ -5617,12 +5756,12 @@ def _compute_c3_rpt_records(symbol, name=None, force=False):
             f"({'FY' + str(rpt_result.get('fiscal_year')) if rpt_result.get('fiscal_year') else 'latest available year'}). "
             + (f"RPT intensity ~{rpt_intensity_pct}% of total revenue ({total_rpt_value_cr} Cr of {total_revenue_cr} Cr). "
                if rpt_intensity_pct is not None else
-               "RPT intensity not computed — either total RPT value or total revenue could not be confirmed as a real number. ")
+               "RPT intensity not computed - either total RPT value or total revenue could not be confirmed as a real number. ")
             + (f"{len(counterparty_flags)} counterparty flag(s) for human review." if counterparty_flags else "No promoter/KMP-adjacent counterparties flagged among verified rows.")
         )
     else:
         rationale = (
-            "Not computed — the Related Party Disclosures note could not be located and/or no row could be "
+            "Not computed - the Related Party Disclosures note could not be located and/or no row could be "
             "extracted and verified against a verbatim quote in this Annual Report."
             + (f" ({ar04_note})" if ar04_note else "")
         )
@@ -5644,13 +5783,13 @@ def _compute_c3_rpt_records(symbol, name=None, force=False):
             "pathway_id": "PORTAL-05",
             "source": "MCA Company/Director Master Data (counterparty cross-check, NOT bio)",
             "result": "NOT_DISCLOSED",
-            "note": "MCA's public Company/LLP Master Data search returns 403 Forbidden (MCA locked down no-login access, Dec 2025) — no free, programmatic path exists. No fetcher was built; there is nothing free to build against.",
+            "note": "MCA's public Company/LLP Master Data search returns 403 Forbidden (MCA locked down no-login access, Dec 2025) - no free, programmatic path exists. No fetcher was built; there is nothing free to build against.",
         },
         {
             "pathway_id": "AGG-01",
-            "source": "Tofler — Company/Director Search (fallback/cross-check only)",
+            "source": "Tofler - Company/Director Search (fallback/cross-check only)",
             "result": "NOT_CHECKED",
-            "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
+            "note": "Cross-check pathway, only used if primary is unavailable or conflicting - not invoked this run.",
         },
     ]
 
@@ -5844,7 +5983,7 @@ def compute_c3_3_pricing_fairness(symbol, name=None, force=False):
         "pathway_id": "AR-04",
         "source": "NSE Corporate Filings - Annual Reports - Related Party Disclosures - transaction descriptions and pricing basis",
         "result": "CHECKED" if result["pricing_fairness_score"] is not None else "NOT_DISCLOSED",
-        "note": None if result["pricing_fairness_score"] is not None else "No explicit arm's-length pricing confirmation or contradiction was located in the Related Party Disclosures note this run — most notes don't restate the pricing basis in prose per line item.",
+        "note": None if result["pricing_fairness_score"] is not None else "No explicit arm's-length pricing confirmation or contradiction was located in the Related Party Disclosures note this run - most notes don't restate the pricing basis in prose per line item.",
     }]
 
     if result["pricing_fairness_score"] is None:
@@ -5933,7 +6072,7 @@ def compute_c3_4_disclosure_quality(symbol, name=None, force=False):
 
 
 def compute_c3_related_party_transactions(symbol, name=None, force=False):
-    """C.3 — Related-party transactions (RPTs): combines the four
+    """C.3 - Related-party transactions (RPTs): combines the four
     sub-points (C.3.1 frequency, C.3.2 counterparty identity, C.3.3
     pricing fairness, C.3.4 disclosure quality) into a single grounded
     payload. C.3.1/C.3.2 reuse the same LLM-extracted, verbatim-quote-
@@ -5975,16 +6114,57 @@ def compute_c3_related_party_transactions(symbol, name=None, force=False):
     return payload
 
 
+_AOC1_ANCHORS = [
+    "form no. aoc-1", "form aoc-1", "form no. aoc 1", "aoc-1",
+    "statement containing salient features of the financial statement of subsidiaries",
+    "pursuant to first proviso to sub-section (3) of section 129",
+    "pursuant to section 129(3)", "name of the subsidiary",
+]
+
+
 def _fetch_group_entities(sym, name):
-    """Internal: the Related Party Disclosures note's own "Subsidiaries
-    (Extent of holding)" listing, shared by C.4.2/C.4.3/C.4.4 so all
-    three reuse the same AR fetch instead of re-downloading the PDF
-    three times per report."""
-    from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report
+    """Internal: named group-entity listing, shared by C.4.2/C.4.3/C.4.4
+    so all three reuse the same AR fetch instead of re-downloading the
+    PDF three times per report. Tries TWO independent, equally standard
+    disclosure sources, since a filer's named subsidiaries/associates/JVs
+    can legitimately live in either (or both):
+
+    1. The Related Party Disclosures note's "Subsidiaries (Extent of
+       holding)" listing (Ind AS 24) - `fetch_rpt_evidence_from_annual_
+       report`'s existing anchors.
+    2. Form AOC-1 (Companies Act 2013, Section 129(3) / Rule 5) - "the
+       Statement containing salient features of the financial statement
+       of subsidiaries/associate companies/joint ventures" - a SEPARATE,
+       UNIVERSALLY MANDATED annexure every Indian company with
+       subsidiaries must file, entirely independent of the RPT note.
+       Confirmed real gap: Bharti Airtel's named subsidiaries never
+       appeared in the RPT-note excerpts scanned (that section covers
+       transaction disclosures, not the entity-holding list), so
+       `extract_group_entities` found nothing despite the company having
+       a large, real subsidiary group - the AOC-1 statement is the
+       correct universal source for exactly this case.
+
+    Both texts are concatenated before extraction so either format (or
+    both) contributes evidence - never company-specific, since every
+    Indian filer's Section 129(3) disclosure uses this same mandated
+    caption language."""
+    from tools.annual_report_financials import fetch_rpt_evidence_from_annual_report, _fetch_ar_evidence_excerpts
     from tools.group_structure_scoring import extract_group_entities
     evidence = fetch_rpt_evidence_from_annual_report(sym, name)
-    text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
-    return extract_group_entities(text)
+    rpt_text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+
+    aoc1_text = ""
+    try:
+        aoc1_evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _AOC1_ANCHORS, "ar_aoc1_text_v1",
+            max_per_page=6, max_excerpts=25, fetch_label="aoc1-subsidiaries",
+        )
+        aoc1_text = " ".join((ex.get("text") or "") for ex in (aoc1_evidence.get("excerpts") or [])) \
+            if isinstance(aoc1_evidence, dict) else ""
+    except Exception as e:
+        print(f"[qualitative_engine] AOC-1 fetch failed for {sym}: {e}")
+
+    return extract_group_entities(f"{rpt_text} {aoc1_text}".strip())
 
 
 def compute_c4_1_offbalance_sheet_vehicles(symbol, name=None, force=False):
@@ -6230,7 +6410,7 @@ def compute_c4_4_group_complexity(symbol, name=None, force=False):
 
 
 def compute_c4_group_structural_complexity(symbol, name=None, force=False):
-    """C.4 — Use of complex group entities: combines the four sub-points
+    """C.4 - Use of complex group entities: combines the four sub-points
     (C.4.1 off-balance-sheet vehicles, C.4.2 SPVs, C.4.3 subsidiaries
     abroad, C.4.4 group structure complexity) into a single grounded
     payload, each sourced from real Annual Report text and scored
@@ -6316,14 +6496,28 @@ def compute_c5_1_independent_director_quality(symbol, name=None, force=False):
     }]
 
     if result["quality_score"] is None:
+        # NSE's Corporate Governance filing endpoint only covers
+        # NSE-listed symbols - a BSE-only filer (confirmed real on Prime
+        # Fresh Limited) genuinely has nothing there regardless of
+        # whether the underlying board-composition facts exist. A
+        # Corporate Governance Report upload is the closest real
+        # substitute (director/committee membership detail), even though
+        # it can't fully replace the cross-company "elsewhere" check this
+        # KPI ultimately wants.
+        _dm_c51 = _manual_doc_uploaded(sym, "corporate_governance_report") is False
+        _tag_c51 = "DATA_MISSING" if _dm_c51 else "SEARCH_INCONCLUSIVE"
+        _doc_label_c51 = "Corporate Governance Report"
         payload = {
             "subpoint_id": subpoint_id, "title": "Independent directors' quality", "available": True, **result,
             "as_of_quarter": as_of_quarter,
-            "rationale": "NSE's live Corporate Governance filing endpoint returned no board-composition data for this symbol this run.",
+            "required_document": _doc_label_c51 if _dm_c51 else None,
+            "rationale": (f"This item requires {_doc_label_c51}, which is not part of the uploaded Annual Report. Upload: {_doc_label_c51}."
+                          if _dm_c51 else
+                          "NSE's live Corporate Governance filing endpoint returned no board-composition data for this symbol this run."),
             "pathway_results": pathway_results,
         }
-        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
-        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        write_qualitative(sym, subpoint_id, payload, _tag_c51)
+        payload["confidence_tag"] = _tag_c51
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
@@ -6452,6 +6646,8 @@ def compute_c5_4_board_attendance(symbol, name=None, force=False):
             except Exception:
                 return cached
 
+    as_of_quarter = None
+    pathway_results = []
     try:
         from tools.board_governance_scoring import score_board_attendance
         filing = _fetch_governance_filing(sym)
@@ -6460,14 +6656,39 @@ def compute_c5_4_board_attendance(symbol, name=None, force=False):
     except Exception as e:
         print(f"[qualitative_engine] C.5.4 fetch failed for {sym}: {e}")
         result = {"total_present": None, "total_possible": None, "attendance_pct": None, "meetings_count": None, "participation_score": None}
-        as_of_quarter = None
 
-    pathway_results = [{
+    pathway_results.append({
         "pathway_id": "PORTAL-03",
         "source": "NSE Corporate Filings - Corporate Governance - Board Meetings / Attendance",
         "result": "CHECKED" if result["participation_score"] is not None else "NOT_DISCLOSED",
         "note": None if result["participation_score"] is not None else "NSE's live Corporate Governance filing endpoint had no board-meeting attendance data for this symbol this run.",
-    }]
+    })
+
+    # Fallback: the Annual Report's OWN "ATTENDANCE & OTHER DIRECTORSHIP"
+    # table (SEBI LODR Schedule V Part C) - a real, independent source of
+    # the same fact, not exclusive to NSE-listed filers (confirmed real
+    # gap on Prime Fresh Limited, a BSE-only company).
+    if result["participation_score"] is None:
+        try:
+            from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+            from tools.board_governance_scoring import extract_board_attendance_from_ar_text
+            evidence = _fetch_ar_evidence_excerpts(
+                sym, name,
+                ["attendance & other directorship", "board meeting attendance", "attendance of each director"],
+                "ar_c5_4_attendance_v1", max_per_page=4, max_excerpts=10, fetch_label="c5-4-board-attendance",
+            )
+            ar_text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+            ar_result = extract_board_attendance_from_ar_text(ar_text)
+            if ar_result["participation_score"] is not None:
+                result = ar_result
+                pathway_results.insert(0, {
+                    "pathway_id": "AR-02-TABLE",
+                    "source": "Annual Report Corporate Governance chapter - Attendance & Other Directorship table",
+                    "result": "CHECKED",
+                    "note": f"{ar_result['meetings_count']} director(s) with eligible/attended figures found, {ar_result['attendance_pct']}% overall.",
+                })
+        except Exception as e:
+            print(f"[qualitative_engine] C.5.4 AR-table fallback failed for {sym}: {e}")
 
     if result["participation_score"] is None:
         payload = {
@@ -6481,10 +6702,11 @@ def compute_c5_4_board_attendance(symbol, name=None, force=False):
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
+    _as_of = f" as of {as_of_quarter}" if as_of_quarter else ""
     payload = {
         "subpoint_id": subpoint_id, "title": "Board attendance and committee participation", "available": True, **result,
         "as_of_quarter": as_of_quarter,
-        "rationale": f"{result['total_present']} of {result['total_possible']} director-attendances explicitly recorded across {result['meetings_count']} board meeting(s) as of {as_of_quarter} ({result['attendance_pct']}%) -> score {result['participation_score']}/5.",
+        "rationale": f"{result['total_present']} of {result['total_possible']} director-attendances explicitly recorded across {result['meetings_count']} board meeting(s){_as_of} ({result['attendance_pct']}%) -> score {result['participation_score']}/5.",
         "pathway_results": pathway_results,
     }
     confidence_tag = "SINGLE_SOURCE"
@@ -6495,7 +6717,7 @@ def compute_c5_4_board_attendance(symbol, name=None, force=False):
 
 
 def compute_c5_board_composition(symbol, name=None, force=False):
-    """C.5 — Board composition & independence: combines the four sub-
+    """C.5 - Board composition & independence: combines the four sub-
     points (C.5.1 independent directors' quality, C.5.2 audit committee
     activity, C.5.3 NRC activity, C.5.4 board attendance) into a single
     grounded payload, all sourced from NSE's real quarterly Corporate
@@ -6637,7 +6859,7 @@ def compute_c6_2_auditor_switches(symbol, name=None, force=False):
     window. Deterministic (no LLM) - see tools/auditor_scoring.py's
     score_auditor_switches: counts year-over-year auditor-name changes
     across up to 5 years (a real, if shorter than the spec's 10-year
-    ask, window — NSE's Annual Report archive doesn't reliably go back
+    ask, window - NSE's Annual Report archive doesn't reliably go back
     further). Sourcing: NSE Corporate Filings - Annual Reports -
     Independent Auditor's Report - Auditor name across years.
     """
@@ -6815,7 +7037,7 @@ def compute_c6_4_audit_observations(symbol, name=None, force=False):
 
 
 def compute_c6_auditor_relationships(symbol, name=None, force=False):
-    """C.6 — Auditor relationships: combines the four sub-points (C.6.1
+    """C.6 - Auditor relationships: combines the four sub-points (C.6.1
     auditor tenure, C.6.2 auditor switches, C.6.3 audit qualifications,
     C.6.4 reservations/emphasis of matter) into a single grounded
     payload, each sourced from real, multi-year Annual Report text and
@@ -6872,21 +7094,21 @@ def _compute_c7_cash_flow_mix(symbol, name=None, force=False):
     Sourcing Sequence: AR-08 (Statement of Cash Flows) -> AGG-01 (fallback/
     cross-check only, NOT invoked).
 
-    Deterministic (no LLM) — same convention as every other C-section row
+    Deterministic (no LLM) - same convention as every other C-section row
     built this session. Reuses
     tools.annual_report_financials.fetch_multi_year_cash_flow_items (new,
     mirrors fetch_multi_year_segment_revenue's pattern) for the raw per-year
     capex/dividend/buyback/acquisition figures, then computes each year's
     mix % here.
 
-    Missing-category handling (CLAUDE.md: never convert unknown to zero) —
+    Missing-category handling (CLAUDE.md: never convert unknown to zero) -
     per year, `total_deployed` is the sum ONLY over categories that have a
     real (non-None) parsed value that year; a category legitimately absent
     from the filing that year is recorded in `missing_categories` for that
     year and EXCLUDED from both the numerator and denominator, never treated
     as a 0% contributor. This means the mix percentages for a year with a
     missing category describe the mix AMONG the categories that WERE found,
-    not a true 4-way split — `missing_categories` makes that limitation
+    not a true 4-way split - `missing_categories` makes that limitation
     explicit rather than hiding it.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
@@ -6921,9 +7143,9 @@ def _compute_c7_cash_flow_mix(symbol, name=None, force=False):
         },
         {
             "pathway_id": "AGG-01",
-            "source": "Screener.in — Cash Flow tab (fallback/cross-check only)",
+            "source": "Screener.in - Cash Flow tab (fallback/cross-check only)",
             "result": "NOT_CHECKED",
-            "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
+            "note": "Cross-check pathway, only used if primary is unavailable or conflicting - not invoked this run.",
         },
     ]
 
@@ -6966,7 +7188,7 @@ def _compute_c7_cash_flow_mix(symbol, name=None, force=False):
 
     years_covered = [r["fiscal_year"] for r in by_year]
 
-    # Multi-year averages — averaged only over years where that category had
+    # Multi-year averages - averaged only over years where that category had
     # a real parsed value (never imputing 0 for a missing year), same
     # "exclude, don't zero" rule as the per-year mix above.
     avg_mix = {}
@@ -6981,7 +7203,7 @@ def _compute_c7_cash_flow_mix(symbol, name=None, force=False):
         if c == "acquisition_outflow":
             acquisition_years = [r["fiscal_year"] for r in by_year if r["amounts_cr"].get("M&A", 0) and r["amounts_cr"]["M&A"] > 0]
 
-    # Deterministic rationale sentence — built entirely from the computed
+    # Deterministic rationale sentence - built entirely from the computed
     # numbers above, never LLM-authored (matches this build's constraint and
     # every other deterministic C-row this session).
     yr_lo, yr_hi = min(years_covered), max(years_covered)
@@ -7000,7 +7222,7 @@ def _compute_c7_cash_flow_mix(symbol, name=None, force=False):
         parts.append(f"M&A/acquisition outflow occurred in FY{', FY'.join(str(y) for y in acquisition_years)}")
     rationale = "; ".join(parts) + "."
     if any(r["missing_categories"] for r in by_year):
-        rationale += " Note: at least one category was not parseable from the filing in one or more years (see per-year 'missing_categories') — those years' mix % reflects only the categories that WERE found, not a true 4-way split."
+        rationale += " Note: at least one category was not parseable from the filing in one or more years (see per-year 'missing_categories') - those years' mix % reflects only the categories that WERE found, not a true 4-way split."
 
     confidence_tag = "SINGLE_SOURCE"
 
@@ -7119,7 +7341,7 @@ def compute_c7_2_acquisitions(symbol, name=None, force=False):
         "pathway_id": "AR-09",
         "source": "NSE Corporate Filings - Annual Reports - Business Combination / Acquisition Note",
         "result": "CHECKED" if result["acquisition_discipline_score"] is not None else "NOT_DISCLOSED",
-        "note": None if result["acquisition_discipline_score"] is not None else "No acquisition-note text with a clear strategic/non-core signal was located in the latest Annual Report this run — many years have no acquisition activity at all.",
+        "note": None if result["acquisition_discipline_score"] is not None else "No acquisition-note text with a clear strategic/non-core signal was located in the latest Annual Report this run - many years have no acquisition activity at all.",
     }]
 
     if result["acquisition_discipline_score"] is None:
@@ -7205,7 +7427,7 @@ def compute_c7_3_buybacks(symbol, name=None, force=False):
         payload = {
             "subpoint_id": subpoint_id, "title": "Buybacks", "available": True,
             "total_buyback_cr": 0.0, "total_other_returns_cr": round(total_dividend, 2), "buyback_years": [], "buyback_score": None,
-            "rationale": f"No share buyback outflow was found across the {len(by_year)}-year Cash Flow Statement window on file — {sym} returned capital via dividends only in this window.",
+            "rationale": f"No share buyback outflow was found across the {len(by_year)}-year Cash Flow Statement window on file - {sym} returned capital via dividends only in this window.",
             "pathway_results": pathway_results,
         }
         write_qualitative(sym, subpoint_id, payload, "SINGLE_SOURCE")
@@ -7389,7 +7611,7 @@ def compute_c7_5_capital_allocation_rationale(symbol, name=None, force=False):
 
 
 def compute_c7_capital_allocation(symbol, name=None, force=False):
-    """C.7 — Capital allocation decisions: combines the five sub-points
+    """C.7 - Capital allocation decisions: combines the five sub-points
     (C.7.1 capex, C.7.2 acquisitions, C.7.3 buybacks, C.7.4 dividends,
     C.7.5 capital allocation rationale) into a single grounded payload,
     all sourced from real Annual Report text and the real multi-year
@@ -7510,7 +7732,7 @@ def compute_c8_2_minority_voting(symbol, name=None, force=False):
     own latest AGM/Postal Ballot Scrutinizer's Report. The precise per-
     resolution For/Against vote-% table exists in the same PDF but its
     column layout doesn't survive text extraction reliably enough to
-    parse without risk of cross-company misattribution — the Pass/Not-
+    parse without risk of cross-company misattribution - the Pass/Not-
     Passed outcome is the one figure that extracts unambiguously.
     Sourcing: NSE Corporate Filings - Shareholders' Meetings - Notice /
     Voting Results / Scrutinizer Report.
@@ -7531,7 +7753,7 @@ def compute_c8_2_minority_voting(symbol, name=None, force=False):
     try:
         from tools.nse_announcements import fetch_announcements, download_pdf_text
         from tools.minority_treatment_scoring import score_minority_voting
-        rows = fetch_announcements(sym)
+        rows = fetch_announcements(sym) or []
         scrutinizer_url = None
         for row in rows:
             blob = f"{row.get('attchmntText') or ''} {row.get('desc') or ''}".lower()
@@ -7559,25 +7781,37 @@ def compute_c8_2_minority_voting(symbol, name=None, force=False):
             "pathway_id": "PORTAL-06",
             "source": "SEBI Enforcement Orders / SCORES (fallback/cross-check only)",
             "result": "NOT_CHECKED",
-            "note": "Not invoked this run — a named analyst must run this manually before minority-treatment findings inform any investment decision (human sign-off gate).",
+            "note": "Not invoked this run - a named analyst must run this manually before minority-treatment findings inform any investment decision (human sign-off gate).",
         },
         {
             "pathway_id": "NICHE-20",
-            "source": "Proxy Advisory — IiAS / InGovern (fallback/cross-check only)",
+            "source": "Proxy Advisory - IiAS / InGovern (fallback/cross-check only)",
             "result": "NOT_CHECKED",
-            "note": "IiAS/InGovern proxy research is a paid subscription product by design — not invoked this run.",
+            "note": "IiAS/InGovern proxy research is a paid subscription product by design - not invoked this run.",
         },
     ]
 
     if result["minority_treatment_score"] is None:
+        # The Scrutinizer's Report is filed with NSE/BSE separately from
+        # the Annual Report - a BSE-only filer's report is never findable
+        # via NSE's live announcements feed (confirmed real on Prime
+        # Fresh Limited), regardless of whether the underlying voting
+        # outcome exists. A Corporate Actions History upload is the
+        # closest real substitute.
+        _dm_c82 = _manual_doc_uploaded(sym, "corporate_actions") is False
+        _tag_c82 = "DATA_MISSING" if _dm_c82 else "SEARCH_INCONCLUSIVE"
+        _doc_label_c82 = "Corporate Actions History (BSE/NSE) - AGM/Postal Ballot Scrutinizer's Report"
         payload = {
             "subpoint_id": subpoint_id, "title": "Minority shareholder voting and treatment", "available": True, **result,
             "source_pdf_url": scrutinizer_url,
-            "rationale": "No resolution outcome was located in the latest AGM/Postal Ballot Scrutinizer's Report this run.",
+            "required_document": _doc_label_c82 if _dm_c82 else None,
+            "rationale": (f"This item requires {_doc_label_c82}, which is not part of the uploaded Annual Report. Upload: {_doc_label_c82}."
+                          if _dm_c82 else
+                          "No resolution outcome was located in the latest AGM/Postal Ballot Scrutinizer's Report this run."),
             "pathway_results": pathway_results,
         }
-        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
-        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        write_qualitative(sym, subpoint_id, payload, _tag_c82)
+        payload["confidence_tag"] = _tag_c82
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
@@ -7621,7 +7855,7 @@ def compute_c8_4_disclosure_timeliness(symbol, name=None, force=False):
     try:
         from tools.nse_announcements import fetch_announcements
         from tools.minority_treatment_scoring import score_disclosure_timeliness
-        rows = fetch_announcements(sym)[:20]
+        rows = (fetch_announcements(sym) or [])[:20]
         result = score_disclosure_timeliness(rows)
     except Exception as e:
         print(f"[qualitative_engine] C.8.4 fetch failed for {sym}: {e}")
@@ -7658,10 +7892,10 @@ def compute_c8_4_disclosure_timeliness(symbol, name=None, force=False):
 
 
 def compute_c8_minority_shareholder_treatment(symbol, name=None, force=False):
-    """C.8 — Track record on minority shareholder treatment and
+    """C.8 - Track record on minority shareholder treatment and
     disclosure habits: combines the three defined sub-points (C.8.1
     disclosure quality, C.8.2 minority voting, C.8.4 disclosure
-    timeliness — C.8.3 is intentionally absent, not defined in the spec
+    timeliness - C.8.3 is intentionally absent, not defined in the spec
     this codebase was given) into a single grounded payload, all sourced
     from real Annual Report text, real AGM Scrutinizer's Report PDFs,
     and NSE's own corporate-announcements timing data (no LLM call - see
@@ -7682,7 +7916,7 @@ def compute_c8_minority_shareholder_treatment(symbol, name=None, force=False):
         parts.append(f"Minority voting: {c82['pass_pct']}% resolutions passed (score {c82['minority_treatment_score']}/5).")
     if c84.get("timeliness_score") is not None:
         parts.append(f"Disclosure timeliness: avg {c84['avg_gap_seconds']}s gap (score {c84['timeliness_score']}/5).")
-    parts.append("SEBI enforcement-order and proxy-advisory (IiAS/InGovern) checks have not been run — route to a named analyst before adverse-finding conclusions inform any investment decision.")
+    parts.append("SEBI enforcement-order and proxy-advisory (IiAS/InGovern) checks have not been run - route to a named analyst before adverse-finding conclusions inform any investment decision.")
     if len(parts) == 1:
         parts.insert(0, "None of the three defined sub-points (disclosure quality, minority voting, disclosure timeliness) were explicitly covered this run.")
 
@@ -7704,7 +7938,7 @@ def compute_c8_minority_shareholder_treatment(symbol, name=None, force=False):
 
 
 # Fixed 0-100 scale positions per the spec's SPECTRUM_BAR output (e), same
-# order/zones for every company — never company-specific. Mixed is a
+# order/zones for every company - never company-specific. Mixed is a
 # CALCULATED outcome of the blend formula, never assigned directly, so it
 # has no fixed anchor position of its own.
 _CONTRACT_TYPE_POSITION = {
@@ -7716,7 +7950,7 @@ _CONTRACT_TYPE_LABEL = {
 }
 
 # v1: full deterministic rewrite of A.3 (previously an ungrounded LLM
-# classification with no schema_version at all) — old cached LLM-based
+# classification with no schema_version at all) - old cached LLM-based
 # payloads (revenue_model/contract_dynamics fields, no
 # contract_type_label/blend_position) must never be served as if they were
 # the new evidence-grounded shape. Same bump-guard pattern as
@@ -7726,41 +7960,41 @@ _CONTRACT_TYPE_LABEL = {
 # Transactional category priority, several anchor/pattern recall fixes
 # (paraphrase-robust point-in-time/over-time matching), and the Annuity
 # AMC/O&M patterns now require a same-sentence "revenue" co-occurrence to
-# reject narrative/case-study mentions — confirmed on MARUTI (previously
+# reject narrative/case-study mentions - confirmed on MARUTI (previously
 # missed its real point-in-time policy entirely) and L&T (previously
 # misclassified Annuity off an ESG case-study O&M mention). Old v1 payloads
 # reflect the pre-fix logic and must not be served as current.
 # v3: excludes the generic Ind AS 115 "satisfied at a point in time OR over
 # a period of time" framework/judgement sentence every company's policy
-# note includes — confirmed false positive on TCS, which matched that
+# note includes - confirmed false positive on TCS, which matched that
 # boilerplate framework sentence as a definitive Transactional
 # classification even though TCS's real revenue is predominantly recognised
 # over time. See _GENERIC_FRAMEWORK_RE.
 # v4: adds the "recognised when control ... transferred to the customer"
-# point-in-time pattern family — confirmed ITC, SUNPHARMA and RELIANCE were
+# point-in-time pattern family - confirmed ITC, SUNPHARMA and RELIANCE were
 # all returning SEARCH_INCONCLUSIVE even though their real Notes to
 # Accounts revenue-recognition text was already being fetched correctly;
 # the classifier simply didn't recognize this (extremely common) IFRS
 # 15/Ind AS 115 default point-in-time phrasing, which never says "point in
 # time" or "over time" literally.
 # v5: drops the "control" requirement from the delivery-anchored
-# point-in-time pattern — confirmed on ITC, whose real evidence clause had
+# point-in-time pattern - confirmed on ITC, whose real evidence clause had
 # "control" clipped off by the AR-scan window boundary, leaving only
 # "...is transferred to the customer, which is mainly upon delivery",
 # which is unambiguous on its own.
 # v6: strips a "<Company Name> Limited/Ltd" page-footer fragment glued onto
-# a quote's prefix by the newline-collapse merge — cosmetic-only fix,
+# a quote's prefix by the newline-collapse merge - cosmetic-only fix,
 # confirmed on ITC ("...2026 ITC Limited same is transferred...").
 # v7: when the AR discloses an EXPLICIT Ind AS 115 revenue-timing
 # disaggregation table (point-in-time vs over-time, in rupee amounts), that
 # numeric split now wins outright instead of falling into the generic
-# per-sentence anchor scan — confirmed on CAMS, whose AR literally states
+# per-sentence anchor scan - confirmed on CAMS, whose AR literally states
 # ~99.3% of revenue is point-in-time, but the old per-sentence scan
 # returned Recurring purely because the over-time PHRASE happened to
 # co-occur in the same table-derived text, without ever reading the
 # figures. See _extract_disaggregation_split.
 # v8: adds "transferred to the customer" fetcher anchor + "when...
-# delivered/dispatched/shipped" classifier pattern — confirmed on VIP
+# delivered/dispatched/shipped" classifier pattern - confirmed on VIP
 # Industries (small-cap), whose real point-in-time policy note was never
 # even fetched because no existing anchor happened to land near it, and
 # used a verb-form phrasing ("...transferred to the customer when the
@@ -7769,7 +8003,7 @@ _A3_SCHEMA_VERSION = 8
 
 
 def compute_a3_revenue_model_quality(symbol, name=None, description="", force=False):
-    """A.3 — Revenue model quality: transactional, recurring, annuity, contract
+    """A.3 - Revenue model quality: transactional, recurring, annuity, contract
     length & renewal dynamics. Formula: Contract renewal rate = Contracts renewed /
     Contracts up for renewal.
 
@@ -7777,11 +8011,11 @@ def compute_a3_revenue_model_quality(symbol, name=None, description="", force=Fa
     weights already pulled for A.1 via `_fetch_segment_revenue_context`, plus
     the Ind AS 115 revenue-recognition note text scanned for recognition-
     timing/contract-type language) -> AGG-01 (Screener.in, fallback/
-    cross-check only, NOT_CHECKED — same convention as every other A.2.x/A.3
+    cross-check only, NOT_CHECKED - same convention as every other A.2.x/A.3
     sub-point that never actually invokes the cross-check pathway).
 
     Deliberately deterministic (no LLM), same rationale as the A.2.x moat
-    factors — reproducible, auditable, avoids the shared Groq/OpenRouter
+    factors - reproducible, auditable, avoids the shared Groq/OpenRouter
     quota. See tools/revenue_model_scoring.py for the 3A/3B/3C classifier.
 
     IMPORTANT DOCUMENTED GAP (same as A.1's AR-13 proxy and A.2.E's
@@ -7789,7 +8023,7 @@ def compute_a3_revenue_model_quality(symbol, name=None, description="", force=Fa
     per-segment revenue-recognition-note text extractor. When a company
     reports 2+ segments (via `_fetch_segment_revenue_context`), the SAME
     company-wide AR text-anchor classification is applied to every segment
-    — this is a documented best-effort limitation, not genuine per-segment
+    - this is a documented best-effort limitation, not genuine per-segment
     differentiation, and is surfaced explicitly in the payload
     (`segment_classification_note`) rather than silently implied. Segments
     are used only for their REVENUE WEIGHTS in the blend formula, never for
@@ -7833,17 +8067,17 @@ def compute_a3_revenue_model_quality(symbol, name=None, description="", force=Fa
 
     pathway_results = [
         {
-            "pathway_id": "AR-14", "source": "Revenue/segment note — Ind AS 115 revenue recognition policy — PRIMARY",
+            "pathway_id": "AR-14", "source": "Revenue/segment note - Ind AS 115 revenue recognition policy - PRIMARY",
             "result": ar14_result, "note": ar14_note,
         },
         {
             "pathway_id": "AGG-01", "source": "Screener.in Documents/Financials (fallback/cross-check only)",
             "result": "NOT_CHECKED",
-            "note": "Cross-check pathway, only used if primary is unavailable or conflicting — not invoked this run.",
+            "note": "Cross-check pathway, only used if primary is unavailable or conflicting - not invoked this run.",
         },
     ]
 
-    # AR-14 segment revenue weights — the SAME reconciled figures used for
+    # AR-14 segment revenue weights - the SAME reconciled figures used for
     # A.1 row 2, reused here per the spec's explicit "REUSE it, do not
     # rebuild segment extraction" instruction.
     segments_pct, segments_fy = _fetch_segment_revenue_context(sym, name)
@@ -7854,7 +8088,7 @@ def compute_a3_revenue_model_quality(symbol, name=None, description="", force=Fa
     if segments_pct and len(segments_pct) >= 2:
         segment_classification_note = (
             "SEGMENT_LEVEL_PROXY: this company reports 2+ segments but no per-segment revenue-recognition-note "
-            "text extractor exists in this codebase — the same company-wide Annual Report classification below is "
+            "text extractor exists in this codebase - the same company-wide Annual Report classification below is "
             "applied to every segment for the revenue-weighted blend. This is a documented best-effort proxy, not "
             "genuine per-segment differentiation (same gap as A.1's AR-13 proxy and A.2.E's switching-costs "
             "approximation)."
@@ -7866,7 +8100,7 @@ def compute_a3_revenue_model_quality(symbol, name=None, description="", force=Fa
     # Revenue-weighted blend (d): sum(segment revenue x segment type
     # position) / total revenue. With the same classification applied to
     # every segment (the documented proxy above), this necessarily collapses
-    # to that single type's fixed position when a type WAS classified — the
+    # to that single type's fixed position when a type WAS classified - the
     # formula is still computed explicitly (not hardcoded to the fixed
     # value) so it stays correct once/if a real per-segment extractor is
     # ever added.
@@ -7882,7 +8116,7 @@ def compute_a3_revenue_model_quality(symbol, name=None, description="", force=Fa
         # +/-12 of any fixed type position AND no single classified type
         # carries >60% of the revenue-weighted mass. With one classification
         # applied uniformly, mass is always 100% on that type, so this
-        # always resolves to the nearest single label today — the check is
+        # always resolves to the nearest single label today - the check is
         # still run explicitly per the spec rather than skipped, since a
         # future real per-segment extractor could produce a genuine mix.
         nearest_type, nearest_dist = min(
@@ -8018,7 +8252,7 @@ def compute_d1_2_selling_timing(symbol, name=None, force=False):
         from tools.insider_activity_scoring import score_selling_timing, _sell_rows
         rows = fetch_insider_trades(sym, quarters=8)
         sells = _sell_rows(rows)
-        announcements = fetch_announcements(sym) if sells else []
+        announcements = (fetch_announcements(sym) or []) if sells else []
         result = score_selling_timing(sells, announcements)
     except Exception as e:
         print(f"[qualitative_engine] D.1.2 fetch failed for {sym}: {e}")
@@ -8627,14 +8861,56 @@ def compute_d3_2_dilution(symbol, name=None, force=False):
         "note": None if result["dilution_pct"] is not None else "No QIP/preferential/private-placement announcement explicitly stating a dilution % was located for the last 10 years this run.",
     }]
 
+    # AR-only fallback: a preferential WARRANT issue converted into equity
+    # during the year is a real, common financing structure the NSE-only
+    # live pathway above misses entirely for a BSE-only filer, but the
+    # uploaded Annual Report's own Board's Report routinely states it
+    # directly (confirmed real on Prime Fresh Limited).
     if result["dilution_pct"] is None:
+        try:
+            from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+            from tools.dilution_scoring import score_dilution_from_ar_warrant_conversion
+            from tools.nse_xbrl import fetch_shares_outstanding
+            evidence = _fetch_ar_evidence_excerpts(
+                sym, name, ["warrants convertible", "warrants were converted", "preferential basis"],
+                "ar_d3_2_warrant_v1", max_per_page=4, max_excerpts=10, fetch_label="d-3-2-warrant",
+            )
+            ar_text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+            shares_info = fetch_shares_outstanding(sym, name)
+            total_shares = shares_info.get("value") if shares_info and shares_info.get("applicable") else None
+            ar_result = score_dilution_from_ar_warrant_conversion(ar_text, total_shares)
+            if ar_result["dilution_pct"] is not None:
+                result = ar_result
+                pathway_results.insert(0, {
+                    "pathway_id": "AR-08-WARRANT",
+                    "source": "Annual Report Board's Report - preferential warrant-to-equity conversion during the year",
+                    "result": "CHECKED",
+                    "note": f"{ar_result['shares_issued']} shares issued via warrant conversion this year, vs {total_shares} total shares outstanding.",
+                })
+        except Exception as e:
+            print(f"[qualitative_engine] D.3.2 AR-warrant fallback failed for {sym}: {e}")
+
+    if result["dilution_pct"] is None:
+        # `_find_latest_dilutive_announcement` only scans NSE's live
+        # Corporate Announcements feed - a BSE-only filer (no NSE listing
+        # at all, confirmed real on Prime Fresh Limited) genuinely has
+        # nothing there to find, regardless of whether a real dilutive
+        # event happened. An uploaded Corporate Actions History document
+        # would carry the same information; absent both, this is a real
+        # missing-document case, not a search failure.
+        _dm_d32 = _manual_doc_uploaded(sym, "corporate_actions") is False
+        _tag_d32 = "DATA_MISSING" if _dm_d32 else "SEARCH_INCONCLUSIVE"
+        _doc_label_d32 = "Corporate Actions History (BSE/NSE)"
         payload = {
             "subpoint_id": subpoint_id, "title": "Dilution to existing shareholders", "available": True, **result,
-            "rationale": "No QIP/preferential/private-placement announcement explicitly stating a dilution % was located for the last 10 years this run.",
+            "required_document": _doc_label_d32 if _dm_d32 else None,
+            "rationale": (f"This item requires {_doc_label_d32}, which is not part of the uploaded Annual Report. Upload: {_doc_label_d32}."
+                          if _dm_d32 else
+                          "No QIP/preferential/private-placement announcement explicitly stating a dilution % was located for the last 10 years this run."),
             "pathway_results": pathway_results,
         }
-        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
-        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        write_qualitative(sym, subpoint_id, payload, _tag_d32)
+        payload["confidence_tag"] = _tag_d32
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
@@ -8744,7 +9020,7 @@ def compute_d3_secondary_transactions(symbol, name=None, force=False):
 
     payload = {
         "subpoint_id": "D.3",
-        "title": "Secondary transactions: placements, preferential allotments — dilution concerns",
+        "title": "Secondary transactions: placements, preferential allotments - dilution concerns",
         "available": True,
         "d3_1": d3_1, "d3_2": d3_2, "d3_3": d3_3,
         "rationale": " ".join(parts),
@@ -10139,6 +10415,18 @@ def compute_e4_1_receivables_growth(symbol, name=None, force=False):
 _RECEIVABLES_AGEING_ANCHORS = [
     "trade receivables ageing", "ageing schedule", "not due", "undisputed trade receivables",
     "ageing for trade receivables",
+    # Ind AS 107's own mandated caption is commonly printed as "Ageing of
+    # Trade Receivable(s)" (the concept word-order reversed from
+    # "Trade Receivables Ageing") - confirmed real gap on Prime Fresh
+    # Limited: the CURRENT year's ageing table (captioned "(II) Ageing of
+    # Trade Receivable :") sits on a page with no other anchor match at
+    # all (that specific year's table has no "Not Due" bucket, unlike the
+    # prior-year comparative on an adjacent page, which happened to match
+    # via "not due" alone) - only the PRIOR year's table was ever
+    # captured, silently missing the current-year figure the KPI actually
+    # needs. This caption wording is Ind AS 107's own standard phrasing,
+    # not company-specific.
+    "ageing of trade receivable",
 ]
 _REVENUE_RECOGNITION_ANCHORS = [
     "revenue recognition", "contract asset", "unbilled revenue", "variable consideration", "performance obligation",
@@ -10791,6 +11079,14 @@ _ACCOUNTING_POLICY_ANCHORS = [
     "new standards, interpretations and amendments", "new and amended standards",
     "amendments adopted", "notified amendments", "standards issued but not yet effective",
     "amendments to ind as", "mca notified", "ministry of corporate affairs (“mca”) notifies",
+    # The Companies Act 2013 Sec. 134(5) Directors' Responsibility
+    # Statement mandates this EXACT boilerplate line every year, always
+    # phrased as plural "changeS in accounting policies" ("There have
+    # been no significant changes in accounting policies during the
+    # year...") - the singular-"change" anchor above never matches it.
+    # Confirmed missing on Prime Fresh Limited, whose real (negative)
+    # disclosure was never even fetched.
+    "changes in accounting policies", "changes in accounting policy",
 ]
 _EXCEPTIONAL_ITEMS_ANCHORS = ["exceptional item", "other income"]
 
@@ -11149,6 +11445,7 @@ def _fetch_competitive_landscape_text(sym, name):
     evidence = _fetch_ar_evidence_excerpts(
         sym, name, _COMPETITIVE_LANDSCAPE_ANCHORS, "ar_complandscape_text_v1",
         max_per_page=5, max_excerpts=25, fetch_label="competitive-landscape",
+        extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
     )
     text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
     pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
@@ -11425,6 +11722,7 @@ def compute_f2_1_entry_barriers(symbol, name=None, force=False):
         evidence = _fetch_ar_evidence_excerpts(
             sym, name, _ENTRY_BARRIER_ANCHORS, "ar_entrybarrier_text_v1",
             max_per_page=5, max_excerpts=25, fetch_label="entry-barriers",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
         )
         text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
         pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
@@ -11617,6 +11915,7 @@ def _fetch_foreign_competition_text(sym, name):
     evidence = _fetch_ar_evidence_excerpts(
         sym, name, _FOREIGN_COMPETITION_ANCHORS, "ar_foreigncomp_text_v2",
         max_per_page=5, max_excerpts=25, fetch_label="foreign-competition",
+        extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
     )
     text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
     pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
@@ -11799,6 +12098,7 @@ def _fetch_regulatory_trade_barrier_text(sym, name):
     evidence = _fetch_ar_evidence_excerpts(
         sym, name, _REGULATORY_TRADE_BARRIER_ANCHORS, "ar_regtrade_text_v2",
         max_per_page=5, max_excerpts=25, fetch_label="regulatory-trade-barriers",
+        extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
     )
     text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
     pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
@@ -12040,6 +12340,7 @@ def compute_g1_1_channel_mix(symbol, name=None, force=False):
         evidence = _fetch_ar_evidence_excerpts(
             sym, name, _CHANNEL_MIX_ANCHORS, "ar_channelmix_text_v1",
             max_per_page=4, max_excerpts=20, fetch_label="channel-mix",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
         )
         text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
         pdf_url = evidence.get("pdf_url") if isinstance(evidence, dict) else None
@@ -12105,6 +12406,7 @@ def compute_g1_2_channel_control(symbol, name=None, force=False):
         evidence = _fetch_ar_evidence_excerpts(
             sym, name, _CHANNEL_CONTROL_ANCHORS, "ar_channelcontrol_text_v1",
             max_per_page=4, max_excerpts=20, fetch_label="channel-control",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
         )
         text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
         result = score_channel_control(text)
@@ -12120,13 +12422,16 @@ def compute_g1_2_channel_control(symbol, name=None, force=False):
     }]
 
     if result["channel_control_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
         payload = {
             "subpoint_id": subpoint_id, "title": "Channel control", "available": True, **result,
-            "rationale": "No owned-vs-third-party channel dependence language was located this run.",
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No owned-vs-third-party channel dependence language was located this run."),
             "pathway_results": pathway_results,
         }
-        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
-        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
         payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         return payload
 
@@ -12177,8 +12482,447 @@ def compute_g1_channel_mix_and_control(symbol, name=None, force=False):
     return payload
 
 
+def compute_g2_1_group_channel_overlap(symbol, name=None, force=False):
+    """G.2.1 - Group-channel overlap. Spec formula: Channel Conflict
+    Score (1-5) based on disclosed overlap and governance controls.
+    Deterministic (no LLM) - see tools.channel_distribution_scoring.
+    score_channel_conflict. Sourcing: NSE Corporate Filings - Annual
+    Reports - Related Party Disclosures - group entities; MD&A -
+    distribution network.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "G.2.1"
 
-def compute_f6_1_switching_costs(symbol, name=None, a2e_result=None):
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.channel_distribution_scoring import score_channel_conflict
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _CHANNEL_CONFLICT_ANCHORS, "ar_channelconflict_text_v2",
+            max_per_page=4, max_excerpts=20, fetch_label="channel-conflict",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_channel_conflict(text)
+    except Exception as e:
+        print(f"[qualitative_engine] G.2.1 fetch failed for {sym}: {e}")
+        result = {"group_overlap_found": None, "governance_controls_found": None, "channel_conflict_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Related Party Disclosures - group entities; MD&A - distribution network",
+        "result": "CHECKED" if result["channel_conflict_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["channel_conflict_score"] is not None else "No group/related-party channel-entity overlap was located this run.",
+    }]
+
+    if result["channel_conflict_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Group-channel overlap", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No group/related-party channel-entity overlap was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Group-channel overlap", "available": True, **result,
+        "rationale": f"Group-channel overlap disclosed; governance controls {'documented' if result['governance_controls_found'] else 'not documented'} -> score {result['channel_conflict_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_g2_channel_conflicts(symbol, name=None, force=False):
+    """G.2 - Channel conflicts: overlap between company distributors and
+    other group companies. Rolls up G.2.1 only - G.2.2 is blank/
+    undefined in the framework workbook, so no sub-point is fabricated
+    for it (same precedent as E.1.2).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    g2_1 = compute_g2_1_group_channel_overlap(sym, name, force=force)
+
+    if g2_1.get("channel_conflict_score") is not None:
+        rationale = f"Group-channel overlap: score {g2_1['channel_conflict_score']}/5."
+    else:
+        rationale = "No group-channel overlap evidence was located for this company this run."
+
+    payload = {
+        "subpoint_id": "G.2",
+        "title": "Channel conflicts: overlap between company distributors and other group companies",
+        "available": True,
+        "g2_1": g2_1,
+        "rationale": rationale,
+        "pathway_results": (g2_1.get("pathway_results") or [])[:1],
+        "confidence_tag": g2_1.get("confidence_tag", "SEARCH_INCONCLUSIVE"),
+        "retrieved_at": g2_1.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_g3_1_contract_quality(symbol, name=None, force=False):
+    """G.3.1 - Contract duration / renewal. Spec formula: Contract
+    Quality Score (1-5). Deterministic (no LLM) - see
+    tools.channel_distribution_scoring.score_contract_quality.
+    Sourcing: NSE Corporate Filings - Annual Reports - MD&A - customer
+    contracts / order book / renewal commentary.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "G.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.channel_distribution_scoring import score_contract_quality
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _CONTRACT_QUALITY_ANCHORS, "ar_contractquality_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="contract-quality",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_contract_quality(text)
+    except Exception as e:
+        print(f"[qualitative_engine] G.3.1 fetch failed for {sym}: {e}")
+        result = {"specific_term_disclosed": None, "renewal_language_found": None, "contract_quality_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - customer contracts / order book / renewal commentary",
+        "result": "CHECKED" if result["contract_quality_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["contract_quality_score"] is not None else "No customer contract-term or renewal disclosure was located this run.",
+    }]
+
+    if result["contract_quality_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Contract duration / renewal", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No customer contract-term or renewal disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Contract duration / renewal", "available": True, **result,
+        "rationale": f"Specific term disclosed: {result['specific_term_disclosed']}; renewal language: {result['renewal_language_found']} -> score {result['contract_quality_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_g3_2_customer_retention(symbol, name=None, force=False):
+    """G.3.2 - Customer churn / retention. Spec formula: Retention
+    Score (1-5); mark NOT_DISCLOSED if no metric exists. Deterministic
+    (no LLM) - see tools.channel_distribution_scoring.
+    score_customer_retention. Sourcing: NSE Corporate Filings - Annual
+    Reports - MD&A / ESG / Business Review - churn, retention or
+    repeat-customer disclosures.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "G.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.channel_distribution_scoring import score_customer_retention
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _CUSTOMER_RETENTION_ANCHORS, "ar_custretention_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="customer-retention",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_customer_retention(text)
+    except Exception as e:
+        print(f"[qualitative_engine] G.3.2 fetch failed for {sym}: {e}")
+        result = {"retention_pct": None, "retention_score": None, "status": "NOT_DISCLOSED"}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A / ESG / Business Review - churn, retention or repeat-customer disclosures",
+        "result": "CHECKED" if result["status"] == "FOUND" else "NOT_DISCLOSED",
+        "note": None if result["status"] == "FOUND" else "No customer retention/churn metric or language was located this run.",
+    }]
+
+    if result["status"] != "FOUND":
+        _dm_g32 = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag_g32 = "DATA_MISSING" if _dm_g32 else "SEARCH_INCONCLUSIVE"
+        _doc_label_g32 = "Investor Presentation or Earnings Call Transcript"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Customer churn / retention", "available": True,
+            "retention_pct": None, "retention_score": None, "status": "NOT_DISCLOSED",
+            "required_document": _doc_label_g32 if _dm_g32 else None,
+            "rationale": (f"This item requires {_doc_label_g32}, which is not part of the uploaded Annual Report. Upload: {_doc_label_g32}."
+                          if _dm_g32 else "No customer retention/churn metric or language was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag_g32)
+        payload["confidence_tag"] = _tag_g32
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Customer churn / retention", "available": True, **result,
+        "rationale": (f"Retention rate {result['retention_pct']}% disclosed" if result["retention_pct"] is not None
+                      else "Qualitative retention/churn language disclosed, no numeric metric")
+                     + f" -> score {result['retention_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_g3_customer_relationship_quality(symbol, name=None, force=False):
+    """G.3 - Quality of customer relationships: contracts, long-term
+    agreements, churn metrics. Combines G.3.1-G.3.2 into a single
+    grounded payload, sourced from the same real Annual Report MD&A
+    text - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    g3_1 = compute_g3_1_contract_quality(sym, name, force=force)
+    g3_2 = compute_g3_2_customer_retention(sym, name, force=force)
+
+    parts = []
+    if g3_1.get("contract_quality_score") is not None:
+        parts.append(f"Contract quality: score {g3_1['contract_quality_score']}/5.")
+    if g3_2.get("status") == "FOUND":
+        parts.append(f"Customer retention: score {g3_2['retention_score']}/5.")
+    if not parts:
+        parts.append("No customer contract-quality or retention evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (g3_1, g3_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (g3_1, g3_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "G.3",
+        "title": "Quality of customer relationships: contracts, long-term agreements, churn metrics",
+        "available": True,
+        "g3_1": g3_1, "g3_2": g3_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (g3_1.get("pathway_results") or [])[:1] + (g3_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_g4_1_distribution_reach(symbol, name=None, force=False):
+    """G.4.1 - Distribution reach. Spec formula: Reach Score (1-5)
+    using disclosed network scale and coverage. Deterministic (no LLM)
+    - see tools.channel_distribution_scoring.score_distribution_reach.
+    Sourcing: NSE Corporate Filings - Annual Reports - MD&A -
+    Distribution Network - stores, dealers, distributors, service
+    points or geographic reach.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "G.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.channel_distribution_scoring import score_distribution_reach
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _DISTRIBUTION_REACH_ANCHORS, "ar_distreach_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="distribution-reach",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_distribution_reach(text)
+    except Exception as e:
+        print(f"[qualitative_engine] G.4.1 fetch failed for {sym}: {e}")
+        result = {"reach_count": None, "reach_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Distribution Network - stores, dealers, distributors, service points or geographic reach",
+        "result": "CHECKED" if result["reach_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["reach_score"] is not None else "No distribution-network scale/coverage disclosure was located this run.",
+    }]
+
+    if result["reach_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Distribution reach", "available": True, **result,
+            "rationale": "No distribution-network scale/coverage disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Distribution reach", "available": True, **result,
+        "rationale": (f"{result['reach_count']} disclosed network points" if result["reach_count"] is not None
+                      else "Qualitative pan-India/nationwide reach language disclosed, no numeric count")
+                     + f" -> score {result['reach_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_g4_2_peer_distribution_advantage(symbol, name=None, force=False):
+    """G.4.2 - Peer distribution advantage. Spec formula: Relative
+    Distribution Score (1-5). Deterministic (no LLM) - see
+    tools.channel_distribution_scoring.score_peer_distribution_advantage:
+    requires EXPLICIT comparison language to peers/competitors, not just
+    the company's own reach numbers. Sourcing: NSE Corporate Filings -
+    Annual Reports - MD&A - Industry / Competition - compare disclosed
+    network reach with peers.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "G.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.channel_distribution_scoring import score_peer_distribution_advantage
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _PEER_DISTRIBUTION_ANCHORS, "ar_peerdist_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="peer-distribution",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_peer_distribution_advantage(text)
+    except Exception as e:
+        print(f"[qualitative_engine] G.4.2 fetch failed for {sym}: {e}")
+        result = {"peer_comparison_found": None, "peer_distribution_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Industry / Competition - compare disclosed network reach with peers",
+        "result": "CHECKED" if result["peer_distribution_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["peer_distribution_score"] is not None else "No explicit peer-relative distribution comparison was located this run.",
+    }]
+
+    if result["peer_distribution_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Peer distribution advantage", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No explicit peer-relative distribution comparison was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Peer distribution advantage", "available": True, **result,
+        "rationale": f"Explicit peer-relative distribution comparison disclosed -> score {result['peer_distribution_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_g4_distribution_reach_vs_peers(symbol, name=None, force=False):
+    """G.4 - Distribution reach vs peers - advantaged or constrained.
+    Combines G.4.1-G.4.2 into a single grounded payload, sourced from
+    the same real Annual Report MD&A text - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    g4_1 = compute_g4_1_distribution_reach(sym, name, force=force)
+    g4_2 = compute_g4_2_peer_distribution_advantage(sym, name, force=force)
+
+    parts = []
+    if g4_1.get("reach_score") is not None:
+        parts.append(f"Distribution reach: score {g4_1['reach_score']}/5.")
+    if g4_2.get("peer_distribution_score") is not None:
+        parts.append(f"Peer distribution advantage: score {g4_2['peer_distribution_score']}/5.")
+    if not parts:
+        parts.append("No distribution-reach or peer-comparison evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (g4_1, g4_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (g4_1, g4_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "G.4",
+        "title": "Distribution reach vs peers - advantaged or constrained",
+        "available": True,
+        "g4_1": g4_1, "g4_2": g4_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (g4_1.get("pathway_results") or [])[:1] + (g4_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_f6_1_switching_costs(symbol, name=None, a2e_result=None, force=False):
     """F.6.1 - Switching costs. Spec: Switching Cost Score (1-5).
     Deterministic (no LLM) - this is NOT a new fetch/score. A.2.E
     (compute_a2e_switching_costs_moat) already computes exactly this
@@ -12187,25 +12931,40 @@ def compute_f6_1_switching_costs(symbol, name=None, a2e_result=None):
     ICRA rationale and Annual Report MD&A) for the moat-factor topic -
     F.6.1 just re-surfaces that same real result under its own
     subpoint_id/title rather than re-fetching and re-scoring the same
-    evidence a second time. `a2e_result` must be the already-computed
-    A.2.E payload (agent/stock_agent.py's `_a2e`).
+    evidence a second time.
+
+    `a2e_result` is optional - when the caller (e.g. agent/stock_agent.py's
+    combined run) already has A.2.E's payload in hand it can be passed
+    straight through; otherwise this computes it itself, so this
+    sub-point works standalone too (confirmed real gap: the manual
+    document-analysis pipeline's generic per-task runner calls every
+    compute_fn independently with no shared A.2.E result to pass in - a
+    None default here silently produced an always-empty score forever).
+    Persists via write_qualitative like every other compute_fn, which the
+    old version never did - the generic runner's own
+    read_qualitative-after-write check could never find a row and always
+    reported this sub-point as unpersisted.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
+    if a2e_result is None:
+        a2e_result = compute_a2e_switching_costs_moat(sym, name, force=force)
     a2e = a2e_result or {}
     score = a2e.get("score")
+    confidence_tag = a2e.get("confidence_tag") or "SEARCH_INCONCLUSIVE"
     payload = {
         "subpoint_id": "F.6.1", "title": "Switching costs", "available": True,
         "switching_cost_score": score,
         "rationale": a2e.get("rationale") or "No contract lock-in term, renewal rate, or switching-barrier evidence was located for this company this run.",
         "evidence_quote": a2e.get("evidence_quote"),
         "pathway_results": a2e.get("pathway_results") or [],
-        "confidence_tag": a2e.get("confidence_tag") or "SEARCH_INCONCLUSIVE",
-        "retrieved_at": a2e.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
+    write_qualitative(sym, "F.6.1", payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = a2e.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
 
 
-def compute_f6_2_network_effects(symbol, name=None, a2d_result=None):
+def compute_f6_2_network_effects(symbol, name=None, a2d_result=None, force=False):
     """F.6.2 - Network effects. Spec: Network Effect Score (1-5).
     Deterministic (no LLM) - this is NOT a new fetch/score. A.2.D
     (compute_a2d_network_effects_moat) already computes exactly this
@@ -12214,12 +12973,19 @@ def compute_f6_2_network_effects(symbol, name=None, a2d_result=None):
     buyer-base metric, sourced from Annual Report MD&A) for the
     moat-factor topic - F.6.2 just re-surfaces that same real result.
     N/A here means the business has no platform/marketplace element at
-    all, not a failed search. `a2d_result` must be the already-computed
-    A.2.D payload (agent/stock_agent.py's `_a2d`).
+    all, not a failed search.
+
+    `a2d_result` is optional, computed internally when not supplied (see
+    F.6.1's identical fix above for why - the manual pipeline's generic
+    runner never had a shared A.2.D result to pass in). Persists via
+    write_qualitative, which the old version never did.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")
+    if a2d_result is None:
+        a2d_result = compute_a2d_network_effects_moat(sym, name, force=force)
     a2d = a2d_result or {}
     score = a2d.get("score")
+    confidence_tag = a2d.get("confidence_tag") or "SEARCH_INCONCLUSIVE"
     payload = {
         "subpoint_id": "F.6.2", "title": "Network effects", "available": True,
         "network_effect_score": score,
@@ -12227,9 +12993,10 @@ def compute_f6_2_network_effects(symbol, name=None, a2d_result=None):
         "rationale": a2d.get("rationale") or "No platform/network-effects growth-linkage evidence was located for this company this run.",
         "evidence_quote": a2d.get("evidence_quote"),
         "pathway_results": a2d.get("pathway_results") or [],
-        "confidence_tag": a2d.get("confidence_tag") or "SEARCH_INCONCLUSIVE",
-        "retrieved_at": a2d.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
+    write_qualitative(sym, "F.6.2", payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = a2d.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S")
     return payload
 
 
@@ -12269,3 +13036,8874 @@ def compute_f6_customer_lockin(symbol, name=None, a2e_result=None, a2d_result=No
         "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     return payload
+
+
+# =============================================================================
+# Section H - Product, IP & technology
+# =============================================================================
+# All H sub-points are AR-based (MD&A / Intangible Assets / Corporate
+# Governance / Risk Management / BRSR) - same evidence path as E-series/
+# F.2.1/G-section, so this reuses _fetch_ar_evidence_excerpts (already
+# routed through tools/ar_document_cache.py). H1.1 and H2.2 are blank/
+# undefined in the framework - no compute_ function exists for either,
+# matching E.1.2/G.2.2's precedent (never fabricated).
+
+_IP_EXPIRY_ANCHORS = [
+    "patent", "trademark", "intellectual property", "expiry", "renewal of patent",
+    "renewal of trademark", "copyright",
+]
+_RD_PIPELINE_ANCHORS = [
+    "research and development", "r&d", "pipeline", "under development",
+    "new product launch", "innovation centre", "innovation center",
+]
+_LEGACY_TECH_ANCHORS = [
+    "legacy system", "legacy infrastructure", "legacy technology", "digital transformation",
+    "it modernization", "it modernisation", "cloud migration", "technology upgrade", "system upgrade",
+]
+_CYBERSECURITY_ANCHORS = [
+    "cybersecurity", "cyber security", "information security", "data privacy", "data breach",
+    "iso 27001", "soc 2", "penetration testing", "security audit", "incident response",
+]
+_THIRDPARTY_TECH_ANCHORS = [
+    "cloud service provider", "saas", "licensed technology", "third-party software",
+    "third-party technology", "technology vendor", "platform dependency",
+]
+_LICENSE_CONTINUITY_ANCHORS = [
+    "license agreement", "licence agreement", "license renewal", "licence renewal",
+    "termination clause", "material license", "material licence",
+]
+
+
+def compute_h1_2_ip_expiry(symbol, name=None, force=False):
+    """H.1.2 - Patent / trademark expiry. Spec formula: Expiry Risk
+    Score (1-5) based on concentration of material rights approaching
+    expiry. Deterministic (no LLM) - see tools.product_tech_scoring.
+    score_ip_expiry. Sourcing: NSE Corporate Filings - Annual Reports -
+    Intangible Assets / Intellectual Property - expiry/renewal
+    disclosures where available.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "H.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.product_tech_scoring import score_ip_expiry
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _IP_EXPIRY_ANCHORS, "ar_ipexpiry_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="ip-expiry",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_ip_expiry(text)
+    except Exception as e:
+        print(f"[qualitative_engine] H.1.2 fetch failed for {sym}: {e}")
+        result = {"expiry_disclosed": None, "ip_expiry_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-07",
+        "source": "NSE Corporate Filings - Annual Reports - Intangible Assets / Intellectual Property - expiry/renewal disclosures",
+        "result": "CHECKED" if result["ip_expiry_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["ip_expiry_score"] is not None else "No patent/trademark/IP disclosure was located this run.",
+    }]
+
+    if result["ip_expiry_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Patent / trademark expiry", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No patent/trademark/IP disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Patent / trademark expiry", "available": True, **result,
+        "rationale": f"IP expiry/renewal disclosure {'found' if result['expiry_disclosed'] else 'not found (IP presence only)'} -> score {result['ip_expiry_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_h1_ip_ownership_and_expiry(symbol, name=None, force=False):
+    """H.1 - Ownership of IP / patents / trademarks; expiry profile.
+    Rolls up H.1.2 only - H.1.1 is blank/undefined in the framework
+    workbook, so no sub-point is fabricated for it (same precedent as
+    E.1.2/G.2.2).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    h1_2 = compute_h1_2_ip_expiry(sym, name, force=force)
+
+    if h1_2.get("ip_expiry_score") is not None:
+        rationale = f"Patent / trademark expiry: score {h1_2['ip_expiry_score']}/5."
+    else:
+        rationale = "No IP ownership or expiry evidence was located for this company this run."
+
+    payload = {
+        "subpoint_id": "H.1",
+        "title": "Ownership of IP / patents / trademarks; expiry profile",
+        "available": True,
+        "h1_2": h1_2,
+        "rationale": rationale,
+        "pathway_results": (h1_2.get("pathway_results") or [])[:1],
+        "confidence_tag": h1_2.get("confidence_tag", "SEARCH_INCONCLUSIVE"),
+        "retrieved_at": h1_2.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_h2_1_rd_pipeline_depth(symbol, name=None, force=False):
+    """H.2.1 - R&D pipeline depth. Spec formula: Pipeline Strength
+    Score (1-5). Deterministic (no LLM) - see tools.product_tech_scoring.
+    score_rd_pipeline. Sourcing: NSE Corporate Filings - Annual Reports
+    - MD&A - R&D / Innovation - projects, products in development and
+    launch pipeline.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "H.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.product_tech_scoring import score_rd_pipeline
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _RD_PIPELINE_ANCHORS, "ar_rdpipeline_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="rd-pipeline",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_rd_pipeline(text)
+    except Exception as e:
+        print(f"[qualitative_engine] H.2.1 fetch failed for {sym}: {e}")
+        result = {"pipeline_evidence": None, "rd_pipeline_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - R&D / Innovation - projects, products in development and launch pipeline",
+        "result": "CHECKED" if result["rd_pipeline_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["rd_pipeline_score"] is not None else "No R&D pipeline or innovation disclosure was located this run.",
+    }]
+
+    if result["rd_pipeline_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "R&D pipeline depth", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No R&D pipeline or innovation disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "R&D pipeline depth", "available": True, **result,
+        "rationale": f"R&D pipeline evidence: {result['pipeline_evidence']} -> score {result['rd_pipeline_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_h2_rd_pipeline_quality(symbol, name=None, force=False):
+    """H.2 - R&D pipeline quality and time to market for new products.
+    Rolls up H.2.1 only - H.2.2 is blank/undefined in the framework
+    workbook, so no sub-point is fabricated for it.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    h2_1 = compute_h2_1_rd_pipeline_depth(sym, name, force=force)
+
+    if h2_1.get("rd_pipeline_score") is not None:
+        rationale = f"R&D pipeline depth: score {h2_1['rd_pipeline_score']}/5."
+    else:
+        rationale = "No R&D pipeline evidence was located for this company this run."
+
+    payload = {
+        "subpoint_id": "H.2",
+        "title": "R&D pipeline quality and time to market for new products",
+        "available": True,
+        "h2_1": h2_1,
+        "rationale": rationale,
+        "pathway_results": (h2_1.get("pathway_results") or [])[:1],
+        "confidence_tag": h2_1.get("confidence_tag", "SEARCH_INCONCLUSIVE"),
+        "retrieved_at": h2_1.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_h3_1_legacy_dependence(symbol, name=None, force=False):
+    """H.3.1 - Legacy technology dependence. Spec formula: Legacy
+    Dependence Score (1-5), with HIGHER score meaning LOWER legacy
+    risk. Deterministic (no LLM) - see tools.product_tech_scoring.
+    score_legacy_dependence (implements the framework's inverted scale
+    directly - disclosed modernization scores highest, disclosed legacy
+    dependency scores lowest). Sourcing: NSE Corporate Filings - Annual
+    Reports - MD&A - IT / Digital Transformation / Technology Risk -
+    legacy-system dependencies.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "H.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.product_tech_scoring import score_legacy_dependence
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _LEGACY_TECH_ANCHORS, "ar_legacytech_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="legacy-tech",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_legacy_dependence(text)
+    except Exception as e:
+        print(f"[qualitative_engine] H.3.1 fetch failed for {sym}: {e}")
+        result = {"legacy_risk_disclosed": None, "modernization_disclosed": None, "legacy_dependence_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - IT / Digital Transformation / Technology Risk - legacy-system dependencies",
+        "result": "CHECKED" if result["legacy_dependence_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["legacy_dependence_score"] is not None else "No legacy-system or modernization disclosure was located this run.",
+    }]
+
+    if result["legacy_dependence_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Legacy technology dependence", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No legacy-system or modernization disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Legacy technology dependence", "available": True, **result,
+        "rationale": f"Legacy risk disclosed: {result['legacy_risk_disclosed']}; modernization disclosed: {result['modernization_disclosed']} -> score {result['legacy_dependence_score']}/5 (higher = lower legacy risk).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_h3_2_cybersecurity_posture(symbol, name=None, force=False):
+    """H.3.2 - Cybersecurity posture. Spec formula: Cybersecurity
+    Maturity Score (1-5) based on disclosed governance and controls.
+    Deterministic (no LLM) - see tools.product_tech_scoring.
+    score_cybersecurity_posture. Sourcing: NSE Corporate Filings -
+    Annual Reports - Corporate Governance / Risk Management / Business
+    Responsibility & Sustainability Report - cybersecurity, incidents,
+    controls and training.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "H.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.product_tech_scoring import score_cybersecurity_posture
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _CYBERSECURITY_ANCHORS, "ar_cybersec_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="cybersecurity",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_cybersecurity_posture(text)
+    except Exception as e:
+        print(f"[qualitative_engine] H.3.2 fetch failed for {sym}: {e}")
+        result = {"governance_specifics_found": None, "cybersecurity_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-08",
+        "source": "NSE Corporate Filings - Annual Reports - Corporate Governance / Risk Management / BRSR - cybersecurity, incidents, controls and training",
+        "result": "CHECKED" if result["cybersecurity_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["cybersecurity_score"] is not None else "No cybersecurity disclosure was located this run.",
+    }]
+
+    if result["cybersecurity_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Cybersecurity posture", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No cybersecurity disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Cybersecurity posture", "available": True, **result,
+        "rationale": f"Governance specifics {'found' if result['governance_specifics_found'] else 'not found (generic mention only)'} -> score {result['cybersecurity_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_h3_technology_dependence(symbol, name=None, force=False):
+    """H.3 - Technology dependence: legacy systems vs modern stack;
+    cybersecurity posture. Combines H.3.1-H.3.2 into a single grounded
+    payload, sourced from the same real Annual Report text - no LLM
+    call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    h3_1 = compute_h3_1_legacy_dependence(sym, name, force=force)
+    h3_2 = compute_h3_2_cybersecurity_posture(sym, name, force=force)
+
+    parts = []
+    if h3_1.get("legacy_dependence_score") is not None:
+        parts.append(f"Legacy technology dependence: score {h3_1['legacy_dependence_score']}/5.")
+    if h3_2.get("cybersecurity_score") is not None:
+        parts.append(f"Cybersecurity posture: score {h3_2['cybersecurity_score']}/5.")
+    if not parts:
+        parts.append("No legacy-technology or cybersecurity evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (h3_1, h3_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (h3_1, h3_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "H.3",
+        "title": "Technology dependence: legacy systems vs modern stack; cybersecurity posture",
+        "available": True,
+        "h3_1": h3_1, "h3_2": h3_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (h3_1.get("pathway_results") or [])[:1] + (h3_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_h4_1_thirdparty_tech_dependence(symbol, name=None, force=False):
+    """H.4.1 - Third-party technology dependence. Spec formula: Third-
+    party Dependency Score (1-5). Deterministic (no LLM) - see
+    tools.product_tech_scoring.score_thirdparty_tech_dependence.
+    Sourcing: NSE Corporate Filings - Annual Reports - Notes /
+    Intangibles / Technology Risk - material licences, cloud/platform
+    dependencies and key vendors.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "H.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.product_tech_scoring import score_thirdparty_tech_dependence
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _THIRDPARTY_TECH_ANCHORS, "ar_thirdpartytech_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="thirdparty-tech",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_thirdparty_tech_dependence(text)
+    except Exception as e:
+        print(f"[qualitative_engine] H.4.1 fetch failed for {sym}: {e}")
+        result = {"dependency_disclosed": None, "thirdparty_tech_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-07",
+        "source": "NSE Corporate Filings - Annual Reports - Notes / Intangibles / Technology Risk - material licences, cloud/platform dependencies and key vendors",
+        "result": "CHECKED" if result["thirdparty_tech_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["thirdparty_tech_score"] is not None else "No third-party technology dependency disclosure was located this run.",
+    }]
+
+    if result["thirdparty_tech_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Third-party technology dependence", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No third-party technology dependency disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Third-party technology dependence", "available": True, **result,
+        "rationale": f"Third-party technology dependency disclosed -> score {result['thirdparty_tech_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_h4_2_license_continuity_risk(symbol, name=None, force=False):
+    """H.4.2 - License continuity risk. Spec formula: License Risk
+    Score (1-5). Deterministic (no LLM) - see tools.product_tech_scoring.
+    score_license_continuity_risk. Sourcing: NSE Corporate Filings -
+    Annual Reports - Notes to Accounts / Contracts / Risk Factors -
+    renewal terms, termination and material licence dependence.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "H.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.product_tech_scoring import score_license_continuity_risk
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _LICENSE_CONTINUITY_ANCHORS, "ar_licensecontinuity_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="license-continuity",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_license_continuity_risk(text)
+    except Exception as e:
+        print(f"[qualitative_engine] H.4.2 fetch failed for {sym}: {e}")
+        result = {"specific_term_disclosed": None, "license_risk_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-07",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts / Contracts / Risk Factors - renewal terms, termination and material licence dependence",
+        "result": "CHECKED" if result["license_risk_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["license_risk_score"] is not None else "No license renewal/termination disclosure was located this run.",
+    }]
+
+    if result["license_risk_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "License continuity risk", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No license renewal/termination disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "License continuity risk", "available": True, **result,
+        "rationale": f"Specific license term disclosed: {result['specific_term_disclosed']} -> score {result['license_risk_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_h4_licensing_and_thirdparty_tech(symbol, name=None, force=False):
+    """H.4 - Licensing arrangements and dependency on third-party tech.
+    Combines H.4.1-H.4.2 into a single grounded payload, sourced from
+    the same real Annual Report text - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    h4_1 = compute_h4_1_thirdparty_tech_dependence(sym, name, force=force)
+    h4_2 = compute_h4_2_license_continuity_risk(sym, name, force=force)
+
+    parts = []
+    if h4_1.get("thirdparty_tech_score") is not None:
+        parts.append(f"Third-party technology dependence: score {h4_1['thirdparty_tech_score']}/5.")
+    if h4_2.get("license_risk_score") is not None:
+        parts.append(f"License continuity risk: score {h4_2['license_risk_score']}/5.")
+    if not parts:
+        parts.append("No third-party technology or license-continuity evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (h4_1, h4_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (h4_1, h4_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "H.4",
+        "title": "Licensing arrangements and dependency on third-party tech",
+        "available": True,
+        "h4_1": h4_1, "h4_2": h4_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (h4_1.get("pathway_results") or [])[:1] + (h4_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+# =============================================================================
+# Section I - Supply chain & operations
+# =============================================================================
+# All I sub-points are AR-based (MD&A / Notes / Risk Management). I.1.2's
+# framework primary source also lists DGFT as a secondary cross-check - not
+# invoked here, matching every other cross-check pathway already recorded
+# as NOT_CHECKED throughout A-H (e.g. A.2's CRISIL cross-check). Same
+# evidence path as E-series/F.2.1/G/H, reusing _fetch_ar_evidence_excerpts
+# (already routed through tools/ar_document_cache.py) - no new retrieval
+# infrastructure. I2.1 is blank/undefined in the framework - no compute_
+# function exists for it, matching E.1.2/G.2.2/H.1.1/H.2.2's precedent.
+
+_SINGLE_SOURCE_ANCHORS = [
+    "single-source supplier", "sole-source supplier", "sole supplier",
+    "critical supplier dependency", "dual sourcing", "alternate suppliers",
+    "diversify suppliers", "backup suppliers",
+]
+_GEO_CONCENTRATION_ANCHORS = [
+    "china", "geographic concentration", "single-country sourcing", "import dependence",
+    "diversify sourcing", "china+1", "de-risking china",
+]
+_INVENTORY_BUFFER_ANCHORS = [
+    "safety stock", "buffer stock", "strategic inventory", "inventory buffer",
+    "inventory policy", "days of inventory",
+]
+_CAPACITY_DEMAND_ANCHORS = [
+    "capacity utilization", "capacity utilisation", "order book", "capacity expansion",
+    "demand outlook", "utilization rate",
+]
+_SCALE_CONSTRAINT_ANCHORS = [
+    "capex plan", "capital expenditure plan", "expansion project", "funded through",
+    "capital constraint", "funding gap", "limited capital availability",
+]
+_PRICE_PROTECTION_ANCHORS = [
+    "price escalation clause", "pass-through", "price protection", "cost pass-through",
+    "fixed-price contract", "fixed-price terms",
+]
+_CURRENCY_CLAUSE_ANCHORS = [
+    "forward contract", "hedging policy", "natural hedge", "currency swap",
+    "foreign currency risk", "exchange rate risk",
+]
+_LEADTIME_THROUGHPUT_ANCHORS = [
+    "lead time", "throughput", "production efficiency", "turnaround time",
+]
+_QUALITY_WARRANTY_ANCHORS = [
+    "warranty provision", "warranty claims", "quality defects", "customer complaints",
+    "defect rate",
+]
+
+
+def compute_i1_1_single_source_risk(symbol, name=None, force=False):
+    """I.1.1 - Single-source suppliers. Spec formula: Single-source
+    Risk Score (1-5). Deterministic (no LLM) - see
+    tools.supply_chain_scoring.score_single_source_risk. Sourcing: NSE
+    Corporate Filings - Annual Reports - MD&A - Supply Chain / Risk
+    Factors - sole-source or critical supplier dependencies.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "I.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.supply_chain_scoring import score_single_source_risk
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _SINGLE_SOURCE_ANCHORS, "ar_singlesource_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="single-source-risk",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_single_source_risk(text)
+    except Exception as e:
+        print(f"[qualitative_engine] I.1.1 fetch failed for {sym}: {e}")
+        result = {"dependency_disclosed": None, "mitigation_disclosed": None, "single_source_risk_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-09",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Supply Chain / Risk Factors - sole-source or critical supplier dependencies",
+        "result": "CHECKED" if result["single_source_risk_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["single_source_risk_score"] is not None else "No single-source/sole-source supplier disclosure was located this run.",
+    }]
+
+    if result["single_source_risk_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Single-source suppliers", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No single-source/sole-source supplier disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Single-source suppliers", "available": True, **result,
+        "rationale": f"Dependency disclosed: {result['dependency_disclosed']}; mitigation disclosed: {result['mitigation_disclosed']} -> score {result['single_source_risk_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_i1_2_geographic_concentration(symbol, name=None, force=False):
+    """I.1.2 - Geographic concentration / China exposure. Spec formula:
+    Geographic Concentration Score (1-5). Deterministic (no LLM) - see
+    tools.supply_chain_scoring.score_geographic_concentration. Sourcing:
+    NSE Corporate Filings - Annual Reports - MD&A - Procurement /
+    Imports / Risk Factors - country concentration. (The framework also
+    lists DGFT as a secondary cross-check source; not invoked here,
+    matching every other cross-check pathway already recorded as
+    NOT_CHECKED throughout A-H.)
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "I.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.supply_chain_scoring import score_geographic_concentration
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _GEO_CONCENTRATION_ANCHORS, "ar_geoconcentration_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="geo-concentration",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_geographic_concentration(text)
+    except Exception as e:
+        print(f"[qualitative_engine] I.1.2 fetch failed for {sym}: {e}")
+        result = {"concentration_disclosed": None, "diversification_disclosed": None, "geographic_concentration_score": None}
+
+    pathway_results = [
+        {
+            "pathway_id": "AR-09",
+            "source": "NSE Corporate Filings - Annual Reports - MD&A - Procurement / Imports / Risk Factors - country concentration",
+            "result": "CHECKED" if result["geographic_concentration_score"] is not None else "NOT_DISCLOSED",
+            "note": None if result["geographic_concentration_score"] is not None else "No geographic/country sourcing concentration disclosure was located this run.",
+        },
+        {
+            "pathway_id": "PORTAL-DGFT",
+            "source": "DGFT - Regulatory Updates / Foreign Trade Policy / ITC(HS) - import policy for relevant goods",
+            "result": "NOT_CHECKED",
+            "note": "Secondary cross-check source per the framework, not invoked - same convention as every other cross-check pathway in A-H.",
+        },
+    ]
+
+    if result["geographic_concentration_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Geographic concentration / China exposure", "available": True, **result,
+            "rationale": "No geographic/country sourcing concentration disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Geographic concentration / China exposure", "available": True, **result,
+        "rationale": f"Concentration disclosed: {result['concentration_disclosed']}; diversification disclosed: {result['diversification_disclosed']} -> score {result['geographic_concentration_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_i1_3_inventory_buffers(symbol, name=None, force=False):
+    """I.1.3 - Inventory buffers. Spec formula: Inventory Buffer Score
+    (1-5). Deterministic (no LLM) - see tools.supply_chain_scoring.
+    score_inventory_buffers. Sourcing: NSE Corporate Filings - Annual
+    Reports - MD&A / Inventory Notes - inventory policy, safety stock
+    and buffer commentary.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "I.1.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.supply_chain_scoring import score_inventory_buffers
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _INVENTORY_BUFFER_ANCHORS, "ar_invbuffer_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="inventory-buffers",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_inventory_buffers(text)
+    except Exception as e:
+        print(f"[qualitative_engine] I.1.3 fetch failed for {sym}: {e}")
+        result = {"buffer_quantified": None, "inventory_buffer_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A / Inventory Notes - inventory policy, safety stock and buffer commentary",
+        "result": "CHECKED" if result["inventory_buffer_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["inventory_buffer_score"] is not None else "No inventory buffer/safety-stock disclosure was located this run.",
+    }]
+
+    if result["inventory_buffer_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Inventory buffers", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No inventory buffer/safety-stock disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Inventory buffers", "available": True, **result,
+        "rationale": (f"Quantified inventory buffer disclosed" if result["buffer_quantified"]
+                      else "Qualitative inventory-buffer policy language disclosed, no quantified figure")
+                     + f" -> score {result['inventory_buffer_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_i1_supply_chain_resilience(symbol, name=None, force=False):
+    """I.1 - Supply chain resilience: single-source suppliers,
+    geographic concentration (China risk), inventory buffers. Combines
+    I.1.1-I.1.3 into a single grounded payload, sourced from the same
+    real Annual Report text - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    i1_1 = compute_i1_1_single_source_risk(sym, name, force=force)
+    i1_2 = compute_i1_2_geographic_concentration(sym, name, force=force)
+    i1_3 = compute_i1_3_inventory_buffers(sym, name, force=force)
+
+    parts = []
+    if i1_1.get("single_source_risk_score") is not None:
+        parts.append(f"Single-source supplier risk: score {i1_1['single_source_risk_score']}/5.")
+    if i1_2.get("geographic_concentration_score") is not None:
+        parts.append(f"Geographic concentration: score {i1_2['geographic_concentration_score']}/5.")
+    if i1_3.get("inventory_buffer_score") is not None:
+        parts.append(f"Inventory buffers: score {i1_3['inventory_buffer_score']}/5.")
+    if not parts:
+        parts.append("No supply-chain-resilience evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (i1_1, i1_2, i1_3)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (i1_1, i1_2, i1_3) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "I.1",
+        "title": "Supply chain resilience: single-source suppliers, geographic concentration (China risk), inventory buffers",
+        "available": True,
+        "i1_1": i1_1, "i1_2": i1_2, "i1_3": i1_3,
+        "rationale": " ".join(parts),
+        "pathway_results": (i1_1.get("pathway_results") or [])[:1] + (i1_2.get("pathway_results") or [])[:1] + (i1_3.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_i2_2_capacity_demand_balance(symbol, name=None, force=False):
+    """I.2.2 - Capacity vs demand. Spec formula: Capacity-Demand
+    Balance Score (1-5). Deterministic (no LLM) - see
+    tools.supply_chain_scoring.score_capacity_demand_balance. Sourcing:
+    NSE Corporate Filings - Annual Reports - MD&A - Demand Outlook /
+    Order Book / Capacity Expansion.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "I.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.supply_chain_scoring import score_capacity_demand_balance
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _CAPACITY_DEMAND_ANCHORS, "ar_capacitydemand_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="capacity-demand",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_capacity_demand_balance(text)
+    except Exception as e:
+        print(f"[qualitative_engine] I.2.2 fetch failed for {sym}: {e}")
+        result = {"utilization_pct": None, "capacity_demand_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Demand Outlook / Order Book / Capacity Expansion",
+        "result": "CHECKED" if result["capacity_demand_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["capacity_demand_score"] is not None else "No capacity/demand or utilization disclosure was located this run.",
+    }]
+
+    if result["capacity_demand_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Capacity vs demand", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No capacity/demand or utilization disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Capacity vs demand", "available": True, **result,
+        "rationale": (f"Capacity utilization {result['utilization_pct']}% disclosed" if result["utilization_pct"] is not None
+                      else "Qualitative order-book/capacity-expansion language disclosed, no numeric utilization")
+                     + f" -> score {result['capacity_demand_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_i2_3_scale_constraints(symbol, name=None, force=False):
+    """I.2.3 - Capital constraints to scale. Spec formula: Scale
+    Constraint Score (1-5). Deterministic (no LLM) - see
+    tools.supply_chain_scoring.score_scale_constraints. Sourcing: NSE
+    Corporate Filings - Annual Reports - MD&A - Capex Plans / Funding /
+    Capacity Expansion. (The framework also lists NSE Financial Results
+    XBRL cash-flow/financing as a secondary cross-check; not invoked
+    here, matching every other cross-check pathway already recorded as
+    NOT_CHECKED throughout A-H.)
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "I.2.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.supply_chain_scoring import score_scale_constraints
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _SCALE_CONSTRAINT_ANCHORS, "ar_scaleconstraint_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="scale-constraints",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_scale_constraints(text)
+    except Exception as e:
+        print(f"[qualitative_engine] I.2.3 fetch failed for {sym}: {e}")
+        result = {"specific_plan_disclosed": None, "constraint_disclosed": None, "scale_constraint_score": None}
+
+    pathway_results = [
+        {
+            "pathway_id": "AR-06",
+            "source": "NSE Corporate Filings - Annual Reports - MD&A - Capex Plans / Funding / Capacity Expansion",
+            "result": "CHECKED" if result["scale_constraint_score"] is not None else "NOT_DISCLOSED",
+            "note": None if result["scale_constraint_score"] is not None else "No capex plan or capital-constraint disclosure was located this run.",
+        },
+        {
+            "pathway_id": "PORTAL-XBRL",
+            "source": "NSE Financial Results - XBRL / attachment - cash flow and financing",
+            "result": "NOT_CHECKED",
+            "note": "Secondary cross-check source per the framework, not invoked - same convention as every other cross-check pathway in A-H.",
+        },
+    ]
+
+    if result["scale_constraint_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Capital constraints to scale", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No capex plan or capital-constraint disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Capital constraints to scale", "available": True, **result,
+        "rationale": f"Specific plan disclosed: {result['specific_plan_disclosed']}; constraint disclosed: {result['constraint_disclosed']} -> score {result['scale_constraint_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_i2_capacity_vs_demand(symbol, name=None, force=False):
+    """I.2 - Manufacturing capacity vs demand: over-capacity or capital
+    constraints to scale. Rolls up I.2.2-I.2.3 only - I.2.1 is blank/
+    undefined in the framework workbook, so no sub-point is fabricated
+    for it.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    i2_2 = compute_i2_2_capacity_demand_balance(sym, name, force=force)
+    i2_3 = compute_i2_3_scale_constraints(sym, name, force=force)
+
+    parts = []
+    if i2_2.get("capacity_demand_score") is not None:
+        parts.append(f"Capacity vs demand: score {i2_2['capacity_demand_score']}/5.")
+    if i2_3.get("scale_constraint_score") is not None:
+        parts.append(f"Capital constraints to scale: score {i2_3['scale_constraint_score']}/5.")
+    if not parts:
+        parts.append("No capacity-vs-demand or scale-constraint evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (i2_2, i2_3)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (i2_2, i2_3) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "I.2",
+        "title": "Manufacturing capacity vs demand: over-capacity or capital constraints to scale",
+        "available": True,
+        "i2_2": i2_2, "i2_3": i2_3,
+        "rationale": " ".join(parts),
+        "pathway_results": (i2_2.get("pathway_results") or [])[:1] + (i2_3.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_i3_1_price_protection(symbol, name=None, force=False):
+    """I.3.1 - Price protection clauses. Spec formula: Price Protection
+    Score (1-5). Deterministic (no LLM) - see
+    tools.supply_chain_scoring.score_price_protection. Sourcing: NSE
+    Corporate Filings - Annual Reports - Notes / Risk Management /
+    Contracts - price escalation, pass-through or fixed-price terms.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "I.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.supply_chain_scoring import score_price_protection
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _PRICE_PROTECTION_ANCHORS, "ar_priceprotection_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="price-protection",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_price_protection(text)
+    except Exception as e:
+        print(f"[qualitative_engine] I.3.1 fetch failed for {sym}: {e}")
+        result = {"protection_clause_disclosed": None, "fixed_price_only_disclosed": None, "price_protection_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-10",
+        "source": "NSE Corporate Filings - Annual Reports - Notes / Risk Management / Contracts - price escalation, pass-through or fixed-price terms",
+        "result": "CHECKED" if result["price_protection_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["price_protection_score"] is not None else "No price-protection or fixed-price contract-term disclosure was located this run.",
+    }]
+
+    if result["price_protection_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Price protection clauses", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No price-protection or fixed-price contract-term disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Price protection clauses", "available": True, **result,
+        "rationale": f"Protection clause disclosed: {result['protection_clause_disclosed']} -> score {result['price_protection_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_i3_2_currency_protection(symbol, name=None, force=False):
+    """I.3.2 - Currency clauses. Spec formula: Currency Protection
+    Score (1-5). Deterministic (no LLM) - see
+    tools.supply_chain_scoring.score_currency_protection. Sourcing: NSE
+    Corporate Filings - Annual Reports - Risk Management / Foreign
+    Currency Risk - customer/supplier contracts and hedging policy.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "I.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.supply_chain_scoring import score_currency_protection
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _CURRENCY_CLAUSE_ANCHORS, "ar_currencyclause_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="currency-clauses",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_currency_protection(text)
+    except Exception as e:
+        print(f"[qualitative_engine] I.3.2 fetch failed for {sym}: {e}")
+        result = {"hedging_disclosed": None, "currency_protection_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-10",
+        "source": "NSE Corporate Filings - Annual Reports - Risk Management / Foreign Currency Risk - customer/supplier contracts and hedging policy",
+        "result": "CHECKED" if result["currency_protection_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["currency_protection_score"] is not None else "No currency-hedging or FX-risk disclosure was located this run.",
+    }]
+
+    if result["currency_protection_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Currency clauses", "available": True, **result,
+            "rationale": "No currency-hedging or FX-risk disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Currency clauses", "available": True, **result,
+        "rationale": f"Hedging disclosed: {result['hedging_disclosed']} -> score {result['currency_protection_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_i3_contractual_terms(symbol, name=None, force=False):
+    """I.3 - Contractual terms with suppliers and customers: price
+    protections, currency clauses. Combines I.3.1-I.3.2 into a single
+    grounded payload, sourced from the same real Annual Report text -
+    no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    i3_1 = compute_i3_1_price_protection(sym, name, force=force)
+    i3_2 = compute_i3_2_currency_protection(sym, name, force=force)
+
+    parts = []
+    if i3_1.get("price_protection_score") is not None:
+        parts.append(f"Price protection clauses: score {i3_1['price_protection_score']}/5.")
+    if i3_2.get("currency_protection_score") is not None:
+        parts.append(f"Currency clauses: score {i3_2['currency_protection_score']}/5.")
+    if not parts:
+        parts.append("No contractual price-protection or currency-clause evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (i3_1, i3_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (i3_1, i3_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "I.3",
+        "title": "Contractual terms with suppliers and customers: price protections, currency clauses",
+        "available": True,
+        "i3_1": i3_1, "i3_2": i3_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (i3_1.get("pathway_results") or [])[:1] + (i3_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_i4_1_operational_efficiency(symbol, name=None, force=False):
+    """I.4.1 - Lead time / throughput. Spec formula: Operational
+    Efficiency Score (1-5). Deterministic (no LLM) - see
+    tools.supply_chain_scoring.score_operational_efficiency. Sourcing:
+    NSE Corporate Filings - Annual Reports - MD&A - Operational KPIs /
+    Business Review - lead time, production or throughput metrics.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "I.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.supply_chain_scoring import score_operational_efficiency
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _LEADTIME_THROUGHPUT_ANCHORS, "ar_leadtime_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="lead-time-throughput",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_operational_efficiency(text)
+    except Exception as e:
+        print(f"[qualitative_engine] I.4.1 fetch failed for {sym}: {e}")
+        result = {"metric_quantified": None, "operational_efficiency_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Operational KPIs / Business Review - lead time, production or throughput metrics",
+        "result": "CHECKED" if result["operational_efficiency_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["operational_efficiency_score"] is not None else "No lead-time/throughput disclosure was located this run.",
+    }]
+
+    if result["operational_efficiency_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Lead time / throughput", "available": True, **result,
+            "rationale": "No lead-time/throughput disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Lead time / throughput", "available": True, **result,
+        "rationale": (f"Quantified lead-time/throughput metric disclosed" if result["metric_quantified"]
+                      else "Qualitative lead-time/throughput language disclosed, no quantified figure")
+                     + f" -> score {result['operational_efficiency_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_i4_2_quality_risk(symbol, name=None, force=False):
+    """I.4.2 - Quality defects / warranty claims. Spec formula: Quality
+    Risk Score (1-5) based on defects, complaints and warranty TREND.
+    Deterministic (no LLM) - see tools.supply_chain_scoring.
+    score_quality_risk: this single-year AR-excerpt scan scores
+    disclosure presence/specificity only and does NOT compute an actual
+    multi-year trend (documented limitation, same single-year evidence-
+    presence convention as every other AR-text KPI-card sub-point in
+    A-H). Sourcing: NSE Corporate Filings - Annual Reports - Notes /
+    Provisions / Warranty Claims - warranty provision and claims; MD&A
+    - quality metrics.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "I.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.supply_chain_scoring import score_quality_risk
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _QUALITY_WARRANTY_ANCHORS, "ar_qualitywarranty_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="quality-warranty",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_quality_risk(text)
+    except Exception as e:
+        print(f"[qualitative_engine] I.4.2 fetch failed for {sym}: {e}")
+        result = {"metric_quantified": None, "quality_risk_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-11",
+        "source": "NSE Corporate Filings - Annual Reports - Notes / Provisions / Warranty Claims; MD&A - quality metrics",
+        "result": "CHECKED" if result["quality_risk_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["quality_risk_score"] is not None else "No warranty/quality-defect disclosure was located this run.",
+    }]
+
+    if result["quality_risk_score"] is None:
+        _dm = _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+        _tag = "DATA_MISSING" if _dm else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Quality defects / warranty claims", "available": True, **result,
+            "required_document": "Investor Presentation or Earnings Call Transcript" if _dm else None,
+            "rationale": (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript." if _dm else "No warranty/quality-defect disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag)
+        payload["confidence_tag"] = _tag
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Quality defects / warranty claims", "available": True, **result,
+        "rationale": (f"Quantified warranty/defect metric disclosed" if result["metric_quantified"]
+                      else "Qualitative warranty/quality-defect language disclosed, no quantified figure")
+                     + f" -> score {result['quality_risk_score']}/5 (single-year disclosure presence, not a computed trend).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_i4_operational_kpis(symbol, name=None, force=False):
+    """I.4 - Operational KPIs: lead times, throughput, quality defects,
+    warranty claims. Combines I.4.1-I.4.2 into a single grounded
+    payload, sourced from the same real Annual Report text - no LLM
+    call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    i4_1 = compute_i4_1_operational_efficiency(sym, name, force=force)
+    i4_2 = compute_i4_2_quality_risk(sym, name, force=force)
+
+    parts = []
+    if i4_1.get("operational_efficiency_score") is not None:
+        parts.append(f"Lead time / throughput: score {i4_1['operational_efficiency_score']}/5.")
+    if i4_2.get("quality_risk_score") is not None:
+        parts.append(f"Quality defects / warranty claims: score {i4_2['quality_risk_score']}/5.")
+    if not parts:
+        parts.append("No operational-KPI evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (i4_1, i4_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (i4_1, i4_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "I.4",
+        "title": "Operational KPIs: lead times, throughput, quality defects, warranty claims",
+        "available": True,
+        "i4_1": i4_1, "i4_2": i4_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (i4_1.get("pathway_results") or [])[:1] + (i4_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+# =============================================================================
+# Section J - Regulatory, legal & compliance
+# =============================================================================
+# Most J sub-points are AR-based (Risk Factors / Notes to Accounts /
+# Contingent Liabilities), reusing _fetch_ar_evidence_excerpts (already
+# routed through tools/ar_document_cache.py). J.3.1 is the one exception -
+# its framework primary source is NSE Corporate Announcements, so it uses
+# tools.nse_announcements.fetch_announcements(), already integrated into
+# this engine for C.8.2/D.1.2/etc. - no new retrieval infrastructure.
+# J1.1 is blank/undefined; J2's own PARENT row is also blank (children
+# J2.1/J2.2 are fully defined) - matching D.1's precedent, the J.2 rollup
+# below uses a title derived from its children's own real titles, not an
+# invented spec title.
+
+_RENEWAL_BURDEN_ANCHORS = [
+    "renewed every", "renewal period", "licence valid for", "license valid for",
+    "periodic renewal", "regulatory compliance requirements", "statutory approvals",
+]
+_LITIGATION_ANCHORS = [
+    "contingent liability", "contingent liabilities", "legal proceedings",
+    "material litigation", "pending cases", "pending litigation",
+]
+_OUTCOME_ASSESSMENT_ANCHORS = [
+    "probable", "possible", "remote", "management confident", "favourable outcome",
+    "favorable outcome", "no material adverse impact",
+]
+_COMPETITION_IMPACT_ANCHORS = [
+    "competition commission", "cci", "antitrust", "penalty imposed", "remedial measures",
+    "operational restriction",
+]
+_TAX_DISPUTE_ANCHORS = [
+    "income tax demand", "gst demand", "outstanding demand", "tax appeal",
+    "income tax contingency", "gst contingency",
+    # Ind AS 37 Contingent Liabilities note's own standard row - where a
+    # real tax dispute/demand would always surface if one existed, and
+    # whose NIL value is itself the real "no disputes" answer (see
+    # tools.regulatory_legal_scoring._TAX_DISPUTE_NONE_RE).
+    "not acknowledged as debt",
+]
+_TAX_AUDIT_ANCHORS = [
+    "tax assessment", "tax audit", "assessment proceedings", "under assessment",
+]
+_SUBSIDY_ANCHORS = [
+    "government subsidy", "government subsidies", "government incentives", "government grants",
+    "export incentives", "pli scheme",
+]
+_ENV_REGULATION_ANCHORS = [
+    "environmental clearance", "forest clearance", "wildlife clearance", "crz clearance",
+    "pollution control board", "extended producer responsibility", "environmental regulations",
+    "environmental norms",
+]
+
+
+def compute_j1_2_renewal_burden(symbol, name=None, force=False):
+    """J.1.2 - Renewal burden. Spec formula: Renewal Burden Score
+    (1-5). Deterministic (no LLM) - see tools.regulatory_legal_scoring.
+    score_renewal_burden. Sourcing: NSE Corporate Filings - Annual
+    Reports - Risk Factors / Regulatory Compliance - renewal periods
+    and compliance requirements.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "J.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.regulatory_legal_scoring import score_renewal_burden
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _RENEWAL_BURDEN_ANCHORS, "ar_renewalburden_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="renewal-burden",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_renewal_burden(text)
+    except Exception as e:
+        print(f"[qualitative_engine] J.1.2 fetch failed for {sym}: {e}")
+        result = {"specific_period_disclosed": None, "renewal_burden_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-12",
+        "source": "NSE Corporate Filings - Annual Reports - Risk Factors / Regulatory Compliance - renewal periods and compliance requirements",
+        "result": "CHECKED" if result["renewal_burden_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["renewal_burden_score"] is not None else "No license/approval renewal disclosure was located this run.",
+    }]
+
+    if result["renewal_burden_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Renewal burden", "available": True, **result,
+            "rationale": "No license/approval renewal disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Renewal burden", "available": True, **result,
+        "rationale": f"Specific renewal period disclosed: {result['specific_period_disclosed']} -> score {result['renewal_burden_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_j1_industry_regulation(symbol, name=None, force=False):
+    """J.1 - Industry regulation: licensing, approvals, periodic
+    renewals, compliance load. Rolls up J.1.2 only - J.1.1 is blank/
+    undefined in the framework workbook, so no sub-point is fabricated
+    for it.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    j1_2 = compute_j1_2_renewal_burden(sym, name, force=force)
+
+    if j1_2.get("renewal_burden_score") is not None:
+        rationale = f"Renewal burden: score {j1_2['renewal_burden_score']}/5."
+    else:
+        rationale = "No industry-regulation/renewal-burden evidence was located for this company this run."
+
+    payload = {
+        "subpoint_id": "J.1",
+        "title": "Industry regulation: licensing, approvals, periodic renewals, compliance load",
+        "available": True,
+        "j1_2": j1_2,
+        "rationale": rationale,
+        "pathway_results": (j1_2.get("pathway_results") or [])[:1],
+        "confidence_tag": j1_2.get("confidence_tag", "SEARCH_INCONCLUSIVE"),
+        "retrieved_at": j1_2.get("retrieved_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_j2_1_litigation_materiality(symbol, name=None, force=False):
+    """J.2.1 - Litigation count and materiality. Spec formula:
+    Litigation Materiality Score (1-5) based on disclosed number,
+    nature and financial significance. Deterministic (no LLM) - see
+    tools.regulatory_legal_scoring.score_litigation_materiality.
+    Sourcing: NSE Corporate Filings - Annual Reports - Notes to
+    Accounts - Contingent Liabilities / Legal Proceedings.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "J.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.regulatory_legal_scoring import score_litigation_materiality
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _LITIGATION_ANCHORS, "ar_litigation_text_v1",
+            max_per_page=4, max_excerpts=24, fetch_label="litigation-materiality",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_litigation_materiality(text)
+    except Exception as e:
+        print(f"[qualitative_engine] J.2.1 fetch failed for {sym}: {e}")
+        result = {"quantified": None, "litigation_materiality_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Contingent Liabilities / Legal Proceedings",
+        "result": "CHECKED" if result["litigation_materiality_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["litigation_materiality_score"] is not None else "No contingent-liability/legal-proceedings disclosure was located this run.",
+    }]
+
+    if result["litigation_materiality_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Litigation count and materiality", "available": True, **result,
+            "rationale": "No contingent-liability/legal-proceedings disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Litigation count and materiality", "available": True, **result,
+        "rationale": (f"Quantified litigation/contingent-liability figure disclosed" if result["quantified"]
+                      else "Qualitative litigation/contingent-liability language disclosed, no quantified figure")
+                     + f" -> score {result['litigation_materiality_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_j2_2_outcome_assessment(symbol, name=None, force=False):
+    """J.2.2 - Probability / management assessment. Spec formula:
+    Outcome Risk Score (1-5); do not assign probability if the company
+    does not disclose one. Deterministic (no LLM) - see
+    tools.regulatory_legal_scoring.score_outcome_assessment (implements
+    the framework's explicit non-fabrication instruction directly).
+    Sourcing: NSE Corporate Filings - Annual Reports - Contingent
+    Liabilities - management assessment of outcome where disclosed.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "J.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.regulatory_legal_scoring import score_outcome_assessment
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _OUTCOME_ASSESSMENT_ANCHORS, "ar_outcomeassess_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="outcome-assessment",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_outcome_assessment(text)
+    except Exception as e:
+        print(f"[qualitative_engine] J.2.2 fetch failed for {sym}: {e}")
+        result = {"assessment_disclosed": None, "outcome_risk_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Contingent Liabilities - management assessment of outcome where disclosed",
+        "result": "CHECKED" if result["outcome_risk_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["outcome_risk_score"] is not None else "No management outcome-probability assessment was located this run (per spec, no probability is assigned when not disclosed).",
+    }]
+
+    if result["outcome_risk_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Probability / management assessment", "available": True, **result,
+            "rationale": "No management outcome-probability assessment was located this run - per the framework's own instruction, no probability is assigned when the company does not disclose one.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Probability / management assessment", "available": True, **result,
+        "rationale": f"Management outcome assessment disclosed -> score {result['outcome_risk_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_j2_litigation_and_disputes(symbol, name=None, force=False):
+    """J.2 - Litigation count/materiality and management's probability
+    assessment of outcomes. Combines J.2.1-J.2.2 into a single grounded
+    payload. The J2 parent row itself is blank/undefined in the
+    framework workbook (unlike J.2.1/J.2.2, which are fully defined),
+    so this rollup's title is derived directly from its two real
+    children's own titles rather than an invented spec title - same
+    precedent as D.1's rollup (whose D1 parent row is also blank).
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    j2_1 = compute_j2_1_litigation_materiality(sym, name, force=force)
+    j2_2 = compute_j2_2_outcome_assessment(sym, name, force=force)
+
+    parts = []
+    if j2_1.get("litigation_materiality_score") is not None:
+        parts.append(f"Litigation count and materiality: score {j2_1['litigation_materiality_score']}/5.")
+    if j2_2.get("outcome_risk_score") is not None:
+        parts.append(f"Probability / management assessment: score {j2_2['outcome_risk_score']}/5.")
+    if not parts:
+        parts.append("No litigation or outcome-assessment evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (j2_1, j2_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (j2_1, j2_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "J.2",
+        "title": "Litigation count and materiality; probability / management assessment of outcomes",
+        "available": True,
+        "j2_1": j2_1, "j2_2": j2_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (j2_1.get("pathway_results") or [])[:1] + (j2_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_j3_1_competition_investigation_status(symbol, name=None, force=False):
+    """J.3.1 - Competition investigations. Spec: Investigation Status =
+    None / Inquiry / Investigation / Order / Closed. Deterministic (no
+    LLM) - see tools.regulatory_legal_scoring.
+    classify_competition_investigation_status. Sourcing: NSE Corporate
+    Filings - Corporate Announcements - search Competition Commission /
+    investigation / antitrust / notice (the one J sub-point NOT sourced
+    from the Annual Report - uses tools.nse_announcements.
+    fetch_announcements(), already integrated into this engine
+    elsewhere). CCI's own order database is a secondary cross-check per
+    the framework; not invoked here, matching every other cross-check
+    pathway already recorded as NOT_CHECKED throughout A-I.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "J.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.nse_announcements import fetch_announcements
+        from tools.regulatory_legal_scoring import classify_competition_investigation_status
+        rows = fetch_announcements(sym)
+        fetch_ok = rows is not None
+        result = classify_competition_investigation_status(rows if fetch_ok else None)
+    except Exception as e:
+        print(f"[qualitative_engine] J.3.1 fetch failed for {sym}: {e}")
+        result = {"investigation_status": None, "matched_announcement": None}
+        fetch_ok = False
+
+    pathway_results = [
+        {
+            "pathway_id": "PORTAL-02",
+            "source": "NSE Corporate Filings - Corporate Announcements - Events / Subject search - Competition Commission / investigation / antitrust / notice",
+            "result": "CHECKED" if fetch_ok else "NOT_DISCLOSED",
+            "note": None if fetch_ok else "The corporate-announcements list could not be retrieved this run.",
+        },
+        {
+            "pathway_id": "PORTAL-CCI",
+            "source": "CCI - Antitrust / Orders database (fallback/cross-check only)",
+            "result": "NOT_CHECKED",
+            "note": "Secondary cross-check source per the framework, not invoked - same convention as every other cross-check pathway in A-I.",
+        },
+    ]
+
+    if result["investigation_status"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Competition investigations", "available": True, **result,
+            "rationale": "The NSE corporate-announcements history could not be retrieved this run - status genuinely unknown, not assumed 'None'.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Competition investigations", "available": True, **result,
+        "rationale": f"Investigation status: {result['investigation_status']}"
+                     + (f" (matched: {result['matched_announcement']})" if result.get("matched_announcement") else " (no CCI/antitrust/competition-investigation language found in the searched announcement history)."),
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_j3_2_competition_impact(symbol, name=None, force=False):
+    """J.3.2 - Potential financial / operational impact. Spec formula:
+    Impact Score (1-5) based on disclosed penalty, remedy or
+    operational restriction. Deterministic (no LLM) - see
+    tools.regulatory_legal_scoring.score_competition_impact. Sourcing:
+    NSE Corporate Filings - Annual Reports - Contingent Liabilities /
+    Risk Factors - quantify or describe exposure. CCI's order database
+    is a secondary cross-check per the framework; not invoked here,
+    matching every other cross-check pathway already recorded as
+    NOT_CHECKED throughout A-I.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "J.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.regulatory_legal_scoring import score_competition_impact
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _COMPETITION_IMPACT_ANCHORS, "ar_competitionimpact_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="competition-impact",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_competition_impact(text)
+    except Exception as e:
+        print(f"[qualitative_engine] J.3.2 fetch failed for {sym}: {e}")
+        result = {"impact_disclosed": None, "competition_impact_score": None}
+
+    pathway_results = [
+        {
+            "pathway_id": "AR-04",
+            "source": "NSE Corporate Filings - Annual Reports - Contingent Liabilities / Risk Factors - competition-law exposure",
+            "result": "CHECKED" if result["competition_impact_score"] is not None else "NOT_DISCLOSED",
+            "note": None if result["competition_impact_score"] is not None else "No competition-law (CCI/antitrust) exposure disclosure was located this run.",
+        },
+        {
+            "pathway_id": "PORTAL-CCI",
+            "source": "CCI - Antitrust / Orders database (fallback/cross-check only)",
+            "result": "NOT_CHECKED",
+            "note": "Secondary cross-check source per the framework, not invoked - same convention as every other cross-check pathway in A-I.",
+        },
+    ]
+
+    if result["competition_impact_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Potential financial / operational impact", "available": True, **result,
+            "rationale": "No competition-law (CCI/antitrust) exposure disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Potential financial / operational impact", "available": True, **result,
+        "rationale": f"Penalty/remedy/restriction disclosed: {result['impact_disclosed']} -> score {result['competition_impact_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_j3_antitrust_investigations(symbol, name=None, force=False):
+    """J.3 - Antitrust/competition probes or investigations. Combines
+    J.3.1-J.3.2 into a single grounded payload - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    j3_1 = compute_j3_1_competition_investigation_status(sym, name, force=force)
+    j3_2 = compute_j3_2_competition_impact(sym, name, force=force)
+
+    parts = []
+    if j3_1.get("investigation_status") is not None:
+        parts.append(f"Competition investigation status: {j3_1['investigation_status']}.")
+    if j3_2.get("competition_impact_score") is not None:
+        parts.append(f"Potential financial/operational impact: score {j3_2['competition_impact_score']}/5.")
+    if not parts:
+        parts.append("No antitrust/competition-investigation evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (j3_1, j3_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (j3_1, j3_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "J.3",
+        "title": "Antitrust/competition probes or investigations",
+        "available": True,
+        "j3_1": j3_1, "j3_2": j3_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (j3_1.get("pathway_results") or [])[:1] + (j3_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_j4_1_tax_disputes(symbol, name=None, force=False):
+    """J.4.1 - Tax disputes. Spec formula: Tax Dispute Exposure Score
+    (1-5). Deterministic (no LLM) - see tools.regulatory_legal_scoring.
+    score_tax_dispute_exposure. Sourcing: NSE Corporate Filings -
+    Annual Reports - Notes - Income Tax / GST / Other Tax Contingencies
+    - outstanding demands and appeals.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "J.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.regulatory_legal_scoring import score_tax_dispute_exposure
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _TAX_DISPUTE_ANCHORS, "ar_taxdispute_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="tax-disputes",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_tax_dispute_exposure(text)
+    except Exception as e:
+        print(f"[qualitative_engine] J.4.1 fetch failed for {sym}: {e}")
+        result = {"quantified": None, "tax_dispute_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Notes - Income Tax / GST / Other Tax Contingencies - outstanding demands and appeals",
+        "result": "CHECKED" if result["tax_dispute_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["tax_dispute_score"] is not None else "No income-tax/GST dispute disclosure was located this run.",
+    }]
+
+    if result["tax_dispute_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Tax disputes", "available": True, **result,
+            "rationale": "No income-tax/GST dispute disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Tax disputes", "available": True, **result,
+        "rationale": (f"Quantified tax demand disclosed" if result["quantified"]
+                      else "Qualitative tax-dispute/contingency language disclosed, no quantified figure")
+                     + f" -> score {result['tax_dispute_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_j4_2_historic_tax_exposures(symbol, name=None, force=False):
+    """J.4.2 - Historic tax exposures. Spec formula: Historic Tax Risk
+    Score (1-5), comparing 3-5 years. Deterministic (no LLM) - see
+    tools.regulatory_legal_scoring.score_historic_tax_risk: this
+    single-year AR-excerpt scan does NOT compute an actual multi-year
+    comparison (documented limitation, same single-year evidence-
+    presence convention as I.4.2/G.3.2). Sourcing: NSE Corporate
+    Filings - Annual Reports - Contingent Liabilities / tax proceedings.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "J.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.regulatory_legal_scoring import score_historic_tax_risk
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _TAX_DISPUTE_ANCHORS, "ar_historictax_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="historic-tax-risk",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_historic_tax_risk(text)
+    except Exception as e:
+        print(f"[qualitative_engine] J.4.2 fetch failed for {sym}: {e}")
+        result = {"disclosed": None, "historic_tax_risk_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Contingent Liabilities / tax proceedings (single-year presence, not a computed 3-5-year comparison)",
+        "result": "CHECKED" if result["historic_tax_risk_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["historic_tax_risk_score"] is not None else "No tax-dispute/contingency disclosure was located this run.",
+    }]
+
+    if result["historic_tax_risk_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Historic tax exposures", "available": True, **result,
+            "rationale": "No tax-dispute/contingency disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Historic tax exposures", "available": True, **result,
+        "rationale": f"Current-year tax-dispute disclosure found -> score {result['historic_tax_risk_score']}/5 (single-year presence, not a computed multi-year trend).",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_j4_3_tax_audit_status(symbol, name=None, force=False):
+    """J.4.3 - Ongoing tax audits / assessments. Spec: Audit Status =
+    None / Ongoing / Resolved; score only where evidence exists.
+    Deterministic (no LLM) - see tools.regulatory_legal_scoring.
+    classify_tax_audit_status (never fabricates "None" - only Ongoing/
+    Resolved are returned when actually evidenced, per the spec's own
+    "score only where evidence exists" instruction). Sourcing: NSE
+    Corporate Filings - Annual Reports - Tax Notes / Contingent
+    Liabilities - ongoing assessments/audits.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "J.4.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.regulatory_legal_scoring import classify_tax_audit_status
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _TAX_AUDIT_ANCHORS, "ar_taxaudit_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="tax-audit-status",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = classify_tax_audit_status(text)
+    except Exception as e:
+        print(f"[qualitative_engine] J.4.3 fetch failed for {sym}: {e}")
+        result = {"audit_status": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-04",
+        "source": "NSE Corporate Filings - Annual Reports - Tax Notes / Contingent Liabilities - ongoing assessments/audits",
+        "result": "CHECKED" if result["audit_status"] is not None else "NOT_DISCLOSED",
+        "note": None if result["audit_status"] is not None else "No ongoing/resolved tax assessment or audit disclosure was located this run.",
+    }]
+
+    if result["audit_status"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Ongoing tax audits / assessments", "available": True, **result,
+            "rationale": "No ongoing/resolved tax assessment or audit disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Ongoing tax audits / assessments", "available": True, **result,
+        "rationale": f"Tax audit status: {result['audit_status']}.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_j4_tax_disputes_and_audits(symbol, name=None, force=False):
+    """J.4 - Tax disputes, historic tax exposures or ongoing audits.
+    Combines J.4.1-J.4.3 into a single grounded payload - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    j4_1 = compute_j4_1_tax_disputes(sym, name, force=force)
+    j4_2 = compute_j4_2_historic_tax_exposures(sym, name, force=force)
+    j4_3 = compute_j4_3_tax_audit_status(sym, name, force=force)
+
+    parts = []
+    if j4_1.get("tax_dispute_score") is not None:
+        parts.append(f"Tax disputes: score {j4_1['tax_dispute_score']}/5.")
+    if j4_2.get("historic_tax_risk_score") is not None:
+        parts.append(f"Historic tax exposures: score {j4_2['historic_tax_risk_score']}/5.")
+    if j4_3.get("audit_status") is not None:
+        parts.append(f"Ongoing tax audit status: {j4_3['audit_status']}.")
+    if not parts:
+        parts.append("No tax-dispute or tax-audit evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (j4_1, j4_2, j4_3)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (j4_1, j4_2, j4_3) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "J.4",
+        "title": "Tax disputes, historic tax exposures or ongoing audits",
+        "available": True,
+        "j4_1": j4_1, "j4_2": j4_2, "j4_3": j4_3,
+        "rationale": " ".join(parts),
+        "pathway_results": (j4_1.get("pathway_results") or [])[:1] + (j4_2.get("pathway_results") or [])[:1] + (j4_3.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+def compute_j5_1_subsidy_dependence(symbol, name=None, force=False):
+    """J.5.1 - Subsidy dependence. Spec formula: Subsidy Dependence % =
+    Subsidy/Grant Income / Relevant Revenue or Profit where meaningful.
+    Deterministic (no LLM) - see tools.regulatory_legal_scoring.
+    score_subsidy_dependence: a clean per-company subsidy-% table is
+    essentially never disclosed in Indian AR prose (same documented
+    limitation as A.1.1/A.3/G.1.1), so this scores disclosure presence/
+    specificity rather than fabricate a percentage the source doesn't
+    contain. Sourcing: NSE Corporate Filings - Annual Reports - MD&A -
+    Government incentives / subsidies - identify material support and
+    conditions.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "J.5.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.regulatory_legal_scoring import score_subsidy_dependence
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _SUBSIDY_ANCHORS, "ar_subsidydep_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="subsidy-dependence",
+            extra_manual_document_types=("investor_presentation", "earnings_call_transcript"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_subsidy_dependence(text)
+    except Exception as e:
+        print(f"[qualitative_engine] J.5.1 fetch failed for {sym}: {e}")
+        result = {"quantified": None, "subsidy_dependence_score": None}
+
+    pathway_results = [{
+        "pathway_id": "AR-06",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - Government incentives / subsidies - material support and conditions",
+        "result": "CHECKED" if result["subsidy_dependence_score"] is not None else "NOT_DISCLOSED",
+        "note": None if result["subsidy_dependence_score"] is not None else "No government-subsidy/incentive disclosure was located this run.",
+    }]
+
+    if result["subsidy_dependence_score"] is None:
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Subsidy dependence", "available": True, **result,
+            "rationale": "No government-subsidy/incentive disclosure was located this run.",
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+        payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Subsidy dependence", "available": True, **result,
+        "rationale": (f"Quantified subsidy-income figure disclosed" if result["quantified"]
+                      else "Qualitative government subsidy/incentive language disclosed, no quantified figure")
+                     + f" -> score {result['subsidy_dependence_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_j5_2_environmental_regulation_exposure(symbol, name=None, force=False):
+    """J.5.2 - Environmental regulation exposure. Spec formula:
+    Regulatory Shift Risk Score (1-5). Deterministic (no LLM) - see
+    tools.regulatory_legal_scoring.score_environmental_regulation_exposure.
+    Sourcing: NSE Corporate Filings - Annual Reports - Risk Factors /
+    ESG - regulatory changes. (The framework also lists PARIVESH as a
+    secondary cross-check source; not invoked here, matching every
+    other cross-check pathway already recorded as NOT_CHECKED
+    throughout A-I.)
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "J.5.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.regulatory_legal_scoring import score_environmental_regulation_exposure
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _ENV_REGULATION_ANCHORS, "ar_envregexposure_text_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="env-regulation-exposure",
+            extra_manual_document_types=("brsr_esg_report",),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_environmental_regulation_exposure(text)
+    except Exception as e:
+        print(f"[qualitative_engine] J.5.2 fetch failed for {sym}: {e}")
+        result = {"specific_clearance_disclosed": None, "environmental_regulation_score": None}
+
+    pathway_results = [
+        {
+            "pathway_id": "AR-13",
+            "source": "NSE Corporate Filings - Annual Reports - Risk Factors / ESG - regulatory changes",
+            "result": "CHECKED" if result["environmental_regulation_score"] is not None else "NOT_DISCLOSED",
+            "note": None if result["environmental_regulation_score"] is not None else "No environmental-regulation exposure disclosure was located this run.",
+        },
+        {
+            "pathway_id": "PORTAL-PARIVESH",
+            "source": "PARIVESH - Environmental / Forest / Wildlife / CRZ Clearance (fallback/cross-check only)",
+            "result": "NOT_CHECKED",
+            "note": "Secondary cross-check source per the framework, not invoked - same convention as every other cross-check pathway in A-I.",
+        },
+    ]
+
+    if result["environmental_regulation_score"] is None:
+        _dm_j52 = _brsr_uploaded(sym) is False
+        _tag_j52 = "DATA_MISSING" if _dm_j52 else "SEARCH_INCONCLUSIVE"
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Environmental regulation exposure", "available": True, **result,
+            "required_document": "BRSR/ESG Report" if _dm_j52 else None,
+            "rationale": ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                          "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                          if _dm_j52 else "No environmental-regulation exposure disclosure was located this run."),
+            "pathway_results": pathway_results,
+        }
+        write_qualitative(sym, subpoint_id, payload, _tag_j52)
+        payload["confidence_tag"] = _tag_j52
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Environmental regulation exposure", "available": True, **result,
+        "rationale": f"Specific clearance/regulation type disclosed: {result['specific_clearance_disclosed']} -> score {result['environmental_regulation_score']}/5.",
+        "pathway_results": pathway_results,
+    }
+    confidence_tag = "SINGLE_SOURCE"
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_j5_policy_regulatory_shift_exposure(symbol, name=None, force=False):
+    """J.5 - Exposure to policy/regulatory shifts: subsidies removal,
+    environmental norms. Combines J.5.1-J.5.2 into a single grounded
+    payload - no LLM call.
+    """
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    j5_1 = compute_j5_1_subsidy_dependence(sym, name, force=force)
+    j5_2 = compute_j5_2_environmental_regulation_exposure(sym, name, force=force)
+
+    parts = []
+    if j5_1.get("subsidy_dependence_score") is not None:
+        parts.append(f"Subsidy dependence: score {j5_1['subsidy_dependence_score']}/5.")
+    if j5_2.get("environmental_regulation_score") is not None:
+        parts.append(f"Environmental regulation exposure: score {j5_2['environmental_regulation_score']}/5.")
+    if not parts:
+        parts.append("No policy/regulatory-shift exposure evidence was located for this company this run.")
+
+    _tags = [t.get("confidence_tag") for t in (j5_1, j5_2)]
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in _tags) else "SEARCH_INCONCLUSIVE"
+    retrieved_ats = [t.get("retrieved_at") for t in (j5_1, j5_2) if t.get("retrieved_at")]
+
+    payload = {
+        "subpoint_id": "J.5",
+        "title": "Exposure to policy/regulatory shifts: subsidies removal, environmental norms",
+        "available": True,
+        "j5_1": j5_1, "j5_2": j5_2,
+        "rationale": " ".join(parts),
+        "pathway_results": (j5_1.get("pathway_results") or [])[:1] + (j5_2.get("pathway_results") or [])[:1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+# ===========================================================================
+# A-U FRAMEWORK GAP-FILL: sections K-U + A.1.A/B, A.3.A-D, A.4.A-D, A.5.A/B,
+# A.6.A/B - 151 subpoints/points that were defined in the Excel workbook but
+# had no compute_fn (see tools/qualitative_task_registry.py). Deterministic
+# (no-LLM) throughout, same pattern as every existing A-J sub-point. See
+# tools/macro_exposure_scoring.py, financial_policy_scoring.py, ma_scoring.py,
+# esg_scoring.py, reputation_scoring.py, disclosure_audit_scoring.py,
+# structural_redflag_scoring.py, earlywarning_scoring.py,
+# sector_specific_scoring.py, geopolitical_scoring.py,
+# management_qa_scoring.py, business_model_gap_scoring.py for the scoring logic.
+# ===========================================================================
+
+_K_1_1_ANCHORS = ['commodity price', 'raw material price', 'commodity price risk', 'input cost']
+
+
+def compute_k_1_1(symbol, name=None, force=False):
+    """K.1.1 - Commodity input dependence. Deterministic (no-LLM) - see
+    tools.macro_exposure_scoring.score_commodity_input_dependence."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "K.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.macro_exposure_scoring import score_commodity_input_dependence
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _K_1_1_ANCHORS, "ar_k_1_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="k-1-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_commodity_input_dependence(text)
+    except Exception as e:
+        print(f"[qualitative_engine] K.1.1 fetch failed for {sym}: {e}")
+        result = {"commodity_dependency_score": None}
+
+    score_val = result.get("commodity_dependency_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Risk Factors / MD&A - commodity price dependence",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Commodity input dependence: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Commodity input dependence", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_K_2_1_ANCHORS = ['export revenue', 'export sales', 'import-dependent', 'export market']
+
+
+def compute_k_2_1(symbol, name=None, force=False):
+    """K.2.1 - Export/import dependence. Deterministic (no-LLM) - see
+    tools.macro_exposure_scoring.score_export_import_dependence."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "K.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.macro_exposure_scoring import score_export_import_dependence
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _K_2_1_ANCHORS, "ar_k_2_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="k-2-1",
+            extra_manual_document_types=('investor_presentation',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_export_import_dependence(text)
+    except Exception as e:
+        print(f"[qualitative_engine] K.2.1 fetch failed for {sym}: {e}")
+        result = {"external_trade_exposure_pct": None}
+
+    # `score_export_import_dependence` sets `generic_disclosure: True` when
+    # the text mentions export/import exposure WITHOUT a quantified %
+    # (e.g. "Export Sales" as its own Revenue-note line item, or MD&A
+    # "export market" language) - `external_trade_exposure_pct` stays None
+    # in that case BY DESIGN (never fabricate a % that isn't stated), but
+    # the caller previously only checked the pct field, so a genuine
+    # generic disclosure was silently treated identically to "found
+    # nothing at all" and marked SEARCH_INCONCLUSIVE. Confirmed real on
+    # Prime Fresh Limited: its Revenue note explicitly states "Export
+    # Sales" as its own line (value nil for the reported years) and MD&A
+    # discusses export markets - genuine disclosure that the company's
+    # revenue is domestic-only, not an inconclusive search.
+    score_val = result.get("external_trade_exposure_pct")
+    found = score_val is not None or result.get("generic_disclosure")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - export/import revenue mix",
+        "result": "CHECKED" if found else "NOT_DISCLOSED",
+        "note": None if found else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if not found else "SINGLE_SOURCE"
+    if score_val is not None:
+        rationale = f"Export/import dependence: {score_val}."
+    elif found:
+        rationale = ("Export/import exposure is discussed in the Annual Report (e.g. an Export Sales "
+                     "revenue-note line item or MD&A export-market language), but no quantified export/"
+                     "import revenue percentage is disclosed.")
+    else:
+        rationale = "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Export/import dependence", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_K_2_2_ANCHORS = ['geopolitical risk', 'trade tensions', 'trade war', 'sanctions', 'tariff war',
+                  'geopolitical tensions', 'geopolitical uncertaint']
+
+
+def compute_k_2_2(symbol, name=None, force=False):
+    """K.2.2 - Geopolitical trade risk. Deterministic (no-LLM) - see
+    tools.macro_exposure_scoring.score_geopolitical_trade_risk."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "K.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.macro_exposure_scoring import score_geopolitical_trade_risk
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _K_2_2_ANCHORS, "ar_k_2_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="k-2-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_geopolitical_trade_risk(text)
+    except Exception as e:
+        print(f"[qualitative_engine] K.2.2 fetch failed for {sym}: {e}")
+        result = {"geopolitical_trade_risk_score": None}
+
+    score_val = result.get("geopolitical_trade_risk_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Risk Factors - geopolitical/trade risk",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Geopolitical trade risk: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Geopolitical trade risk", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_K_3_1_ANCHORS = ['floating-rate debt', 'floating rate', 'interest rate risk', 'interest rate fluctuation']
+
+
+def compute_k_3_1(symbol, name=None, force=False):
+    """K.3.1 - Interest-rate sensitivity. Deterministic (no-LLM) - see
+    tools.macro_exposure_scoring.score_interest_rate_sensitivity."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "K.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.macro_exposure_scoring import score_interest_rate_sensitivity
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _K_3_1_ANCHORS, "ar_k_3_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="k-3-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_interest_rate_sensitivity(text)
+    except Exception as e:
+        print(f"[qualitative_engine] K.3.1 fetch failed for {sym}: {e}")
+        result = {"interest_rate_exposure_pct": None}
+
+    # Same generic-disclosure-discarded bug as K.2.1's identical pattern -
+    # see that function's comment.
+    score_val = result.get("interest_rate_exposure_pct")
+    found = score_val is not None or result.get("generic_disclosure")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - borrowings/interest rate exposure",
+        "result": "CHECKED" if found else "NOT_DISCLOSED",
+        "note": None if found else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if not found else "SINGLE_SOURCE"
+    if score_val is not None:
+        rationale = f"Interest-rate sensitivity: {score_val}."
+    elif found:
+        rationale = ("Interest-rate risk/floating-rate borrowing exposure is discussed in the Annual "
+                     "Report, but no quantified floating-rate debt percentage is disclosed.")
+    else:
+        rationale = "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Interest-rate sensitivity", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_K_3_2_ANCHORS = ['economic cycle', 'cyclical industry', 'gdp growth', 'economic downturn']
+
+
+def compute_k_3_2(symbol, name=None, force=False):
+    """K.3.2 - Economic cyclicality. Deterministic (no-LLM) - see
+    tools.macro_exposure_scoring.score_economic_cyclicality."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "K.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.macro_exposure_scoring import score_economic_cyclicality
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _K_3_2_ANCHORS, "ar_k_3_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="k-3-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_economic_cyclicality(text)
+    except Exception as e:
+        print(f"[qualitative_engine] K.3.2 fetch failed for {sym}: {e}")
+        result = {"cyclicality_score": None}
+
+    score_val = result.get("cyclicality_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - economic cyclicality",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Economic cyclicality: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Economic cyclicality", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_K_4_2_ANCHORS = ['hedging policy', 'forward contracts', 'currency hedge', 'hedged',
+                  # SEBI LODR Schedule V Part A(2A) commodity-hedging
+                  # disclosure caption - confirmed real on Prime Fresh
+                  # Limited, whose real answer is an explicit "no".
+                  'commodity hedging', 'commodity price risks']
+
+
+def compute_k_4_2(symbol, name=None, force=False):
+    """K.4.2 - Hedging protection. Deterministic (no-LLM) - see
+    tools.macro_exposure_scoring.score_hedging_protection."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "K.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.macro_exposure_scoring import score_hedging_protection
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _K_4_2_ANCHORS, "ar_k_4_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="k-4-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_hedging_protection(text)
+    except Exception as e:
+        print(f"[qualitative_engine] K.4.2 fetch failed for {sym}: {e}")
+        result = {"hedge_coverage_pct": None}
+
+    # Same generic-disclosure-discarded bug as K.2.1/K.3.1's identical
+    # pattern - see K.2.1's comment.
+    score_val = result.get("hedge_coverage_pct")
+    found = score_val is not None or result.get("generic_disclosure")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - forex hedging",
+        "result": "CHECKED" if found else "NOT_DISCLOSED",
+        "note": None if found else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if not found else "SINGLE_SOURCE"
+    if score_val is not None:
+        rationale = f"Hedging protection: {score_val}."
+    elif found:
+        rationale = ("A hedging policy/forward-contracts/currency-hedging disclosure is present in the "
+                     "Annual Report, but no quantified hedge-coverage percentage is disclosed.")
+    else:
+        rationale = "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Hedging protection", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_L_1_1_ANCHORS = ['debt-to-equity ratio', 'net debt/ebitda', 'leverage policy', 'capital structure',
+                  # Ind AS 1's own mandated Capital Management note is the
+                  # single most universal source of a company's real
+                  # leverage-monitoring approach, and routinely omits the
+                  # hyphenated "debt-TO-equity" phrasing the anchor above
+                  # expects - confirmed real on Prime Fresh Limited:
+                  # "monitors capital using Debt-Equity ratio" (no "to").
+                  'debt-equity ratio', 'monitors capital', 'capital management']
+
+
+def compute_l_1_1(symbol, name=None, force=False):
+    """L.1.1 - Leverage policy. Deterministic (no-LLM) - see
+    tools.financial_policy_scoring.score_leverage_policy."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "L.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.financial_policy_scoring import score_leverage_policy
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _L_1_1_ANCHORS, "ar_l_1_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="l-1-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_leverage_policy(text)
+    except Exception as e:
+        print(f"[qualitative_engine] L.1.1 fetch failed for {sym}: {e}")
+        result = {"leverage_trend_score": None}
+
+    score_val = result.get("leverage_trend_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - leverage/capital structure policy",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Leverage policy: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Leverage policy", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_L_1_2_ANCHORS = ['covenant', 'covenant headroom', 'compliance with covenants', 'covenant breach']
+
+
+def compute_l_1_2(symbol, name=None, force=False):
+    """L.1.2 - Covenant management. Deterministic (no-LLM) - see
+    tools.financial_policy_scoring.score_covenant_management."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "L.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.financial_policy_scoring import score_covenant_management
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _L_1_2_ANCHORS, "ar_l_1_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="l-1-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_covenant_management(text)
+    except Exception as e:
+        print(f"[qualitative_engine] L.1.2 fetch failed for {sym}: {e}")
+        result = {"covenant_score": None}
+
+    score_val = result.get("covenant_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - loan covenants",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Covenant management: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Covenant management", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_L_2_1_ANCHORS = ['refinancing', 'refinanced', 'refinance the existing']
+
+
+def compute_l_2_1(symbol, name=None, force=False):
+    """L.2.1 - Refinancing history. Deterministic (no-LLM) - see
+    tools.financial_policy_scoring.score_refinancing_history."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "L.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.financial_policy_scoring import score_refinancing_history
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _L_2_1_ANCHORS, "ar_l_2_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="l-2-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_refinancing_history(text)
+    except Exception as e:
+        print(f"[qualitative_engine] L.2.1 fetch failed for {sym}: {e}")
+        result = {"refinancing_history_score": None}
+
+    score_val = result.get("refinancing_history_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - borrowings/refinancing",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Refinancing history: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Refinancing history", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_L_2_2_ANCHORS = ['covenant breach', 'covenant default', 'waiver']
+
+
+def compute_l_2_2(symbol, name=None, force=False):
+    """L.2.2 - Covenant breaches / remedies. Deterministic (no-LLM) - see
+    tools.financial_policy_scoring.classify_covenant_breach_status."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "L.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.financial_policy_scoring import classify_covenant_breach_status
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _L_2_2_ANCHORS, "ar_l_2_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="l-2-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = classify_covenant_breach_status(text)
+    except Exception as e:
+        print(f"[qualitative_engine] L.2.2 fetch failed for {sym}: {e}")
+        result = {"breach_status": None}
+
+    score_val = result.get("breach_status")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - covenant breach disclosure",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Covenant breaches / remedies: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Covenant breaches / remedies", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_L_3_1_ANCHORS = ['dividend policy', 'dividend paid', 'consistent dividend', 'uninterrupted dividend',
+                  'dividend was declared', 'dividend declared', 'no dividend', 'dividend recommended']
+
+
+def compute_l_3_1(symbol, name=None, force=False):
+    """L.3.1 - Dividend consistency. Deterministic (no-LLM) - see
+    tools.financial_policy_scoring.score_dividend_consistency."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "L.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.financial_policy_scoring import score_dividend_consistency
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _L_3_1_ANCHORS, "ar_l_3_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="l-3-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_dividend_consistency(text)
+    except Exception as e:
+        print(f"[qualitative_engine] L.3.1 fetch failed for {sym}: {e}")
+        result = {"dividend_consistency_score": None}
+
+    score_val = result.get("dividend_consistency_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Board's Report - dividend history",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Dividend consistency: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Dividend consistency", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_L_3_2_ANCHORS = ['dividend policy', 'dividend payout', 'dividend rationale']
+
+
+def compute_l_3_2(symbol, name=None, force=False):
+    """L.3.2 - Rationale for changes. Deterministic (no-LLM) - see
+    tools.financial_policy_scoring.score_dividend_rationale."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "L.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.financial_policy_scoring import score_dividend_rationale
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _L_3_2_ANCHORS, "ar_l_3_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="l-3-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_dividend_rationale(text)
+    except Exception as e:
+        print(f"[qualitative_engine] L.3.2 fetch failed for {sym}: {e}")
+        result = {"policy_rationale_score": None}
+
+    score_val = result.get("policy_rationale_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Board's Report - dividend policy rationale",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Rationale for changes: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Rationale for changes", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_L_4_1_ANCHORS = ['lease liability', 'right-of-use asset', 'lease commitment']
+
+
+def compute_l_4_1(symbol, name=None, force=False):
+    """L.4.1 - Lease commitments. Deterministic (no-LLM) - see
+    tools.financial_policy_scoring.score_lease_commitments."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "L.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.financial_policy_scoring import score_lease_commitments
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _L_4_1_ANCHORS, "ar_l_4_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="l-4-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_lease_commitments(text)
+    except Exception as e:
+        print(f"[qualitative_engine] L.4.1 fetch failed for {sym}: {e}")
+        result = {"lease_exposure_score": None}
+
+    score_val = result.get("lease_exposure_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Ind AS 116 lease disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Lease commitments: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Lease commitments", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_L_4_2_ANCHORS = ['securitisation', 'securitization', 'structured finance', 'off-balance sheet']
+
+
+def compute_l_4_2(symbol, name=None, force=False):
+    """L.4.2 - Structured / off-balance-sheet arrangements. Deterministic (no-LLM) - see
+    tools.financial_policy_scoring.score_structured_arrangements."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "L.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.financial_policy_scoring import score_structured_arrangements
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _L_4_2_ANCHORS, "ar_l_4_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="l-4-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_structured_arrangements(text)
+    except Exception as e:
+        print(f"[qualitative_engine] L.4.2 fetch failed for {sym}: {e}")
+        result = {"off_balance_sheet_risk_score": None}
+
+    score_val = result.get("off_balance_sheet_risk_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - structured/off-balance-sheet financing",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Structured / off-balance-sheet arrangements: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Structured / off-balance-sheet arrangements", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_M_1_1_ANCHORS = ['acquisition', 'acquired', 'business combination']
+
+
+def compute_m_1_1(symbol, name=None, force=False):
+    """M.1.1 - M&A frequency. Deterministic (no-LLM) - see
+    tools.ma_scoring.score_ma_frequency."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "M.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.ma_scoring import score_ma_frequency
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _M_1_1_ANCHORS, "ar_m_1_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="m-1-1",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_ma_frequency(text)
+    except Exception as e:
+        print(f"[qualitative_engine] M.1.1 fetch failed for {sym}: {e}")
+        result = {"ma_frequency_score": None}
+
+    score_val = result.get("ma_frequency_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements - Acquisition/Business Transfer filings",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"M&A frequency: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "M&A frequency", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_M_1_3_ANCHORS = ['disciplined acquisition', 'strategic fit', 'aggressive acquisition']
+
+
+def compute_m_1_3(symbol, name=None, force=False):
+    """M.1.3 - Acquisitive vs disciplined pattern. Deterministic (no-LLM) - see
+    tools.ma_scoring.score_ma_discipline."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "M.1.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.ma_scoring import score_ma_discipline
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _M_1_3_ANCHORS, "ar_m_1_3_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="m-1-3",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_ma_discipline(text)
+    except Exception as e:
+        print(f"[qualitative_engine] M.1.3 fetch failed for {sym}: {e}")
+        result = {"ma_discipline_score": None}
+
+    score_val = result.get("ma_discipline_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - M&A strategy",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Acquisitive vs disciplined pattern: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Acquisitive vs disciplined pattern", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_M_2_1_ANCHORS = ['acquisition from related party', 'acquisition from promoter']
+
+
+def compute_m_2_1(symbol, name=None, force=False):
+    """M.2.1 - Related-party acquisitions. Deterministic (no-LLM) - see
+    tools.ma_scoring.score_related_party_acquisitions."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "M.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.ma_scoring import score_related_party_acquisitions
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _M_2_1_ANCHORS, "ar_m_2_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="m-2-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_related_party_acquisitions(text)
+    except Exception as e:
+        print(f"[qualitative_engine] M.2.1 fetch failed for {sym}: {e}")
+        result = {"related_party_acquisition_score": None}
+
+    score_val = result.get("related_party_acquisition_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - related party acquisitions",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Related-party acquisitions: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Related-party acquisitions", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_M_2_2_ANCHORS = ['asset sold to related', 'business sold to affiliate', 'transferred to related']
+
+
+def compute_m_2_2(symbol, name=None, force=False):
+    """M.2.2 - Assets sold to affiliates. Deterministic (no-LLM) - see
+    tools.ma_scoring.score_affiliate_disposals."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "M.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.ma_scoring import score_affiliate_disposals
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _M_2_2_ANCHORS, "ar_m_2_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="m-2-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_affiliate_disposals(text)
+    except Exception as e:
+        print(f"[qualitative_engine] M.2.2 fetch failed for {sym}: {e}")
+        result = {"affiliate_disposal_exposure_score": None}
+
+    score_val = result.get("affiliate_disposal_exposure_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - asset disposals to affiliates",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Assets sold to affiliates: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Assets sold to affiliates", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_M_3_1_ANCHORS = ['letter of intent', 'memorandum of understanding', 'proposed acquisition', 'pending acquisition']
+
+
+def compute_m_3_1(symbol, name=None, force=False):
+    """M.3.1 - M&A pipeline. Deterministic (no-LLM) - see
+    tools.ma_scoring.score_ma_pipeline."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "M.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.ma_scoring import score_ma_pipeline
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _M_3_1_ANCHORS, "ar_m_3_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="m-3-1",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_ma_pipeline(text)
+    except Exception as e:
+        print(f"[qualitative_engine] M.3.1 fetch failed for {sym}: {e}")
+        result = {"pipeline_count_score": None}
+
+    score_val = result.get("pipeline_count_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements - pending/proposed acquisitions",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"M&A pipeline: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "M&A pipeline", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_M_3_2_ANCHORS = ['synergy', 'synergies', 'value creation', 'strategic rationale']
+
+
+def compute_m_3_2(symbol, name=None, force=False):
+    """M.3.2 - Value-creation rationale. Deterministic (no-LLM) - see
+    tools.ma_scoring.score_value_creation_rationale."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "M.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.ma_scoring import score_value_creation_rationale
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _M_3_2_ANCHORS, "ar_m_3_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="m-3-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_value_creation_rationale(text)
+    except Exception as e:
+        print(f"[qualitative_engine] M.3.2 fetch failed for {sym}: {e}")
+        result = {"value_creation_score": None}
+
+    score_val = result.get("value_creation_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - acquisition rationale",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Value-creation rationale: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Value-creation rationale", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_MANUAL_DOC_LABEL = {
+    "brsr_esg_report": "BRSR/ESG Report",
+    "corporate_actions": "Corporate Actions History (BSE/NSE)",
+    "earnings_call_transcript": "Earnings Call Transcript",
+    "investor_presentation": "Investor Presentation",
+    "corporate_governance_report": "Corporate Governance Report",
+}
+
+
+def _manual_doc_uploaded(sym, doc_type):
+    """Generalized `_brsr_uploaded` - True/False/None (None = not in
+    manual mode, so the upload/no-upload distinction doesn't apply) for
+    ANY of the optional supporting document types this pipeline accepts
+    (see tools.manual_document_pipeline.QUALITATIVE_DOCUMENT_TYPES).
+    Reused by every sub-point whose real primary source is an Annual-
+    Report-adjacent document that simply wasn't uploaded (corporate
+    actions history, earnings call transcript, investor presentation,
+    corporate governance report) - the exact same "genuinely missing
+    document, not a search failure" distinction _brsr_uploaded already
+    makes for Section N, generalized so it isn't reimplemented per
+    document type."""
+    try:
+        from tools.manual_mode import is_manual_mode
+        if not is_manual_mode():
+            return None
+        from tools.manual_document_pipeline import get_supporting_document_pages
+        return bool(get_supporting_document_pages(sym, doc_type))
+    except Exception:
+        return None
+
+
+def _brsr_uploaded(sym):
+    """True/False - whether a BRSR/ESG report was actually manually
+    uploaded for this symbol (or None outside manual mode, where this
+    distinction doesn't apply - the automatic live pipeline never has
+    manual uploads to check). Section N's ESG/human-rights/environmental-
+    incident sub-points genuinely need a BRSR (Business Responsibility
+    and Sustainability Report) - a document most Annual Reports simply
+    don't fold in as prose (BRSR became mandatory only for the top listed
+    entities by market cap, and even for smaller voluntary filers it's
+    almost always a distinct, separately-paginated annexure or standalone
+    filing) - confirmed real on Prime Fresh Limited: zero uses of "ESG",
+    "carbon", "effluent", "human rights" anywhere in its Annual Report.
+    Used to tell a genuine "this document was never provided" case
+    (DATA_MISSING, actionable - upload the BRSR) apart from "a BRSR-style
+    narrative was actually in the Annual Report itself but didn't mention
+    this specific fact" (SEARCH_INCONCLUSIVE)."""
+    try:
+        from tools.manual_mode import is_manual_mode
+        if not is_manual_mode():
+            return None
+        from tools.manual_document_pipeline import get_supporting_document_pages
+        return bool(get_supporting_document_pages(sym, "brsr_esg_report"))
+    except Exception:
+        return None
+
+
+_N_1_1_ANCHORS = ['esg targets', 'net-zero', 'carbon neutral', 'sustainability goals', 'renewable energy']
+
+
+def compute_n_1_1(symbol, name=None, force=False):
+    """N.1.1 - ESG targets. Deterministic (no-LLM) - see
+    tools.esg_scoring.score_esg_targets."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "N.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.esg_scoring import score_esg_targets
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _N_1_1_ANCHORS, "ar_n_1_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="n-1-1",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_esg_targets(text)
+    except Exception as e:
+        print(f"[qualitative_engine] N.1.1 fetch failed for {sym}: {e}")
+        result = {"target_coverage_score": None}
+
+    score_val = result.get("target_coverage_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report - sustainability targets and roadmap",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _brsr_uploaded(sym) is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"ESG targets: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "ESG targets", "available": True, **result,
+        "required_document": "BRSR/ESG Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_N_2_1_ANCHORS = ['csr spend', 'community development', 'beneficiaries', 'csr activities']
+
+
+def compute_n_2_1(symbol, name=None, force=False):
+    """N.2.1 - Community impact. Deterministic (no-LLM) - see
+    tools.esg_scoring.score_community_impact."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "N.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.esg_scoring import score_community_impact
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _N_2_1_ANCHORS, "ar_n_2_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="n-2-1",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_community_impact(text)
+    except Exception as e:
+        print(f"[qualitative_engine] N.2.1 fetch failed for {sym}: {e}")
+        result = {"community_impact_score": None}
+
+    score_val = result.get("community_impact_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report - CSR/community impact disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Community impact: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Community impact", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_N_2_2_ANCHORS = ['displacement', 'resettlement']
+
+
+def compute_n_2_2(symbol, name=None, force=False):
+    """N.2.2 - Displacement / resettlement. Deterministic (no-LLM) - see
+    tools.esg_scoring.classify_displacement_risk."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "N.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.esg_scoring import classify_displacement_risk
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _N_2_2_ANCHORS, "ar_n_2_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="n-2-2",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = classify_displacement_risk(text)
+    except Exception as e:
+        print(f"[qualitative_engine] N.2.2 fetch failed for {sym}: {e}")
+        result = {"displacement_risk": None}
+
+    score_val = result.get("displacement_risk")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report - displacement/resettlement disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _brsr_uploaded(sym) is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Displacement / resettlement: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Displacement / resettlement", "available": True, **result,
+        "required_document": "BRSR/ESG Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_N_3_1_ANCHORS = ['environmental incident', 'environmental violation', 'pollution']
+
+
+def compute_n_3_1(symbol, name=None, force=False):
+    """N.3.1 - Pollution / environmental incidents. Deterministic (no-LLM) - see
+    tools.esg_scoring.score_environmental_incidents."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "N.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.esg_scoring import score_environmental_incidents
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _N_3_1_ANCHORS, "ar_n_3_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="n-3-1",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_environmental_incidents(text)
+    except Exception as e:
+        print(f"[qualitative_engine] N.3.1 fetch failed for {sym}: {e}")
+        result = {"environmental_incident_score": None}
+
+    score_val = result.get("environmental_incident_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report - environmental incident disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _brsr_uploaded(sym) is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Pollution / environmental incidents: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Pollution / environmental incidents", "available": True, **result,
+        "required_document": "BRSR/ESG Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_N_3_2_ANCHORS = ['hazardous waste']
+
+
+def compute_n_3_2(symbol, name=None, force=False):
+    """N.3.2 - Hazardous waste. Deterministic (no-LLM) - see
+    tools.esg_scoring.score_hazardous_waste."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "N.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.esg_scoring import score_hazardous_waste
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _N_3_2_ANCHORS, "ar_n_3_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="n-3-2",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_hazardous_waste(text)
+    except Exception as e:
+        print(f"[qualitative_engine] N.3.2 fetch failed for {sym}: {e}")
+        result = {"hazardous_waste_score": None}
+
+    score_val = result.get("hazardous_waste_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report - hazardous waste management",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _brsr_uploaded(sym) is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Hazardous waste: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Hazardous waste", "available": True, **result,
+        "required_document": "BRSR/ESG Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_N_3_3_ANCHORS = ['environmental clearance', 'forest clearance', 'wildlife clearance']
+
+
+def compute_n_3_3(symbol, name=None, force=False):
+    """N.3.3 - Pending clearances. Deterministic (no-LLM) - see
+    tools.esg_scoring.classify_clearance_status."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "N.3.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.esg_scoring import classify_clearance_status
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _N_3_3_ANCHORS, "ar_n_3_3_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="n-3-3",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = classify_clearance_status(text)
+    except Exception as e:
+        print(f"[qualitative_engine] N.3.3 fetch failed for {sym}: {e}")
+        result = {"clearance_status": None}
+
+    score_val = result.get("clearance_status")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report / Annual Report - environmental clearance status",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _brsr_uploaded(sym) is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Pending clearances: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Pending clearances", "available": True, **result,
+        "required_document": "BRSR/ESG Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_N_4_1_ANCHORS = ['trade union', 'collective bargaining']
+
+
+def compute_n_4_1(symbol, name=None, force=False):
+    """N.4.1 - Union / collective bargaining exposure. Deterministic (no-LLM) - see
+    tools.esg_scoring.score_union_exposure."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "N.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.esg_scoring import score_union_exposure
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _N_4_1_ANCHORS, "ar_n_4_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="n-4-1",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_union_exposure(text)
+    except Exception as e:
+        print(f"[qualitative_engine] N.4.1 fetch failed for {sym}: {e}")
+        result = {"labour_relations_score": None}
+
+    score_val = result.get("labour_relations_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report - labour relations disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _brsr_uploaded(sym) is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Union / collective bargaining exposure: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Union / collective bargaining exposure", "available": True, **result,
+        "required_document": "BRSR/ESG Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_N_4_2_ANCHORS = ['strike', 'labour unrest', 'labour dispute', 'industrial action']
+
+
+def compute_n_4_2(symbol, name=None, force=False):
+    """N.4.2 - Strikes / disputes. Deterministic (no-LLM) - see
+    tools.esg_scoring.score_strikes_disputes."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "N.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.esg_scoring import score_strikes_disputes
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _N_4_2_ANCHORS, "ar_n_4_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="n-4-2",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_strikes_disputes(text)
+    except Exception as e:
+        print(f"[qualitative_engine] N.4.2 fetch failed for {sym}: {e}")
+        result = {"labour_disruption_score": None}
+
+    score_val = result.get("labour_disruption_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report / Annual Report - strikes/labour disputes",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Strikes / disputes: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Strikes / disputes", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_N_4_3_ANCHORS = ['employee grievance', 'grievance redressal']
+
+
+def compute_n_4_3(symbol, name=None, force=False):
+    """N.4.3 - Employee grievances. Deterministic (no-LLM) - see
+    tools.esg_scoring.score_employee_grievances."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "N.4.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.esg_scoring import score_employee_grievances
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _N_4_3_ANCHORS, "ar_n_4_3_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="n-4-3",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_employee_grievances(text)
+    except Exception as e:
+        print(f"[qualitative_engine] N.4.3 fetch failed for {sym}: {e}")
+        result = {"resolution_rate_pct": None}
+
+    # Same generic-disclosure-discarded bug as K.2.1/K.3.1/K.4.2 (macro_
+    # exposure_scoring) - score_employee_grievances sets
+    # `generic_disclosure: True` when a grievance-mechanism/redressal
+    # process is described WITHOUT a quantified resolution %, but the
+    # caller previously only checked `resolution_rate_pct`, discarding
+    # that real signal and treating it identically to "nothing found".
+    score_val = result.get("resolution_rate_pct")
+    found = score_val is not None or result.get("generic_disclosure")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report - employee grievance mechanism",
+        "result": "CHECKED" if found else "NOT_DISCLOSED",
+        "note": None if found else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if not found and _brsr_uploaded(sym) is False
+                       else "SEARCH_INCONCLUSIVE" if not found else "SINGLE_SOURCE")
+    if score_val is not None:
+        rationale = f"Employee grievances: {score_val}."
+    elif found:
+        rationale = ("An employee grievance/redressal mechanism is described in the Annual Report/BRSR, "
+                     "but no quantified resolution rate is disclosed.")
+    elif confidence_tag == "DATA_MISSING":
+        rationale = ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                      "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report.")
+    else:
+        rationale = "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Employee grievances", "available": True, **result,
+        "required_document": "BRSR/ESG Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_N_5_1_ANCHORS = ['human rights policy', 'supplier code of conduct', 'supplier screening']
+
+
+def compute_n_5_1(symbol, name=None, force=False):
+    """N.5.1 - Human-rights policy / supplier screening. Deterministic (no-LLM) - see
+    tools.esg_scoring.score_human_rights_policy."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "N.5.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.esg_scoring import score_human_rights_policy
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _N_5_1_ANCHORS, "ar_n_5_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="n-5-1",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_human_rights_policy(text)
+    except Exception as e:
+        print(f"[qualitative_engine] N.5.1 fetch failed for {sym}: {e}")
+        result = {"human_rights_supplychain_score": None}
+
+    score_val = result.get("human_rights_supplychain_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report - human rights/supply-chain screening policy",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _brsr_uploaded(sym) is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Human-rights policy / supplier screening: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Human-rights policy / supplier screening", "available": True, **result,
+        "required_document": "BRSR/ESG Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_N_5_2_ANCHORS = ['forced labour', 'child labour']
+
+
+def compute_n_5_2(symbol, name=None, force=False):
+    """N.5.2 - Forced/child labour incidents. Deterministic (no-LLM) - see
+    tools.esg_scoring.classify_forced_labour_status."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "N.5.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.esg_scoring import classify_forced_labour_status
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _N_5_2_ANCHORS, "ar_n_5_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="n-5-2",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = classify_forced_labour_status(text)
+    except Exception as e:
+        print(f"[qualitative_engine] N.5.2 fetch failed for {sym}: {e}")
+        result = {"incident_status": None}
+
+    score_val = result.get("incident_status")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report - forced/child labour incident disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _brsr_uploaded(sym) is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Forced/child labour incidents: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Forced/child labour incidents", "available": True, **result,
+        "required_document": "BRSR/ESG Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_O_1_1_ANCHORS = ['controversy', 'controversies', 'public backlash', 'media scrutiny']
+
+
+def compute_o_1_1(symbol, name=None, force=False):
+    """O.1.1 - Material controversies. Deterministic (no-LLM) - see
+    tools.reputation_scoring.score_material_controversies."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "O.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.reputation_scoring import score_material_controversies
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _O_1_1_ANCHORS, "ar_o_1_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="o-1-1",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_material_controversies(text)
+    except Exception as e:
+        print(f"[qualitative_engine] O.1.1 fetch failed for {sym}: {e}")
+        result = {"controversy_score": None}
+
+    score_val = result.get("controversy_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements / Annual Report - material controversy disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Material controversies: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Material controversies", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_O_1_2_ANCHORS = ['investor complaint', 'shareholder complaint', 'stakeholder complaint',
+                  # SEBI LODR Schedule V Part C's mandated bare
+                  # "complaints filed/disposed/pending" 3-line disclosure
+                  # doesn't always prefix "investor"/"shareholder" - real
+                  # gap confirmed on Prime Fresh Limited.
+                  'complaints filed', 'complaints pending', 'complaints disposed']
+
+
+def compute_o_1_2(symbol, name=None, force=False):
+    """O.1.2 - Stakeholder complaints. Deterministic (no-LLM) - see
+    tools.reputation_scoring.score_stakeholder_complaints."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "O.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.reputation_scoring import score_stakeholder_complaints
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _O_1_2_ANCHORS, "ar_o_1_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="o-1-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_stakeholder_complaints(text)
+    except Exception as e:
+        print(f"[qualitative_engine] O.1.2 fetch failed for {sym}: {e}")
+        result = {"complaint_resolution_score": None}
+
+    score_val = result.get("complaint_resolution_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Corporate Governance Report - investor complaints",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Stakeholder complaints: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Stakeholder complaints", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_O_2_2_ANCHORS = ['safety incident', 'fatal accident', 'lost-time accident']
+
+
+def compute_o_2_2(symbol, name=None, force=False):
+    """O.2.2 - Safety incidents. Deterministic (no-LLM) - see
+    tools.reputation_scoring.score_safety_incidents."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "O.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.reputation_scoring import score_safety_incidents
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _O_2_2_ANCHORS, "ar_o_2_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="o-2-2",
+            extra_manual_document_types=('brsr_esg_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_safety_incidents(text)
+    except Exception as e:
+        print(f"[qualitative_engine] O.2.2 fetch failed for {sym}: {e}")
+        result = {"safety_incident_score": None}
+
+    score_val = result.get("safety_incident_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "BRSR/ESG Report / Annual Report - safety incident disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _brsr_uploaded(sym) is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Safety incidents: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Safety incidents", "available": True, **result,
+        "required_document": "BRSR/ESG Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_O_2_3_ANCHORS = ['product recall', 'negative campaign', 'negative publicity']
+
+
+def compute_o_2_3(symbol, name=None, force=False):
+    """O.2.3 - Negative campaigns / reputation response. Deterministic (no-LLM) - see
+    tools.reputation_scoring.score_reputation_response."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "O.2.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.reputation_scoring import score_reputation_response
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _O_2_3_ANCHORS, "ar_o_2_3_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="o-2-3",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_reputation_response(text)
+    except Exception as e:
+        print(f"[qualitative_engine] O.2.3 fetch failed for {sym}: {e}")
+        result = {"reputation_response_score": None}
+
+    score_val = result.get("reputation_response_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements - product recall/reputation event disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Negative campaigns / reputation response: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Negative campaigns / reputation response", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_O_3_1_ANCHORS = ['fine imposed', 'penalty imposed', 'regulatory fine']
+
+
+def compute_o_3_1(symbol, name=None, force=False):
+    """O.3.1 - Regulatory fines. Deterministic (no-LLM) - see
+    tools.reputation_scoring.score_regulatory_fines."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "O.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.reputation_scoring import score_regulatory_fines
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _O_3_1_ANCHORS, "ar_o_3_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="o-3-1",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_regulatory_fines(text)
+    except Exception as e:
+        print(f"[qualitative_engine] O.3.1 fetch failed for {sym}: {e}")
+        result = {"fine_frequency_score": None}
+
+    score_val = result.get("fine_frequency_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements / Annual Report - regulatory fines",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Regulatory fines: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Regulatory fines", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_O_3_2_ANCHORS = ['regulatory order', 'under investigation', 'regulatory investigation']
+
+
+def compute_o_3_2(symbol, name=None, force=False):
+    """O.3.2 - Public investigations. Deterministic (no-LLM) - see
+    tools.reputation_scoring.classify_public_investigation_status."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "O.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.reputation_scoring import classify_public_investigation_status
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _O_3_2_ANCHORS, "ar_o_3_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="o-3-2",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = classify_public_investigation_status(text)
+    except Exception as e:
+        print(f"[qualitative_engine] O.3.2 fetch failed for {sym}: {e}")
+        result = {"investigation_status": None}
+
+    score_val = result.get("investigation_status")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements - regulatory investigation status",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Public investigations: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Public investigations", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_P_1_1_ANCHORS = ['notes to accounts', 'significant accounting policies']
+
+
+def compute_p_1_1(symbol, name=None, force=False):
+    """P.1.1 - Disclosure detail. Deterministic (no-LLM) - see
+    tools.disclosure_audit_scoring.score_disclosure_detail."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "P.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.disclosure_audit_scoring import score_disclosure_detail
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _P_1_1_ANCHORS, "ar_p_1_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="p-1-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_disclosure_detail(text)
+    except Exception as e:
+        print(f"[qualitative_engine] P.1.1 fetch failed for {sym}: {e}")
+        result = {"disclosure_quality_score": None}
+
+    score_val = result.get("disclosure_quality_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - disclosure detail",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Disclosure detail: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Disclosure detail", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_P_2_1_ANCHORS = ['related party transactions', 'nature of relationship', 'name of related party']
+
+
+def compute_p_2_1(symbol, name=None, force=False):
+    """P.2.1 - RPT completeness. Deterministic (no-LLM) - see
+    tools.disclosure_audit_scoring.score_rpt_completeness."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "P.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.disclosure_audit_scoring import score_rpt_completeness
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _P_2_1_ANCHORS, "ar_p_2_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="p-2-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_rpt_completeness(text)
+    except Exception as e:
+        print(f"[qualitative_engine] P.2.1 fetch failed for {sym}: {e}")
+        result = {"rpt_disclosure_completeness_score": None}
+
+    score_val = result.get("rpt_disclosure_completeness_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Ind AS 24 RPT disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"RPT completeness: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "RPT completeness", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_P_2_2_ANCHORS = ['ordinary course', "arm's length", 'related party transactions']
+
+
+def compute_p_2_2(symbol, name=None, force=False):
+    """P.2.2 - RPT explanation quality. Deterministic (no-LLM) - see
+    tools.disclosure_audit_scoring.score_rpt_explanation_quality."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "P.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.disclosure_audit_scoring import score_rpt_explanation_quality
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _P_2_2_ANCHORS, "ar_p_2_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="p-2-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_rpt_explanation_quality(text)
+    except Exception as e:
+        print(f"[qualitative_engine] P.2.2 fetch failed for {sym}: {e}")
+        result = {"rpt_explanation_score": None}
+
+    score_val = result.get("rpt_explanation_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - RPT explanation",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"RPT explanation quality: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "RPT explanation quality", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_P_3_1_ANCHORS = ["auditor's report", 'unmodified opinion', 'qualified opinion', 'adverse opinion', 'disclaimer of opinion']
+
+
+def compute_p_3_1(symbol, name=None, force=False):
+    """P.3.1 - Audit opinion. Deterministic (no-LLM) - see
+    tools.disclosure_audit_scoring.classify_audit_opinion."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "P.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.disclosure_audit_scoring import classify_audit_opinion
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _P_3_1_ANCHORS, "ar_p_3_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="p-3-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = classify_audit_opinion(text)
+    except Exception as e:
+        print(f"[qualitative_engine] P.3.1 fetch failed for {sym}: {e}")
+        result = {"audit_opinion_status": None}
+
+    score_val = result.get("audit_opinion_status")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Independent Auditor's Report - opinion",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Audit opinion: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Audit opinion", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_P_3_2_ANCHORS = ['key audit matters', 'emphasis of matter', 'material uncertainty']
+
+
+def compute_p_3_2(symbol, name=None, force=False):
+    """P.3.2 - Emphasis of matter / key audit matters. Deterministic (no-LLM) - see
+    tools.disclosure_audit_scoring.score_emphasis_of_matter."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "P.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.disclosure_audit_scoring import score_emphasis_of_matter
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _P_3_2_ANCHORS, "ar_p_3_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="p-3-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_emphasis_of_matter(text)
+    except Exception as e:
+        print(f"[qualitative_engine] P.3.2 fetch failed for {sym}: {e}")
+        result = {"audit_attention_score": None}
+
+    score_val = result.get("audit_attention_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Independent Auditor's Report - KAM/EOM",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Emphasis of matter / key audit matters: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Emphasis of matter / key audit matters", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_P_3_3_ANCHORS = ['restatement', 'restated prior period', 'restated comparative',
+                  # "ratios have been restated" is the real, common
+                  # phrasing when a filer restates the RATIO ANALYSIS
+                  # note (not just the financial statements themselves)
+                  # for prior-period-error corrections - confirmed real
+                  # on Prime Fresh Limited.
+                  'have been restated', 'prior period error']
+
+
+def compute_p_3_3(symbol, name=None, force=False):
+    """P.3.3 - Restatements. Deterministic (no-LLM) - see
+    tools.disclosure_audit_scoring.score_restatements."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "P.3.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.disclosure_audit_scoring import score_restatements
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _P_3_3_ANCHORS, "ar_p_3_3_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="p-3-3",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_restatements(text)
+    except Exception as e:
+        print(f"[qualitative_engine] P.3.3 fetch failed for {sym}: {e}")
+        result = {"restatement_score": None}
+
+    score_val = result.get("restatement_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - restatements",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Restatements: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Restatements", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_P_4_2_ANCHORS = ['functional currency']
+
+
+def compute_p_4_2(symbol, name=None, force=False):
+    """P.4.2 - Multiple currencies. Deterministic (no-LLM) - see
+    tools.disclosure_audit_scoring.score_multiple_currencies."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "P.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.disclosure_audit_scoring import score_multiple_currencies
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _P_4_2_ANCHORS, "ar_p_4_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="p-4-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_multiple_currencies(text)
+    except Exception as e:
+        print(f"[qualitative_engine] P.4.2 fetch failed for {sym}: {e}")
+        result = {"currency_count": None}
+
+    score_val = result.get("currency_count")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - functional/presentation currency",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Multiple currencies: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Multiple currencies", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_P_4_3_ANCHORS = ['subsidiaries', 'list of subsidiaries', 'associates and joint ventures']
+
+
+def compute_p_4_3(symbol, name=None, force=False):
+    """P.4.3 - Subsidiary complexity. Deterministic (no-LLM) - see
+    tools.disclosure_audit_scoring.score_subsidiary_complexity."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "P.4.3"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.disclosure_audit_scoring import score_subsidiary_complexity
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _P_4_3_ANCHORS, "ar_p_4_3_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="p-4-3",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        # Reuse the SAME named-entity extraction C.4.2/C.4.3/C.4.4 already
+        # use (handles both the inline "Name (NN%)" and SEBI-annexure
+        # formats) as a fallback when no explicit "N subsidiaries"
+        # summary sentence exists - see score_subsidiary_complexity's
+        # docstring.
+        entities = _fetch_group_entities(sym, name)
+        result = score_subsidiary_complexity(text, entities=entities)
+    except Exception as e:
+        print(f"[qualitative_engine] P.4.3 fetch failed for {sym}: {e}")
+        result = {"subsidiary_count": None}
+
+    score_val = result.get("subsidiary_count")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - subsidiaries/associates/JVs",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Subsidiary complexity: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Subsidiary complexity", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_Q_1_2_ANCHORS = ['appointment of cfo', 'resignation of cfo', 'chief financial officer']
+
+
+def compute_q_1_2(symbol, name=None, force=False):
+    """Q.1.2 - CFO / finance leadership churn. Deterministic (no-LLM) - see
+    tools.structural_redflag_scoring.score_cfo_churn."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "Q.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.structural_redflag_scoring import score_cfo_churn
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _Q_1_2_ANCHORS, "ar_q_1_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="q-1-2",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_cfo_churn(text)
+    except Exception as e:
+        print(f"[qualitative_engine] Q.1.2 fetch failed for {sym}: {e}")
+        result = {"finance_leadership_churn_score": None}
+
+    score_val = result.get("finance_leadership_churn_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements - CFO/finance leadership change disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"CFO / finance leadership churn: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "CFO / finance leadership churn", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_Q_3_1_ANCHORS = ['step-down subsidiary', 'multi-layered structure', 'group structure']
+
+
+def compute_q_3_1(symbol, name=None, force=False):
+    """Q.3.1 - Group structure opacity. Deterministic (no-LLM) - see
+    tools.structural_redflag_scoring.score_group_structure_opacity."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "Q.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.structural_redflag_scoring import score_group_structure_opacity
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _Q_3_1_ANCHORS, "ar_q_3_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="q-3-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        entities = _fetch_group_entities(sym, name)
+        result = score_group_structure_opacity(text, entities=entities)
+    except Exception as e:
+        print(f"[qualitative_engine] Q.3.1 fetch failed for {sym}: {e}")
+        result = {"structure_opacity_score": None}
+
+    score_val = result.get("structure_opacity_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - group structure",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Group structure opacity: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Group structure opacity", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_Q_3_2_ANCHORS = ['dormant company', 'dormant entity', 'non-operating subsidiary',
+                  # Form AOC-1's own mandated field (Companies Act 2013
+                  # Sec. 129(3)/Rule 5) directly answers this KPI: "Names
+                  # of subsidiaries which are yet to commence operations"
+                  # - a real "None"/"N.A." answer here is a genuine clean
+                  # finding, not an absence of data.
+                  'yet to commence operations']
+
+
+def compute_q_3_2(symbol, name=None, force=False):
+    """Q.3.2 - Dormant / non-operating entities. Deterministic (no-LLM) - see
+    tools.structural_redflag_scoring.score_dormant_entities."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "Q.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.structural_redflag_scoring import score_dormant_entities
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _Q_3_2_ANCHORS, "ar_q_3_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="q-3-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_dormant_entities(text)
+    except Exception as e:
+        print(f"[qualitative_engine] Q.3.2 fetch failed for {sym}: {e}")
+        result = {"dormant_entity_score": None}
+
+    score_val = result.get("dormant_entity_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - dormant/non-operating entities",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Dormant / non-operating entities: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Dormant / non-operating entities", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_Q_4_1_ANCHORS = ['year-end transaction', 'close to the financial year-end']
+
+
+def compute_q_4_1(symbol, name=None, force=False):
+    """Q.4.1 - Year-end transaction concentration. Deterministic (no-LLM) - see
+    tools.structural_redflag_scoring.score_year_end_concentration."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "Q.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.structural_redflag_scoring import score_year_end_concentration
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _Q_4_1_ANCHORS, "ar_q_4_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="q-4-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_year_end_concentration(text)
+    except Exception as e:
+        print(f"[qualitative_engine] Q.4.1 fetch failed for {sym}: {e}")
+        result = {"year_end_concentration_score": None}
+
+    score_val = result.get("year_end_concentration_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - year-end transaction disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Year-end transaction concentration: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Year-end transaction concentration", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_Q_4_2_ANCHORS = ['was explained', 'was justified']
+
+
+def compute_q_4_2(symbol, name=None, force=False):
+    """Q.4.2 - Explanation quality. Deterministic (no-LLM) - see
+    tools.structural_redflag_scoring.score_explanation_quality."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "Q.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.structural_redflag_scoring import score_explanation_quality
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _Q_4_2_ANCHORS, "ar_q_4_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="q-4-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_explanation_quality(text)
+    except Exception as e:
+        print(f"[qualitative_engine] Q.4.2 fetch failed for {sym}: {e}")
+        result = {"explanation_score": None}
+
+    score_val = result.get("explanation_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - transaction explanations",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Explanation quality: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Explanation quality", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_R_1_1_ANCHORS = ['resignation with immediate effect', 'ceased to be a director', 'resignation of director']
+
+
+def compute_r_1_1(symbol, name=None, force=False):
+    """R.1.1 - Sudden departures. Deterministic (no-LLM) - see
+    tools.earlywarning_scoring.score_sudden_departures."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.earlywarning_scoring import score_sudden_departures
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _R_1_1_ANCHORS, "ar_r_1_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="r-1-1",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_sudden_departures(text)
+    except Exception as e:
+        print(f"[qualitative_engine] R.1.1 fetch failed for {sym}: {e}")
+        result = {"departure_risk_score": None}
+
+    score_val = result.get("departure_risk_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements - director resignation disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Sudden departures: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Sudden departures", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_R_1_2_ANCHORS = ['appointed as director', 'named successor', 'new managing director']
+
+
+def compute_r_1_2(symbol, name=None, force=False):
+    """R.1.2 - Succession response. Deterministic (no-LLM) - see
+    tools.earlywarning_scoring.score_succession_response."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.earlywarning_scoring import score_succession_response
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _R_1_2_ANCHORS, "ar_r_1_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="r-1-2",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_succession_response(text)
+    except Exception as e:
+        print(f"[qualitative_engine] R.1.2 fetch failed for {sym}: {e}")
+        result = {"succession_coverage": None}
+
+    score_val = result.get("succession_coverage")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements - successor appointment disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Succession response: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Succession response", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_R_3_1_ANCHORS = ['rights issue', 'qualified institutions placement', 'preferential issue', 'qip']
+
+
+def compute_r_3_1(symbol, name=None, force=False):
+    """R.3.1 - Capital raise frequency. Deterministic (no-LLM) - see
+    tools.earlywarning_scoring.score_capital_raise_frequency."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.earlywarning_scoring import score_capital_raise_frequency
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _R_3_1_ANCHORS, "ar_r_3_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="r-3-1",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_capital_raise_frequency(text)
+    except Exception as e:
+        print(f"[qualitative_engine] R.3.1 fetch failed for {sym}: {e}")
+        result = {"capital_raise_frequency_score": None}
+
+    score_val = result.get("capital_raise_frequency_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements / Corporate Actions - capital raise events",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Capital raise frequency: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Capital raise frequency", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_R_3_2_ANCHORS = ['issue price of']
+
+
+def compute_r_3_2(symbol, name=None, force=False):
+    """R.3.2 - Discount / pricing. Deterministic (no-LLM) - see
+    tools.earlywarning_scoring.score_discount_pricing."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.earlywarning_scoring import score_discount_pricing
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _R_3_2_ANCHORS, "ar_r_3_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="r-3-2",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_discount_pricing(text)
+    except Exception as e:
+        print(f"[qualitative_engine] R.3.2 fetch failed for {sym}: {e}")
+        result = {"pricing_score": None}
+
+    score_val = result.get("pricing_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements - capital raise pricing disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Discount / pricing: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Discount / pricing", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_R_4_1_ANCHORS = ['sale of asset for', 'disposal of business for']
+
+
+def compute_r_4_1(symbol, name=None, force=False):
+    """R.4.1 - One-off transaction frequency. Deterministic (no-LLM) - see
+    tools.earlywarning_scoring.score_oneoff_transaction_frequency."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.earlywarning_scoring import score_oneoff_transaction_frequency
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _R_4_1_ANCHORS, "ar_r_4_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="r-4-1",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_oneoff_transaction_frequency(text)
+    except Exception as e:
+        print(f"[qualitative_engine] R.4.1 fetch failed for {sym}: {e}")
+        result = {"oneoff_frequency_score": None}
+
+    score_val = result.get("oneoff_frequency_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements / Annual Report - one-off transaction disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"One-off transaction frequency: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "One-off transaction frequency", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_R_4_2_ANCHORS = ['transfer pricing study', 'transfer pricing report', 'transfer pricing documentation']
+
+
+def compute_r_4_2(symbol, name=None, force=False):
+    """R.4.2 - Transfer pricing / rationale. Deterministic (no-LLM) - see
+    tools.earlywarning_scoring.score_transfer_pricing_rationale."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.earlywarning_scoring import score_transfer_pricing_rationale
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _R_4_2_ANCHORS, "ar_r_4_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="r-4-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_transfer_pricing_rationale(text)
+    except Exception as e:
+        print(f"[qualitative_engine] R.4.2 fetch failed for {sym}: {e}")
+        result = {"transaction_rationale_score": None}
+
+    score_val = result.get("transaction_rationale_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - transfer pricing disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Transfer pricing / rationale: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Transfer pricing / rationale", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_R_5_1_ANCHORS = ['auditor resigned', 'resignation of the statutory auditor', 'resignation of auditor']
+
+
+def compute_r_5_1(symbol, name=None, force=False):
+    """R.5.1 - Auditor resignation. Deterministic (no-LLM) - see
+    tools.earlywarning_scoring.score_auditor_resignation."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.5.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.earlywarning_scoring import score_auditor_resignation
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _R_5_1_ANCHORS, "ar_r_5_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="r-5-1",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_auditor_resignation(text)
+    except Exception as e:
+        print(f"[qualitative_engine] R.5.1 fetch failed for {sym}: {e}")
+        result = {"resignation_flag": None}
+
+    score_val = result.get("resignation_flag")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements - auditor resignation disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Auditor resignation: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Auditor resignation", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_R_5_2_ANCHORS = ['material weakness', 'internal control deficiency', 'internal financial controls']
+
+
+def compute_r_5_2(symbol, name=None, force=False):
+    """R.5.2 - Internal control issues. Deterministic (no-LLM) - see
+    tools.earlywarning_scoring.score_internal_control_issues."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.5.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.earlywarning_scoring import score_internal_control_issues
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _R_5_2_ANCHORS, "ar_r_5_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="r-5-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_internal_control_issues(text)
+    except Exception as e:
+        print(f"[qualitative_engine] R.5.2 fetch failed for {sym}: {e}")
+        result = {"control_issue_score": None}
+
+    score_val = result.get("control_issue_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Independent Auditor's Report - internal controls",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Internal control issues: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Internal control issues", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_R_6_1_ANCHORS = ['board responded', 'company addressed the matter']
+
+
+def compute_r_6_1(symbol, name=None, force=False):
+    """R.6.1 - Response cadence. Deterministic (no-LLM) - see
+    tools.earlywarning_scoring.score_response_cadence."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.6.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.earlywarning_scoring import score_response_cadence
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _R_6_1_ANCHORS, "ar_r_6_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="r-6-1",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_response_cadence(text)
+    except Exception as e:
+        print(f"[qualitative_engine] R.6.1 fetch failed for {sym}: {e}")
+        result = {"response_cadence_score": None}
+
+    score_val = result.get("response_cadence_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements - company response disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Response cadence: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Response cadence", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_R_6_2_ANCHORS = ['remedial action', 'corrective measures', 'remedial measures']
+
+
+def compute_r_6_2(symbol, name=None, force=False):
+    """R.6.2 - Substance of response. Deterministic (no-LLM) - see
+    tools.earlywarning_scoring.score_response_substance."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.6.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.earlywarning_scoring import score_response_substance
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _R_6_2_ANCHORS, "ar_r_6_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="r-6-2",
+            extra_manual_document_types=('corporate_actions',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_response_substance(text)
+    except Exception as e:
+        print(f"[qualitative_engine] R.6.2 fetch failed for {sym}: {e}")
+        result = {"response_substance_score": None}
+
+    score_val = result.get("response_substance_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Announcements / Annual Report - remedial action disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_actions") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Substance of response: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Actions History (BSE/NSE), which is not part of the uploaded Annual Report. Upload: Corporate Actions History (BSE/NSE)."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Substance of response", "available": True, **result,
+        "required_document": "Corporate Actions History (BSE/NSE)" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_T_1_1_ANCHORS = ['sanctions', 'embargo']
+
+
+def compute_t_1_1(symbol, name=None, force=False):
+    """T.1.1 - Sanctions / embargo exposure. Deterministic (no-LLM) - see
+    tools.geopolitical_scoring.score_sanctions_exposure."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "T.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.geopolitical_scoring import score_sanctions_exposure
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _T_1_1_ANCHORS, "ar_t_1_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="t-1-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_sanctions_exposure(text)
+    except Exception as e:
+        print(f"[qualitative_engine] T.1.1 fetch failed for {sym}: {e}")
+        result = {"sanctions_exposure_score": None}
+
+    score_val = result.get("sanctions_exposure_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Risk Factors - sanctions/embargo exposure",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Sanctions / embargo exposure: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Sanctions / embargo exposure", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_T_1_2_ANCHORS = ['tariff', 'tariffs imposed']
+
+
+def compute_t_1_2(symbol, name=None, force=False):
+    """T.1.2 - Tariff exposure. Deterministic (no-LLM) - see
+    tools.geopolitical_scoring.score_tariff_exposure."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "T.1.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.geopolitical_scoring import score_tariff_exposure
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _T_1_2_ANCHORS, "ar_t_1_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="t-1-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_tariff_exposure(text)
+    except Exception as e:
+        print(f"[qualitative_engine] T.1.2 fetch failed for {sym}: {e}")
+        result = {"tariff_exposure_score": None}
+
+    score_val = result.get("tariff_exposure_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Risk Factors - tariff exposure",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Tariff exposure: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Tariff exposure", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_T_2_1_ANCHORS = ['gst rate change', 'goods and services tax']
+
+
+def compute_t_2_1(symbol, name=None, force=False):
+    """T.2.1 - GST sensitivity. Deterministic (no-LLM) - see
+    tools.geopolitical_scoring.score_gst_sensitivity."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "T.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.geopolitical_scoring import score_gst_sensitivity
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _T_2_1_ANCHORS, "ar_t_2_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="t-2-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_gst_sensitivity(text)
+    except Exception as e:
+        print(f"[qualitative_engine] T.2.1 fetch failed for {sym}: {e}")
+        result = {"gst_sensitivity_score": None}
+
+    score_val = result.get("gst_sensitivity_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - GST policy sensitivity",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"GST sensitivity: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "GST sensitivity", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_T_2_2_ANCHORS = ['import duty', 'customs duty']
+
+
+def compute_t_2_2(symbol, name=None, force=False):
+    """T.2.2 - Import duty sensitivity. Deterministic (no-LLM) - see
+    tools.geopolitical_scoring.score_import_duty_sensitivity."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "T.2.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.geopolitical_scoring import score_import_duty_sensitivity
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _T_2_2_ANCHORS, "ar_t_2_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="t-2-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_import_duty_sensitivity(text)
+    except Exception as e:
+        print(f"[qualitative_engine] T.2.2 fetch failed for {sym}: {e}")
+        result = {"import_duty_sensitivity_score": None}
+
+    score_val = result.get("import_duty_sensitivity_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - import duty sensitivity",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Import duty sensitivity: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Import duty sensitivity", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_T_3_1_ANCHORS = ['currency convertibility', 'capital controls']
+
+
+def compute_t_3_1(symbol, name=None, force=False):
+    """T.3.1 - Convertibility risk. Deterministic (no-LLM) - see
+    tools.geopolitical_scoring.score_convertibility_risk."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "T.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.geopolitical_scoring import score_convertibility_risk
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _T_3_1_ANCHORS, "ar_t_3_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="t-3-1",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_convertibility_risk(text)
+    except Exception as e:
+        print(f"[qualitative_engine] T.3.1 fetch failed for {sym}: {e}")
+        result = {"convertibility_risk_score": None}
+
+    score_val = result.get("convertibility_risk_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Risk Factors - currency convertibility risk",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Convertibility risk: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Convertibility risk", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_T_3_2_ANCHORS = ['repatriation of profits', 'repatriation risk']
+
+
+def compute_t_3_2(symbol, name=None, force=False):
+    """T.3.2 - Repatriation risk. Deterministic (no-LLM) - see
+    tools.geopolitical_scoring.score_repatriation_risk."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "T.3.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.geopolitical_scoring import score_repatriation_risk
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _T_3_2_ANCHORS, "ar_t_3_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="t-3-2",
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_repatriation_risk(text)
+    except Exception as e:
+        print(f"[qualitative_engine] T.3.2 fetch failed for {sym}: {e}")
+        result = {"repatriation_risk_score": None}
+
+    score_val = result.get("repatriation_risk_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "NSE Corporate Filings - Annual Reports - Risk Factors - repatriation risk",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = (f"Repatriation risk: {score_val}." if score_val is not None
+                 else ("This item requires a BRSR (Business Responsibility and Sustainability Report), "
+                       "which is not part of the uploaded Annual Report. Upload: BRSR/ESG Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Repatriation risk", "available": True, **result,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_U_1_1_ANCHORS = ['our key risks', 'principal risks', 'top risks']
+
+
+def compute_u_1_1(symbol, name=None, force=False):
+    """U.1.1 - Top management-identified risk. Deterministic (no-LLM) - see
+    tools.management_qa_scoring.score_top_risk."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "U.1.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.management_qa_scoring import score_top_risk
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _U_1_1_ANCHORS, "ar_u_1_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="u-1-1",
+            extra_manual_document_types=('earnings_call_transcript', 'investor_presentation'),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_top_risk(text)
+    except Exception as e:
+        print(f"[qualitative_engine] U.1.1 fetch failed for {sym}: {e}")
+        result = {"risk_alignment_score": None}
+
+    score_val = result.get("risk_alignment_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "Earnings Call Transcript / Investor Presentation - management-stated top risks",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Top management-identified risk: {score_val}." if score_val is not None
+                 else (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Top management-identified risk", "available": True, **result,
+        "required_document": "Investor Presentation or Earnings Call Transcript" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_U_2_1_ANCHORS = ['capital allocation framework', 'capital allocation priorities']
+
+
+def compute_u_2_1(symbol, name=None, force=False):
+    """U.2.1 - Capital allocation framework. Deterministic (no-LLM) - see
+    tools.management_qa_scoring.score_capital_allocation_framework."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "U.2.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.management_qa_scoring import score_capital_allocation_framework
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _U_2_1_ANCHORS, "ar_u_2_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="u-2-1",
+            extra_manual_document_types=('earnings_call_transcript', 'investor_presentation'),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_capital_allocation_framework(text)
+    except Exception as e:
+        print(f"[qualitative_engine] U.2.1 fetch failed for {sym}: {e}")
+        result = {"disclosed": None}
+
+    score_val = result.get("disclosed")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "Earnings Call Transcript / Investor Presentation - capital allocation framework",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Capital allocation framework: {score_val}." if score_val is not None
+                 else (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Capital allocation framework", "available": True, **result,
+        "required_document": "Investor Presentation or Earnings Call Transcript" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_U_3_1_ANCHORS = ['our competitors include', 'key competitors are']
+
+
+def compute_u_3_1(symbol, name=None, force=False):
+    """U.3.1 - Management-named competitors. Deterministic (no-LLM) - see
+    tools.management_qa_scoring.score_named_competitors."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "U.3.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.management_qa_scoring import score_named_competitors
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _U_3_1_ANCHORS, "ar_u_3_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="u-3-1",
+            extra_manual_document_types=('earnings_call_transcript', 'investor_presentation'),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_named_competitors(text)
+    except Exception as e:
+        print(f"[qualitative_engine] U.3.1 fetch failed for {sym}: {e}")
+        result = {"competitor_evidence_score": None}
+
+    score_val = result.get("competitor_evidence_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "Earnings Call Transcript / Investor Presentation - management-named competitors",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Management-named competitors: {score_val}." if score_val is not None
+                 else (f"This item requires Investor Presentation or Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Investor Presentation or Earnings Call Transcript."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Management-named competitors", "available": True, **result,
+        "required_document": "Investor Presentation or Earnings Call Transcript" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_U_4_1_ANCHORS = ['revenue is sensitive to', 'key revenue risks']
+
+
+def compute_u_4_1(symbol, name=None, force=False):
+    """U.4.1 - Revenue sensitivity. Deterministic (no-LLM) - see
+    tools.management_qa_scoring.score_revenue_sensitivity."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "U.4.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.management_qa_scoring import score_revenue_sensitivity
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _U_4_1_ANCHORS, "ar_u_4_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="u-4-1",
+            extra_manual_document_types=('earnings_call_transcript',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_revenue_sensitivity(text)
+    except Exception as e:
+        print(f"[qualitative_engine] U.4.1 fetch failed for {sym}: {e}")
+        result = {"revenue_risk_coverage_score": None}
+
+    score_val = result.get("revenue_risk_coverage_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "Earnings Call Transcript - management-stated revenue sensitivity",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Revenue sensitivity: {score_val}." if score_val is not None
+                 else (f"This item requires Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Earnings Call Transcript."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Revenue sensitivity", "available": True, **result,
+        "required_document": "Earnings Call Transcript" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_U_4_2_ANCHORS = ['margin is sensitive to', 'key margin risks']
+
+
+def compute_u_4_2(symbol, name=None, force=False):
+    """U.4.2 - Margin sensitivity. Deterministic (no-LLM) - see
+    tools.management_qa_scoring.score_margin_sensitivity."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "U.4.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.management_qa_scoring import score_margin_sensitivity
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _U_4_2_ANCHORS, "ar_u_4_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="u-4-2",
+            extra_manual_document_types=('earnings_call_transcript',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_margin_sensitivity(text)
+    except Exception as e:
+        print(f"[qualitative_engine] U.4.2 fetch failed for {sym}: {e}")
+        result = {"margin_risk_coverage_score": None}
+
+    score_val = result.get("margin_risk_coverage_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "Earnings Call Transcript - management-stated margin sensitivity",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Margin sensitivity: {score_val}." if score_val is not None
+                 else (f"This item requires Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Earnings Call Transcript."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Margin sensitivity", "available": True, **result,
+        "required_document": "Earnings Call Transcript" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_U_5_1_ANCHORS = ['management has explained', 'board has explained', 'related party transaction']
+
+
+def compute_u_5_1(symbol, name=None, force=False):
+    """U.5.1 - Management explanation of material RPTs. Deterministic (no-LLM) - see
+    tools.management_qa_scoring.score_rpt_management_explanation."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "U.5.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.management_qa_scoring import score_rpt_management_explanation
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _U_5_1_ANCHORS, "ar_u_5_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="u-5-1",
+            extra_manual_document_types=('earnings_call_transcript',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_rpt_management_explanation(text)
+    except Exception as e:
+        print(f"[qualitative_engine] U.5.1 fetch failed for {sym}: {e}")
+        result = {"explanation_quality_score": None}
+
+    score_val = result.get("explanation_quality_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "Earnings Call Transcript / Annual Report - management RPT explanation",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"Management explanation of material RPTs: {score_val}." if score_val is not None
+                 else (f"This item requires Earnings Call Transcript, which is not part of the uploaded Annual Report. Upload: Earnings Call Transcript."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Management explanation of material RPTs", "available": True, **result,
+        "required_document": "Earnings Call Transcript" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_U_6_1_ANCHORS = ['ceo succession plan', 'succession plan for the chief executive']
+
+
+def compute_u_6_1(symbol, name=None, force=False):
+    """U.6.1 - CEO succession. Deterministic (no-LLM) - see
+    tools.management_qa_scoring.score_ceo_succession."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "U.6.1"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.management_qa_scoring import score_ceo_succession
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _U_6_1_ANCHORS, "ar_u_6_1_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="u-6-1",
+            extra_manual_document_types=('corporate_governance_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_ceo_succession(text)
+    except Exception as e:
+        print(f"[qualitative_engine] U.6.1 fetch failed for {sym}: {e}")
+        result = {"ceo_succession_score": None}
+
+    score_val = result.get("ceo_succession_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "Corporate Governance Report - CEO succession planning",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_governance_report") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"CEO succession: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Governance Report, which is not part of the uploaded Annual Report. Upload: Corporate Governance Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "CEO succession", "available": True, **result,
+        "required_document": "Corporate Governance Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_U_6_2_ANCHORS = ['cfo succession plan', 'succession plan for the chief financial officer']
+
+
+def compute_u_6_2(symbol, name=None, force=False):
+    """U.6.2 - CFO succession. Deterministic (no-LLM) - see
+    tools.management_qa_scoring.score_cfo_succession."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "U.6.2"
+
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.management_qa_scoring import score_cfo_succession
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _U_6_2_ANCHORS, "ar_u_6_2_v1",
+            max_per_page=4, max_excerpts=20, fetch_label="u-6-2",
+            extra_manual_document_types=('corporate_governance_report',),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_cfo_succession(text)
+    except Exception as e:
+        print(f"[qualitative_engine] U.6.2 fetch failed for {sym}: {e}")
+        result = {"cfo_succession_score": None}
+
+    score_val = result.get("cfo_succession_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP",
+        "source": "Corporate Governance Report - CFO succession planning",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located in the uploaded documents this run.",
+    }]
+
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "corporate_governance_report") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    rationale = (f"CFO succession: {score_val}." if score_val is not None
+                 else (f"This item requires Corporate Governance Report, which is not part of the uploaded Annual Report. Upload: Corporate Governance Report."
+                       if confidence_tag == "DATA_MISSING" else
+                       "No supporting evidence found in uploaded documents for this run."))
+    payload = {
+        "subpoint_id": subpoint_id, "title": "CFO succession", "available": True, **result,
+        "required_document": "Corporate Governance Report" if confidence_tag == "DATA_MISSING" else None,
+        "rationale": rationale,
+        "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+
+# ---------------------------------------------------------------------------
+# A.1.A / A.1.B - business model clarity sub-points. See tools.
+# business_model_gap_scoring for why these are independent of the
+# LLM-dependent compute_a1_business_model_clarity parent.
+# ---------------------------------------------------------------------------
+
+def compute_a1_a_single_product_vs_portfolio(symbol, name=None, force=False):
+    """A.1.A - Single product vs Portfolio/Diversified (segment count
+    classification). Spec formula: 1 segment OR one segment >=90% of
+    revenue = Single Product; otherwise = Portfolio/Diversified."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.1.A"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.business_model_gap_scoring import classify_single_product_vs_portfolio
+    segments_pct, segments_fy = _fetch_segment_revenue_context(sym, name)
+    result = classify_single_product_vs_portfolio(segments_pct)
+
+    pathway_results = [{
+        "pathway_id": "AR-14",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Segment Information (Ind AS 108)",
+        "result": "CHECKED" if result["classification"] is not None else "NOT_DISCLOSED",
+        "note": None if result["classification"] is not None else "No reconciled segment revenue note found for this company.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if result["classification"] is None else "SINGLE_SOURCE"
+    rationale = (f"Classified as {result['classification']} (dominant segment {result['dominant_segment_pct']}% of revenue)."
+                 if result["classification"] else "No reconciled segment revenue note found for this company.")
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Single product vs Portfolio/Diversified (segment count classification)",
+        "available": True, **result, "segment_fiscal_year": segments_fy,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_a1_b_cyclical_vs_recurring(symbol, name=None, force=False):
+    """A.1.B - Cyclical vs Recurring revenue pattern (revenue-weighted
+    blend across segments). See tools.business_model_gap_scoring for the
+    documented segment-level proxy limitation."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.1.B"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.business_model_gap_scoring import classify_cyclical_vs_recurring
+    from tools.revenue_model_scoring import classify_contract_type
+    from tools.annual_report_financials import fetch_revenue_model_evidence_from_annual_report
+
+    segments_pct, segments_fy = _fetch_segment_revenue_context(sym, name)
+    try:
+        ar_evidence = fetch_revenue_model_evidence_from_annual_report(sym, name)
+        ar_excerpts = ar_evidence.get("excerpts") or []
+        ar_text = "\n".join(e["text"] for e in ar_excerpts)
+    except Exception as e:
+        print(f"[qualitative_engine] A.1.B AR fetch failed for {sym}: {e}")
+        ar_text = ""
+    classified = classify_contract_type(ar_text)
+    result = classify_cyclical_vs_recurring(segments_pct, classified["contract_type"])
+
+    pathway_results = [{
+        "pathway_id": "AR-14",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Segment Information / Revenue Recognition",
+        "result": "CHECKED" if result["classification"] is not None else "NOT_DISCLOSED",
+        "note": result["blend_note"],
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if result["classification"] is None else "SINGLE_SOURCE"
+    rationale = (f"Classified as {result['classification']}. {result['blend_note']}" if result["classification"]
+                 else result["blend_note"])
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Cyclical vs Recurring revenue pattern (revenue-weighted blend across segments)",
+        "available": True, **result, "segment_fiscal_year": segments_fy,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# A.3.A/B/C/D - project the already-computed A.3 payload's contract_type/
+# renewal fields (compute_a3_revenue_model_quality is fully deterministic,
+# not LLM-dependent) instead of re-deriving evidence.
+# ---------------------------------------------------------------------------
+
+def _project_a3_subpoint(symbol, name, subpoint_id, title, target_type, force):
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    a3 = compute_a3_revenue_model_quality(sym, name, force=force)
+    contract_type = a3.get("contract_type")
+    if contract_type == target_type:
+        status, matched = "verified", True
+    elif contract_type is not None:
+        status, matched = "not_applicable", False
+    else:
+        status, matched = "not_disclosed", None
+
+    pathway_results = [{
+        "pathway_id": "AR-14",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Revenue Recognition (Ind AS 115)",
+        "result": "CHECKED" if contract_type is not None else "NOT_DISCLOSED",
+        "note": a3.get("evidence_source"),
+    }]
+    confidence_tag = {"verified": "SINGLE_SOURCE", "not_applicable": "SINGLE_SOURCE", "not_disclosed": "SEARCH_INCONCLUSIVE"}[status]
+    rationale = {
+        "verified": f"Annual Report revenue-recognition text classifies this company's revenue as {target_type}. {a3.get('rationale') or ''}".strip(),
+        "not_applicable": f"Annual Report revenue-recognition text classifies this company's revenue as {contract_type}, not {target_type}.",
+        "not_disclosed": "No Ind AS 115 revenue-recognition-timing language was located in the Annual Report this run.",
+    }[status]
+    payload = {
+        "subpoint_id": subpoint_id, "title": title, "available": True,
+        "matched": matched, "status": status, "contract_type": contract_type,
+        "evidence_quote": a3.get("evidence_quote"),
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_a3_a_transactional(symbol, name=None, force=False):
+    """A.3.A - Transactional. Projects compute_a3_revenue_model_quality's
+    already-computed contract_type classification."""
+    return _project_a3_subpoint(symbol, name, "A.3.A", "Transactional", "transactional", force)
+
+
+def compute_a3_b_recurring(symbol, name=None, force=False):
+    """A.3.B - Recurring. Projects compute_a3_revenue_model_quality's
+    already-computed contract_type classification."""
+    return _project_a3_subpoint(symbol, name, "A.3.B", "Recurring", "recurring", force)
+
+
+def compute_a3_c_annuity(symbol, name=None, force=False):
+    """A.3.C - Annuity. Projects compute_a3_revenue_model_quality's
+    already-computed contract_type classification."""
+    return _project_a3_subpoint(symbol, name, "A.3.C", "Annuity", "annuity", force)
+
+
+def compute_a3_d_contract_length_renewal(symbol, name=None, force=False):
+    """A.3.D - Contract length & renewal dynamics. Spec formula: Renewal
+    Rate = Contracts Renewed / Contracts Up for Renewal. Projects
+    compute_a3_revenue_model_quality's already-extracted renewal-rate
+    field - if unavailable, NOT_DISCLOSED per the spec's own instruction."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.3.D"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    a3 = compute_a3_revenue_model_quality(sym, name, force=force)
+    renewal_pct = a3.get("contract_renewal_rate_pct")
+    pathway_results = [{
+        "pathway_id": "AR-14",
+        "source": "NSE Corporate Filings - Annual Reports - MD&A - contract renewal disclosures",
+        "result": "CHECKED" if renewal_pct is not None else "NOT_DISCLOSED",
+        "note": None if renewal_pct is not None else "Contracts renewed / contracts up for renewal not both disclosed this run.",
+    }]
+    confidence_tag = "SINGLE_SOURCE" if renewal_pct is not None else "SEARCH_INCONCLUSIVE"
+    rationale = (f"Contract renewal rate: {renewal_pct}%." if renewal_pct is not None
+                 else "Contracts renewed / contracts up for renewal not both disclosed this run.")
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Contract length & renewal dynamics", "available": True,
+        "contract_renewal_rate_pct": renewal_pct, "evidence_quote": a3.get("renewal_rate_evidence_quote"),
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# A.4.A/B/C/D - project the already-computed A.4 payload's per-stage
+# revenue-weighted shares (compute_a4_product_lifecycle_stage is fully
+# deterministic, not LLM-dependent).
+# ---------------------------------------------------------------------------
+
+def _project_a4_subpoint(symbol, name, subpoint_id, title, stage_key, force):
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    a4 = compute_a4_product_lifecycle_stage(sym, name, force=force)
+    segments = a4.get("segments") or []
+    share_pct = sum(s["share_pct"] for s in segments if s.get("stage") == stage_key)
+    matched_any = any(s.get("stage") == stage_key for s in segments)
+    available = bool(segments)
+
+    pathway_results = [{
+        "pathway_id": "AR-14",
+        "source": "NSE Corporate Filings - Annual Reports - Notes to Accounts - Segment Information (multi-year)",
+        "result": "CHECKED" if available else "NOT_DISCLOSED",
+        "note": a4.get("reason"),
+    }]
+    if not available:
+        status, confidence_tag = "not_disclosed", "SEARCH_INCONCLUSIVE"
+        rationale = a4.get("reason") or "No multi-year segment revenue data available."
+    elif matched_any:
+        status, confidence_tag = "verified", "SINGLE_SOURCE"
+        rationale = f"{round(share_pct, 1)}% of revenue classified as {stage_key} this run."
+    else:
+        status, confidence_tag = "not_applicable", "SINGLE_SOURCE"
+        rationale = f"No segment revenue was classified as {stage_key} this run."
+
+    payload = {
+        "subpoint_id": subpoint_id, "title": title, "available": True,
+        "status": status, "share_pct": round(share_pct, 1) if available else None,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_a4_a_growth(symbol, name=None, force=False):
+    """A.4.A - Growth. Projects compute_a4_product_lifecycle_stage's
+    already-computed per-segment stage classification."""
+    return _project_a4_subpoint(symbol, name, "A.4.A", "Growth", "growth", force)
+
+
+def compute_a4_b_maturity(symbol, name=None, force=False):
+    """A.4.B - Maturity. Projects compute_a4_product_lifecycle_stage's
+    already-computed per-segment stage classification."""
+    return _project_a4_subpoint(symbol, name, "A.4.B", "Maturity", "maturity", force)
+
+
+def compute_a4_c_commoditisation(symbol, name=None, force=False):
+    """A.4.C - Commoditisation. Projects compute_a4_product_lifecycle_stage's
+    already-computed per-segment stage classification."""
+    return _project_a4_subpoint(symbol, name, "A.4.C", "Commoditisation", "commoditisation", force)
+
+
+def compute_a4_d_obsolescence_risk(symbol, name=None, force=False):
+    """A.4.D - Obsolescence risk (Decline). Projects
+    compute_a4_product_lifecycle_stage's already-computed per-segment
+    stage classification."""
+    return _project_a4_subpoint(symbol, name, "A.4.D", "Obsolescence risk (Decline)", "decline", force)
+
+
+# ---------------------------------------------------------------------------
+# A.5.A/B, A.6.A/B - independent deterministic sub-points (see
+# tools.business_model_gap_scoring's module docstring for why these do
+# NOT reuse the LLM-dependent A.5/A.6 parents).
+# ---------------------------------------------------------------------------
+
+_A5_A_ANCHORS = ["price increase", "realisation increase", "pricing power", "price hike"]
+
+
+def compute_a5_a_pricing_power_ability(symbol, name=None, force=False):
+    """A.5.A - Ability to raise prices without losing customers.
+    Deterministic (no-LLM) - see tools.business_model_gap_scoring.
+    score_pricing_power_ability."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.5.A"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.business_model_gap_scoring import score_pricing_power_ability
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _A5_A_ANCHORS, "ar_a5_a_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="pricing-power-ability",
+            extra_manual_document_types=("earnings_call_transcript", "investor_presentation"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_pricing_power_ability(text)
+    except Exception as e:
+        print(f"[qualitative_engine] A.5.A fetch failed for {sym}: {e}")
+        result = {"pricing_power_score": None}
+    score_val = result.get("pricing_power_score")
+    pathway_results = [{
+        "pathway_id": "QUAL-02", "source": "Earnings Call Transcript / Investor Presentation - realisation and volume trend",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No realisation-vs-volume evidence located this run.",
+    }]
+    confidence_tag = ("DATA_MISSING" if score_val is None and _manual_doc_uploaded(sym, "investor_presentation") is False and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+                      else "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE")
+    _doc_label_a5a = "Investor Presentation or Earnings Call Transcript"
+    if score_val is not None:
+        rationale = f"Pricing power score: {score_val}/5."
+    elif confidence_tag == "DATA_MISSING":
+        rationale = f"This item requires {_doc_label_a5a}, which is not part of the uploaded Annual Report. Upload: {_doc_label_a5a}."
+    else:
+        rationale = "No realisation-vs-volume evidence located this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Ability to raise prices without losing customers", "available": True,
+        "required_document": _doc_label_a5a if confidence_tag == "DATA_MISSING" else None,
+        **result, "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_A5_B_ANCHORS = ["pass-through of cost inflation", "cost inflation", "passed on"]
+
+
+def compute_a5_b_cost_passthrough(symbol, name=None, force=False):
+    """A.5.B - Pass-through of cost inflation. Spec formula: Pass-through
+    Ratio = % Change in Realisation / % Change in Input Cost. Deterministic
+    (no-LLM) - see tools.business_model_gap_scoring.score_cost_passthrough."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.5.B"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.business_model_gap_scoring import score_cost_passthrough
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _A5_B_ANCHORS, "ar_a5_b_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="cost-passthrough",
+            extra_manual_document_types=("earnings_call_transcript",),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_cost_passthrough(text)
+    except Exception as e:
+        print(f"[qualitative_engine] A.5.B fetch failed for {sym}: {e}")
+        result = {"pass_through_pct": None}
+    # Same generic-disclosure-discarded bug as K.2.1/K.3.1/K.4.2/N.4.3 -
+    # score_cost_passthrough sets `generic_disclosure: True` when
+    # pass-through language is present without a quantified %.
+    pct = result.get("pass_through_pct")
+    found = pct is not None or result.get("generic_disclosure")
+    pathway_results = [{
+        "pathway_id": "QUAL-02", "source": "Earnings Call Transcript - realisation vs input cost pass-through",
+        "result": "CHECKED" if found else "NOT_DISCLOSED",
+        "note": None if found else "Either realisation change % or input cost change % was not disclosed this run.",
+    }]
+    _dm_a5b = not found and _manual_doc_uploaded(sym, "earnings_call_transcript") is False
+    confidence_tag = "SINGLE_SOURCE" if found else ("DATA_MISSING" if _dm_a5b else "SEARCH_INCONCLUSIVE")
+    _doc_label_a5b = "Earnings Call Transcript"
+    if pct is not None:
+        rationale = f"Pass-through: {pct}%."
+    elif found:
+        rationale = "Cost pass-through to pricing is discussed, but no quantified pass-through percentage is disclosed."
+    elif _dm_a5b:
+        rationale = f"This item requires {_doc_label_a5b}, which is not part of the uploaded Annual Report. Upload: {_doc_label_a5b}."
+    else:
+        rationale = "Either realisation change % or input cost change % was not disclosed this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Pass-through of cost inflation", "available": True,
+        "required_document": _doc_label_a5b if _dm_a5b else None,
+        **result, "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_a6_a_structurally_defensible_margins(symbol, name=None, force=False,
+                                                   ebitda_margin_series=None):
+    """A.6.A - Structurally defensible margins. Spec formula: Margin
+    Volatility = Std Dev of EBITDA Margin (5Y) / Mean EBITDA Margin (5Y).
+    Deterministic (no-LLM), computed directly from the real audited
+    margin series - see tools.business_model_gap_scoring.
+    score_margin_defensibility."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.6.A"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.business_model_gap_scoring import score_margin_defensibility
+    result = score_margin_defensibility(ebitda_margin_series)
+    available = ebitda_margin_series is not None and len(ebitda_margin_series or []) >= 3
+    pathway_results = [{
+        "pathway_id": "PORTAL-01", "source": "Audited annual/quarterly EBITDA margin series",
+        "result": "CHECKED" if available else "NOT_DISCLOSED",
+        "note": None if available else "Fewer than 3 years of EBITDA margin history available.",
+    }]
+    confidence_tag = "SINGLE_SOURCE" if result["defensible"] is not None else "SEARCH_INCONCLUSIVE"
+    rationale = (f"Margin volatility {result['margin_volatility']}, trend {result['trend']} - defensible={result['defensible']}."
+                 if result["defensible"] is not None else "Fewer than 3 years of EBITDA margin history available.")
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Structurally defensible margins", "available": True,
+        **result, "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_A6_B_ANCHORS = ["exceptional item", "exceptional items", "one-off", "one-time item"]
+
+
+def compute_a6_b_temporary_tailwinds(symbol, name=None, force=False):
+    """A.6.B - Temporary tailwinds (one-off / exceptional items). Spec:
+    for every flagged outlier, cite the exact disclosed one-off item; if
+    none disclosed, state that explicitly rather than inventing a reason.
+    Deterministic (no-LLM) - see tools.business_model_gap_scoring.
+    score_exceptional_items."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "A.6.B"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.business_model_gap_scoring import score_exceptional_items
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _A6_B_ANCHORS, "ar_a6_b_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="exceptional-items",
+        )
+        excerpts = evidence.get("excerpts") or []
+        text = " ".join((ex.get("text") or "") for ex in excerpts) if isinstance(evidence, dict) else ""
+        result = score_exceptional_items(text)
+    except Exception as e:
+        print(f"[qualitative_engine] A.6.B fetch failed for {sym}: {e}")
+        result = {"exceptional_items_score": None}
+        excerpts = []
+    score_val = result.get("exceptional_items_score")
+    pathway_results = [{
+        "pathway_id": "AR-10", "source": "NSE Corporate Filings - Annual Reports - Statement of Profit & Loss - Exceptional Items note",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "Unexplained by disclosed exceptional items - no matching note found this run.",
+    }]
+    confidence_tag = "SINGLE_SOURCE" if score_val is not None else "SEARCH_INCONCLUSIVE"
+    rationale = (excerpts[0]["text"][:300] if (score_val is not None and excerpts)
+                 else "Unexplained by disclosed exceptional items.")
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Temporary tailwinds (one-off / exceptional items)", "available": True,
+        **result, "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# P.1.2, P.4.1 - composite/date-dependent sub-points with no reliable
+# document-only source in this workflow.
+# ---------------------------------------------------------------------------
+
+def compute_p1_2_timeliness(symbol, name=None, force=False):
+    """P.1.2 - Timeliness/frequency. Spec formula needs the actual filing
+    date vs period-end date, neither of which this document-only upload
+    workflow captures (the user uploads a PDF, not a dated e-filing
+    record) - honestly INSUFFICIENT_DATA rather than guessed."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "P.1.2"
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Timeliness / frequency", "available": True,
+        "days_to_file": None,
+        "rationale": "Filing date vs period-end date is not captured by the document-upload workflow (only the PDF itself is available, not its e-filing timestamp).",
+        "pathway_results": [{
+            "pathway_id": "PORTAL-01", "source": "NSE Corporate Filings - filing timestamp",
+            "result": "NOT_CHECKED", "note": "No structured filing-date source in this workflow.",
+        }],
+    }
+    write_qualitative(sym, subpoint_id, payload, "SEARCH_INCONCLUSIVE")
+    payload["confidence_tag"] = "SEARCH_INCONCLUSIVE"
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_p4_1_financial_statement_complexity(symbol, name=None, force=False):
+    """P.4.1 - Financial statement complexity. Reuses the already-computed
+    P.4.2 (currency count) and P.4.3 (subsidiary count) results rather
+    than re-deriving from text, per the spec's own "structural complexity,
+    not subjective text scanning" instruction."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "P.4.1"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.disclosure_audit_scoring import score_financial_statement_complexity
+    p42 = compute_p_4_2(sym, name, force=force)
+    p43 = compute_p_4_3(sym, name, force=force)
+    result = score_financial_statement_complexity(p43.get("subsidiary_count"), p42.get("currency_count"))
+    score = result.get("complexity_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "Derived from P.4.2 (currency count) and P.4.3 (subsidiary count)",
+        "result": "CHECKED" if score is not None else "NOT_DISCLOSED",
+        "note": None if score is not None else "Neither currency count nor subsidiary count was disclosed this run.",
+    }]
+    confidence_tag = "SINGLE_SOURCE" if score is not None else "SEARCH_INCONCLUSIVE"
+    rationale = f"Complexity score: {score}/5." if score is not None else "Neither currency count nor subsidiary count was disclosed this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Financial statement complexity", "available": True,
+        **result, "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# R.2.1, R.2.2 - reuse the SAME structured Regulation 7(2) insider-trade
+# list D.1.x already fetches (tools.insider_trading_scraper), never
+# re-derived from free text, since dates/values must be exact.
+# ---------------------------------------------------------------------------
+
+def compute_r2_1_rapid_insider_selling(symbol, name=None, force=False):
+    """R.2.1 - Rapid insider selling. Reuses tools.insider_trading_scraper
+    (same structured Regulation 7(2) feed as D.1.x) - flags 2+ sales
+    within any rolling 30-day window in the last 8 quarters."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.2.1"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+    try:
+        from tools.insider_trading_scraper import fetch_insider_trades
+        rows = fetch_insider_trades(sym, quarters=8) or []
+        sells = [r for r in rows if str(r.get("acqu_mode") or r.get("mode") or "").lower().startswith(("sale", "sell", "s"))] if rows else []
+    except Exception as e:
+        print(f"[qualitative_engine] R.2.1 fetch failed for {sym}: {e}")
+        rows, sells = [], []
+    from tools.earlywarning_scoring import score_rapid_insider_selling
+    result = score_rapid_insider_selling(len(sells) if rows else None)
+    flag = result.get("rapid_selling_flag")
+    pathway_results = [{
+        "pathway_id": "PORTAL-07", "source": "NSE Corporate Filings - Insider Trading - Regulation 7(2) disclosures",
+        "result": "CHECKED" if rows else "NOT_DISCLOSED",
+        "note": None if rows else "No Regulation 7(2) insider-trading disclosure was located for the last 8 quarters this run.",
+    }]
+    confidence_tag = "SINGLE_SOURCE" if flag is not None else "SEARCH_INCONCLUSIVE"
+    rationale = f"Rapid selling flag: {flag} ({len(sells)} sell disclosures)." if flag is not None else "No Regulation 7(2) insider-trading disclosure was located this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Rapid insider selling", "available": True,
+        **result, "sell_count": len(sells) if rows else None,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+def compute_r2_2_concentrated_block_sales(symbol, name=None, force=False):
+    """R.2.2 - Concentrated block sales. Spec formula: Block Sale
+    Concentration = Largest Sale / Total Insider Sales x 100. Reuses the
+    same structured Regulation 7(2) feed as D.1.3/R.2.1."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "R.2.2"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+    try:
+        from tools.insider_trading_scraper import fetch_insider_trades
+        rows = fetch_insider_trades(sym, quarters=8) or []
+        sell_values = [float(r.get("value") or 0) for r in rows if str(r.get("acqu_mode") or r.get("mode") or "").lower().startswith(("sale", "sell", "s")) and r.get("value")]
+    except Exception as e:
+        print(f"[qualitative_engine] R.2.2 fetch failed for {sym}: {e}")
+        rows, sell_values = [], []
+    from tools.earlywarning_scoring import score_concentrated_block_sales
+    total = sum(sell_values) if sell_values else None
+    largest = max(sell_values) if sell_values else None
+    result = score_concentrated_block_sales(largest, total)
+    pct = result.get("block_sale_concentration_pct")
+    pathway_results = [{
+        "pathway_id": "PORTAL-07", "source": "NSE Corporate Filings - Insider Trading - Regulation 7(2) disclosures",
+        "result": "CHECKED" if rows else "NOT_DISCLOSED",
+        "note": None if pct is not None else "Sale transaction values not disclosed this run.",
+    }]
+    confidence_tag = "SINGLE_SOURCE" if pct is not None else "SEARCH_INCONCLUSIVE"
+    rationale = f"Largest single sale is {pct}% of total insider sale value this run." if pct is not None else "Sale transaction values not disclosed this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Concentrated block sales", "available": True,
+        **result, "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+_S_1_1_ANCHORS = ['gross npa', 'asset quality']
+
+
+def compute_s_1_1(symbol, name=None, force=False):
+    """S.1.1 - Asset quality. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.1"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.1.1"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.1", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Asset quality", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.1."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_asset_quality
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_1_1_ANCHORS, "ar_s_1_1_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_1_1", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_asset_quality(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.1.1 fetch failed for {sym}: {e}")
+        result = {"asset_quality_score": None}
+
+    score_val = result.get("asset_quality_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Asset quality: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Asset quality", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_1_2_ANCHORS = ['related party exposure', 'loans to related part']
+
+
+def compute_s_1_2(symbol, name=None, force=False):
+    """S.1.2 - Related-party exposures. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.1"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.1.2"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.1", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Related-party exposures", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.1."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_rpt_exposure_bank
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_1_2_ANCHORS, "ar_s_1_2_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_1_2", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_rpt_exposure_bank(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.1.2 fetch failed for {sym}: {e}")
+        result = {"rpt_exposure_score": None}
+
+    score_val = result.get("rpt_exposure_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Related-party exposures: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Related-party exposures", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_1_3_ANCHORS = ['capital adequacy ratio', 'car of']
+
+
+def compute_s_1_3(symbol, name=None, force=False):
+    """S.1.3 - Regulatory capital. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.1"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.1.3"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.1", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Regulatory capital", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.1."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_regulatory_capital
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_1_3_ANCHORS, "ar_s_1_3_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_1_3", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_regulatory_capital(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.1.3 fetch failed for {sym}: {e}")
+        result = {"capital_adequacy_score": None}
+
+    score_val = result.get("capital_adequacy_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Regulatory capital: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Regulatory capital", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_1_4_ANCHORS = ['loan underwriting', 'credit appraisal']
+
+
+def compute_s_1_4(symbol, name=None, force=False):
+    """S.1.4 - Loan underwriting quality. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.1"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.1.4"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.1", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Loan underwriting quality", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.1."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_underwriting_quality
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_1_4_ANCHORS, "ar_s_1_4_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_1_4", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_underwriting_quality(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.1.4 fetch failed for {sym}: {e}")
+        result = {"underwriting_quality_score": None}
+
+    score_val = result.get("underwriting_quality_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Loan underwriting quality: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Loan underwriting quality", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_2_2_ANCHORS = ['patent expiry', 'loss of exclusivity', 'patent cliff']
+
+
+def compute_s_2_2(symbol, name=None, force=False):
+    """S.2.2 - Patent cliffs. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.2"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.2.2"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.2", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Patent cliffs", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.2."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_patent_cliffs
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_2_2_ANCHORS, "ar_s_2_2_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_2_2", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_patent_cliffs(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.2.2 fetch failed for {sym}: {e}")
+        result = {"patent_cliff_risk_score": None}
+
+    score_val = result.get("patent_cliff_risk_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Patent cliffs: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Patent cliffs", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_2_3_ANCHORS = ['usfda inspection', 'regulatory inspection', 'warning letter']
+
+
+def compute_s_2_3(symbol, name=None, force=False):
+    """S.2.3 - Regulatory inspections. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.2"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.2.3"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.2", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Regulatory inspections", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.2."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_regulatory_inspections
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_2_3_ANCHORS, "ar_s_2_3_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_2_3", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_regulatory_inspections(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.2.3 fetch failed for {sym}: {e}")
+        result = {"inspection_risk_score": None}
+
+    score_val = result.get("inspection_risk_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Regulatory inspections: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Regulatory inspections", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_2_4_ANCHORS = ['drug price control', 'nppa', 'price control']
+
+
+def compute_s_2_4(symbol, name=None, force=False):
+    """S.2.4 - Price controls. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.2"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.2.4"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.2", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Price controls", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.2."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_price_controls
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_2_4_ANCHORS, "ar_s_2_4_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_2_4", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_price_controls(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.2.4 fetch failed for {sym}: {e}")
+        result = {"price_control_exposure_score": None}
+
+    score_val = result.get("price_control_exposure_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Price controls: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Price controls", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_3_1_ANCHORS = ['new model launch', 'model refresh']
+
+
+def compute_s_3_1(symbol, name=None, force=False):
+    """S.3.1 - Model refresh cycle. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.3"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.3.1"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.3", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Model refresh cycle", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.3."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_model_refresh_cycle
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_3_1_ANCHORS, "ar_s_3_1_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_3_1", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_model_refresh_cycle(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.3.1 fetch failed for {sym}: {e}")
+        result = {"refresh_strength_score": None}
+
+    score_val = result.get("refresh_strength_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Model refresh cycle: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Model refresh cycle", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_3_2_ANCHORS = ['dealer inventory', 'channel stock']
+
+
+def compute_s_3_2(symbol, name=None, force=False):
+    """S.3.2 - Channel inventory. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.3"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.3.2"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.3", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Channel inventory", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.3."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_channel_inventory
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_3_2_ANCHORS, "ar_s_3_2_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_3_2", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_channel_inventory(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.3.2 fetch failed for {sym}: {e}")
+        result = {"channel_inventory_risk_score": None}
+
+    score_val = result.get("channel_inventory_risk_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Channel inventory: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Channel inventory", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_3_3_ANCHORS = ['export revenue']
+
+
+def compute_s_3_3(symbol, name=None, force=False):
+    """S.3.3 - Export dependency. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.3"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.3.3"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.3", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Export dependency", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.3."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_export_dependency_s3
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_3_3_ANCHORS, "ar_s_3_3_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_3_3", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_export_dependency_s3(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.3.3 fetch failed for {sym}: {e}")
+        result = {"export_pct": None}
+
+    score_val = result.get("export_pct")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Export dependency: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Export dependency", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_4_1_ANCHORS = ['top client', 'client concentration']
+
+
+def compute_s_4_1(symbol, name=None, force=False):
+    """S.4.1 - Client concentration. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.4"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.4.1"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.4", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Client concentration", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.4."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_client_concentration
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_4_1_ANCHORS, "ar_s_4_1_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_4_1", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_client_concentration(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.4.1 fetch failed for {sym}: {e}")
+        result = {"top_client_pct": None}
+
+    score_val = result.get("top_client_pct")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Client concentration: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Client concentration", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_4_2_ANCHORS = ['contract renewal risk', 'non-renewal of']
+
+
+def compute_s_4_2(symbol, name=None, force=False):
+    """S.4.2 - Contract renewal risk. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.4"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.4.2"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.4", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Contract renewal risk", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.4."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_contract_renewal_risk
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_4_2_ANCHORS, "ar_s_4_2_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_4_2", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_contract_renewal_risk(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.4.2 fetch failed for {sym}: {e}")
+        result = {"renewal_risk_score": None}
+
+    score_val = result.get("renewal_risk_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Contract renewal risk: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Contract renewal risk", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_4_3_ANCHORS = ['visa restriction', 'immigration policy']
+
+
+def compute_s_4_3(symbol, name=None, force=False):
+    """S.4.3 - Visa / immigration dependence. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.4"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.4.3"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.4", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Visa / immigration dependence", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.4."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_visa_dependence
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_4_3_ANCHORS, "ar_s_4_3_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_4_3", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_visa_dependence(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.4.3 fetch failed for {sym}: {e}")
+        result = {"visa_risk_score": None}
+
+    score_val = result.get("visa_risk_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Visa / immigration dependence: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Visa / immigration dependence", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_5_1_ANCHORS = ['leading brand', 'brand recall', 'brand equity']
+
+
+def compute_s_5_1(symbol, name=None, force=False):
+    """S.5.1 - Brand strength. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.5"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.5.1"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.5", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Brand strength", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.5."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_brand_strength_s5
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_5_1_ANCHORS, "ar_s_5_1_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_5_1", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_brand_strength_s5(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.5.1 fetch failed for {sym}: {e}")
+        result = {"brand_strength_score": None}
+
+    score_val = result.get("brand_strength_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Brand strength: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Brand strength", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_5_2_ANCHORS = ['retail outlets', 'dealers', 'distributors']
+
+
+def compute_s_5_2(symbol, name=None, force=False):
+    """S.5.2 - Distribution depth. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.5"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.5.2"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.5", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Distribution depth", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.5."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_distribution_depth_s5
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_5_2_ANCHORS, "ar_s_5_2_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_5_2", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_distribution_depth_s5(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.5.2 fetch failed for {sym}: {e}")
+        result = {"outlet_count": None}
+
+    score_val = result.get("outlet_count")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Distribution depth: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Distribution depth", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+_S_5_3_ANCHORS = ['input cost volatility', 'raw material price volatility']
+
+
+def compute_s_5_3(symbol, name=None, force=False):
+    """S.5.3 - Commodity input volatility. Sector-gated: only applies to companies in
+    tools.sector_specific_scoring.SECTOR_APPLICABILITY["S.5"]."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    subpoint_id = "S.5.3"
+    if not force:
+        cached = read_qualitative(sym, subpoint_id)
+        if cached is not None:
+            try:
+                age = time.time() - time.mktime(time.strptime(cached["retrieved_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+                if age <= CACHE_TTL:
+                    return cached
+            except Exception:
+                return cached
+
+    from tools.nse_sector_map import get_nse_sector
+    from tools.sector_specific_scoring import is_sector_applicable
+    sector = get_nse_sector(sym)
+    if not is_sector_applicable("S.5", sector):
+        payload = {
+            "subpoint_id": subpoint_id, "title": "Commodity input volatility", "available": True,
+            "sector": sector, "rationale": f"Not applicable - {sector} is outside this sector-specific block's scope.",
+            "pathway_results": [{"pathway_id": "SECTOR-GATE", "source": "tools.nse_sector_map.get_nse_sector",
+                                  "result": "NOT_APPLICABLE", "note": f"Sector '{sector}' is not in scope for S.5."}],
+        }
+        write_qualitative(sym, subpoint_id, payload, "NOT_APPLICABLE")
+        payload["confidence_tag"] = "NOT_APPLICABLE"
+        payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        return payload
+
+    try:
+        from tools.annual_report_financials import _fetch_ar_evidence_excerpts
+        from tools.sector_specific_scoring import score_commodity_volatility_s5
+        evidence = _fetch_ar_evidence_excerpts(
+            sym, name, _S_5_3_ANCHORS, "ar_s_5_3_v1", max_per_page=4, max_excerpts=20,
+            fetch_label="s_5_3", extra_manual_document_types=("investor_presentation", "earnings_call_transcript", "credit_rating_report"),
+        )
+        text = " ".join((ex.get("text") or "") for ex in (evidence.get("excerpts") or [])) if isinstance(evidence, dict) else ""
+        result = score_commodity_volatility_s5(text)
+    except Exception as e:
+        print(f"[qualitative_engine] S.5.3 fetch failed for {sym}: {e}")
+        result = {"commodity_volatility_score": None}
+
+    score_val = result.get("commodity_volatility_score")
+    pathway_results = [{
+        "pathway_id": "AR-GAP", "source": "NSE Corporate Filings - Annual Reports - sector-specific disclosures",
+        "result": "CHECKED" if score_val is not None else "NOT_DISCLOSED",
+        "note": None if score_val is not None else "No evidence located this run.",
+    }]
+    confidence_tag = "SEARCH_INCONCLUSIVE" if score_val is None else "SINGLE_SOURCE"
+    rationale = f"Commodity input volatility: {score_val}." if score_val is not None else "No supporting evidence found in uploaded documents for this run."
+    payload = {
+        "subpoint_id": subpoint_id, "title": "Commodity input volatility", "available": True, "sector": sector, **result,
+        "rationale": rationale, "pathway_results": pathway_results,
+    }
+    write_qualitative(sym, subpoint_id, payload, confidence_tag)
+    payload["confidence_tag"] = confidence_tag
+    payload["retrieved_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    return payload
+
+
+
+def _summarize_child_result(child):
+    """Picks the first present score/pct/status/classification-style field
+    from a child sub-point's payload for the rollup's rationale line -
+    purely cosmetic string-building, never a new scoring decision."""
+    if not isinstance(child, dict):
+        return None
+    for key in child:
+        if key.endswith(("_score", "_pct", "_ratio")) or key in ("classification", "status", "investigation_status", "audit_opinion_status", "breach_status", "clearance_status", "incident_status", "resignation_flag", "rapid_selling_flag"):
+            val = child.get(key)
+            if val is not None:
+                return f"{key}={val}"
+    return None
+
+
+def _combine_point_rollup(sym, name, point_id, title, children, force):
+    """Generic point-level rollup: calls each child compute_fn, combines
+    their results into one payload WITHOUT persisting itself (matches the
+    established E.7/J.4/C.5 derived-rollup convention - only the
+    subpoints persist). Never fabricates a combined score; if every
+    child came back with no evidence, says so plainly."""
+    child_payloads = {}
+    parts = []
+    tags = []
+    retrieved_ats = []
+    for child_id, child_fn_name in children:
+        try:
+            fn = globals()[child_fn_name]
+            result = fn(sym, name, force=force)
+        except Exception as e:
+            print(f"[qualitative_engine] {point_id} rollup: child {child_id} failed: {e}")
+            result = {"available": False}
+        child_payloads[child_id] = result
+        summary = _summarize_child_result(result)
+        if summary:
+            parts.append(f"{child_id}: {summary}.")
+        tags.append(result.get("confidence_tag"))
+        if result.get("retrieved_at"):
+            retrieved_ats.append(result["retrieved_at"])
+
+    if not parts:
+        parts.append(f"None of this point's {len(children)} sub-point(s) found supporting evidence this run." if children
+                      else "This point has no defined, evidence-bearing sub-points in the framework.")
+
+    combined_tag = "SINGLE_SOURCE" if any(t == "SINGLE_SOURCE" for t in tags) else "SEARCH_INCONCLUSIVE"
+    payload = {
+        "subpoint_id": point_id,
+        "title": title,
+        "available": True,
+        "children": child_payloads,
+        "rationale": " ".join(parts),
+        "pathway_results": [p for c in child_payloads.values() for p in (c.get("pathway_results") or [])][:len(children) or 1],
+        "confidence_tag": combined_tag,
+        "retrieved_at": max(retrieved_ats) if retrieved_ats else time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    return payload
+
+
+
+def compute_k_1(symbol, name=None, force=False):
+    """K.1 - Dependency on commodity prices (oil, metals) and pass-through ability. Derived rollup combining 1 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "K.1", "Dependency on commodity prices (oil, metals) and pass-through ability", [("K.1.1", "compute_k_1_1")], force)
+
+
+
+def compute_k_2(symbol, name=None, force=False):
+    """K.2 - Export/import exposure and geopolitical trade risk. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "K.2", "Export/import exposure and geopolitical trade risk", [("K.2.1", "compute_k_2_1"), ("K.2.2", "compute_k_2_2")], force)
+
+
+
+def compute_k_3(symbol, name=None, force=False):
+    """K.3 - Sensitivity to interest rates & economic cycles: cyclical vs defensive business. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "K.3", "Sensitivity to interest rates & economic cycles: cyclical vs defensive business", [("K.3.1", "compute_k_3_1"), ("K.3.2", "compute_k_3_2")], force)
+
+
+
+def compute_k_4(symbol, name=None, force=False):
+    """K.4 - Foreign currency mismatches: revenues vs costs denominated in different currencies. Derived rollup combining 1 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "K.4", "Foreign currency mismatches: revenues vs costs denominated in different currencies", [("K.4.2", "compute_k_4_2")], force)
+
+
+
+def compute_l_2(symbol, name=None, force=False):
+    """L.2 - History of refinancing or covenant breaches and remedies used. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "L.2", "History of refinancing or covenant breaches and remedies used", [("L.2.1", "compute_l_2_1"), ("L.2.2", "compute_l_2_2")], force)
+
+
+
+def compute_l_3(symbol, name=None, force=False):
+    """L.3 - Dividend policy consistency and rationale for changes. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "L.3", "Dividend policy consistency and rationale for changes", [("L.3.1", "compute_l_3_1"), ("L.3.2", "compute_l_3_2")], force)
+
+
+
+def compute_l_4(symbol, name=None, force=False):
+    """L.4 - Use of off-balance sheet financing, leasing, or structured instruments. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "L.4", "Use of off-balance sheet financing, leasing, or structured instruments", [("L.4.1", "compute_l_4_1"), ("L.4.2", "compute_l_4_2")], force)
+
+
+
+def compute_m_1(symbol, name=None, force=False):
+    """M.1 - Historical M&A record: disciplined or acquisitive; success in integration. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "M.1", "Historical M&A record: disciplined or acquisitive; success in integration", [("M.1.1", "compute_m_1_1"), ("M.1.3", "compute_m_1_3")], force)
+
+
+
+def compute_m_2(symbol, name=None, force=False):
+    """M.2 - Acquisitions from related parties or assets sold to affiliates. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "M.2", "Acquisitions from related parties or assets sold to affiliates", [("M.2.1", "compute_m_2_1"), ("M.2.2", "compute_m_2_2")], force)
+
+
+
+def compute_m_3(symbol, name=None, force=False):
+    """M.3 - Size of M&A pipeline and rationale - value-creating or empire-building?. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "M.3", "Size of M&A pipeline and rationale - value-creating or empire-building?", [("M.3.1", "compute_m_3_1"), ("M.3.2", "compute_m_3_2")], force)
+
+
+
+def compute_n_1(symbol, name=None, force=False):
+    """N.1 - Company's ESG ambition vs actual implementations: targets, roadmaps. Derived rollup combining 1 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "N.1", "Company's ESG ambition vs actual implementations: targets, roadmaps", [("N.1.1", "compute_n_1_1")], force)
+
+
+
+def compute_n_3(symbol, name=None, force=False):
+    """N.3 - Environmental risks: pollution, hazardous waste, pending environmental clearances. Derived rollup combining 3 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "N.3", "Environmental risks: pollution, hazardous waste, pending environmental clearances", [("N.3.1", "compute_n_3_1"), ("N.3.2", "compute_n_3_2"), ("N.3.3", "compute_n_3_3")], force)
+
+
+
+def compute_n_4(symbol, name=None, force=False):
+    """N.4 - Labour relations: unions, strikes, employee grievances. Derived rollup combining 3 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "N.4", "Labour relations: unions, strikes, employee grievances", [("N.4.1", "compute_n_4_1"), ("N.4.2", "compute_n_4_2"), ("N.4.3", "compute_n_4_3")], force)
+
+
+
+def compute_n_5(symbol, name=None, force=False):
+    """N.5 - Supply-chain human rights risk: forced/child labour in sourcing. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "N.5", "Supply-chain human rights risk: forced/child labour in sourcing", [("N.5.1", "compute_n_5_1"), ("N.5.2", "compute_n_5_2")], force)
+
+
+
+def compute_o_1(symbol, name=None, force=False):
+    """O.1 - Recent media controversies, social media sentiment, analyst/stakeholder complaints. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "O.1", "Recent media controversies, social media sentiment, analyst/stakeholder complaints", [("O.1.1", "compute_o_1_1"), ("O.1.2", "compute_o_1_2")], force)
+
+
+
+def compute_o_2(symbol, name=None, force=False):
+    """O.2 - Brand health indicators: negative campaigns, product recalls, safety incidents. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "O.2", "Brand health indicators: negative campaigns, product recalls, safety incidents", [("O.2.2", "compute_o_2_2"), ("O.2.3", "compute_o_2_3")], force)
+
+
+
+def compute_o_3(symbol, name=None, force=False):
+    """O.3 - Regulatory fines or public investigations that damage reputation. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "O.3", "Regulatory fines or public investigations that damage reputation", [("O.3.1", "compute_o_3_1"), ("O.3.2", "compute_o_3_2")], force)
+
+
+
+def compute_p_2(symbol, name=None, force=False):
+    """P.2 - Quality of notes: RPTs fully disclosed and explained. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "P.2", "Quality of notes: RPTs fully disclosed and explained", [("P.2.1", "compute_p_2_1"), ("P.2.2", "compute_p_2_2")], force)
+
+
+
+def compute_p_3(symbol, name=None, force=False):
+    """P.3 - Auditor statements: qualified opinions, emphasis of matter, frequent restatements. Derived rollup combining 3 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "P.3", "Auditor statements: qualified opinions, emphasis of matter, frequent restatements", [("P.3.1", "compute_p_3_1"), ("P.3.2", "compute_p_3_2"), ("P.3.3", "compute_p_3_3")], force)
+
+
+
+def compute_p_4(symbol, name=None, force=False):
+    """P.4 - Complexity of financial statements: many schedules, multiple currencies, many subsidiaries. Derived rollup combining 3 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "P.4", "Complexity of financial statements: many schedules, multiple currencies, many subsidiaries", [("P.4.1", "compute_p4_1_financial_statement_complexity"), ("P.4.2", "compute_p_4_2"), ("P.4.3", "compute_p_4_3")], force)
+
+
+
+def compute_q_1(symbol, name=None, force=False):
+    """Q.1 - Frequent changes in auditors or CFO / finance team churn. Derived rollup combining 1 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "Q.1", "Frequent changes in auditors or CFO / finance team churn", [("Q.1.2", "compute_q_1_2")], force)
+
+
+
+def compute_q_3(symbol, name=None, force=False):
+    """Q.3 - Complex or opaque group structures, many dormant entities. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "Q.3", "Complex or opaque group structures, many dormant entities", [("Q.3.1", "compute_q_3_1"), ("Q.3.2", "compute_q_3_2")], force)
+
+
+
+def compute_q_4(symbol, name=None, force=False):
+    """Q.4 - Unexplained transactions close to reporting dates or fiscal year-end. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "Q.4", "Unexplained transactions close to reporting dates or fiscal year-end", [("Q.4.1", "compute_q_4_1"), ("Q.4.2", "compute_q_4_2")], force)
+
+
+
+def compute_r_1(symbol, name=None, force=False):
+    """R.1 - Sudden top-management departures without clear succession. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "R.1", "Sudden top-management departures without clear succession", [("R.1.1", "compute_r_1_1"), ("R.1.2", "compute_r_1_2")], force)
+
+
+
+def compute_r_2(symbol, name=None, force=False):
+    """R.2 - Rapid, unexplained insider selling or concentrated block sales. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "R.2", "Rapid, unexplained insider selling or concentrated block sales", [("R.2.1", "compute_r2_1_rapid_insider_selling"), ("R.2.2", "compute_r2_2_concentrated_block_sales")], force)
+
+
+
+def compute_r_3(symbol, name=None, force=False):
+    """R.3 - Frequent capital raises or repeated rights issues at discount. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "R.3", "Frequent capital raises or repeated rights issues at discount", [("R.3.1", "compute_r_3_1"), ("R.3.2", "compute_r_3_2")], force)
+
+
+
+def compute_r_4(symbol, name=None, force=False):
+    """R.4 - Large, unexplained one-off transactions: asset sales, transfer pricing. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "R.4", "Large, unexplained one-off transactions: asset sales, transfer pricing", [("R.4.1", "compute_r_4_1"), ("R.4.2", "compute_r_4_2")], force)
+
+
+
+def compute_r_5(symbol, name=None, force=False):
+    """R.5 - Auditor resignation mid-audit or auditor flagging internal control issues. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "R.5", "Auditor resignation mid-audit or auditor flagging internal control issues", [("R.5.1", "compute_r_5_1"), ("R.5.2", "compute_r_5_2")], force)
+
+
+
+def compute_s_1(symbol, name=None, force=False):
+    """S.1 - Financials / banks: asset quality review, related-party exposures, regulatory capital, loan book underwriting quality. Derived rollup combining 4 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "S.1", "Financials / banks: asset quality review, related-party exposures, regulatory capital, loan book underwriting quality", [("S.1.1", "compute_s_1_1"), ("S.1.2", "compute_s_1_2"), ("S.1.3", "compute_s_1_3"), ("S.1.4", "compute_s_1_4")], force)
+
+
+
+def compute_s_2(symbol, name=None, force=False):
+    """S.2 - Pharma: drug approval pipelines, patent cliffs, regulatory inspections, price controls. Derived rollup combining 3 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "S.2", "Pharma: drug approval pipelines, patent cliffs, regulatory inspections, price controls", [("S.2.2", "compute_s_2_2"), ("S.2.3", "compute_s_2_3"), ("S.2.4", "compute_s_2_4")], force)
+
+
+
+def compute_s_3(symbol, name=None, force=False):
+    """S.3 - Auto / auto-components: model refresh cycles, channel inventory, export dependencies. Derived rollup combining 3 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "S.3", "Auto / auto-components: model refresh cycles, channel inventory, export dependencies", [("S.3.1", "compute_s_3_1"), ("S.3.2", "compute_s_3_2"), ("S.3.3", "compute_s_3_3")], force)
+
+
+
+def compute_s_4(symbol, name=None, force=False):
+    """S.4 - Tech / IT services: client concentration, contract renewals, visa/immigration dependencies. Derived rollup combining 3 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "S.4", "Tech / IT services: client concentration, contract renewals, visa/immigration dependencies", [("S.4.1", "compute_s_4_1"), ("S.4.2", "compute_s_4_2"), ("S.4.3", "compute_s_4_3")], force)
+
+
+
+def compute_s_5(symbol, name=None, force=False):
+    """S.5 - Consumer goods: brand strength, distribution depth, commodity input volatility. Derived rollup combining 3 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "S.5", "Consumer goods: brand strength, distribution depth, commodity input volatility", [("S.5.1", "compute_s_5_1"), ("S.5.2", "compute_s_5_2"), ("S.5.3", "compute_s_5_3")], force)
+
+
+
+def compute_t_1(symbol, name=None, force=False):
+    """T.1 - Exposure to foreign sanctions, embargoes, or tariffs. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "T.1", "Exposure to foreign sanctions, embargoes, or tariffs", [("T.1.1", "compute_t_1_1"), ("T.1.2", "compute_t_1_2")], force)
+
+
+
+def compute_t_2(symbol, name=None, force=False):
+    """T.2 - Earnings sensitivity to economic policy: changes in GST, import duties. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "T.2", "Earnings sensitivity to economic policy: changes in GST, import duties", [("T.2.1", "compute_t_2_1"), ("T.2.2", "compute_t_2_2")], force)
+
+
+
+def compute_t_3(symbol, name=None, force=False):
+    """T.3 - Currency convertibility or repatriation risks in operating jurisdictions. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "T.3", "Currency convertibility or repatriation risks in operating jurisdictions", [("T.3.1", "compute_t_3_1"), ("T.3.2", "compute_t_3_2")], force)
+
+
+
+def compute_u_1(symbol, name=None, force=False):
+    """U.1 - What keeps you awake at night about the business?. Derived rollup combining 1 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "U.1", "What keeps you awake at night about the business?", [("U.1.1", "compute_u_1_1")], force)
+
+
+
+def compute_u_2(symbol, name=None, force=False):
+    """U.2 - How do you prioritize capital allocation (growth vs return of capital)?. Derived rollup combining 1 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "U.2", "How do you prioritize capital allocation (growth vs return of capital)?", [("U.2.1", "compute_u_2_1")], force)
+
+
+
+def compute_u_3(symbol, name=None, force=False):
+    """U.3 - Who are your three biggest competitors and why?. Derived rollup combining 1 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "U.3", "Who are your three biggest competitors and why?", [("U.3.1", "compute_u_3_1")], force)
+
+
+
+def compute_u_4(symbol, name=None, force=False):
+    """U.4 - Where do you see revenue & margin sensitivity (top 3 risks)?. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "U.4", "Where do you see revenue & margin sensitivity (top 3 risks)?", [("U.4.1", "compute_u_4_1"), ("U.4.2", "compute_u_4_2")], force)
+
+
+
+def compute_u_5(symbol, name=None, force=False):
+    """U.5 - Explain any large related-party transactions in plain terms.. Derived rollup combining 1 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "U.5", "Explain any large related-party transactions in plain terms.", [("U.5.1", "compute_u_5_1")], force)
+
+
+
+def compute_u_6(symbol, name=None, force=False):
+    """U.6 - What is your succession plan for the CEO & CFO?. Derived rollup combining 2 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "U.6", "What is your succession plan for the CEO & CFO?", [("U.6.1", "compute_u_6_1"), ("U.6.2", "compute_u_6_2")], force)
+
+
+
+def compute_q_2(symbol, name=None, force=False):
+    """Q.2 - Management defensive answers to basic accounting questions. Derived rollup combining 0 already-
+    implemented sub-point(s) - does not persist its own row (see
+    _combine_point_rollup); each sub-point persists independently."""
+    sym = (symbol or "").strip().upper().replace(".NS", "")
+    return _combine_point_rollup(sym, name, "Q.2", "Management defensive answers to basic accounting questions", [], force)

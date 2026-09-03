@@ -1,5 +1,5 @@
 """
-BSE segment scraper — revenue-by-segment for an Indian company, straight from the
+BSE segment scraper - revenue-by-segment for an Indian company, straight from the
 company's own quarterly result filing on BSE ("Segment-wise Revenue, Results,
 Total Assets and Total Liabilities").
 
@@ -95,7 +95,7 @@ def _resolve_scrip_code(symbol, name):
     try:
         s = _sess()
         target = " ".join(_norm(name or symbol).split())
-        # NAME first — BSE symbol search returns famous namesakes (searching "APOLLO"
+        # NAME first - BSE symbol search returns famous namesakes (searching "APOLLO"
         # only returns Apollo Tyres); the company NAME search is reliable. BSE search is
         # picky about long names, so also try trimmed variants ("...Limited" removed, and
         # the first two words).
@@ -120,11 +120,11 @@ def _resolve_scrip_code(symbol, name):
             # Each option: liclick('500510','LARSEN  TOUBRO LTD') ... <span>LT&nbsp;&nbsp;ISIN&nbsp;&nbsp;500510</span>
             # BSE wraps the query's matched substring in <strong> INSIDE the
             # span whenever the query text overlaps the ticker itself (very
-            # common for companies whose name IS their ticker — WIPRO, CIPLA,
+            # common for companies whose name IS their ticker - WIPRO, CIPLA,
             # ZOMATO, TRENT, DLF, UPL, MARICO, ...): e.g.
             # "<span><strong>CIPLA</strong>&nbsp;&nbsp;&nbsp;INE059A01026...".
             # The old `[^<]+` span pattern requires ZERO "<" characters inside
-            # the span and silently found NO entries at all for these — every
+            # the span and silently found NO entries at all for these - every
             # ratio for the company then failed with "No Annual Report
             # filings found", even though the company was found by BSE just
             # fine. Match the span permissively (`.*?`) and strip any HTML
@@ -137,16 +137,16 @@ def _resolve_scrip_code(symbol, name):
                 span_clean = re.sub(r"<[^>]+>", "", span)
                 nse_sym = re.split(r"(?:&nbsp;)+|\s{2,}", span_clean.strip())[0].strip().upper()
                 parsed.append((cd, nm, nse_sym))
-            # 1) Exact NSE-symbol match — kills namesakes (APOLLO -> Apollo Micro, not Tyres).
+            # 1) Exact NSE-symbol match - kills namesakes (APOLLO -> Apollo Micro, not Tyres).
             best = next((cd for cd, nm, ns in parsed if ns == sym_up), None)
             # 2) Exact company-name match.
             if not best:
                 best = next((cd for cd, nm, ns in parsed if " ".join(_norm(nm).split()) == target), None)
             # 3) Name contains, checked BOTH directions (only when we searched
-            # by a name variant — avoids namesakes). Our stored name can be
+            # by a name variant - avoids namesakes). Our stored name can be
             # longer than BSE's current listed name after a corporate rename
             # that shortened it (e.g. "GMR Airports Infrastructure Limited"
-            # in our registry vs. BSE's current "GMR AIRPORTS LTD" record) —
+            # in our registry vs. BSE's current "GMR AIRPORTS LTD" record) -
             # a one-directional `target in entry` check misses that case
             # entirely since target is the longer string. Checking the
             # reverse (entry contained in target) as well as requiring at
@@ -274,10 +274,10 @@ def _f(v):
 
 
 def _extract_segments_llm(seg_text, company, api_key):
-    """Extract segment revenue + profit from the jumbled PDF text via the LLM — robust
+    """Extract segment revenue + profit from the jumbled PDF text via the LLM - robust
     across filing layouts. SELF-VALIDATED: the model also reports the gross segment
     revenue total, and we only accept the extraction if the per-segment revenues sum to
-    it (±6%) — this rejects the failure mode where the model mixes period columns and
+    it (±6%) - this rejects the failure mode where the model mixes period columns and
     mis-maps names to numbers. Retries once, else returns None. Returns (list, period)."""
     from tools.groq_client import groq_chat, parse_json_loose
     prompt = (
@@ -297,7 +297,7 @@ def _extract_segments_llm(seg_text, company, api_key):
         "- revenue_cr / profit_cr = that most-recent-quarter column. revenue_prev_cr / profit_prev_cr = "
         "the SAME quarter a YEAR AGO (for growth), else null.\n"
         "- profit_cr from 'Segment Results'; if that table is absent use null (do NOT guess).\n"
-        "- Every number is a PLAIN INTEGER in Rs crore — NO commas, spaces or symbols (33700, not 33,700).\n\n"
+        "- Every number is a PLAIN INTEGER in Rs crore - NO commas, spaces or symbols (33700, not 33,700).\n\n"
         f"=== SEGMENT TABLE TEXT ===\n{seg_text}"
     )
     messages = [
@@ -334,7 +334,7 @@ def _extract_segments_llm(seg_text, company, api_key):
                 print(f"[bse] segment self-check failed (sum {seg_sum} vs gross {gross}); "
                       f"{'retrying' if attempt == 0 else 'rejecting'}.")
                 messages.append({"role": "user", "content": (
-                    f"The segment revenues you returned sum to {seg_sum} but the gross is {gross} — you mixed "
+                    f"The segment revenues you returned sum to {seg_sum} but the gross is {gross} - you mixed "
                     "columns. Re-read using ONLY the single most-recent-quarter column so the segments sum to the gross.")})
                 continue
             return out, data.get("period")
@@ -367,7 +367,7 @@ def fetch_bse_segments(symbol, name=None):
     """
     Segment-wise business model from the company's audited BSE quarterly result filing:
     {'segments': [{name, revenue_cr, pct, profit_cr, profit_pct, margin, yoy_growth,
-    importance}], 'period', 'source'} — or {} when unavailable. LLM-extracted from the
+    importance}], 'period', 'source'} - or {} when unavailable. LLM-extracted from the
     filing PDF (robust across layouts), regex fallback. Cached 7 days. Never raises.
     """
     sym = (symbol or "").strip().upper().replace(".NS", "")

@@ -1,11 +1,11 @@
 """
 SOIC-style deterministic fundamental analysis, computed from the 12-year financial
-statements the metrics engine already produces. No LLM, no network — pure math, so
+statements the metrics engine already produces. No LLM, no network - pure math, so
 it is fast, reliable and identical every run. Powers three VISUAL modules:
 
-  1. Piotroski F-Score (0-9)      — classic quality/quant scorecard
-  2. DuPont ROE decomposition     — what actually drives ROE
-  3. Financial-health checklist   — green/yellow/red on the "Financial statements
+  1. Piotroski F-Score (0-9)      - classic quality/quant scorecard
+  2. DuPont ROE decomposition     - what actually drives ROE
+  3. Financial-health checklist   - green/yellow/red on the "Financial statements
                                     in 2 minutes" questions (balance-sheet strength,
                                     leverage trend, cash-flow strength, internal
                                     accruals, growth, CFO/PAT conversion, ROE/ROCE,
@@ -70,7 +70,7 @@ def _series(metrics):
             'curr_liab': _pick(brow, _CURL),
             'cfo': _pick(crow, _CFO),
             'eps': eps,
-            # implied share count (net income / EPS) — lets us detect dilution
+            # implied share count (net income / EPS) - lets us detect dilution
             'shares': (ni / eps) if (ni and eps and eps != 0) else None,
         })
     return out
@@ -95,7 +95,7 @@ def compute_piotroski(series, is_financial=False):
     """Classic 9-point Piotroski F-Score (this year vs last). Components whose
     inputs are unavailable are marked None and excluded from the max, so the score
     is honest (shown as X / available). For lenders, the leverage/liquidity/cash-flow
-    components are excluded (the F-Score is designed for non-financials — banks are
+    components are excluded (the F-Score is designed for non-financials - banks are
     structurally leveraged and their cash flows aren't comparable)."""
     if len(series) < 2:
         return None
@@ -214,9 +214,9 @@ def compute_health(metrics, series, is_financial=False):
 
     if is_financial:
         # For lenders/insurers, leverage & operating cash flow are structural, not
-        # a weakness — assess the franchise on growth, returns and stability instead.
+        # a weakness - assess the franchise on growth, returns and stability instead.
         row("Balance sheet / leverage", "Inherent to lending", 'grey',
-            "Leverage is core to a lender's model — judged via ROE & growth, not D/E")
+            "Leverage is core to a lender's model - judged via ROE & growth, not D/E")
     else:
         # 1. Balance-sheet strength (D/E level)
         de = sol.get('debt_to_equity')
@@ -275,7 +275,7 @@ def compute_health(metrics, series, is_financial=False):
             "Partial conversion" if (conv is not None and conv >= 0.5) else
             "Weak conversion" if conv is not None else "Unavailable")
 
-    # 7. Profitability — ROE only for lenders (ROCE is not meaningful for banks)
+    # 7. Profitability - ROE only for lenders (ROCE is not meaningful for banks)
     roce = latest_r.get('ROCE')
     roe = latest_r.get('ROE')
     if is_financial:

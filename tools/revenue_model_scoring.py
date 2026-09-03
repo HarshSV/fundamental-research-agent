@@ -1,28 +1,28 @@
 """
-A.3 — Revenue model quality: deterministic (no-LLM) contract-type
+A.3 - Revenue model quality: deterministic (no-LLM) contract-type
 classifier, mirroring the A.2.x moat scorers' regex/anchor pattern (see
 tools/moat_switching_costs_scoring.py) but classifying a CONTRACT TYPE
 (3A/3B/3C of the spec) instead of a 0-5 rubric.
 
 Classification (per the spec's exact wording):
-  3A Transactional — revenue recognised AT A POINT IN TIME with no ongoing
+  3A Transactional - revenue recognised AT A POINT IN TIME with no ongoing
      service obligation ("revenue ... recognised at the point in time when
      control ... is transferred").
-  3B Recurring — repeat/subscription billing recognised OVER TIME, WITHOUT
+  3B Recurring - repeat/subscription billing recognised OVER TIME, WITHOUT
      a stated fixed contractual term. If a specific duration IS stated,
-     it's Annuity, not Recurring — the defined-term anchor is the
+     it's Annuity, not Recurring - the defined-term anchor is the
      deciding factor between the two.
-  3C Annuity — contractual periodic payments over a DEFINED term (AMC/O&M/
+  3C Annuity - contractual periodic payments over a DEFINED term (AMC/O&M/
      service contracts with a stated tenure, e.g. "5-year O&M agreement").
 
-Deliberately does NOT call any LLM — same rationale as the A.2.x factors
+Deliberately does NOT call any LLM - same rationale as the A.2.x factors
 (reproducible, auditable, avoids the shared Groq/OpenRouter quota).
 
 3D Contract renewal rate is scored SEPARATELY here (see
-`extract_renewal_rate_pct`) — only populated when an actual disclosed
+`extract_renewal_rate_pct`) - only populated when an actual disclosed
 PERCENTAGE for this specific ratio is found, never for a qualitative claim
 like "high renewal rates" (per the mandatory no-fabrication rule in the
-spec and CLAUDE.md's "never convert unknown to zero/false" rule — this
+spec and CLAUDE.md's "never convert unknown to zero/false" rule - this
 stays None/NOT_DISCLOSED rather than an assumed number).
 """
 
@@ -30,7 +30,7 @@ import re
 
 # Point-in-time recognition = Transactional. Real Ind AS 115 notes phrase
 # this many different ways ("recognised at a point in time", "recognises
-# the revenue at a point in time when products are dispatched" — confirmed
+# the revenue at a point in time when products are dispatched" - confirmed
 # on MARUTI, whose actual "Sale of products" policy note used the latter
 # wording; the earlier version of this list only matched "recognised at a
 # point in time" as one rigid substring and silently missed a textbook,
@@ -43,42 +43,59 @@ _POINT_IN_TIME_PATTERNS = [
     r"\bsatisfied at a point in time\b",
     r"\bone[- ]time sale\b",
     # "revenue ... is recognised WHEN control ... is transferred to the
-    # customer" — the textbook Ind AS 115/IFRS 15 default wording for
+    # customer" - the textbook Ind AS 115/IFRS 15 default wording for
     # point-in-time recognition, used almost verbatim by RELIANCE and
     # SUNPHARMA's actual Notes to Accounts, and paraphrased by ITC's
     # auditor's Key Audit Matter section ("the control over the same is
-    # transferred to the customer, which is mainly upon delivery") —
+    # transferred to the customer, which is mainly upon delivery") -
     # neither ever says "point in time" or "over time" literally, since
     # this IS the standard's own definition of point-in-time recognition
     # (over-time recognition is always separately, explicitly labelled).
     # Confirmed all three were previously scanned as SEARCH_INCONCLUSIVE
     # even though their real, unambiguous policy text was already being
-    # fetched — this was a classifier pattern gap, not a missing source.
+    # fetched - this was a classifier pattern gap, not a missing source.
     r"\brecognised when control\b", r"\brecognized when control\b",
-    # No "control" requirement here — a page-window boundary can clip the
+    # No "control" requirement here - a page-window boundary can clip the
     # word "control" off the front of an excerpt while leaving the rest of
     # the clause intact (confirmed on ITC's auditor KAM text: "...the
     # control over the same is transferred to the customer, which is
-    # mainly upon delivery" — "control" fell just outside the fetched
+    # mainly upon delivery" - "control" fell just outside the fetched
     # window, but "transferred to the customer...upon delivery" alone is
     # already unambiguous point-in-time revenue-recognition language on its
     # own, essentially never used outside that context).
     r"\btransferred to the customers?\b.{0,80}\b(?:upon|on)\s+(?:delivery|dispatch|shipment)\b",
     r"\b(?:upon|on)\s+(?:delivery|dispatch|shipment)\b.{0,80}\btransferred to the customers?\b",
-    # Verb-form variant — confirmed on VIP Industries: "...transferred to
-    # the customer WHEN the products ARE DELIVERED to the customer..." —
+    # Verb-form variant - confirmed on VIP Industries: "...transferred to
+    # the customer WHEN the products ARE DELIVERED to the customer..." -
     # "when...delivered/dispatched/shipped" rather than the noun-form
     # "upon delivery" the two patterns above expect.
     r"\btransferred to the customers?\b.{0,80}\bwhen\b.{0,40}\b(?:delivered|dispatched|shipped)\b",
     r"\bwhen\b.{0,40}\b(?:delivered|dispatched|shipped)\b.{0,80}\btransferred to the customers?\b",
+    # "Buyer" instead of "customer" - equally standard trading/distribution-
+    # company phrasing (confirmed real on Prime Fresh Limited: "...all
+    # significant risks and rewards of ownership had been transferred to
+    # the buyer..."), not a synonym any prior pattern covered.
+    r"\btransferred to the buyers?\b",
+    # The pre-Ind AS 115 "risks and rewards of ownership" test (Ind AS 18's
+    # own point-in-time criterion) still appears verbatim in many filers'
+    # Sale-of-Goods policy paragraphs, often stated ALONGSIDE the newer
+    # Ind AS 115 control-transfer language rather than instead of it -
+    # itself unambiguous point-in-time evidence on its own.
+    r"\brisks? and rewards? of ownership\b.{0,80}\btransferred\b",
+    r"\btransferred\b.{0,80}\brisks? and rewards? of ownership\b",
+    # "Retains no (effective) control" over dispatched/delivered goods is
+    # the direct negative-form statement of Ind AS 115's control test -
+    # confirmed real on Prime Fresh Limited: "...retains no effective
+    # control over the goods dispatched."
+    r"\bretains? no\b.{0,20}\bcontrol\b.{0,40}\b(?:goods|products)\s+(?:dispatched|delivered|shipped)\b",
 ]
 
 # Over-time recognition WITHOUT a defined term = Recurring. These anchors
 # alone (no term-length anchor nearby) signal Recurring; if a term-length
 # anchor co-occurs in the SAME sentence, the Annuity classification wins
-# instead (see _DEFINED_TERM_ANCHOR below) — that's the spec's explicit
+# instead (see _DEFINED_TERM_ANCHOR below) - that's the spec's explicit
 # Recurring-vs-Annuity tiebreaker. Same paraphrase-robustness fix as
-# point-in-time above — confirmed on MARUTI, whose services note read
+# point-in-time above - confirmed on MARUTI, whose services note read
 # "performance obligations that are satisfied over A PERIOD OF time", which
 # the old rigid "satisfied over time" substring did not match.
 _OVER_TIME_PATTERNS = [
@@ -92,10 +109,10 @@ _OVER_TIME_PATTERNS = [
 # Annuity = a defined-term periodic-service contract (AMC/O&M with a stated
 # tenure). AMC/O&M anchors are treated as Annuity signals directly (they
 # describe the CONTRACT TYPE, not just recognition timing) since the spec's
-# own example is "5-year O&M agreement" — a named contract type with an
+# own example is "5-year O&M agreement" - a named contract type with an
 # inherent defined term, distinct from bare over-time recognition language.
 #
-# Each pattern requires a "revenue" co-occurrence within the same sentence —
+# Each pattern requires a "revenue" co-occurrence within the same sentence -
 # confirmed false positive on L&T without this: an AR page's ESG/case-study
 # narrative ("...implementation of electricity consumption initiatives...
 # in its O&M contract for the Bhagirathi Water Treatment Plant...") matched
@@ -106,7 +123,7 @@ _OVER_TIME_PATTERNS = [
 _ANNUITY_CONTRACT_PATTERNS = [
     r"\brevenue\b.{0,100}\bannual maintenance contracts?\b",
     r"\bannual maintenance contracts?\b.{0,100}\brevenue\b",
-    # NOTE: deliberately NOT matching bare "amc" — confirmed false positive
+    # NOTE: deliberately NOT matching bare "amc" - confirmed false positive
     # on HDFCBANK, where "amc" matched "HDFC AMC" (Asset Management
     # Company, a subsidiary name), not Annual Maintenance Contract.
     r"\brevenue\b.{0,100}\boperation and maintenance (?:contract|agreement)s?\b",
@@ -115,7 +132,7 @@ _ANNUITY_CONTRACT_PATTERNS = [
     r"\bo&m (?:contract|agreement)s?\b.{0,100}\brevenue\b",
 ]
 # A stated tenure attached to a contract/agreement noun (e.g. "5-year O&M
-# agreement", "10 year service contract") — the defined-term signal that
+# agreement", "10 year service contract") - the defined-term signal that
 # distinguishes Annuity from Recurring per the spec.
 _DEFINED_TERM_ANCHOR = re.compile(
     r"\b\d+(?:\.\d+)?\s*[-–]?\s*years?\b[^.]{0,40}\b(?:contract|agreement|tenure|term)\b"
@@ -126,7 +143,7 @@ _DEFINED_TERM_ANCHOR = re.compile(
 # A sentence stating BOTH "point in time" and "over (a period of) time"
 # joined by "or" is the generic Ind AS 115 FRAMEWORK/judgement description
 # every company includes ("...determining whether the performance
-# obligation is satisfied at a point in time or over a period of time") —
+# obligation is satisfied at a point in time or over a period of time") -
 # it explains that the company assesses each obligation against BOTH
 # possible methods, not which one actually applies to ITS revenue. Matching
 # on this sentence as if it were a definitive classification is a
@@ -141,7 +158,7 @@ _GENERIC_FRAMEWORK_RE = re.compile(
 
 _PERCENT_ANCHOR = re.compile(r"\d+(?:\.\d+)?\s*%")
 
-# Renewal-rate anchors — only a sentence carrying BOTH one of these AND an
+# Renewal-rate anchors - only a sentence carrying BOTH one of these AND an
 # actual percentage counts as a disclosed renewal rate (3D). A qualitative
 # claim ("high renewal rates", "strong customer retention") with no number
 # is explicitly NOT_DISCLOSED per the spec, not estimated.
@@ -153,7 +170,7 @@ _RENEWAL_RATE_PATTERNS = [
 
 def _sentences(text):
     """Same PDF-line-wrap-safe sentence splitter as
-    moat_switching_costs_scoring._sentences — newlines normalized to spaces
+    moat_switching_costs_scoring._sentences - newlines normalized to spaces
     before splitting so a phrase mid-wrapped across a PDF line break (e.g.
     "Persistency"/"ratio" on separate lines) isn't broken apart."""
     if not text:
@@ -165,19 +182,19 @@ def _sentences(text):
 def _quote_snippet(sent, patterns, window=140):
     """Table text extracted from a PDF often has no sentence-ending
     punctuation, so `_sentences` can merge an unrelated table block with the
-    real anchor match into one giant run-on "sentence" (confirmed on TCS —
+    real anchor match into one giant run-on "sentence" (confirmed on TCS -
     a fixed-asset schedule table got glued to a genuine "recognised over
     time" match). Returning the whole merged blob as the evidence quote
     would show a false-positive-looking citation even though the underlying
     match is real, so this centers the quote on the actual matched anchor
     instead of returning the full sentence.
 
-    Centering alone wasn't enough — confirmed on the same TCS excerpt, the
+    Centering alone wasn't enough - confirmed on the same TCS excerpt, the
     140-char PREFIX window still swallowed a run of unrelated table cell
     values ("31 Vehicles 1 2 Furniture and fixtures - 2 2,778 7,601") sitting
     right before the real sentence. Real prose essentially never has 2+
     separate digit tokens in a short run; a PDF table row does. So if the
-    prefix contains 2+ digit runs, trim it back to just after the LAST one —
+    prefix contains 2+ digit runs, trim it back to just after the LAST one -
     that's almost always where the genuine prose clause actually starts.
     Left untouched when the prefix has 0-1 digit runs (e.g. a normal "In
     FY24, ..." lead-in) since that's very unlikely to be table noise.
@@ -195,7 +212,7 @@ def _quote_snippet(sent, patterns, window=140):
             # A page footer/header stitched onto the next excerpt by the
             # newline-collapse in _sentences (no sentence-ending punctuation
             # between them) very often contains "<Company Name> Limited"/
-            # "Ltd" right before the real clause resumes — confirmed on ITC
+            # "Ltd" right before the real clause resumes - confirmed on ITC
             # ("...294 REPORT AND ACCOUNTS 2026 ITC Limited same is
             # transferred to the customer..."). Nearly every Indian company
             # is named "X Limited"/"X Ltd", so this is generic cleanup, not
@@ -210,11 +227,11 @@ def _quote_snippet(sent, patterns, window=140):
 
 
 # Ind AS 115 requires a "disaggregation of revenue" note splitting revenue
-# by TIMING of recognition — some companies disclose this as an explicit
+# by TIMING of recognition - some companies disclose this as an explicit
 # rupee-value table: "Revenue recognised at a point in time X ... Revenue
 # recognised over a period of time Y". Confirmed on CAMS: the AR literally
-# discloses ~140,258 (point in time) vs ~968 (over time) — i.e. ~99.3% of
-# revenue is point-in-time — but the generic per-sentence anchor scan below
+# discloses ~140,258 (point in time) vs ~968 (over time) - i.e. ~99.3% of
+# revenue is point-in-time - but the generic per-sentence anchor scan below
 # would have picked "Recurring" purely because the over-time phrase
 # happened to appear in the same merged table-sentence, WITHOUT ever
 # looking at the actual figures. A disclosed numeric split is strictly
@@ -234,7 +251,7 @@ def _extract_disaggregation_split(text):
     """Returns (point_in_time_amount, over_time_amount, matched_span_text)
     from a disclosed Ind AS 115 revenue-timing disaggregation table, or
     None if no such table is found. Amounts are whatever unit the AR uses
-    (Rs Crore/Million/Lakh) — only their RATIO is used, so the unit doesn't
+    (Rs Crore/Million/Lakh) - only their RATIO is used, so the unit doesn't
     need to be known."""
     m = _DISAGGREGATION_TABLE_RE.search(text)
     if not m:
@@ -260,7 +277,7 @@ def classify_contract_type(text):
       {"contract_type": "transactional"|"recurring"|"annuity"|None,
        "evidence_quote": str, "source": "Annual Report"|"none",
        "reasoning": str}
-    Never raises, never fabricates — returns contract_type=None (not a
+    Never raises, never fabricates - returns contract_type=None (not a
     default guess) if no recognition-timing/contract-type language is found.
 
     Classifies off the FIRST sentence (in document order) that matches any
@@ -268,7 +285,7 @@ def classify_contract_type(text):
     under a fixed Annuity > Recurring > Transactional priority. Real Notes
     to Accounts consistently disclose the company's PRIMARY/largest revenue
     stream first (e.g. "2.4.1 Sale of products") and ancillary streams after
-    (e.g. "2.4.2.1 Income from services") — confirmed on MARUTI, where a
+    (e.g. "2.4.2.1 Income from services") - confirmed on MARUTI, where a
     fixed category-priority order would have let a minor extended-warranty/
     services over-time clause outrank the company's actual primary,
     dominant point-in-time vehicle-sale policy simply because "Recurring"
@@ -286,7 +303,7 @@ def classify_contract_type(text):
         pit, ot, matched_text = split
         total = pit + ot
         pit_pct = round(100 * pit / total, 1)
-        # A disclosed split still needs a real majority to call outright —
+        # A disclosed split still needs a real majority to call outright -
         # if it's genuinely close to even, fall through to the qualitative
         # scan below rather than forcing a razor-thin numeric edge into a
         # single label.
@@ -298,7 +315,7 @@ def classify_contract_type(text):
                 "source": "Annual Report",
                 "reasoning": (
                     f"Annual Report discloses an EXPLICIT revenue-timing split (Ind AS 115 disaggregation note): "
-                    f"{pit_pct}% of revenue recognised at a point in time vs {round(100 - pit_pct, 1)}% over time — "
+                    f"{pit_pct}% of revenue recognised at a point in time vs {round(100 - pit_pct, 1)}% over time - "
                     f"{'Transactional' if winner == 'transactional' else 'Recurring'} per the spec, based on the "
                     f"disclosed majority, not a plain anchor mention."
                 ),
@@ -322,7 +339,7 @@ def classify_contract_type(text):
         has_over_time = any(re.search(p, low, re.I) for p in _OVER_TIME_PATTERNS)
         # Annuity check 2: over-time recognition co-occurring with a stated
         # contract term length IN THE SAME SENTENCE promotes it from
-        # Recurring to Annuity — the spec's explicit tiebreaker ("if a
+        # Recurring to Annuity - the spec's explicit tiebreaker ("if a
         # specific duration is stated, it's Annuity not Recurring"). Scoped
         # to the same sentence (not "anywhere in the evidence pool") so an
         # unrelated defined-term clause elsewhere in the document (e.g. a
@@ -332,19 +349,19 @@ def classify_contract_type(text):
             return {
                 "contract_type": "annuity",
                 "evidence_quote": _quote_snippet(sent, [_DEFINED_TERM_ANCHOR.pattern]), "source": "Annual Report",
-                "reasoning": "Over-time revenue recognition co-occurs with a stated contract term length in the same disclosure — Annuity, not Recurring, per the spec's defined-term tiebreaker.",
+                "reasoning": "Over-time revenue recognition co-occurs with a stated contract term length in the same disclosure - Annuity, not Recurring, per the spec's defined-term tiebreaker.",
             }
 
         if has_over_time:
             return {
                 "contract_type": "recurring", "evidence_quote": _quote_snippet(sent, _OVER_TIME_PATTERNS), "source": "Annual Report",
-                "reasoning": "Annual Report describes revenue recognised over time / subscription-style billing with no stated fixed contractual term — Recurring per the spec.",
+                "reasoning": "Annual Report describes revenue recognised over time / subscription-style billing with no stated fixed contractual term - Recurring per the spec.",
             }
 
         if any(re.search(p, low, re.I) for p in _POINT_IN_TIME_PATTERNS):
             return {
                 "contract_type": "transactional", "evidence_quote": _quote_snippet(sent, _POINT_IN_TIME_PATTERNS), "source": "Annual Report",
-                "reasoning": "Annual Report describes revenue recognised at a point in time when control is transferred, with no ongoing service obligation — Transactional per the spec.",
+                "reasoning": "Annual Report describes revenue recognised at a point in time when control is transferred, with no ongoing service obligation - Transactional per the spec.",
             }
 
     return {
@@ -354,10 +371,10 @@ def classify_contract_type(text):
 
 
 def extract_renewal_rate_pct(text):
-    """3D — Contract renewal rate = Contracts renewed / Contracts up for
+    """3D - Contract renewal rate = Contracts renewed / Contracts up for
     renewal. Only returns a value when an actual disclosed PERCENTAGE
     sentence is found (renewal-rate anchor AND a number in the SAME
-    sentence) — a qualitative claim like "high renewal rates" with no
+    sentence) - a qualitative claim like "high renewal rates" with no
     number returns None (NOT_DISCLOSED), never an estimate, per the
     spec's explicit no-estimation rule and CLAUDE.md's "never convert
     unknown to zero/false" rule.

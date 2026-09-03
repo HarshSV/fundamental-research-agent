@@ -1,5 +1,5 @@
 """
-B.2.1-B.2.4 — Management incentives: deterministic (no-LLM) scorers.
+B.2.1-B.2.4 - Management incentives: deterministic (no-LLM) scorers.
 
 Same design as tools/founder_track_record_scoring.py (B.1) and
 tools/moat_brand_scoring.py (A.2.A): regex/keyword pattern matching against
@@ -522,6 +522,42 @@ def extract_esop_grant_schedule(text, fiscal_year):
             "vesting_years": vesting_years, "performance_linked": performance_linked,
         })
     return tranches[:20]
+
+
+_VESTING_PERIOD_WORDNUM = re.compile(
+    r"\b(" + "|".join(_WORD_NUM) + r"|\d+)\s+years?\s+vesting\s+period\b", re.I
+)
+_PERFORMANCE_LINKED_ESOP_CTX = re.compile(
+    r"performance\s+condition|performance[- ]linked|meeting\s+performance|subject\s+to\s+achievement", re.I
+)
+
+
+def extract_esop_single_grant_vesting(text):
+    """SEBI (SBEB & SE) Regulations, 2021 Reg. 14 disclosure table uses a
+    field-label layout many smaller filers present as a SINGLE grant
+    ("Particulars / ESOP, <year> / Grant Date <date> / Date of Vesting
+    <date> / Time Until Option Exercise from Grant Date <N Year Vesting
+    Period followed by...>") rather than `extract_esop_grant_schedule`'s
+    multi-tranche "after N years from date of grant" phrasing - a
+    genuinely different, equally standard disclosure shape for a company
+    with only ONE ESOP tranche outstanding (confirmed real on Prime Fresh
+    Limited's ESOP Plan 2024: "...Date of Vesting May 05, 2026...One Year
+    Vesting Period followed by six months exercise period..."), not a
+    parsing failure of the multi-tranche extractor. Returns
+    {'vesting_years','performance_linked'} or None if no such single-grant
+    vesting-period statement is found. Never guesses a period that isn't
+    explicitly stated."""
+    if not text:
+        return None
+    m = _VESTING_PERIOD_WORDNUM.search(text)
+    if not m:
+        return None
+    raw = m.group(1).lower()
+    vesting_years = int(raw) if raw.isdigit() else _WORD_NUM.get(raw)
+    if not vesting_years:
+        return None
+    performance_linked = bool(_PERFORMANCE_LINKED_ESOP_CTX.search(text[max(0, m.start() - 250):m.end() + 250]))
+    return {"vesting_years": vesting_years, "performance_linked": performance_linked}
 
 
 def score_vesting_structure_from_grant_schedule(tranches, fiscal_year):

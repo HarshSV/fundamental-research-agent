@@ -161,6 +161,48 @@ _POST_ISSUE_TOTAL = re.compile(
 )
 
 
+# SEBI ICDR Regulations allow a preferential issue of convertible WARRANTS
+# (paid up in tranches, exercised into equity shares over up to 18
+# months) rather than straight equity - a real, common financing
+# structure distinct from a one-shot QIP/preferential SHARE allotment
+# `_SHARES_ISSUED` above expects. The Annual Report's own MD&A/Board's
+# Report routinely states, in one self-contained passage, how many
+# warrants were actually CONVERTED into equity shares during the year
+# (the real, current-year dilution event) - confirmed real on Prime Fresh
+# Limited: "an aggregate of 2,34,094 warrants were converted into
+# 2,34,094 fully paid-up equity shares of the Company". Never confuses
+# this with the total warrants originally GRANTED (a future, not-yet-
+# diluting commitment until actually exercised).
+_WARRANT_CONVERTED_RE = re.compile(
+    r"([\d,]+)\s*warrants?\s*were\s*converted\s*into\s*[\d,]+\s*(?:fully\s*paid-?up\s*)?equity\s*shares", re.I,
+)
+
+
+def score_dilution_from_ar_warrant_conversion(text, total_shares_outstanding):
+    """D.3.2 fallback: real warrant-to-equity conversion this year, from
+    the company's own uploaded Annual Report, divided by its own current
+    total shares outstanding (both real, already-available figures -
+    never a third invented number). Returns the same shape as
+    `score_dilution` (with 'source': 'ar_warrant_conversion' added) or
+    all-None if no such conversion statement or share count is
+    available."""
+    if not text or not total_shares_outstanding:
+        return {"dilution_pct": None, "shares_issued": None, "classification": None}
+    m = _WARRANT_CONVERTED_RE.search(text)
+    if not m:
+        return {"dilution_pct": None, "shares_issued": None, "classification": None}
+    try:
+        shares_issued = int(m.group(1).replace(",", ""))
+    except ValueError:
+        return {"dilution_pct": None, "shares_issued": None, "classification": None}
+    if shares_issued <= 0 or total_shares_outstanding <= 0:
+        return {"dilution_pct": None, "shares_issued": shares_issued, "classification": None}
+    dilution_pct = round(100 * shares_issued / total_shares_outstanding, 2)
+    classification = "Low" if dilution_pct < 5 else ("Moderate" if dilution_pct <= 15 else "High")
+    return {"dilution_pct": dilution_pct, "shares_issued": shares_issued, "classification": classification,
+            "source": "ar_warrant_conversion"}
+
+
 def score_dilution(text):
     """D.3.2 - Dilution % = New Shares Issued / Post-Issue Shares x 100.
     Reads the percentage directly where the filing states it itself

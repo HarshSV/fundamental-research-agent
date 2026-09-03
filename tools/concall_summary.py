@@ -2,7 +2,7 @@
 Standalone concall-transcript summarizer.
 
 Given a single transcript PDF URL (one month's earnings call), download it, extract
-the text, and produce a detailed, structured, Screener-style summary via Groq —
+the text, and produce a detailed, structured, Screener-style summary via Groq -
 grounded strictly in that transcript. Used by the per-month Concalls tabs.
 
 Cached per URL (so re-opening a month is instant). Never raises.
@@ -22,9 +22,9 @@ from tools.screener_scraper import download_transcript, _read_cache, _write_cach
 
 
 def _to_text(x):
-    """Models sometimes emit list items as objects — flatten to readable text."""
+    """Models sometimes emit list items as objects - flatten to readable text."""
     if isinstance(x, dict):
-        return " — ".join(str(v) for v in x.values() if v)
+        return " - ".join(str(v) for v in x.values() if v)
     return str(x) if x is not None else ""
 
 
@@ -35,12 +35,12 @@ def _bullets(items):
 def _format_summary(f14):
     return (
         f"{f14.get('summary', '')}\n"
-        f"Management Tone: {f14.get('tone', '—')}\n\n"
+        f"Management Tone: {f14.get('tone', '-')}\n\n"
         f"FINANCIAL HIGHLIGHTS\n{_bullets(f14.get('financial_highlights'))}\n\n"
         f"GROWTH DRIVERS\n{_bullets(f14.get('growth_drivers'))}\n\n"
         f"BUSINESS WINS / EXECUTION\n{_bullets(f14.get('business_wins'))}\n\n"
         f"RISKS (with management response)\n{_bullets(f14.get('risks'))}\n\n"
-        f"GUIDANCE / OUTLOOK\n{f14.get('guidance', '—')}\n\n"
+        f"GUIDANCE / OUTLOOK\n{f14.get('guidance', '-')}\n\n"
         f"WHAT MATTERS FOR INVESTORS\n{_bullets(f14.get('what_matters'))}"
     )
 
@@ -104,7 +104,7 @@ def summarize_concall(symbol, url, date=""):
             "available": True,
             "date": date,
             "url": url,
-            "tone": f14.get("tone", "—"),
+            "tone": f14.get("tone", "-"),
             "summary_text": _format_summary(f14),
             **f14,
         }

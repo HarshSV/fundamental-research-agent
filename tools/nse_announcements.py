@@ -1,5 +1,5 @@
 """
-NSE Corporate Filings & Announcements — real earnings-call transcripts and
+NSE Corporate Filings & Announcements - real earnings-call transcripts and
 investor presentations, sourced directly from
 https://www.nseindia.com/companies-listing/corporate-filings-announcements
 (the exchange's own `corporate-announcements` API, not a third-party mirror).
@@ -77,7 +77,29 @@ def _write_cache(key, payload):
 
 
 def fetch_announcements(symbol):
-    """Raw corporate-announcements list for a symbol, newest first. Never raises."""
+    """Raw corporate-announcements list for a symbol, newest first. Never raises.
+
+    Same guard convention as tools.crisil_scraper.fetch_crisil_rationale:
+    in tools.manual_mode's document-only manual workflow, this NEVER reaches
+    live nseindia.com - callers that were gated on an uploaded
+    "corporate_actions"/other NSE-portal document (see
+    tools.document_analysis_engine._requires_external_source) must not be
+    able to silently fall through to a live fetch just because the gate let
+    them run; the document search path (if one exists for that sub-point)
+    is the document-based equivalent of this pathway, same as CRISIL's.
+
+    Returns None (never []) in manual mode - deliberately NOT an empty list,
+    because several callers (e.g. J.3.1's
+    tools.regulatory_legal_scoring.classify_competition_investigation_status)
+    treat "successfully checked, found nothing" ([]) as real evidence of a
+    real absence, which is different from "never actually checked" (None).
+    Collapsing that distinction would turn a genuine DATA_MISSING/
+    NOT_CHECKED case into a fabricated clean finding - exactly what
+    CLAUDE.md's zero/false-only-if-evidenced rule forbids. Callers that
+    don't need the distinction should use `fetch_announcements(sym) or []`."""
+    from tools.manual_mode import is_manual_mode
+    if is_manual_mode():
+        return None
     sym = (symbol or "").strip().upper().replace(".NS", "")
     ckey = f"ann_{sym}"
     cached = _read_cache(ckey)
@@ -98,7 +120,7 @@ def fetch_announcements(symbol):
 def fetch_transcript_url(symbol, name=None):
     """Latest earnings-call transcript PDF URL filed with NSE (newest
     'Transcript of the Earnings...Call' announcement). None if not found."""
-    for row in fetch_announcements(symbol):
+    for row in fetch_announcements(symbol) or []:
         text = f"{row.get('attchmntText') or ''} {row.get('desc') or ''}"
         if _TRANSCRIPT_TEXT.search(text):
             url = (row.get("attchmntFile") or "").strip()
@@ -109,7 +131,7 @@ def fetch_transcript_url(symbol, name=None):
 
 def fetch_investor_presentation_url(symbol, name=None):
     """Latest Investor Presentation PDF URL filed with NSE. None if not found."""
-    for row in fetch_announcements(symbol):
+    for row in fetch_announcements(symbol) or []:
         text = f"{row.get('attchmntText') or ''} {row.get('desc') or ''}"
         if _PRESENTATION_TEXT.search(text):
             url = (row.get("attchmntFile") or "").strip()

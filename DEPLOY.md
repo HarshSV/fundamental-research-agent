@@ -1,4 +1,4 @@
-# Navrist Research Terminal — Deployment Guide
+# Navrist Research Terminal - Deployment Guide
 
 Phase-1 fundamental equity research terminal. FastAPI backend + single-file React
 dashboard, served together from one origin.
@@ -28,10 +28,10 @@ cp .env.example .env              # then edit .env with real secrets
 ```
 
 Fill in `.env` (see `.env.example` for every field):
-- `ANGEL_*` — Angel One SmartAPI creds for live prices (optional; blank = yfinance fallback)
-- `GROQ_API_KEY` — for the AI qualitative sections
-- `SITE_PASSWORD` — the shared login password
-- `JWT_SECRET_KEY` — long random string: `python -c "import secrets;print(secrets.token_urlsafe(48))"`
+- `ANGEL_*` - Angel One SmartAPI creds for live prices (optional; blank = yfinance fallback)
+- `GROQ_API_KEY` - for the AI qualitative sections
+- `SITE_PASSWORD` - the shared login password
+- `JWT_SECRET_KEY` - long random string: `python -c "import secrets;print(secrets.token_urlsafe(48))"`
 - `HOST=0.0.0.0`, `PORT=8000`, `RELOAD=0` for production
 
 ## 3. Run
@@ -42,7 +42,7 @@ HOST=0.0.0.0 PORT=8000 RELOAD=0 python app.py
 ```
 
 The dashboard is served at `http://<server>:8000/` and the API under `/api/*` on
-the **same origin** — the frontend auto-detects this, so no frontend edit is
+the **same origin** - the frontend auto-detects this, so no frontend edit is
 needed for any domain.
 
 Health probe: `GET /api/health` → `{"status":"online"}`.
@@ -94,6 +94,6 @@ research.navrist.com {
 Shareholding data is cached on disk under `cache/` (pledge 12h, FII/DII 4h).
 
 **Upgrade path:** per-stock quarter-over-quarter FII/DII deltas need a multi-quarter
-feed. `tools/shareholding_scraper.py` exposes a `ShareholdingProvider` interface —
+feed. `tools/shareholding_scraper.py` exposes a `ShareholdingProvider` interface -
 implement it for a paid vendor (Trendlyne / Tickertape) and register it in
 `get_provider()`; nothing else changes.

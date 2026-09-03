@@ -282,6 +282,28 @@ _LOAN_BALANCE_ENDYEAR = re.compile(r"balance as at (?:the )?(?:end|close) of (?:
 # numbers, SUZLON discloses one decimal place).
 _LOAN_BALANCE_AFTER = re.compile(r"loan (?:given|taken)\b[^.]{0,20}?([\d,]+(?:\.\d+)?)", re.I)
 _LOAN_BALANCE_BEFORE = re.compile(r"([\d,]+(?:\.\d+)?)[^.]{0,20}?\bloan (?:given|taken)\b", re.I)
+# SEBI LODR Reg. 34(3) & Schedule V mandates a THIRD, equally common
+# disclosure format neither of the above two catch: a standalone caption
+# ("Amount of Loans and Advances in nature of loans outstanding from
+# Subsidiaries/Associates as at <date>:") immediately followed by a
+# numbered list of party names each with their own outstanding-balance
+# figure - no "loan given/taken" or "balance as at end of year" phrasing
+# anywhere in it. Confirmed real gap on Prime Fresh Limited, whose entire
+# LODR Schedule V disclosure (genuinely real, fully-disclosed loan
+# balances to 2+ subsidiaries/associates) was invisible to both prior
+# patterns. Takes the FIRST number after the caption - the first listed
+# party's own outstanding balance, consistent with this module's existing
+# "single most relevant figure" convention (see _LOAN_BALANCE_AFTER).
+_LOAN_BALANCE_LODV_SCHEDULEV = re.compile(
+    r"loans? and advances? in (?:the )?nature of loans? outstanding "
+    r"from\s+(?:subsidiar(?:y|ies)|associates?)[^:]{0,40}:\s*"
+    r"(?:\d+\.?\s*)?[A-Za-z][^\d]{0,80}?([\d,]+(?:\.\d+)?)", re.I,
+)
+# Schedule III lets a filer state figures "in Lakhs" OR "in Crores" -
+# purely a presentation choice - so a raw regex-matched number can't be
+# assumed to already be in crore just because this KPI's own field is
+# named '..._cr' (see the identical note/fix in receivables_risk_scoring.py).
+_LAKHS_UNIT_RE = re.compile(r"amount\s+in\s+lakh|(?:rs\.?|inr|₹)\s*(?:in\s*)?lakh", re.I)
 
 
 def score_loan_concentration(rpt_text, net_worth_cr=None, total_assets_cr=None):
@@ -301,7 +323,10 @@ def score_loan_concentration(rpt_text, net_worth_cr=None, total_assets_cr=None):
     if not sentences:
         return {"loan_balance_cr": None, "denominator_used": None, "exposure_pct": None, "classification": None}
     blob = " ".join(sentences)
-    m = _LOAN_BALANCE_ENDYEAR.search(blob) or _LOAN_BALANCE_AFTER.search(blob) or _LOAN_BALANCE_BEFORE.search(blob)
+    m = (
+        _LOAN_BALANCE_ENDYEAR.search(blob) or _LOAN_BALANCE_AFTER.search(blob)
+        or _LOAN_BALANCE_BEFORE.search(blob) or _LOAN_BALANCE_LODV_SCHEDULEV.search(blob)
+    )
     loan_balance = None
     if m:
         try:
@@ -310,6 +335,12 @@ def score_loan_concentration(rpt_text, net_worth_cr=None, total_assets_cr=None):
             loan_balance = None
     if loan_balance is None:
         return {"loan_balance_cr": None, "denominator_used": None, "exposure_pct": None, "classification": None}
+    # The "(Amount in Lakhs)" unit caption sits in the page header, not in
+    # any sentence that survives _loan_sentences' loan-keyword filter -
+    # must check the ORIGINAL unscoped text, not just the filtered blob
+    # (confirmed real on Prime Fresh Limited's LODR Schedule V loan note).
+    if _LAKHS_UNIT_RE.search(rpt_text):
+        loan_balance = round(loan_balance / 100.0, 4)
     denominator, denom_label = None, None
     if net_worth_cr:
         denominator, denom_label = net_worth_cr, "Net Worth"

@@ -4,7 +4,7 @@ Process-level TTL cache for yfinance `.info` / `.history` lookups.
 The same symbol's `.info` and price history were being re-fetched from the
 network independently across angel_scraper.py, stock_agent.py and nse_xbrl.py
 within a single /generate-report request (and again on the next request for
-the same symbol soon after) — each a multi-second round trip. Caching these
+the same symbol soon after) - each a multi-second round trip. Caching these
 per (symbol) / (symbol, period, interval) for a short TTL removes that
 duplicate network cost without threading a cache object through every call site.
 """

@@ -1,12 +1,12 @@
 """
-Concall-window evidence retrieval — layer 2/3 of the event-grounded reasoning
+Concall-window evidence retrieval - layer 2/3 of the event-grounded reasoning
 pipeline (see memory "event-grounded-reasoning-scope"). Given a flagged price
 move window (from move_detection.py), filter the company's already-extracted
 concall records (tools/concall_intelligence.py) down to the calls that fall
 near that window, so a "why did X move" answer can be grounded in what
 management actually said around that time instead of LLM narrative-guessing.
 
-Deliberately NOT a vector DB — per the rework decision this project keeps
+Deliberately NOT a vector DB - per the rework decision this project keeps
 retrieval to keyword/date-window filtering, which is exactly what a "which
 calls happened around this date" filter is. Never raises.
 """
@@ -36,12 +36,12 @@ def _parse_call_date(date_str):
 
 def evidence_for_window(symbol: str, date_from: str, date_to: str, name: str = None) -> dict:
     """
-    Returns {available, calls: [...]} — the concall records (from
+    Returns {available, calls: [...]} - the concall records (from
     concall_intelligence, already-cached per symbol) whose date falls within
     NEARBY_BUFFER_DAYS of [date_from, date_to] (ISO strings). Each call entry
     keeps only the fields useful as evidence: date, one_line, guidance,
     commitments, positives, risks, sentiment. Empty `calls` means genuinely no
-    evidence was found — callers/LLM must say so rather than fabricate.
+    evidence was found - callers/LLM must say so rather than fabricate.
     """
     try:
         d_from = date.fromisoformat(date_from)

@@ -3,7 +3,7 @@ Shared LLM chat helper with a cross-provider fallback chain.
 
 Groq free-tier rate limits are PER MODEL (tokens per day / per minute). When the
 primary 70b model exhausts its daily quota (HTTP 429), every AI feature used to
-fail at once — empty Business Model Canvas, "Summary generation failed" concall
+fail at once - empty Business Model Canvas, "Summary generation failed" concall
 months. The chain now tries three free OpenRouter models (each on its own
 account/key, so none share a quota) before ever touching Groq, and only falls
 back to the Groq 70b->8b pair as the last resort. A single exhausted provider
@@ -29,7 +29,7 @@ except ImportError:
 # Free OpenRouter models tried in order, each with its own API key (separate
 # free-tier quota per key/account). model_id is the OpenRouter slug.
 # can_disable_reasoning: False for models that reject `reasoning: {enabled:
-# false}` outright (e.g. gpt-oss-20b requires reasoning mode) — for those we
+# false}` outright (e.g. gpt-oss-20b requires reasoning mode) - for those we
 # simply omit the reasoning param instead of forcing it off.
 OPENROUTER_CHAIN = [
     ("nvidia/nemotron-3-super-120b-a12b:free", "OPENROUTER_API_KEY_1", True),
@@ -70,9 +70,9 @@ def _fit_messages(messages, budget):
 
 def parse_json_loose(text):
     """
-    Parse LLM JSON output tolerantly. Smaller fallback models emit sloppy JSON —
+    Parse LLM JSON output tolerantly. Smaller fallback models emit sloppy JSON -
     markdown fences, prose around the object, invalid escapes (\\₹, \\%), and
-    trailing commas — which strict json.loads rejects, silently degrading whole
+    trailing commas - which strict json.loads rejects, silently degrading whole
     features to mock data. Repairs those before giving up.
     """
     import json
@@ -86,7 +86,7 @@ def parse_json_loose(text):
     # Slice to the first BALANCED {...} object rather than first-{ to last-}.
     # On long prompts the fallback model sometimes emits the JSON object followed
     # by leftover/duplicate text that also contains braces (e.g. echoing part of
-    # the schema again) — a naive rfind("}") then swallows that too and json.loads
+    # the schema again) - a naive rfind("}") then swallows that too and json.loads
     # fails with "Extra data" even though the real object was well-formed.
     i = t.find("{")
     if i >= 0:
@@ -169,7 +169,7 @@ def _escape_unescaped_inner_quotes(t):
     json.loads think the string ended early and then fail with "Expecting ','
     delimiter" a few tokens later. A `"` only legitimately CLOSES a string if the
     next non-whitespace character is a JSON structural one (, : } ] or end of
-    text) — any other `"` inside a string is escaped instead of trusted.
+    text) - any other `"` inside a string is escaped instead of trusted.
     """
     out, i, n = [], 0, len(t)
     in_str, esc = False, False
@@ -212,7 +212,7 @@ def _try_openrouter(messages, temperature, max_tokens):
     Try each free OpenRouter model in OPENROUTER_CHAIN, each under its own API
     key (separate free-tier quota, so one account running dry doesn't block the
     others). Returns the response text, or None if every entry failed/was
-    unconfigured — callers fall through to the Groq chain in that case.
+    unconfigured - callers fall through to the Groq chain in that case.
     """
     from openai import OpenAI
 
@@ -222,7 +222,7 @@ def _try_openrouter(messages, temperature, max_tokens):
             continue
         try:
             # timeout=15: a free-tier provider queued behind other users can
-            # hang far longer than it's worth waiting — better to fail fast
+            # hang far longer than it's worth waiting - better to fail fast
             # and let the next model in the chain pick it up.
             client = OpenAI(api_key=key, base_url=OPENROUTER_BASE_URL, max_retries=0, timeout=15.0)
             kwargs = {"model": model, "messages": messages}
@@ -234,7 +234,7 @@ def _try_openrouter(messages, temperature, max_tokens):
             # token budget on invisible "thinking" and return an empty or
             # truncated answer. Some models (e.g. gpt-oss-20b) instead REJECT
             # an explicit reasoning:false with a 400 ("reasoning is mandatory
-            # for this endpoint") — for those we omit the param entirely
+            # for this endpoint") - for those we omit the param entirely
             # rather than force it, accepting their normal (slower) behavior.
             if can_disable_reasoning:
                 kwargs["extra_body"] = {"reasoning": {"enabled": False}}
@@ -242,7 +242,7 @@ def _try_openrouter(messages, temperature, max_tokens):
             choice = completion.choices[0]
             text = choice.message.content
             # A response cut off by the token budget is usually invalid/
-            # truncated JSON — treat it as a failure of this model rather
+            # truncated JSON - treat it as a failure of this model rather
             # than returning garbage the caller's JSON parser will choke on.
             if choice.finish_reason == "length":
                 print(f"[groq_chat] OpenRouter {model} truncated (finish_reason=length); trying next...")
@@ -287,11 +287,11 @@ def groq_chat(messages, temperature=None, max_tokens=None, api_key=None):
 
     # max_retries=0: the SDK's own retry+backoff on a 429/5xx from the primary
     # model would otherwise silently burn many seconds BEFORE our MODEL_CHAIN
-    # fallback below ever gets a chance to try the next model — defeating the
+    # fallback below ever gets a chance to try the next model - defeating the
     # whole point of having a fast fallback. We handle retries ourselves.
     client = Groq(api_key=key, max_retries=0)
     last_err = None
-    # Every model's failure reason, not just the last one — otherwise, when the
+    # Every model's failure reason, not just the last one - otherwise, when the
     # primary model fails for reason A and the fallback then fails for reason B,
     # only B is ever visible, making it impossible to tell WHY the fallback was
     # even needed (e.g. was the 70b model rate-limited, or a different error?).
@@ -306,11 +306,11 @@ def groq_chat(messages, temperature=None, max_tokens=None, api_key=None):
         if mt is not None:
             kwargs["max_tokens"] = mt
         # Groq is reached only after the whole OpenRouter chain has already
-        # failed, and a mock-data fallback exists above this — so fail FAST
+        # failed, and a mock-data fallback exists above this - so fail FAST
         # here rather than waiting out rate limits. One short retry for a
         # genuine network blip only; a rate limit or anything else moves
         # straight to the next model/gives up. (Previously this waited up to
-        # 60s x 3 attempts x 2 models — up to 6 minutes of pure sleep(), which
+        # 60s x 3 attempts x 2 models - up to 6 minutes of pure sleep(), which
         # is what made a hung request look like it was stuck for 8 minutes.)
         max_attempts = 2
         for attempt in range(max_attempts):

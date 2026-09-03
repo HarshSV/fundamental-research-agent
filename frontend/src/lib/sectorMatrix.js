@@ -1,30 +1,30 @@
-// Sector Applicability Matrix — static Sector→Tier lookup table.
+// Sector Applicability Matrix - static Sector→Tier lookup table.
 //
 // Source of truth: the "Sector Applicability Matrix" reference sheet (68
 // cross-sector ratios × 26 NSE-aligned sectors, plus Sr No 69-92
 // industry-specific ratios that are Core only for their named sector(s) and
 // Not Applicable everywhere else). This file is the SOFTWARE's copy of that
-// sheet — a plain static lookup, computed/transcribed ONCE, never
+// sheet - a plain static lookup, computed/transcribed ONCE, never
 // recalculated per keystroke or per render (per the UI spec's own
 // Performance/Precompute rule): resolving a ratio's tier for a company is
-// exactly two O(1) lookups — (a) company → sector, (b) sector → tier — not
+// exactly two O(1) lookups - (a) company → sector, (b) sector → tier - not
 // a live filtering loop across all ratios on every interaction.
 //
 // Tiers:
-//   C = Core (Tier 1)      — shown first, pre-checked by default
-//   S = Secondary (Tier 2) — one click away, not pre-checked
-//   N = Not Applicable     — hidden by default, never a hard block (an
+//   C = Core (Tier 1)      - shown first, pre-checked by default
+//   S = Secondary (Tier 2) - one click away, not pre-checked
+//   N = Not Applicable     - hidden by default, never a hard block (an
 //                            analyst can still search for and select it)
-//   D = Different Definition Needed — applicable, but the standard
+//   D = Different Definition Needed - applicable, but the standard
 //                            formula/line-items must be reinterpreted for
 //                            this sector; NEVER auto-hidden, NEVER
 //                            auto-computed with the standard formula either
-//                            — see SECTOR_DEFINITION_OVERRIDES below.
+//                            - see SECTOR_DEFINITION_OVERRIDES below.
 
 // The 26-sector taxonomy, in the EXACT column order the tier strings below
 // are encoded in. Financial Services (Banks/NBFC/Insurance/Capital Markets)
 // and Healthcare (Pharmaceuticals/Healthcare Services) are each split into
-// their own columns — collapsing them into one "Financial Services"/
+// their own columns - collapsing them into one "Financial Services"/
 // "Healthcare" sector would hide the exact distinctions this matrix exists
 // to capture.
 export const SECTORS = [
@@ -56,7 +56,7 @@ export const SECTORS = [
   'Textiles',
 ];
 
-// Ratio Sr No 1-68 — [ratio_no, ratio_name, group, tierString].
+// Ratio Sr No 1-68 - [ratio_no, ratio_name, group, tierString].
 // tierString has exactly 26 characters, one per SECTORS[] entry, in order.
 const RATIO_ROWS = [
   [1, 'Inventory Turnover', 'INV', 'CCCSCCNSCNNNNCCSNNCSSDCSSC'],
@@ -129,8 +129,8 @@ const RATIO_ROWS = [
   [68, 'Free Float %', 'MARKET', 'CCCCCCCCCCCCCCCCCCCCCCCCCC'],
 ];
 
-// Sr No 69-92 — INDUSTRY-SPECIFIC ratios. Per spec: Core (C) ONLY for their
-// named sector(s), Not Applicable everywhere else — there is no Secondary
+// Sr No 69-92 - INDUSTRY-SPECIFIC ratios. Per spec: Core (C) ONLY for their
+// named sector(s), Not Applicable everywhere else - there is no Secondary
 // tier for these. Encoded directly as {ratio_no, name, sectors: [...]}
 // rather than a 26-char string, since each row only ever lights up 1-2
 // sectors.
@@ -161,7 +161,7 @@ export const INDUSTRY_SPECIFIC_RATIOS = [
   { ratio_no: 92, name: 'Cost per ASK (CASK)', sectors: ['Services (Logistics/Transportation/Aviation)'] },
 ];
 
-// "Different Definition Needed" (D-tier) overrides — currently only Realty
+// "Different Definition Needed" (D-tier) overrides - currently only Realty
 // carries any D-tier ratios in the matrix. Per spec, a D-tier ratio must
 // NEVER be auto-computed with the standard formula: selecting one shows
 // this one-line note FIRST, before any number, so the analyst knows exactly
@@ -171,10 +171,10 @@ export const SECTOR_DEFINITION_OVERRIDES = {
     1: 'For Realty, "Inventory" = unsold/under-construction property stock, not raw-material/finished-goods inventory.',
     2: 'For Realty, "Days Inventory Outstanding" measures how long unsold/under-construction property stock sits before sale, not raw-material/finished-goods turnover days.',
     8: 'For Realty, "Working Capital Turnover" reflects the property development cycle (land + construction WIP vs. current liabilities), not a conventional goods-business working-capital cycle.',
-    9: 'For Realty, the "Cash Conversion Cycle" spans land acquisition through project completion and customer collection — materially longer than a conventional goods-business cycle, and not directly comparable to it.',
+    9: 'For Realty, the "Cash Conversion Cycle" spans land acquisition through project completion and customer collection - materially longer than a conventional goods-business cycle, and not directly comparable to it.',
     10: 'For Realty, "Current Assets" are dominated by unsold/under-construction inventory (often illiquid for years), so Current Ratio reads very differently than for a conventional goods business.',
-    11: 'For Realty, Quick Ratio\'s exclusion of "Inventory" excludes unsold/under-construction property stock — the company\'s core asset — so a low Quick Ratio here is structural, not a liquidity red flag by itself.',
-    12: 'For Realty, Cash Ratio ignores both inventory (unsold property) and receivables (buyer dues) — the most conservative possible reading, and structurally low for this sector by design.',
+    11: 'For Realty, Quick Ratio\'s exclusion of "Inventory" excludes unsold/under-construction property stock - the company\'s core asset - so a low Quick Ratio here is structural, not a liquidity red flag by itself.',
+    12: 'For Realty, Cash Ratio ignores both inventory (unsold property) and receivables (buyer dues) - the most conservative possible reading, and structurally low for this sector by design.',
     13: 'For Realty, "Working Capital" is dominated by unsold/under-construction property inventory rather than conventional receivables/payables/stock.',
     31: 'For Realty, "Days Working Capital" reflects the property development cycle, not a conventional goods-business working-capital cycle.',
     32: 'For Realty, "Trade Receivables" typically means buyer dues/installments recognised under the percentage-of-completion or completed-contract method, not a conventional trade-credit receivable.',
@@ -205,7 +205,7 @@ export function getIndustrySpecificTier(ratioNo, sectorName) {
   return r.sectors.includes(sectorName) ? 'C' : 'N';
 }
 
-/** Every Sr 69-92 ratio that is Core for this sector — empty array if none
+/** Every Sr 69-92 ratio that is Core for this sector - empty array if none
  * (the sector gets NO "[Sector] Specific Metrics" section at all, per spec,
  * rather than an empty one). */
 export function getIndustrySpecificRatiosForSector(sectorName) {
@@ -213,10 +213,10 @@ export function getIndustrySpecificRatiosForSector(sectorName) {
 }
 
 /** { core: [...], secondary: [...], notApplicable: [...], differentDefinition: [...] }
- * — every Sr 1-68 ratio bucketed by tier for one sector, each entry
+ * - every Sr 1-68 ratio bucketed by tier for one sector, each entry
  * { ratio_no, name, group, tier }. Computed on demand from the static
  * table (still O(68) per call, not a live re-derivation of the matrix
- * itself) — call once per sector resolution, not per render. */
+ * itself) - call once per sector resolution, not per render. */
 export function getRatiosForSector(sectorName) {
   const buckets = { core: [], secondary: [], notApplicable: [], differentDefinition: [] };
   const col = SECTORS.indexOf(sectorName);
@@ -238,11 +238,11 @@ export function getRatiosForSector(sectorName) {
  * `industry` column) to one of the 26 canonical sector names above.
  *
  * IMPORTANT: this is NOT the verbatim NSE 4-tier classification match the
- * UI spec calls for (Component 1) — no canonical NSE sector field is
+ * UI spec calls for (Component 1) - no canonical NSE sector field is
  * currently stored anywhere in this app (confirmed: `companies.industry` is
  * free text, `sector_guess` is an LLM guess, `SECTOR_GROUPS` is a manually
  * curated peer-grouping label). This keyword table is a deterministic
- * stand-in until real NSE sector/industry data is wired in — never a fuzzy/
+ * stand-in until real NSE sector/industry data is wired in - never a fuzzy/
  * NLP match, just an explicit alias list, so behaviour stays predictable.
  * Returns null (never a guess) if nothing matches, so callers can fall back
  * to "All ratios" instead of silently mis-tiering a company. */

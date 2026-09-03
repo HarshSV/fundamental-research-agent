@@ -1,5 +1,5 @@
 /*
- * NAVRIST DESIGN SYSTEM — ground-up rebuild.
+ * NAVRIST DESIGN SYSTEM - ground-up rebuild.
  * Language: Inter typography, 8px spacing, 16px radii, hairline borders,
  * minimal shadows, NO gradients on cards, semantic color only, restrained motion.
  * All colors resolve through the light/dark tokens in theme/tokens.css.
@@ -23,7 +23,7 @@ body { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Helvetica, Ar
 .nv-eyebrow { font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; font-size: 11px; }
 .nv-num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'cv01' 1; letter-spacing: -0.01em; }
 
-/* Surfaces — flat, hairline, 16px, whisper-soft shadow. No gradients. */
+/* Surfaces - flat, hairline, 16px, whisper-soft shadow. No gradients. */
 .nv-card {
   background: rgb(var(--slate-900));
   border: 1px solid var(--nv-hairline);

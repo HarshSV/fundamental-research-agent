@@ -4,13 +4,13 @@ qualitative-evidence score (i), combined into a composite Moat Score (j).
 
 Per the spec: (a)-(h) are the company's own 3-5yr metric ranked against its
 PEER SET (tools/peer_universe.py's fixed-universe, market-cap-band protocol)
-via quintile/percentile — NOT the absolute-threshold scoring
+via quintile/percentile - NOT the absolute-threshold scoring
 tools/moat_engine.py uses for the single-company F-20 card (that engine
 stays as-is for its own feature; this is a separate, peer-relative score
 built specifically for A.2). (i) is sourced from CRISIL's rating rationale
 (tools/crisil_scraper.py, PORTAL-07) plus management commentary, scored via
 the 1-5 rubric. The HARD RULE: if (i) cannot be sourced, no composite is
-shown — the whole rating is flagged QUANT_PROXY_ONLY.
+shown - the whole rating is flagged QUANT_PROXY_ONLY.
 """
 
 import statistics
@@ -77,10 +77,23 @@ def score_quant_pillars(symbol, market_cap_cr=None):
     fundamentals for target + peers, and quintile-scores each of the 8 (a)-(h)
     sub-metrics 0-5 by the target's percentile standing within that peer set.
 
-    Returns {"status": "OK"/"INSUFFICIENT_PEER_SET"/"NOT_IN_UNIVERSE",
+    Returns {"status": "OK"/"INSUFFICIENT_PEER_SET"/"NOT_IN_UNIVERSE"/"NOT_CHECKED",
              "peer_set": {...select_peer_set() result...},
              "pillars": [{"key","label","score_0_5","value","percentile"}...] }
+
+    Same guard convention as tools.crisil_scraper.fetch_crisil_rationale:
+    in tools.manual_mode's document-only manual workflow, this NEVER
+    reaches live screener.in (tools.peer_universe.select_peer_set and
+    tools.screener_scraper.fetch_screener_moat_data both fetch peer/target
+    fundamentals live) - Screener.in peer data has no uploaded-document
+    equivalent, so every caller (A.2's build_moat_rating_breakdown, and the
+    direct A.2.C peer-OPM leg already worked around this in
+    qualitative_engine.py) gets an honest "NOT_CHECKED", never a fabricated
+    percentile/score, and no pillars.
     """
+    from tools.manual_mode import is_manual_mode
+    if is_manual_mode():
+        return {"status": "NOT_CHECKED", "peer_set": None, "pillars": []}
     peer_result = select_peer_set(symbol, market_cap_cr=market_cap_cr)
     if peer_result.get("status") != "OK":
         return {"status": peer_result["status"], "peer_set": peer_result, "pillars": []}
@@ -131,7 +144,7 @@ _QUAL_EVIDENCE_SYSTEM = (
     "1 = only vague boilerplate phrasing ('strong brand', 'leading player') with zero specifics "
     "from any source.\n"
     "If NO qualitative commentary of any kind exists in the text (not even vague/boilerplate), "
-    "return score null — do NOT assign a 1 in that case; 1 still means evidence was found and was "
+    "return score null - do NOT assign a 1 in that case; 1 still means evidence was found and was "
     "weak, null means none could be found at all.\n"
     "Reply with STRICT JSON only: "
     '{"score": 1-5 or null, "moat_type": "brand|distribution|cost_leadership|network_effects|'
@@ -140,14 +153,24 @@ _QUAL_EVIDENCE_SYSTEM = (
 )
 
 
-def score_qualitative_evidence(symbol, name=None, crisil_result=None, concall_digest=""):
+def score_qualitative_evidence(symbol, name=None, crisil_result=None, concall_digest="", skip_llm=False):
     """
-    (i) Qualitative evidence score — sourced from PORTAL-07 (CRISIL rating
+    (i) Qualitative evidence score - sourced from PORTAL-07 (CRISIL rating
     rationale's Key Rating Drivers) first, management commentary (concall
     digest, an MD&A proxy already used elsewhere in this codebase) second.
     Returns {"score": 1-5|None, "moat_type":..., "evidence_quote":...,
-    "source":..., "reasoning":..., "pathway_results":[...]} — score None
+    "source":..., "reasoning":..., "pathway_results":[...]} - score None
     means the HARD RULE fires (QUANT_PROXY_ONLY) upstream.
+
+    skip_llm=True deliberately never calls any LLM API (Groq/OpenRouter) -
+    for bulk runs that must not touch a shared, rate-limited quota. CRISIL
+    text is still fetched/parsed (that's a plain scrape, no API budget
+    shared with other features) and stored so a later, LLM-enabled pass can
+    score it without re-scraping. The pathway result is NOT_CHECKED (a
+    pathway deliberately not attempted this run), distinct from
+    NOT_DISCLOSED/SEARCH_INCONCLUSIVE (attempted, found nothing) - per the
+    DON'T/DO INSTEAD guardrails, "not run" must never look like "run and
+    empty".
     """
     from tools.qualitative_engine import _llm_json
 
@@ -156,12 +179,12 @@ def score_qualitative_evidence(symbol, name=None, crisil_result=None, concall_di
     if crisil_result and crisil_result.get("result") == "CHECKED":
         crisil_text = crisil_result.get("key_rating_drivers") or ""
         pathway_results.append({
-            "pathway_id": "PORTAL-07", "source": "CRISIL Rating Rationale — Key Rating Drivers",
+            "pathway_id": "PORTAL-07", "source": "CRISIL Rating Rationale - Key Rating Drivers",
             "result": "CHECKED", "note": f"Rated {crisil_result.get('rating')}, {crisil_result.get('rationale_date')}.",
         })
     else:
         pathway_results.append({
-            "pathway_id": "PORTAL-07", "source": "CRISIL Rating Rationale — Key Rating Drivers",
+            "pathway_id": "PORTAL-07", "source": "CRISIL Rating Rationale - Key Rating Drivers",
             "result": (crisil_result or {}).get("result", "NOT_DISCLOSED"),
             "note": (crisil_result or {}).get("note", "No CRISIL rationale available."),
         })
@@ -179,10 +202,23 @@ def score_qualitative_evidence(symbol, name=None, crisil_result=None, concall_di
             "pathway_results": pathway_results,
         }
 
+    if skip_llm:
+        for pr in pathway_results:
+            if pr["result"] == "CHECKED":
+                pr["result"] = "NOT_CHECKED"
+                pr["note"] = (pr.get("note", "") + " Source text fetched but not yet scored - "
+                              "LLM scoring deliberately skipped this run (no API quota touched).").strip()
+        return {
+            "score": None, "moat_type": None, "evidence_quote": "", "source": "none",
+            "reasoning": "LLM scoring deliberately skipped this run - source text was fetched and is "
+                         "available for a later scoring pass.",
+            "pathway_results": pathway_results, "llm_skipped": True,
+        }
+
     company = name or symbol
     context = f"COMPANY: {company}\n"
     if crisil_text:
-        context += f"\nCRISIL RATING RATIONALE — Key Rating Drivers:\n{crisil_text[:3000]}\n"
+        context += f"\nCRISIL RATING RATIONALE - Key Rating Drivers:\n{crisil_text[:3000]}\n"
     if concall_digest:
         context += f"\nMANAGEMENT COMMENTARY (recent earnings calls):\n{concall_digest[:2000]}\n"
 
@@ -193,7 +229,7 @@ def score_qualitative_evidence(symbol, name=None, crisil_result=None, concall_di
     if failed:
         return {
             "score": None, "moat_type": None, "evidence_quote": "", "source": "none",
-            "reasoning": "Classifier call failed — treat as not-yet-scored, not as 'no evidence found'.",
+            "reasoning": "Classifier call failed - treat as not-yet-scored, not as 'no evidence found'.",
             "pathway_results": pathway_results, "llm_failed": True,
         }
 
@@ -207,15 +243,17 @@ def score_qualitative_evidence(symbol, name=None, crisil_result=None, concall_di
     }
 
 
-def build_moat_rating_breakdown(symbol, name=None, market_cap_cr=None, crisil_result=None, concall_digest=""):
+def build_moat_rating_breakdown(symbol, name=None, market_cap_cr=None, crisil_result=None,
+                                 concall_digest="", skip_llm=False):
     """
     Composes (a)-(h) peer-quintile pillars + (i) qualitative evidence into the
     full Moat Rating Breakdown payload, enforcing the hard rule: composite (j)
     is only computed/shown when (i) is present; otherwise the whole rating is
-    flagged QUANT_PROXY_ONLY.
+    flagged QUANT_PROXY_ONLY. skip_llm=True: see score_qualitative_evidence.
     """
     quant = score_quant_pillars(symbol, market_cap_cr=market_cap_cr)
-    qual = score_qualitative_evidence(symbol, name=name, crisil_result=crisil_result, concall_digest=concall_digest)
+    qual = score_qualitative_evidence(symbol, name=name, crisil_result=crisil_result,
+                                       concall_digest=concall_digest, skip_llm=skip_llm)
 
     pillars = list(quant.get("pillars") or [])
     pillars.append({

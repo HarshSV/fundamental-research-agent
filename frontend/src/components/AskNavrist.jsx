@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { API_BASE, getToken } from '../lib/api.js';
 
-/* Anonymous, per-browser session id (this app has no per-user login — a
+/* Anonymous, per-browser session id (this app has no per-user login - a
  * single shared SITE_PASSWORD, see auth.py) so the backend can persist chat
  * memory across reloads without a real user id. Generated once, kept in
  * localStorage. */
@@ -17,13 +17,13 @@ function getSessionId() {
 }
 
 /* ---------------------------------------------------------------------------
- * Ask Navrist — floating conversational assistant.
+ * Ask Navrist - floating conversational assistant.
  *
  * Self-contained on purpose: no markdown/chart libraries in the project, so a
  * compact markdown renderer + an SVG chart renderer live here. The backend
  * (/api/v1/ask-navrist) may return chart specs inside ```chart fences; we split
  * those out and render real graphs inline. Voice is 100% browser-native:
- * SpeechRecognition for dictation, speechSynthesis for read-aloud — no keys.
+ * SpeechRecognition for dictation, speechSynthesis for read-aloud - no keys.
  * ------------------------------------------------------------------------- */
 
 const I = ({ children, s = 18 }) => (
@@ -193,7 +193,7 @@ function getRecognition() {
 }
 
 /* -------------------------------- widget -------------------------------- */
-const WELCOME = { role: 'assistant', content: "Hi — I'm **Ask Navrist**. Ask me about a company on screen, any financial ratio, or how this terminal works. I can also draw quick charts and take voice input." };
+const WELCOME = { role: 'assistant', content: "Hi - I'm **Ask Navrist**. Ask me about a company on screen, any financial ratio, or how this terminal works. I can also draw quick charts and take voice input." };
 
 export default function AskNavrist({ context, symbol }) {
   const [open, setOpen] = useState(false);
@@ -217,7 +217,7 @@ export default function AskNavrist({ context, symbol }) {
   const speakText = (text) => {
     if (!canSpeak) return;
     try {
-      // Read a cleaned version — strip markdown symbols and chart JSON.
+      // Read a cleaned version - strip markdown symbols and chart JSON.
       const clean = text.replace(/```chart[\s\S]*?```/g, ' (chart shown) ').replace(/[#*`_>|-]/g, ' ').replace(/\s+/g, ' ').trim();
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(clean.slice(0, 600));
@@ -250,7 +250,7 @@ export default function AskNavrist({ context, symbol }) {
       setMessages((cur) => [...cur, { role: 'assistant', content: reply }]);
       if (speak) speakText(reply);
     } catch (e) {
-      setMessages((cur) => [...cur, { role: 'assistant', content: 'Network error — please try again.' }]);
+      setMessages((cur) => [...cur, { role: 'assistant', content: 'Network error - please try again.' }]);
     } finally {
       setSending(false);
     }

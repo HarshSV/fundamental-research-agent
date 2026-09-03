@@ -1,6 +1,6 @@
 """One-off targeted re-derivation for ratio_no 10/11/12/39 (Current Ratio,
 Quick Ratio, Cash Ratio, Operating Cash Flow Ratio) across every registered
-company — these were the ones corrupted by a regression (TCL/Cash label
+company - these were the ones corrupted by a regression (TCL/Cash label
 guard applied too broadly) that was live during the full precompute run
 on 2026-07-31. Bypasses the resumable skip_done set entirely (that set
 still marks these pairs "done" even though their result was wrong) and

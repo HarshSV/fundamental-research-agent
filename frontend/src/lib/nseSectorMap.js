@@ -1,4 +1,4 @@
-// NSE Sector Map — official industry classification for the Nifty Total
+// NSE Sector Map - official industry classification for the Nifty Total
 // Market index constituents (751 companies), sourced from NSE's own
 // published "ind_niftytotalmarket_list.csv" (Industry column), mapped 1:1
 // onto the 26-sector taxonomy in sectorMatrix.js. Two NSE macro categories
@@ -7,17 +7,17 @@
 // this app's matrix requires, so those rows were sub-classified by a
 // deterministic company-name keyword test (bank/insurance/exchange/AMC/
 // broking/wealth keywords for Financial Services; hospital/diagnostic/
-// clinic keywords for Healthcare) — NOT a fuzzy/AI guess, just an explicit
+// clinic keywords for Healthcare) - NOT a fuzzy/AI guess, just an explicit
 // alias list, same approach as normalizeSectorLabel's own fallback.
 //
-// COVERAGE CAVEAT: this is the Nifty TOTAL MARKET list — the ~750 most
+// COVERAGE CAVEAT: this is the Nifty TOTAL MARKET list - the ~750 most
 // liquid/tracked NSE equities, not the full ~2,400+ symbol universe this
 // app's registry covers. NSE does not publish a free, public industry
-// classification file for the full universe anywhere found so far —
+// classification file for the full universe anywhere found so far -
 // smaller/micro-cap symbols not in this map fall through to the looser
 // normalizeSectorLabel() heuristic (or show "sector could not be
 // resolved" if that also comes up empty). Precomputed once, shipped as a
-// static lookup — same "exactly two O(1) lookups" performance rule as
+// static lookup - same "exactly two O(1) lookups" performance rule as
 // the rest of the sector-tiering system.
 export const NSE_SECTOR_BY_SYMBOL = {
   "360ONE": "Capital Markets (Broking/AMC/Exchanges)",
@@ -773,7 +773,7 @@ export const NSE_SECTOR_BY_SYMBOL = {
   "ZYDUSWELL": "Fast Moving Consumer Goods (FMCG)"
 };
 
-/** Verbatim NSE-sourced sector for a symbol (e.g. "LT", "TCS") — the
+/** Verbatim NSE-sourced sector for a symbol (e.g. "LT", "TCS") - the
  * authoritative lookup, tried BEFORE the AI-guess/peer-group fallback in
  * normalizeSectorLabel(). Returns null if this symbol isn't in the Nifty
  * Total Market universe. */

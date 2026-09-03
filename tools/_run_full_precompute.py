@@ -22,6 +22,6 @@ while True:
         break
     offset += page_size
 
-print(f"[full-precompute] loaded {len(all_companies)} companies, resuming (skip_done=True — retries only errored/not-yet-done pairs)")
+print(f"[full-precompute] loaded {len(all_companies)} companies, resuming (skip_done=True - retries only errored/not-yet-done pairs)")
 run(all_companies, sleep_between=0.0, skip_done=True, workers=4)
 print("[full-precompute] DONE")

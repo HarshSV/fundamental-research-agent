@@ -1,12 +1,12 @@
 """
-Refresh mechanism — force specific (symbol, ratio_no) pairs to recompute
+Refresh mechanism - force specific (symbol, ratio_no) pairs to recompute
 and overwrite Supabase's `ratio_values` table, for use whenever an
 extractor bug fix needs to reach companies that were already precomputed
 BEFORE the fix landed.
 
 Why this has to exist as its own tool, not just "run precompute again":
 `tools/precompute_worker.py`'s `run()` skips any (symbol, ratio_no) pair
-already marked "done" in `refresh_jobs` — that's the whole point of it
+already marked "done" in `refresh_jobs` - that's the whole point of it
 being resumable, but it means a code fix never reaches an already-done
 pair on its own. `tools/_refix_tcl_cash_ratios.py` was a prior one-off,
 hardcoded attempt at exactly this problem (a 2026-07-31 regression); this
@@ -17,11 +17,11 @@ There's a second, more subtle bug this tool specifically has to avoid
 repeating: bypassing the `refresh_jobs` "done" skip is not enough on its
 own. Every `tools/nse_xbrl.py` fetch_X wrapper ALSO checks Supabase itself
 (`try_db_ratio`) before doing any live computation, whenever `to_date` is
-None — and it returns the EXISTING row immediately if one is present,
+None - and it returns the EXISTING row immediately if one is present,
 correct or not. `precompute_worker.compute_one` calls `fetcher(symbol,
 name)` with no `to_date`, so re-running it against a pair that already has
 a (wrong) row just reads that same wrong row back out of Supabase and
-writes it right back — a silent no-op refresh. Confirmed by hand on ITC's
+writes it right back - a silent no-op refresh. Confirmed by hand on ITC's
 Current/Quick/Cash/Operating-Cash-Flow ratios (2026-08-07): calling the
 plain wrapper repeated the same -14.03 Quick Ratio every time, and only
 passing an explicit `to_date` for the latest Annual Report year (which
@@ -33,7 +33,7 @@ Usage:
     # verifying a fix against the exact stock(s) that surfaced it):
     python -m tools.refresh_ratios --ratios 10,11,12,39 --symbols ITC,RELIANCE
 
-    # Refresh specific ratios across the FULL `companies` registry (slow —
+    # Refresh specific ratios across the FULL `companies` registry (slow -
     # one PDF download+parse per company; same-company ratios reuse that
     # company's already-warmed PDF cache, so batching several affected
     # ratio_nos together in one run is much cheaper than separate runs):
@@ -57,7 +57,7 @@ PAGE_SIZE = 1000
 
 
 def _load_all_companies(sb):
-    """Paginated fetch of every (symbol, name) in the `companies` table —
+    """Paginated fetch of every (symbol, name) in the `companies` table -
     same pagination pattern as coverage_report.py's fetch_all, needed
     because a single .execute() call caps out around Supabase's default
     page size."""
@@ -77,10 +77,10 @@ def compute_one_forced(sb, symbol, name, ratio_no, fetcher):
     """Like precompute_worker.compute_one, but actually bypasses the
     Supabase fast-path read instead of tripping over it. Looks up the
     latest Annual Report fiscal year once and calls the fetcher with that
-    year as an EXPLICIT to_date — every nse_xbrl fetch_X wrapper only
+    year as an EXPLICIT to_date - every nse_xbrl fetch_X wrapper only
     consults try_db_ratio when to_date is None, so this is the one thing
     that reliably forces the live PDF-parsing path regardless of what's
-    already sitting in `ratio_values`. Never raises — records an error in
+    already sitting in `ratio_values`. Never raises - records an error in
     `refresh_jobs` and returns False instead, same convention as
     compute_one. Returns True/False (success)."""
     try:
@@ -100,7 +100,7 @@ def compute_one_forced(sb, symbol, name, ratio_no, fetcher):
             r = fetcher(symbol, name, to_date=to_date)
         except TypeError:
             # A handful of fetchers don't take a to_date at all (e.g. a pure
-            # point-in-time figure with no historical-year concept) — fall
+            # point-in-time figure with no historical-year concept) - fall
             # back to the plain call for those rather than crashing the run.
             r = fetcher(symbol, name)
         fiscal_year = None
@@ -113,7 +113,7 @@ def compute_one_forced(sb, symbol, name, ratio_no, fetcher):
             "symbol": symbol,
             "ratio_no": ratio_no,
             "fiscal_year": fiscal_year,
-            "consolidated": True,
+            "consolidated": bool(r.get("consolidated", True)),
             "applicable": bool(r.get("applicable")),
             "value": r.get("value"),
             "unit": r.get("unit"),
@@ -145,8 +145,8 @@ def compute_one_forced(sb, symbol, name, ratio_no, fetcher):
 
 def refresh(ratio_nos, symbols=None, sleep_between=0.0):
     """Force-recomputes every (symbol, ratio_no) pair for the given
-    ratio_nos — across the given symbols, or the FULL `companies` registry
-    when symbols is None — and overwrites `ratio_values` regardless of
+    ratio_nos - across the given symbols, or the FULL `companies` registry
+    when symbols is None - and overwrites `ratio_values` regardless of
     whether a row already exists there or what `refresh_jobs` says about
     it. This is the operation you want right after fixing an extractor
     bug: the pairs most likely to be wrong are exactly the ones already
@@ -161,10 +161,10 @@ def refresh(ratio_nos, symbols=None, sleep_between=0.0):
     missing = ratio_nos - {rn for rn, _ in targets}
     if missing:
         print(f"[refresh_ratios] WARNING: ratio_no(s) {sorted(missing)} not found in "
-              f"precompute_worker.RATIO_FETCHERS — skipped (check the Sr No is one that's "
+              f"precompute_worker.RATIO_FETCHERS - skipped (check the Sr No is one that's "
               f"actually precomputed, not a client-side-derived one)")
     if not targets:
-        print("[refresh_ratios] nothing to do — no valid ratio_nos given")
+        print("[refresh_ratios] nothing to do - no valid ratio_nos given")
         return 0, 0
 
     sb = get_client()
@@ -198,7 +198,7 @@ def refresh(ratio_nos, symbols=None, sleep_between=0.0):
         if sleep_between:
             time.sleep(sleep_between)
 
-    print(f"[refresh_ratios] DONE — {ok_count} ok, {err_count} errors")
+    print(f"[refresh_ratios] DONE - {ok_count} ok, {err_count} errors")
     return ok_count, err_count
 
 

@@ -1,22 +1,22 @@
 """
-NSE annual-report source — the fallback for companies BSE doesn't list.
+NSE annual-report source - the fallback for companies BSE doesn't list.
 
 Our whole fundamentals pipeline was originally BSE-only (bse_scraper's
 scrip-code resolution + BSE's AnnualReport_New API). But a large chunk of
-NSE-listed companies (esp. smaller/SME names like AAKASH — Aakash
+NSE-listed companies (esp. smaller/SME names like AAKASH - Aakash
 Exploration Services) simply aren't on BSE at all, so BSE resolution
 returns nothing and EVERY ratio comes back N/A even though the company's
 Annual Report is freely available on NSE (this is the same source Screener
-uses — visible as "from nse" on its Documents tab).
+uses - visible as "from nse" on its Documents tab).
 
 NSE exposes annual reports at:
   https://www.nseindia.com/api/annual-reports?index=equities&symbol=<SYM>
-returning a `data` list of {fromYr, toYr, fileName} — fileName is the
+returning a `data` list of {fromYr, toYr, fileName} - fileName is the
 direct PDF (or, for older years, a .zip wrapping the PDF) on
 nsearchives.nseindia.com. Fiscal year is `toYr` (a 2024-2025 report is
 FY2025, matching our BSE convention where "Year" is the year the FY ends).
 
-NSE's API requires a homepage cookie hit first and blocks datacenter IPs —
+NSE's API requires a homepage cookie hit first and blocks datacenter IPs -
 same constraint already documented for tools/nse_xbrl.py; works from a
 normal/India IP locally, needs NSE_PROXY_URL on a cloud host. Never raises.
 """
@@ -28,7 +28,7 @@ import time
 import zipfile
 
 try:
-    from tools import ssl_bootstrap  # noqa: F401 — Windows TLS fix
+    from tools import ssl_bootstrap  # noqa: F401 - Windows TLS fix
 except Exception:
     pass
 

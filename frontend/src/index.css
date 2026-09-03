@@ -78,7 +78,7 @@
             .nv-tabbar button:hover, .nv-tile:hover { transform: none; }
         }
 
-        /* Business Model Canvas — Strategyzer 9-box layout.
+        /* Business Model Canvas - Strategyzer 9-box layout.
            Rows are content-sized (no fixed heights): cells in the same row always
            match heights via grid stretch, and nothing clips or scrolls. */
         .bmc-grid {

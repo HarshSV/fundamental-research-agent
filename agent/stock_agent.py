@@ -147,10 +147,10 @@ def json_to_markdown_narrative(parsed_json: dict, symbol: str) -> str:
             f"{f07}\n\n"
             f"### Annual Report / Concall Summary\n"
             f"{f14.get('summary', '')}\n"
-            f"Management Tone: {f14.get('tone', '—')}\n"
+            f"Management Tone: {f14.get('tone', '-')}\n"
             f"Growth Drivers:\n{f14_drivers_str}\n"
             f"Risks:\n{f14_risks_str}\n"
-            f"Capex / Guidance: {f14.get('capex_guidance', '—')}\n\n"
+            f"Capex / Guidance: {f14.get('capex_guidance', '-')}\n\n"
             f"### Scenario Forecasts\n"
             f"- **Bull Case (Growth: {f15.get('bull', {}).get('revenue_growth')}%):** Drivers: {f15.get('bull', {}).get('drivers')}. Risks: {f15.get('bull', {}).get('risks')}\n"
             f"- **Base Case (Growth: {f15.get('base', {}).get('revenue_growth')}%):** Drivers: {f15.get('base', {}).get('drivers')}. Risks: {f15.get('base', {}).get('risks')}\n"
@@ -198,7 +198,7 @@ def analyze_quality_node(state: SystemState) -> dict:
 
     api_key = os.getenv("GROQ_API_KEY")
     
-    # Business description (from the data payload) — grounds F-21 so the Business
+    # Business description (from the data payload) - grounds F-21 so the Business
     # Model Canvas is populated even when the concall doesn't spell it out.
     _info = (state.get('raw_financial_data') or {}).get('info') or {}
     _biz_desc = (_info.get('longBusinessSummary') or "").strip()
@@ -279,7 +279,7 @@ def analyze_quality_node(state: SystemState) -> dict:
         "    \"channels\": [\"name the channel AND explain what it is, e.g. 'Bancassurance - selling policies through partner bank branches'; 'Agency - network of individual insurance agents'\", \"...\"]\n"
         "  }\n"
         "}\n\n"
-        "IMPORTANT for F-21: for revenue_drivers and any quantified split, use ONLY figures stated in the transcript/data (empty list if not stated). BUT the Business Model Canvas blocks (key_partnerships, key_activities, value_propositions, customer_relationships, customer_segments, key_resources, channels) must ALWAYS be populated: infer them from the Business description and known business model of this company — never leave them empty. These are structural facts about how the business operates, not speculative claims.\n"
+        "IMPORTANT for F-21: for revenue_drivers and any quantified split, use ONLY figures stated in the transcript/data (empty list if not stated). BUT the Business Model Canvas blocks (key_partnerships, key_activities, value_propositions, customer_relationships, customer_segments, key_resources, channels) must ALWAYS be populated: infer them from the Business description and known business model of this company - never leave them empty. These are structural facts about how the business operates, not speculative claims.\n"
         "STYLE for EVERY F-21 list item: write it so a non-expert instantly understands it - NEVER a bare 2-3 word label like 'Agency channel', 'Savings products' or 'Investment management'. Use the pattern 'Short label - brief plain-English explanation'. Keep each item concise (roughly 6-14 words) so it is specific but not text-heavy.\n"
         "COVERAGE for EVERY F-21 list: be COMPREHENSIVE - include ALL the material points this business genuinely has, not just one or two. Where the business warrants it, list about 4-7 distinct items per block. In particular revenue_drivers must cover EVERY major way the company makes money (each product line/segment, plus investment income, fee income or other income when relevant) so the reader fully understands how it earns. Do NOT pad with generic filler - only real, distinct points grounded in the provided context.\n"
         "SECTOR HINT for revenue_drivers: if the company is a LIFE/GENERAL INSURER, cover all premium sources it mentions (e.g. protection/term, participating & non-participating savings, ULIP/unit-linked, group/corporate, annuity/pension) AND its investment income on the policyholder book. If it is a BANK/NBFC, cover net interest income plus fee/commission, treasury/trading and other income. Only include the ones actually evidenced in the provided transcript/context - never invent a stream that is not mentioned.\n"
@@ -291,7 +291,7 @@ def analyze_quality_node(state: SystemState) -> dict:
 
     # The F-07..F-21 call and the F-22..F-31 topics call below are fully
     # independent (each only needs data_context/api_key, both already
-    # computed) — firing them concurrently instead of one-after-another
+    # computed) - firing them concurrently instead of one-after-another
     # roughly halves the LLM wait time for a fresh (uncached) report.
     _business_model_future = None
     _topics_future = None
@@ -531,12 +531,12 @@ def analyze_quality_node(state: SystemState) -> dict:
             print(f"[analyze_quality_node] Calling Groq (model fallback chain)...")
             response_text = _business_model_future.result()
 
-            # Tolerant parse — fallback models emit fences/invalid escapes.
+            # Tolerant parse - fallback models emit fences/invalid escapes.
             from tools.groq_client import parse_json_loose
             parsed_data = parse_json_loose(response_text)
 
             # Models sometimes return list items as OBJECTS where strings are
-            # expected (e.g. F-14 risks as {"risk", "management_response"}) —
+            # expected (e.g. F-14 risks as {"risk", "management_response"}) -
             # rendering those crashes the React frontend. Flatten to text.
             def _stringify_items(section, keys):
                 if not isinstance(section, dict):
@@ -546,7 +546,7 @@ def analyze_quality_node(state: SystemState) -> dict:
                     if isinstance(v, list):
                         section[k] = [
                             x if isinstance(x, str)
-                            else " — ".join(str(t) for t in x.values() if t) if isinstance(x, dict)
+                            else " - ".join(str(t) for t in x.values() if t) if isinstance(x, dict)
                             else str(x)
                             for x in v if x
                         ]
@@ -573,12 +573,12 @@ def analyze_quality_node(state: SystemState) -> dict:
             }
 
     # ------------------------------------------------------------------
-    # Qualitative Analysis topics (F-22 through F-25) — a SEPARATE, smaller
+    # Qualitative Analysis topics (F-22 through F-25) - a SEPARATE, smaller
     # Groq call rather than folding these into the giant F-07..F-21 prompt
     # above. That combined schema had grown too large: even with a big token
     # budget the model would truncate mid-response or garble a section's shape
     # (e.g. echoing F-20's fields into F-22). A focused, short prompt is far
-    # more reliable. Never fatal — sub-points just stay empty on failure.
+    # more reliable. Never fatal - sub-points just stay empty on failure.
     # ------------------------------------------------------------------
     if api_key and api_key.strip() not in ("", "your_api_key_here"):
         try:
@@ -587,7 +587,7 @@ def analyze_quality_node(state: SystemState) -> dict:
                 topics_text = _topics_future.result()
                 topics_data = parse_json_loose(topics_text)
             except Exception as first_err:
-                # One quick synchronous retry — an empty/malformed response is
+                # One quick synchronous retry - an empty/malformed response is
                 # usually a one-off provider hiccup, not a persistent failure.
                 # This only costs extra time on the failure path; a normal
                 # successful call is unaffected.
@@ -609,14 +609,14 @@ def analyze_quality_node(state: SystemState) -> dict:
             if _merged == 0:
                 # "Succeeded" (valid JSON, no exception) but the model returned
                 # the wrong shape entirely (e.g. a weak fallback model echoing a
-                # different prompt's schema) — treat as a failure, not a silent
+                # different prompt's schema) - treat as a failure, not a silent
                 # empty-but-successful result, so the demo fallback below fires.
                 raise RuntimeError(f"topics call returned 0/13 usable fields; keys were {list(topics_data.keys())}")
             qualitative_payload['parsed_json'] = parsed_data
             qualitative_payload['topics_status'] = 'SUCCESS'
             print(f"[analyze_quality_node] Qualitative-topics (F-22..F-39) call succeeded, merged {_merged}/18 fields. Keys returned: {list(topics_data.keys())}")
         except Exception as te:
-            # Leave Sections A/B/C empty on failure — the frontend already
+            # Leave Sections A/B/C empty on failure - the frontend already
             # renders an honest "Not yet available" state per subpoint
             # rather than fabricated placeholder content.
             qualitative_payload['parsed_json'] = parsed_data
@@ -665,12 +665,12 @@ def analyze_quality_node(state: SystemState) -> dict:
         return "\n".join([f"•  {x}" for x in (items or []) if x]) or "•  (not specified)"
     f14_text = (
         f"{f14.get('summary', 'Summary not available.')}\n"
-        f"Management Tone: {f14.get('tone', '—')}\n\n"
+        f"Management Tone: {f14.get('tone', '-')}\n\n"
         f"FINANCIAL HIGHLIGHTS\n{_bul(f14.get('financial_highlights'))}\n\n"
         f"GROWTH DRIVERS\n{_bul(f14.get('growth_drivers'))}\n\n"
         f"BUSINESS WINS / EXECUTION\n{_bul(f14.get('business_wins'))}\n\n"
         f"RISKS (with management response)\n{_bul(f14.get('risks'))}\n\n"
-        f"GUIDANCE / OUTLOOK\n{f14.get('guidance', f14.get('capex_guidance', '—'))}\n\n"
+        f"GUIDANCE / OUTLOOK\n{f14.get('guidance', f14.get('capex_guidance', '-'))}\n\n"
         f"WHAT MATTERS FOR INVESTORS\n{_bul(f14.get('what_matters'))}"
     )
     qualitative_payload['concall_url'] = concall_url
@@ -734,7 +734,7 @@ def build_ml_forecast(m: dict, info: dict, symbol: str = None) -> dict:
     ML fundamentals forecast (stock-specific): fits a log-linear regression on the
     company's OWN multi-year revenue & net-income history and projects 3-5 years
     forward with an 80% confidence band, then derives an implied price trajectory
-    (holding today's P/E). Transparent and grounded — not a generic guess. Returns
+    (holding today's P/E). Transparent and grounded - not a generic guess. Returns
     None when there isn't enough history. Never raises.
     """
     try:
@@ -861,7 +861,7 @@ def build_ml_forecast(m: dict, info: dict, symbol: str = None) -> dict:
             'target_price': target_price,
             'price_cagr': price_cagr,
             'price_path': price_path,
-            'note': "Projection assumes past fundamental trends persist and the P/E holds — "
+            'note': "Projection assumes past fundamental trends persist and the P/E holds - "
                     "real outcomes vary with execution, cycles and re-rating. Not investment advice.",
         }
     except Exception as e:
@@ -869,11 +869,30 @@ def build_ml_forecast(m: dict, info: dict, symbol: str = None) -> dict:
         return None
 
 
+# User-facing status for the qualitative panel-visibility rule (frontend
+# hides NOT_APPLICABLE/NOT_DISCLOSED cards per current company, keeps
+# DATA_MISSING/INSUFFICIENT_DATA/FOUND visible). Mirrors
+# tools/qualitative_db.py's `_USER_FACING_STATUS` table exactly - the single
+# source of truth for what each internal confidence_tag means to a viewer.
+_UX_STATUS_MAP = {
+    'SINGLE_SOURCE': 'FOUND', 'MULTI_SOURCE': 'FOUND', 'VERIFIED': 'FOUND',
+    'CONFLICT_UNRESOLVED': 'FOUND', 'NEEDS_REVIEW': 'FOUND',
+    'SEARCH_INCONCLUSIVE': 'NOT_DISCLOSED', 'NOT_FOUND': 'NOT_DISCLOSED', 'NOT_DISCLOSED': 'NOT_DISCLOSED',
+    'NOT_APPLICABLE': 'NOT_APPLICABLE',
+    'EXTERNAL_DATA_REQUIRED': 'DATA_MISSING', 'DATA_MISSING': 'DATA_MISSING',
+    'INSUFFICIENT_DATA': 'INSUFFICIENT_DATA',
+}
+
+
+def _ux_status(confidence_tag):
+    return _UX_STATUS_MAP.get(confidence_tag, 'NOT_DISCLOSED')
+
+
 def build_executive_summary(state: SystemState) -> dict:
     """
     Compose a DETAILED, data-driven AI summary of the stock from the full analysis
     (quality score, profitability, growth, valuation, balance sheet, moat, ownership,
-    red flags, peer standing). Deterministic — always available (works even when the
+    red flags, peer standing). Deterministic - always available (works even when the
     LLM/Screener are unreachable), so the default page always has a rich summary.
     """
     m = state.get('calculated_metrics', {}) or {}
@@ -903,7 +922,7 @@ def build_executive_summary(state: SystemState) -> dict:
     sector = (spv.get('ai_guidance') or {}).get('sector_guess') or peer.get('sector')
 
     # Pull the multi-year Screener series (cached) so the summary can describe the
-    # actual trajectory (ROCE trend, margin trend, long-run growth) — this is what
+    # actual trajectory (ROCE trend, margin trend, long-run growth) - this is what
     # makes it specific to the company rather than generic.
     moat_data = {}
     try:
@@ -1017,7 +1036,7 @@ def build_executive_summary(state: SystemState) -> dict:
     if mcap: scale_bits.append(f"a market capitalisation of {cr(mcap)}")
     if scale_bits:
         lead += " with " + " and ".join(scale_bits)
-    lead += f". On our composite quality model it scores {score}/100 — a {quality_word} business."
+    lead += f". On our composite quality model it scores {score}/100 - a {quality_word} business."
     paras.append(lead)
     if biz_short:
         paras.append(f"Business: {biz_short}.")
@@ -1069,7 +1088,7 @@ def build_executive_summary(state: SystemState) -> dict:
     de = solvency.get('debt_to_equity'); cfo_pat = cashq.get('CFO_to_PAT'); ccc = moat_data.get('cash_conversion_cycle')
     bs = []
     if de is not None: bs.append(f"debt-to-equity of {num(de, 2)}" + (" (effectively debt-free)" if de < 0.25 else ""))
-    if cfo_pat is not None: bs.append(f"cash conversion (operating cash flow ÷ profit) of {num(cfo_pat, 2)}" + (" — profits convert well into cash" if cfo_pat >= 0.8 else " — cash conversion is weak" if cfo_pat < 0.5 else ""))
+    if cfo_pat is not None: bs.append(f"cash conversion (operating cash flow ÷ profit) of {num(cfo_pat, 2)}" + (" - profits convert well into cash" if cfo_pat >= 0.8 else " - cash conversion is weak" if cfo_pat < 0.5 else ""))
     if ccc is not None: bs.append(f"a cash-conversion cycle of {num(ccc,0)} days")
     if bs:
         paras.append("Balance sheet & cash: " + ", ".join(bs) + ".")
@@ -1095,7 +1114,7 @@ def build_executive_summary(state: SystemState) -> dict:
     if base_fv and price:
         try:
             up = (base_fv - price) / price * 100
-            paras.append(f"Our reverse-DCF puts base-case fair value near ₹{base_fv:,.0f} against a price of ₹{price:,.0f} — about {up:+.0f}% {'upside' if up >= 0 else 'downside'} on base assumptions (sensitive to the growth/discount inputs).")
+            paras.append(f"Our reverse-DCF puts base-case fair value near ₹{base_fv:,.0f} against a price of ₹{price:,.0f} - about {up:+.0f}% {'upside' if up >= 0 else 'downside'} on base assumptions (sensitive to the growth/discount inputs).")
         except Exception:
             pass
 
@@ -1106,7 +1125,7 @@ def build_executive_summary(state: SystemState) -> dict:
             mo += f" ({f20.get('moat_score')}/100)"
         sig = (f20.get('signals') or [])
         if sig:
-            mo += f" — {sig[0][0].lower() + sig[0][1:]}"
+            mo += f" - {sig[0][0].lower() + sig[0][1:]}"
         if f20.get('warnings'):
             mo += f" That said, {f20['warnings'][0][0].lower() + f20['warnings'][0][1:]}"
         paras.append(mo)
@@ -1115,7 +1134,7 @@ def build_executive_summary(state: SystemState) -> dict:
     if prom is not None:
         o = f"Ownership: promoters hold {pct_flex(prom)}"
         if pledge_num and pledge_num > 0:
-            o += f", with {pct_flex(pledge_num)} of their stake pledged — a governance watch-item"
+            o += f", with {pct_flex(pledge_num)} of their stake pledged - a governance watch-item"
         else:
             o += " with no pledging on record"
         paras.append(o + ".")
@@ -1131,37 +1150,37 @@ def build_executive_summary(state: SystemState) -> dict:
         out += ". " + ("Sustained high returns plus that growth would let it compound shareholder value steadily" if (roce or 0) > 0.18
                        else "Execution on growth while lifting returns on capital is the key swing factor")
         out += "."
-        if guidance and isinstance(guidance, str) and len(guidance) > 4 and guidance not in ('—',):
+        if guidance and isinstance(guidance, str) and len(guidance) > 4 and guidance not in ('-',):
             out += f" Management guidance: {guidance[:200]}"
         paras.append(out)
 
-    # 9) Management commentary — latest concall / annual-report read.
+    # 9) Management commentary - latest concall / annual-report read.
     if f14.get('summary'):
         cc = f"Management commentary (latest concall): {str(f14['summary']).strip()}"
         if f14.get('tone'):
             cc += f" Overall tone: {str(f14['tone']).lower()}."
         paras.append(cc)
 
-    # 10) Forensic read — what the red-flag checks actually found.
+    # 10) Forensic read - what the red-flag checks actually found.
     checks = f16.get('checks') or []
     if checks:
         passed = [c for c in checks if str(c.get('status', '')).upper() == 'PASS']
         flagged = [c for c in checks if str(c.get('status', '')).upper() != 'PASS']
-        fr = f"Forensic screen: {len(passed)} of {len(checks)} accounting checks pass ({str(f16.get('risk_level', '—')).lower()} overall risk)"
+        fr = f"Forensic screen: {len(passed)} of {len(checks)} accounting checks pass ({str(f16.get('risk_level', '-')).lower()} overall risk)"
         if flagged:
-            fr += " — flagged: " + "; ".join(f"{c.get('name')} ({c.get('status')})" for c in flagged[:2])
+            fr += " - flagged: " + "; ".join(f"{c.get('name')} ({c.get('status')})" for c in flagged[:2])
         paras.append(fr + ".")
 
     # 11) Size-aware framing.
     if cap_word.startswith('small'):
-        paras.append("Because this is a small-cap, expect higher share-price volatility, thinner liquidity and greater dependence on a few customers/promoters — position sizing and a longer horizon matter more here.")
+        paras.append("Because this is a small-cap, expect higher share-price volatility, thinner liquidity and greater dependence on a few customers/promoters - position sizing and a longer horizon matter more here.")
     elif cap_word.startswith('mid'):
-        paras.append("As a mid-cap it sits between growth potential and stability — more re-rating scope than large-caps but more cyclicality than blue-chips.")
+        paras.append("As a mid-cap it sits between growth potential and stability - more re-rating scope than large-caps but more cyclicality than blue-chips.")
     elif cap_word.startswith('large'):
         paras.append("As a large-cap it offers relative stability, liquidity and institutional coverage, with more modest (but more dependable) growth than smaller peers.")
 
     # ------------------------------------------------------------------
-    # INVESTMENT VIEW — "should one consider investing?" (absolute score)
+    # INVESTMENT VIEW - "should one consider investing?" (absolute score)
     # Weighted blend of quality, moat, valuation, growth and risk. Distinct
     # from the peer rank below, which is relative to similar-sized peers.
     # ------------------------------------------------------------------
@@ -1203,13 +1222,13 @@ def build_executive_summary(state: SystemState) -> dict:
         verdict_label, verdict_reason = "Insufficient data", "Not enough inputs to form a view."
     elif invest_score >= 70:
         verdict_label = "Strong candidate"
-        verdict_reason = "Quality, moat and valuation broadly align — merits serious research for a position."
+        verdict_reason = "Quality, moat and valuation broadly align - merits serious research for a position."
     elif invest_score >= 55:
         verdict_label = "Attractive, with caveats"
-        verdict_reason = "Good business with at least one weak link (valuation, growth or risk) — buy discipline matters."
+        verdict_reason = "Good business with at least one weak link (valuation, growth or risk) - buy discipline matters."
     elif invest_score >= 40:
         verdict_label = "Watchlist"
-        verdict_reason = "Not compelling today — track for improvement in returns, growth or price."
+        verdict_reason = "Not compelling today - track for improvement in returns, growth or price."
     else:
         verdict_label = "Avoid for now"
         verdict_reason = "Weak fundamentals and/or unfavourable risk-reward at the current price."
@@ -1224,7 +1243,7 @@ def build_executive_summary(state: SystemState) -> dict:
     }
 
     # ------------------------------------------------------------------
-    # PEER RANK — relative standing among SIMILAR-SIZED sector peers only.
+    # PEER RANK - relative standing among SIMILAR-SIZED sector peers only.
     # ------------------------------------------------------------------
     tb = (spv.get('tier_benchmark') or {}) if spv else {}
     peer_rank = None
@@ -1237,7 +1256,7 @@ def build_executive_summary(state: SystemState) -> dict:
             "ranking": tb.get("ranking") or [],
             "table_columns": tb.get("table_columns") or [],
             "peer_names": tb.get("peer_names") or [],
-            "note": f"Ranked only against {tb.get('of', 0) - 1} other {str(tb.get('tier', '')).lower()} companies in its industry — "
+            "note": f"Ranked only against {tb.get('of', 0) - 1} other {str(tb.get('tier', '')).lower()} companies in its industry - "
                     "similar-sized businesses with comparable growth runway, never index giants.",
         }
         paras.append(
@@ -1246,7 +1265,7 @@ def build_executive_summary(state: SystemState) -> dict:
             + ". We deliberately rank it only against similar-sized companies in its industry, not mega-caps."
         )
     elif spv and (spv.get('ranking') or spv.get('overall_percentile') is not None):
-        # Not enough same-tier peers for a tier benchmark — still show EVERY peer's
+        # Not enough same-tier peers for a tier benchmark - still show EVERY peer's
         # percentile across the full industry peer set (what the user asked for).
         peer_rank = {
             "tier": cap_tier, "rank": None, "of": len(spv.get('ranking') or []) or None,
@@ -1755,7 +1774,7 @@ def build_executive_summary(state: SystemState) -> dict:
     for item in checklist_summary["red_flags"][:3]:
         risks.append(f"{item['question']} - {item['evidence']}")
     if pledge_num and pledge_num > 0:
-        risks.append("Promoter pledging is present — monitor it.")
+        risks.append("Promoter pledging is present - monitor it.")
     for chip in (m.get('F-19_Business_Quality', {}) or {}).get('scoring_rationale_chips', []):
         if any(w in chip for w in ('High', 'Excellent', 'Very Low')) and len(positives) < 4:
             positives.append(chip)
@@ -1770,7 +1789,7 @@ def build_executive_summary(state: SystemState) -> dict:
         headline += f" · {cap_tier}"
 
     # ------------------------------------------------------------------
-    # BUSINESS UNDERSTANDING — "how does it make money?" (all dynamic):
+    # BUSINESS UNDERSTANDING - "how does it make money?" (all dynamic):
     #  - business model  : real company description
     #  - revenue drivers : LLM-extracted from the concall + description (F-21)
     #  - cost structure  : computed live from the income statement
@@ -1779,12 +1798,12 @@ def build_executive_summary(state: SystemState) -> dict:
 
     def _f21_text(item):
         """LLMs (esp. the fallback model) sometimes return list items as objects
-        instead of plain strings — flatten them to readable text."""
+        instead of plain strings - flatten them to readable text."""
         if isinstance(item, dict):
             parts = [str(v) for k in ('driver', 'name', 'title', 'approx_revenue_share', 'share', 'details', 'description')
                      for v in [item.get(k)] if v]
             if parts:
-                return " — ".join(dict.fromkeys(parts))
+                return " - ".join(dict.fromkeys(parts))
             return "; ".join(f"{k}: {v}" for k, v in item.items() if v) or None
         return str(item) if item not in (None, "") else None
 
@@ -1793,7 +1812,7 @@ def build_executive_summary(state: SystemState) -> dict:
         if val in (None, "", []):
             return []
         # A bare string/object here would otherwise be iterated char-by-char /
-        # key-by-key — wrap scalars so each list item is one full entry.
+        # key-by-key - wrap scalars so each list item is one full entry.
         if not isinstance(val, list):
             val = [val]
         return [t for t in (_f21_text(x) for x in val) if t]
@@ -1826,7 +1845,7 @@ def build_executive_summary(state: SystemState) -> dict:
             # Fallback so Cost Structure never shows empty when the itemized expense
             # rows aren't in the statement (e.g. demerged/newly-listed tickers with
             # sparse data): split revenue into total costs vs the net profit that
-            # survives — derived straight from the income statement.
+            # survives - derived straight from the income statement.
             if not cost_structure:
                 _ni = _rg(['netincome', 'netincomecommonstockholders', 'profitaftertax', 'netprofit'])
                 if _ni is not None:
@@ -1839,7 +1858,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     ]
 
     # Prefer AUDITED revenue-by-segment from the BSE quarterly result filing; fall back
-    # to what the concall stated (F-21). Both dynamic — nothing hardcoded.
+    # to what the concall stated (F-21). Both dynamic - nothing hardcoded.
     segments, segment_source, segment_period = [], None, None
     try:
         from tools.bse_scraper import fetch_bse_segments
@@ -1852,7 +1871,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[summary] BSE segments skipped: {_se}")
 
     # For lenders, an audited interest-vs-fee split from the income statement is
-    # more trustworthy than LLM-extracted concall text — prefer it when no BSE
+    # more trustworthy than LLM-extracted concall text - prefer it when no BSE
     # segment filing was found.
     if not segments and inc_grid:
         _norm = {k.lower().replace(' ', ''): v for k, v in _row.items()}
@@ -1868,7 +1887,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     # --- Structured revenue streams for the pie + expandable "how it earns" -------
     # Primary source for the revenue pie: the LLM's business-model breakdown
-    # (F-21 revenue_streams) — 2-6 streams, each with an APPROXIMATE % share and a
+    # (F-21 revenue_streams) - 2-6 streams, each with an APPROXIMATE % share and a
     # one-line explanation. Being an explicit estimate, it works for every stock
     # instead of collapsing to a single "100%" line. Normalised to {name, pct, desc}.
     revenue_streams = []
@@ -1887,7 +1906,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if segments:
         # Audited ₹ segments win; mirror them into streams so the pie shows real values.
-        revenue_drivers = [f"{s['name']} — {s['pct']}% of revenue (₹{s['revenue_cr']:,} Cr)" for s in segments]
+        revenue_drivers = [f"{s['name']} - {s['pct']}% of revenue (₹{s['revenue_cr']:,} Cr)" for s in segments]
         if not revenue_streams:
             revenue_streams = [{'name': s['name'], 'pct': s.get('pct'),
                                 'desc': f"₹{s['revenue_cr']:,} Cr of revenue in the latest reported period"}
@@ -1902,14 +1921,14 @@ def build_executive_summary(state: SystemState) -> dict:
     # Keep the text driver list in sync when only structured streams were returned.
     if revenue_streams and not revenue_drivers:
         revenue_drivers = [
-            s['name'] + (f" — ~{s['pct']:.0f}% of revenue" if s.get('pct') is not None else "")
+            s['name'] + (f" - ~{s['pct']:.0f}% of revenue" if s.get('pct') is not None else "")
             + (f" ({s['desc']})" if s.get('desc') else "")
             for s in revenue_streams
         ]
 
     # Last-resort floor so a pie ALWAYS renders even with no LLM streams: split
     # reported revenue into operating core vs other income from the income statement
-    # (both real ₹, additive lines). Labels are sector-aware — insurers read as
+    # (both real ₹, additive lines). Labels are sector-aware - insurers read as
     # premium income, banks as interest earned, everyone else as operating revenue.
     if not segments and not revenue_streams and inc_grid:
         _norm = {k.lower().replace(' ', ''): v for k, v in _row.items()}
@@ -1930,15 +1949,15 @@ def build_executive_summary(state: SystemState) -> dict:
                 _tot = _rev2 + _other
                 revenue_streams = [
                     {'name': _core_nm, 'pct': round(_rev2 / _tot * 100, 1),
-                     'desc': f"₹{round(_rev2 / 1e7):,} Cr — the company's core operating income"},
+                     'desc': f"₹{round(_rev2 / 1e7):,} Cr - the company's core operating income"},
                     {'name': _oth_nm, 'pct': round(_other / _tot * 100, 1),
-                     'desc': f"₹{round(_other / 1e7):,} Cr — income earned outside the core operations"},
+                     'desc': f"₹{round(_other / 1e7):,} Cr - income earned outside the core operations"},
                 ]
             else:
                 revenue_streams = [{'name': _core_nm, 'pct': 100.0,
                                     'desc': f"₹{round(_rev2 / 1e7):,} Cr of reported revenue"}]
             if not revenue_drivers:
-                revenue_drivers = [f"{s['name']} — ~{s['pct']:.0f}% of revenue" for s in revenue_streams]
+                revenue_drivers = [f"{s['name']} - ~{s['pct']:.0f}% of revenue" for s in revenue_streams]
             segment_source = segment_source or 'derived from the income statement (operating vs other income)'
 
     business_understanding = {
@@ -1966,13 +1985,13 @@ def build_executive_summary(state: SystemState) -> dict:
     }
 
     # ------------------------------------------------------------------
-    # QUALITATIVE ANALYSIS TOPICS — Topic A: Company strategy & business model.
+    # QUALITATIVE ANALYSIS TOPICS - Topic A: Company strategy & business model.
     # Each sub-point carries: the LLM finding, chart data (when numeric), and a
     # Primary/Secondary/Tertiary source citation trail (per the qualitative
-    # research spec — Annual Report -> Investor Presentation -> Screener.in).
+    # research spec - Annual Report -> Investor Presentation -> Screener.in).
     # ------------------------------------------------------------------
     def _enum(value, allowed):
-        """Only accept an exact (case-insensitive) match against the allowed set —
+        """Only accept an exact (case-insensitive) match against the allowed set -
         guards against the LLM occasionally echoing the whole 'A | B | C' options
         string back as a literal value instead of picking one. Drop it rather
         than show garbage in the UI."""
@@ -1989,7 +2008,7 @@ def build_executive_summary(state: SystemState) -> dict:
     f25 = q.get('F-25', {}) or {}
 
     # A.1-A.4 now come from the sourcing-pathway-verified qualitative engine
-    # (tools/qualitative_engine.py) instead of the raw ungrounded LLM call above —
+    # (tools/qualitative_engine.py) instead of the raw ungrounded LLM call above -
     # every value below carries a confidence tag (VERIFIED/SINGLE_SOURCE/etc, see
     # the sourcing-pathway spec) and is timestamped/cached per symbol. Overwriting
     # f22-f25 here (rather than restructuring every downstream read) means the
@@ -2020,11 +2039,11 @@ def build_executive_summary(state: SystemState) -> dict:
     except Exception as e:
         print(f"[qualitative_topics] sourced A.1-A.5 engine failed, falling back to raw LLM fields: {e}")
 
-    # Graph 2 — Consolidated Income Statement Flow. Reuses the SAME
+    # Graph 2 - Consolidated Income Statement Flow. Reuses the SAME
     # AR-sourced, reconciliation-safe extraction already powering the
     # Overview page's income tree (tools/annual_report_financials.py's
     # fetch_income_statement_flow_from_annual_report, via tools/nse_xbrl.py's
-    # wrapper) — no second/duplicate P&L extraction pipeline. Sector-aware by
+    # wrapper) - no second/duplicate P&L extraction pipeline. Sector-aware by
     # construction: it already skips the COGS/opex split for banks/NBFCs/
     # services companies where those lines don't apply, and returns
     # {'applicable': False, ...} rather than a fabricated flow when even the
@@ -2043,7 +2062,7 @@ def build_executive_summary(state: SystemState) -> dict:
             'quant_proxy_only': _a2.get('quant_proxy_only'),
             # BUG FIX: compute_a2_competitive_moat's real payload key is
             # 'moat_pillars_bar' (confirmed: {'label','value'} entries), not
-            # 'pillars' — that key has never existed on this payload, so
+            # 'pillars' - that key has never existed on this payload, so
             # f23['pillars'] silently evaluated to [] on every run, which
             # meant _moat_bars' quant-pillar loop below never actually
             # populated any bars. Found while verifying the new A.2 moat
@@ -2107,9 +2126,9 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced B.1 engine failed, falling back to raw LLM fields: {e}")
     if _b1 and _b1.get('available'):
         f28 = {
-            'ceo_name': None,  # B.1 no longer synthesizes a name from the business description — see b1_1/b1_2/b1_3
+            'ceo_name': None,  # B.1 no longer synthesizes a name from the business description - see b1_1/b1_2/b1_3
             'ceo_tenure_years': None,  # not knowable without FOUNDER-01 (MCA appointment date)
-            'track_record_rating': None,  # deliberately not scored as a single enum — see the three combined sub-scores below
+            'track_record_rating': None,  # deliberately not scored as a single enum - see the three combined sub-scores below
             'prior_ventures': [],
             'rationale': _b1.get('rationale'),
             'confidence_tag': _b1.get('confidence_tag'), 'retrieved_at': _b1.get('retrieved_at'),
@@ -2298,7 +2317,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced C.7 engine failed: {e}")
         _c7 = {
             'available': True,
-            'rationale': 'Not computed — C.7 engine failed to run.',
+            'rationale': 'Not computed - C.7 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2310,7 +2329,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced C.8 engine failed: {e}")
         _c8 = {
             'available': True,
-            'rationale': 'Not computed — C.8 engine failed to run.',
+            'rationale': 'Not computed - C.8 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2322,7 +2341,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced D.1 engine failed: {e}")
         _d1 = {
             'available': True,
-            'rationale': 'Not computed — D.1 engine failed to run.',
+            'rationale': 'Not computed - D.1 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2334,7 +2353,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced D.2 engine failed: {e}")
         _d2 = {
             'available': True,
-            'rationale': 'Not computed — D.2 engine failed to run.',
+            'rationale': 'Not computed - D.2 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2346,7 +2365,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced D.3 engine failed: {e}")
         _d3 = {
             'available': True,
-            'rationale': 'Not computed — D.3 engine failed to run.',
+            'rationale': 'Not computed - D.3 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2358,7 +2377,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced D.4 engine failed: {e}")
         _d4 = {
             'available': True,
-            'rationale': 'Not computed — D.4 engine failed to run.',
+            'rationale': 'Not computed - D.4 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2370,7 +2389,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced D.5 engine failed: {e}")
         _d5 = {
             'available': True,
-            'rationale': 'Not computed — D.5 engine failed to run.',
+            'rationale': 'Not computed - D.5 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2382,7 +2401,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced D.6 engine failed: {e}")
         _d6 = {
             'available': True,
-            'rationale': 'Not computed — D.6 engine failed to run.',
+            'rationale': 'Not computed - D.6 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2394,7 +2413,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced E.1 engine failed: {e}")
         _e1 = {
             'available': True,
-            'rationale': 'Not computed — E.1 engine failed to run.',
+            'rationale': 'Not computed - E.1 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2406,7 +2425,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced E.2 engine failed: {e}")
         _e2 = {
             'available': True,
-            'rationale': 'Not computed — E.2 engine failed to run.',
+            'rationale': 'Not computed - E.2 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2418,7 +2437,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced E.3 engine failed: {e}")
         _e3 = {
             'available': True,
-            'rationale': 'Not computed — E.3 engine failed to run.',
+            'rationale': 'Not computed - E.3 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2430,7 +2449,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced E.4 engine failed: {e}")
         _e4 = {
             'available': True,
-            'rationale': 'Not computed — E.4 engine failed to run.',
+            'rationale': 'Not computed - E.4 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2442,7 +2461,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced E.5 engine failed: {e}")
         _e5 = {
             'available': True,
-            'rationale': 'Not computed — E.5 engine failed to run.',
+            'rationale': 'Not computed - E.5 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2454,7 +2473,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced E.6 engine failed: {e}")
         _e6 = {
             'available': True,
-            'rationale': 'Not computed — E.6 engine failed to run.',
+            'rationale': 'Not computed - E.6 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2466,7 +2485,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced E.7 engine failed: {e}")
         _e7 = {
             'available': True,
-            'rationale': 'Not computed — E.7 engine failed to run.',
+            'rationale': 'Not computed - E.7 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2478,7 +2497,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced F.1 engine failed: {e}")
         _f1 = {
             'available': True,
-            'rationale': 'Not computed — F.1 engine failed to run.',
+            'rationale': 'Not computed - F.1 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2490,7 +2509,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced F.2 engine failed: {e}")
         _f2 = {
             'available': True,
-            'rationale': 'Not computed — F.2 engine failed to run.',
+            'rationale': 'Not computed - F.2 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2502,7 +2521,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced F.3 engine failed: {e}")
         _f3 = {
             'available': True,
-            'rationale': 'Not computed — F.3 engine failed to run.',
+            'rationale': 'Not computed - F.3 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2514,7 +2533,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced F.4 engine failed: {e}")
         _f4 = {
             'available': True,
-            'rationale': 'Not computed — F.4 engine failed to run.',
+            'rationale': 'Not computed - F.4 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2526,7 +2545,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced G.1 engine failed: {e}")
         _g1 = {
             'available': True,
-            'rationale': 'Not computed — G.1 engine failed to run.',
+            'rationale': 'Not computed - G.1 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2538,7 +2557,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced F.6 engine failed: {e}")
         _f6 = {
             'available': True,
-            'rationale': 'Not computed — F.6 engine failed to run.',
+            'rationale': 'Not computed - F.6 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2550,7 +2569,7 @@ def build_executive_summary(state: SystemState) -> dict:
         print(f"[qualitative_topics] sourced F.5 engine failed: {e}")
         _f5 = {
             'available': True,
-            'rationale': 'Not computed — F.5 engine failed to run.',
+            'rationale': 'Not computed - F.5 engine failed to run.',
             'confidence_tag': 'SEARCH_INCONCLUSIVE', 'retrieved_at': None, 'pathway_results': [],
         }
 
@@ -2562,10 +2581,10 @@ def build_executive_summary(state: SystemState) -> dict:
         _blend_position = None
     # A.3 revenue-model donut: aggregate the already-computed `segments`
     # array (each carries a real revenue `pct` and its `contract_type`) by
-    # contract_type, summing pct per type — real revenue-weighted mix, never
+    # contract_type, summing pct per type - real revenue-weighted mix, never
     # a fabricated split. Only types that actually appear are charted (the
     # classifier only ever emits transactional/recurring/annuity today, so
-    # Long-term Contract/Mixed legitimately never show up — known, documented
+    # Long-term Contract/Mixed legitimately never show up - known, documented
     # limitation, not a bug). Falls back to the single company-wide
     # classification (100% weight) when no multi-segment note exists.
     _A3_CONTRACT_TYPE_LABEL_BY_KEY = {
@@ -2609,7 +2628,7 @@ def build_executive_summary(state: SystemState) -> dict:
     _renewal_rate_str = f"{round(_renewal_rate_pct)}%" if _renewal_rate_pct is not None else "85%"
 
     # A.4 segments come pre-classified/validated from compute_a4_product_lifecycle_stage
-    # (tools/qualitative_engine.py) — passed through as-is rather than re-derived here.
+    # (tools/qualitative_engine.py) - passed through as-is rather than re-derived here.
     _lifecycle_segments = f25.get('segments') or []
     _lifecycle_blend_summary = f25.get('blend_summary')
     # Matches frontend's STAGE_COLOR (main.jsx) so the new stage donut and the
@@ -2681,7 +2700,7 @@ def build_executive_summary(state: SystemState) -> dict:
         _renewal_pct = None
 
     # Margin volatility (Std dev of EBITDA margin / Mean EBITDA margin, 5-8Y) is
-    # computed here from REAL reported financials rather than an LLM estimate —
+    # computed here from REAL reported financials rather than an LLM estimate -
     # this figure is directly derivable from the income statement, so there's no
     # reason to let the model guess it. Only the "is this structural or a
     # temporary tailwind" judgment comes from the LLM (F-27).
@@ -2695,7 +2714,7 @@ def build_executive_summary(state: SystemState) -> dict:
     if len(_ebitda_margin_series) >= 3:
         _vals = [r['value'] for r in _ebitda_margin_series]
         _mean = sum(_vals) / len(_vals)
-        # Average EBITDA margin — mean of the real, non-null margin values
+        # Average EBITDA margin - mean of the real, non-null margin values
         # already collected in _ebitda_margin_series (same source as the
         # volatility calc, computed directly from reported financials).
         _avg_ebitda_margin = round(_mean, 2)
@@ -2742,10 +2761,10 @@ def build_executive_summary(state: SystemState) -> dict:
         try:
             # BUG FIX: 'pillars' now correctly comes from moat_pillars_bar
             # (see f23 build above), whose entries are shaped {'label',
-            # 'value'} — not {'score_0_5','is_qualitative'} as this loop
+            # 'value'} - not {'score_0_5','is_qualitative'} as this loop
             # previously assumed (a shape that never existed on this field,
             # which is why it silently produced zero bars). No qualitative-
-            # evidence bar (i) exists on this field today — that would be a
+            # evidence bar (i) exists on this field today - that would be a
             # separate future addition, not fabricated here.
             _val = _pb.get('value')
             if _val is None:
@@ -2763,7 +2782,7 @@ def build_executive_summary(state: SystemState) -> dict:
     # Switching Costs), ADDED alongside the existing peer-percentile bar
     # chart, never replacing it (locked-in design decision). A factor with
     # score=None (missing evidence) or genuinely Not Applicable (network
-    # effects on a non-platform business) is EXCLUDED from the slices —
+    # effects on a non-platform business) is EXCLUDED from the slices -
     # never rendered as a fabricated 0-value wedge.
     _moat_factor_defs = [
         ('Brand', _a2a), ('Distribution', _a2b), ('Cost Leadership', _a2c),
@@ -2803,7 +2822,7 @@ def build_executive_summary(state: SystemState) -> dict:
 
     # B.1's three sub-points (past initiatives / tenure / strategy alignment)
     # combined into one 3-panel donut card. All three panels always render
-    # (matching the spec's 3-donut layout) — but a panel whose AR excerpt
+    # (matching the spec's 3-donut layout) - but a panel whose AR excerpt
     # wasn't located shows an honest "not disclosed" state, never a
     # fabricated split, per the never-fake-zero/false rule.
     _b1_1, _b1_2, _b1_3 = f28.get('b1_1') or {}, f28.get('b1_2') or {}, f28.get('b1_3') or {}
@@ -2824,7 +2843,7 @@ def build_executive_summary(state: SystemState) -> dict:
     else:
         _b1_1_donut = {
             'type': 'unavailable', 'title': 'Initiative Success Rate',
-            'explanation': f"{_co}'s last 5 Annual Reports don't name a major strategic initiative with a stated outcome — not enough to score this year.",
+            'explanation': f"{_co}'s last 5 Annual Reports don't name a major strategic initiative with a stated outcome - not enough to score this year.",
         }
 
     if _b1_2.get('tenure_score') is not None:
@@ -2851,9 +2870,10 @@ def build_executive_summary(state: SystemState) -> dict:
             'type': 'kpi_card', 'title': 'Strategy Alignment Distribution',
             'zones': ['High', 'Moderate', 'Low'], 'active': _b1_3.get('alignment'),
             'centerValue': f"{_b1_3.get('strategy_alignment_pct')}%",
+            'namedList': _b1_3.get('strategic_priorities') or None, 'namedListLabel': 'Stated Strategic Priorities',
             'explanation': f"Leadership background at {_co} explicitly matches {len(_b1_3.get('matched_areas') or [])} of "
                            f"{len(_b1_3.get('strategic_priorities') or [])} stated strategic priorities "
-                           f"({_b1_3.get('strategy_alignment_pct')}% — {_b1_3.get('alignment')} alignment).",
+                           f"({_b1_3.get('strategy_alignment_pct')}% - {_b1_3.get('alignment')} alignment).",
         }
     else:
         _b1_3_donut = {
@@ -2871,14 +2891,15 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b2_1.get('fixed_pct') is not None:
         _b2_1_donut = {
-            'type': 'kpi_card', 'title': 'Pay Structure',
+            'type': 'category_bar', 'title': 'Pay Structure', 'composition': True,
             'data': [{'label': 'Fixed pay', 'value': _b2_1.get('fixed_amount')},
                      {'label': 'Variable pay', 'value': _b2_1.get('variable_amount')}],
             'centerValue': f"{_b2_1.get('fixed_pct')}%",
             'explanation': f"{_co}'s remuneration disclosure explicitly splits {_b2_1.get('fixed_pct')}% fixed vs {round(100 - _b2_1.get('fixed_pct'), 1)}% variable pay.",
         }
     else:
-        _b2_1_donut = {'type': 'unavailable', 'title': 'Pay Structure',
+        _b2_1_donut = {'type': 'unavailable',
+            'status': _ux_status((_b2_1 or {}).get('confidence_tag')), 'title': 'Pay Structure',
                         'explanation': f"No explicit Fixed vs Variable pay component amounts were located in {_co}'s latest Annual Report."}
 
     if _b2_2.get('ownership_score') is not None:
@@ -2895,7 +2916,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': _b2_2.get('rationale') or f"{_co}'s management ownership is {_mgmt_pct}% (score {_b2_2.get('ownership_score')}/5).",
         }
     else:
-        _b2_2_donut = {'type': 'unavailable', 'title': 'Equity Ownership',
+        _b2_2_donut = {'type': 'unavailable',
+            'status': _ux_status((_b2_2 or {}).get('confidence_tag')), 'title': 'Equity Ownership',
                         'explanation': f"No explicit Director/KMP shareholding percentage, director share count, or promoter holding was located in {_co}'s latest filings."}
 
     if _b2_3.get('vesting_score') is not None:
@@ -2907,7 +2929,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s ESOP disclosure explicitly states {_b2_3.get('vested_count')} vested vs {_b2_3.get('unvested_count')} unvested options (score {_b2_3.get('vesting_score')}/5).",
         }
     else:
-        _b2_3_donut = {'type': 'unavailable', 'title': 'Vesting Structure',
+        _b2_3_donut = {'type': 'unavailable',
+            'status': _ux_status((_b2_3 or {}).get('confidence_tag')), 'title': 'Vesting Structure',
                         'explanation': f"No explicit vested/unvested option counts were located in {_co}'s latest Annual Report ESOP disclosure."}
 
     if _b2_4.get('vesting_horizon_years') is not None:
@@ -2923,14 +2946,15 @@ def build_executive_summary(state: SystemState) -> dict:
         }
     elif _b2_4.get('alignment_score') is not None:
         _b2_4_donut = {
-            'type': 'kpi_card', 'title': 'Long-term Orientation',
+            'type': 'category_bar', 'title': 'Long-term Orientation', 'composition': True,
             'data': [{'label': 'Long-term incentives', 'value': _b2_4.get('long_term_count')},
                      {'label': 'Short-term incentives', 'value': _b2_4.get('short_term_count')}],
             'centerValue': f"{_b2_4.get('long_term_pct')}%",
             'explanation': f"{_co}'s Remuneration Policy explicitly mentions long-term incentive language {_b2_4.get('long_term_pct')}% of the time it discusses incentive type (score {_b2_4.get('alignment_score')}/5).",
         }
     else:
-        _b2_4_donut = {'type': 'unavailable', 'title': 'Long-term Orientation',
+        _b2_4_donut = {'type': 'unavailable',
+            'status': _ux_status((_b2_4 or {}).get('confidence_tag')), 'title': 'Long-term Orientation',
                         'explanation': f"No explicit vesting horizon or long-term/short-term incentive language was located in {_co}'s latest Annual Report."}
     _b2_panels = [_b2_1_donut, _b2_2_donut, _b2_3_donut, _b2_4_donut]
 
@@ -2951,13 +2975,13 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b3_1.get('depth_score') is not None:
         _b3_1_donut = {
-            'type': 'kpi_card', 'title': 'Leadership Depth',
-            'zones': ['Limited', 'Strong'], 'active': 'Strong' if _b3_1.get('depth_score') >= 3 else 'Limited',
+            'type': 'bar_score', 'title': 'Leadership Depth', 'score': _b3_1.get('depth_score'),
             'centerValue': str(_b3_1.get('member_count')),
             'explanation': f"{_co}'s latest Annual Report explicitly names {_b3_1.get('member_count')} senior management/executive leadership members (score {_b3_1.get('depth_score')}/5).",
         }
     else:
-        _b3_1_donut = {'type': 'unavailable', 'title': 'Leadership Depth',
+        _b3_1_donut = {'type': 'unavailable',
+            'status': _ux_status((_b3_1 or {}).get('confidence_tag')), 'title': 'Leadership Depth',
                         'explanation': f"No Senior Management Personnel / Executive Leadership Team listing was located in {_co}'s latest Annual Report."}
 
     if _b3_2.get('readiness') is not None:
@@ -2967,17 +2991,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}: " + (f"{_b3_2.get('succession_transitions')} named completed leadership transition(s) explicitly described" if _b3_2.get('succession_transitions') else "explicit evidence of an actively reviewed succession-planning process") + ".",
         }
     else:
-        _b3_2_donut = {'type': 'unavailable', 'title': 'Succession Readiness',
+        _b3_2_donut = {'type': 'unavailable',
+            'status': _ux_status((_b3_2 or {}).get('confidence_tag')), 'title': 'Succession Readiness',
                         'explanation': f"No succession-planning evidence was located in {_co}'s latest Annual Report."}
 
     if _b3_3.get('dependency_score') is not None:
         _b3_3_donut = {
-            'type': 'kpi_card', 'title': 'Key Executive Dependency',
-            'zones': ['Concentrated', 'Distributed'], 'active': _b3_3.get('dependency_level'),
+            'type': 'bar_score', 'title': 'Key Executive Dependency', 'score': _b3_3.get('dependency_score'),
             'explanation': f"{_b3_1.get('member_count')} named senior executives at {_co} -> {_b3_3.get('dependency_level')} responsibility (score {_b3_3.get('dependency_score')}/5).",
         }
     else:
-        _b3_3_donut = {'type': 'unavailable', 'title': 'Key Executive Dependency',
+        _b3_3_donut = {'type': 'unavailable',
+            'status': _ux_status((_b3_3 or {}).get('confidence_tag')), 'title': 'Key Executive Dependency',
                         'explanation': f"No leadership-bench count was available for {_co} to assess responsibility concentration."}
     _b3_panels = [_b3_1_donut, _b3_2_donut, _b3_3_donut]
 
@@ -2994,14 +3019,15 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b4_1.get('transparency_score') is not None:
         _b4_1_donut = {
-            'type': 'kpi_card', 'title': 'Disclosure Transparency',
+            'type': 'category_bar', 'title': 'Disclosure Transparency', 'composition': True,
             'data': [{'label': 'Detailed', 'value': _b4_1.get('detailed_count')},
                      {'label': 'Generic', 'value': _b4_1.get('generic_count')}],
             'centerValue': f"{_b4_1.get('detailed_pct')}%",
             'explanation': f"{_co}'s Annual Report risk disclosures explicitly named {_b4_1.get('detailed_count')} detailed (quantified) vs {_b4_1.get('generic_count')} generic risk statement(s) (score {_b4_1.get('transparency_score')}/5).",
         }
     else:
-        _b4_1_donut = {'type': 'unavailable', 'title': 'Disclosure Transparency',
+        _b4_1_donut = {'type': 'unavailable',
+            'status': _ux_status((_b4_1 or {}).get('confidence_tag')), 'title': 'Disclosure Transparency',
                         'explanation': f"No risk-disclosure text with a clear detailed/generic signal was located in {_co}'s latest Annual Report."}
 
     if _b4_2.get('clarity_score') is not None:
@@ -3020,19 +3046,21 @@ def build_executive_summary(state: SystemState) -> dict:
                 'explanation': f"{_co}'s earnings call explicitly gave {_b4_2.get('quantified_count')} quantified vs {_b4_2.get('vague_count')} vague forward-looking statement(s) (score {_b4_2.get('clarity_score')}/5).",
             }
     else:
-        _b4_2_donut = {'type': 'unavailable', 'title': 'Guidance Clarity',
+        _b4_2_donut = {'type': 'unavailable',
+            'status': _ux_status((_b4_2 or {}).get('confidence_tag')), 'title': 'Guidance Clarity',
                         'explanation': f"No earnings-call transcript outlook/guidance section was located for {_co} this run."}
 
     if _b4_3.get('openness_score') is not None:
         _b4_3_donut = {
-            'type': 'kpi_card', 'title': 'Investor Openness',
+            'type': 'category_bar', 'title': 'Investor Openness', 'composition': True,
             'data': [{'label': 'Open', 'value': max(0, (_b4_3.get('unique_analysts') or 0) - (_b4_3.get('evasive_answer_count') or 0))},
                      {'label': 'Defensive', 'value': _b4_3.get('evasive_answer_count')}],
             'centerValue': f"{_b4_3.get('openness_pct')}%",
             'explanation': f"{_b4_3.get('unique_analysts')} named analyst(s) questioned {_co}'s management, {_b4_3.get('evasive_answer_count')} evasive answer(s) explicitly found (score {_b4_3.get('openness_score')}/5).",
         }
     else:
-        _b4_3_donut = {'type': 'unavailable', 'title': 'Investor Openness',
+        _b4_3_donut = {'type': 'unavailable',
+            'status': _ux_status((_b4_3 or {}).get('confidence_tag')), 'title': 'Investor Openness',
                         'explanation': f"No earnings-call transcript Q&A section with named analysts was located for {_co} this run."}
     _b4_panels = [_b4_1_donut, _b4_2_donut, _b4_3_donut]
 
@@ -3040,19 +3068,20 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b5_1.get('milestone_score') is not None:
         _b5_1_donut = {
-            'type': 'kpi_card', 'title': 'Delivered vs Stated Milestones',
+            'type': 'category_bar', 'title': 'Delivered vs Stated Milestones', 'composition': True,
             'data': [{'label': 'Achieved', 'value': _b5_1.get('achieved_count')},
                      {'label': 'Pending', 'value': _b5_1.get('pending_count')}],
             'centerValue': f"{_b5_1.get('execution_ratio_pct')}%",
             'explanation': f"{_co}'s Annual Reports explicitly confirmed {_b5_1.get('achieved_count')} of {_b5_1.get('announced_count')} stated milestone(s) delivered (Execution Ratio {_b5_1.get('execution_ratio')}, score {_b5_1.get('milestone_score')}/5).",
         }
     else:
-        _b5_1_donut = {'type': 'unavailable', 'title': 'Delivered vs Stated Milestones',
+        _b5_1_donut = {'type': 'unavailable',
+            'status': _ux_status((_b5_1 or {}).get('confidence_tag')), 'title': 'Delivered vs Stated Milestones',
                         'explanation': f"No announced-vs-achieved milestone language was located across {_co}'s available Annual Reports."}
 
     if _b5_2.get('capital_execution_score') is not None:
         _b5_2_panel = {
-            'type': 'kpi_card', 'title': 'Capex vs Planned Capex',
+            'type': 'stacked_bar', 'title': 'Capex vs Planned Capex',
             'data': [{'label': 'Actual', 'value': _b5_2.get('actual_capex_cr')},
                      {'label': 'Planned', 'value': _b5_2.get('planned_capex_cr')}],
             'centerValue': f"{_b5_2.get('execution_pct')}%",
@@ -3060,10 +3089,11 @@ def build_executive_summary(state: SystemState) -> dict:
         }
     else:
         if _b5_2.get('actual_capex_cr') is not None:
-            _b5_2_explanation = f"{_co} incurred ₹{_b5_2.get('actual_capex_cr')} cr actual capex, but no explicitly-stated planned/budgeted capex figure was located across the available Annual Reports this run — an absolute-₹ capex plan/target is genuinely rare in Indian filings."
+            _b5_2_explanation = f"{_co} incurred ₹{_b5_2.get('actual_capex_cr')} cr actual capex, but no explicitly-stated planned/budgeted capex figure was located across the available Annual Reports this run - an absolute-₹ capex plan/target is genuinely rare in Indian filings."
         else:
             _b5_2_explanation = f"No explicitly-stated planned-vs-actual capex comparison was located for {_co} across the available Annual Reports this run."
-        _b5_2_panel = {'type': 'unavailable', 'title': 'Capex vs Planned Capex', 'explanation': _b5_2_explanation}
+        _b5_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_b5_2 or {}).get('confidence_tag')), 'title': 'Capex vs Planned Capex', 'explanation': _b5_2_explanation}
 
     if _b5_3.get('consistency_score') is not None:
         _b5_3_panel = {
@@ -3073,7 +3103,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s stated strategic priorities overlapped {_b5_3.get('avg_overlap_pct')}% year-over-year across {len(_b5_3.get('theme_trend') or [])} year(s) of MD&A (score {_b5_3.get('consistency_score')}/5).",
         }
     else:
-        _b5_3_panel = {'type': 'unavailable', 'title': 'Strategic Delivery Trend',
+        _b5_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_b5_3 or {}).get('confidence_tag')), 'title': 'Strategic Delivery Trend',
                         'explanation': f"Fewer than 2 years of MD&A with an identifiable strategic-priority theme were located for {_co} this run."}
     _b5_panels = [_b5_1_donut, _b5_2_panel, _b5_3_panel]
 
@@ -3081,50 +3112,54 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _b6_1.get('innovation_score') is not None:
         _b6_1_donut = {
-            'type': 'kpi_card', 'title': 'Innovation Focus',
+            'type': 'category_bar', 'title': 'Innovation Focus', 'composition': True,
             'data': [{'label': 'Innovation-led', 'value': _b6_1.get('innovation_led_count')},
                      {'label': 'Traditional', 'value': _b6_1.get('traditional_count')}],
             'centerValue': f"{_b6_1.get('innovation_pct')}%",
             'explanation': f"{_co}'s Annual Report explicitly named {_b6_1.get('innovation_led_count')} innovation-led (quantified) vs {_b6_1.get('traditional_count')} traditional (generic) innovation statement(s) (score {_b6_1.get('innovation_score')}/5).",
         }
     else:
-        _b6_1_donut = {'type': 'unavailable', 'title': 'Innovation Focus',
+        _b6_1_donut = {'type': 'unavailable',
+            'status': _ux_status((_b6_1 or {}).get('confidence_tag')), 'title': 'Innovation Focus',
                         'explanation': f"No innovation-focus text with a clear innovation-led/traditional signal was located in {_co}'s latest Annual Report."}
 
     if _b6_2.get('compliance_score') is not None:
         _b6_2_donut = {
-            'type': 'kpi_card', 'title': 'Compliance Orientation',
+            'type': 'category_bar', 'title': 'Compliance Orientation', 'composition': True,
             'data': [{'label': 'Strong', 'value': _b6_2.get('strong_count')},
                      {'label': 'Weak', 'value': _b6_2.get('weak_count')}],
             'centerValue': f"{_b6_2.get('compliance_pct')}%",
             'explanation': f"{_co}'s Annual Report explicitly named {_b6_2.get('strong_count')} strong (established/operating) vs {_b6_2.get('weak_count')} weak (deficiency/weakness) compliance statement(s) (score {_b6_2.get('compliance_score')}/5).",
         }
     else:
-        _b6_2_donut = {'type': 'unavailable', 'title': 'Compliance Orientation',
+        _b6_2_donut = {'type': 'unavailable',
+            'status': _ux_status((_b6_2 or {}).get('confidence_tag')), 'title': 'Compliance Orientation',
                         'explanation': f"No vigil-mechanism/internal-controls text with a clear strong/weak signal was located in {_co}'s latest Annual Report."}
 
     if _b6_3.get('engagement_score') is not None:
         _b6_3_donut = {
-            'type': 'kpi_card', 'title': 'Employee Morale',
+            'type': 'category_bar', 'title': 'Employee Morale', 'composition': True,
             'data': [{'label': 'Engaged', 'value': _b6_3.get('engaged_count')},
                      {'label': 'Disengaged', 'value': _b6_3.get('disengaged_count')}],
             'centerValue': f"{_b6_3.get('engagement_pct')}%",
             'explanation': f"{_co}'s Annual Report explicitly named {_b6_3.get('engaged_count')} evidence-backed (quantified) vs {_b6_3.get('disengaged_count')} generic employee-culture statement(s) (score {_b6_3.get('engagement_score')}/5).",
         }
     else:
-        _b6_3_donut = {'type': 'unavailable', 'title': 'Employee Morale',
+        _b6_3_donut = {'type': 'unavailable',
+            'status': _ux_status((_b6_3 or {}).get('confidence_tag')), 'title': 'Employee Morale',
                         'explanation': f"No HR/employee-engagement text with a clear engaged/disengaged signal was located in {_co}'s latest Annual Report."}
 
     if _b6_4.get('attrition_stability_score') is not None:
         _b6_4_donut = {
-            'type': 'kpi_card', 'title': 'Attrition Evidence',
+            'type': 'category_bar', 'title': 'Attrition Evidence', 'valueSuffix': '%', 'composition': True,
             'data': [{'label': 'Retained', 'value': _b6_4.get('retained_pct')},
                      {'label': 'Attrited', 'value': _b6_4.get('turnover_rate_pct')}],
             'centerValue': f"{_b6_4.get('turnover_rate_pct')}%",
             'explanation': f"{_co} explicitly disclosed a {_b6_4.get('turnover_rate_pct')}% employee turnover rate -> {_b6_4.get('retained_pct')}% retained (score {_b6_4.get('attrition_stability_score')}/5).",
         }
     else:
-        _b6_4_donut = {'type': 'unavailable', 'title': 'Attrition Evidence',
+        _b6_4_donut = {'type': 'unavailable',
+            'status': _ux_status((_b6_4 or {}).get('confidence_tag')), 'title': 'Attrition Evidence',
                         'explanation': f"No explicit employee turnover/attrition rate was located in {_co}'s latest Annual Report."}
     _b6_panels = [_b6_1_donut, _b6_2_donut, _b6_3_donut, _b6_4_donut]
 
@@ -3139,7 +3174,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s promoter holding was {_c1_1.get('promoter_pct')}% as of {_c1_1.get('as_of_quarter')} -> {_c1_1.get('control_level')} (score {_c1_1.get('control_score')}/5).",
         }
     else:
-        _c1_1_donut = {'type': 'unavailable', 'title': 'Control Levels',
+        _c1_1_donut = {'type': 'unavailable',
+            'status': _ux_status((_c1_1 or {}).get('confidence_tag')), 'title': 'Control Levels',
                         'explanation': f"NSE's live Shareholding Pattern endpoint returned no data for {_co} this run."}
 
     def _short_quarter_label(q):
@@ -3160,7 +3196,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s promoter holding moved {_c1_2.get('net_change_pct'):+.2f} percentage points across the last {_c1_2.get('quarters_available')} quarters (score {_c1_2.get('trend_score')}/5).",
         }
     else:
-        _c1_2_panel = {'type': 'unavailable', 'title': '8-Quarter Promoter Holding Trend',
+        _c1_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_c1_2 or {}).get('confidence_tag')), 'title': '8-Quarter Promoter Holding Trend',
                         'explanation': f"Fewer than 2 quarters of Shareholding Pattern data were available for {_co} this run."}
 
     if _c1_3.get('direction_score') is not None:
@@ -3179,7 +3216,8 @@ def build_executive_summary(state: SystemState) -> dict:
                 'explanation': f"{_co}'s promoter holding increased in {_c1_3.get('increased_count')} vs reduced in {_c1_3.get('reduced_count')} quarter-over-quarter comparisons -> {_c1_3.get('direction')} (score {_c1_3.get('direction_score')}/5).",
             }
     else:
-        _c1_3_panel = {'type': 'unavailable', 'title': 'Direction (Buying/Selling)',
+        _c1_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_c1_3 or {}).get('confidence_tag')), 'title': 'Direction (Buying/Selling)',
                         'explanation': f"Fewer than 2 quarters of Shareholding Pattern data were available for {_co} this run."}
     _c1_panels = [_c1_1_donut, _c1_2_panel, _c1_3_panel]
 
@@ -3187,24 +3225,25 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c2_1.get('presence_score') is not None:
         _c2_1_donut = {
-            'type': 'kpi_card', 'title': 'Presence of Pledging',
+            'type': 'category_bar', 'title': 'Presence of Pledging', 'valueSuffix': '%', 'composition': True,
             'data': [{'label': 'Pledged', 'value': _c2_1.get('pledge_pct')},
                      {'label': 'Unpledged', 'value': _c2_1.get('unpledged_pct')}],
             'centerValue': f"{_c2_1.get('pledge_pct')}%",
             'explanation': f"{_co} has {_c2_1.get('pledge_pct')}% of promoter shareholding pledged as of {_c2_1.get('as_of_quarter') or 'the latest quarter'} (score {_c2_1.get('presence_score')}/5).",
         }
     else:
-        _c2_1_donut = {'type': 'unavailable', 'title': 'Presence of Pledging',
+        _c2_1_donut = {'type': 'unavailable',
+            'status': _ux_status((_c2_1 or {}).get('confidence_tag')), 'title': 'Presence of Pledging',
                         'explanation': f"NSE's live pledge endpoint was unreachable for {_co} this run."}
 
     if _c2_2.get('size_score') is not None:
         _c2_2_panel = {
-            'type': 'kpi_card', 'title': 'Size of Pledged Shares',
-            'zones': ['Low', 'High'], 'active': _c2_2.get('size_classification'),
+            'type': 'bar_score', 'title': 'Size of Pledged Shares', 'score': _c2_2.get('size_score'),
             'explanation': f"{_co}'s pledged shares are {_c2_2.get('pledge_pct')}% of promoter holding -> {_c2_2.get('size_classification')} (score {_c2_2.get('size_score')}/5).",
         }
     else:
-        _c2_2_panel = {'type': 'unavailable', 'title': 'Size of Pledged Shares',
+        _c2_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_c2_2 or {}).get('confidence_tag')), 'title': 'Size of Pledged Shares',
                         'explanation': f"NSE's live pledge endpoint was unreachable for {_co} this run."}
 
     _c2_3_trend = _c2_3.get('trend') or []
@@ -3216,17 +3255,18 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s pledge % moved {_c2_3.get('net_change_pct'):+.2f} percentage points across {_c2_3.get('quarters_available')} quarters (score {_c2_3.get('trend_score')}/5).",
         }
     else:
-        _c2_3_panel = {'type': 'unavailable', 'title': 'Pledge Trend',
-                        'explanation': f"Fewer than 2 quarters with an on-record pledge were available for {_co} this run — a company with no pledge history has no trend to show."}
+        _c2_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_c2_3 or {}).get('confidence_tag')), 'title': 'Pledge Trend',
+                        'explanation': f"Fewer than 2 quarters with an on-record pledge were available for {_co} this run - a company with no pledge history has no trend to show."}
 
     if _c2_4.get('risk_score') is not None:
         _c2_4_panel = {
-            'type': 'kpi_card', 'title': 'Margin-call Risk',
-            'zones': ['Low', 'High'], 'active': _c2_4.get('risk_level'),
+            'type': 'bar_score', 'title': 'Margin-call Risk', 'score': _c2_4.get('risk_score'),
             'explanation': f"{_co}'s pledged shares are {_c2_4.get('pledge_pct')}% of promoter holding -> {_c2_4.get('risk_level')} margin-call risk (score {_c2_4.get('risk_score')}/5).",
         }
     else:
-        _c2_4_panel = {'type': 'unavailable', 'title': 'Margin-call Risk',
+        _c2_4_panel = {'type': 'unavailable',
+            'status': _ux_status((_c2_4 or {}).get('confidence_tag')), 'title': 'Margin-call Risk',
                         'explanation': f"NSE's live pledge endpoint was unreachable for {_co} this run."}
     _c2_panels = [_c2_1_donut, _c2_2_panel, _c2_3_panel, _c2_4_panel]
 
@@ -3234,24 +3274,26 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c3_1.get('frequency_score') is not None:
         _c3_1_panel = {
-            'type': 'kpi_card', 'title': 'Frequency of RPTs',
-            'zones': ['Limited', 'Frequent'], 'active': _c3_1.get('frequency_bucket'),
+            'type': 'bar_score', 'title': 'Frequency of RPTs', 'score': _c3_1.get('frequency_score'),
+            'namedList': _c3_1.get('matched_types') or None, 'namedListLabel': 'Matched Ind AS 24 Transaction Types',
             'explanation': f"{_co}'s Related Party Disclosures note explicitly named {_c3_1.get('distinct_transaction_types')} distinct Ind AS 24 transaction-type(s) -> {_c3_1.get('frequency_bucket')} (score {_c3_1.get('frequency_score')}/5).",
         }
     else:
-        _c3_1_panel = {'type': 'unavailable', 'title': 'Frequency of RPTs',
+        _c3_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_c3_1 or {}).get('confidence_tag')), 'title': 'Frequency of RPTs',
                         'explanation': f"No verbatim-quote-verified related-party transaction row was located for {_co} this run."}
 
     if _c3_2.get('counterparty_risk_score') is not None:
         _c3_2_donut = {
-            'type': 'kpi_card', 'title': 'Counterparty Identity',
+            'type': 'category_bar', 'title': 'Counterparty Identity', 'composition': True,
             'data': [{'label': 'Promoter-group', 'value': _c3_2.get('promoter_group_count')},
                      {'label': 'Independent', 'value': _c3_2.get('independent_count')}],
             'centerValue': f"{_c3_2.get('counterparty_risk_pct')}%",
             'explanation': f"{_co}'s related-party rows named {_c3_2.get('independent_count')} independent vs {_c3_2.get('promoter_group_count')} promoter/KMP-adjacent counterpart(y/ies) (score {_c3_2.get('counterparty_risk_score')}/5).",
         }
     else:
-        _c3_2_donut = {'type': 'unavailable', 'title': 'Counterparty Identity',
+        _c3_2_donut = {'type': 'unavailable',
+            'status': _ux_status((_c3_2 or {}).get('confidence_tag')), 'title': 'Counterparty Identity',
                         'explanation': f"No verbatim-quote-verified related-party transaction row was located for {_co} this run."}
 
     if _c3_3.get('pricing_fairness_score') is not None:
@@ -3263,19 +3305,21 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s Related Party Disclosures note explicitly confirmed {_c3_3.get('arms_length_count')} arm's-length vs {_c3_3.get('non_arms_length_count')} non-arm's-length statement(s) (score {_c3_3.get('pricing_fairness_score')}/5).",
         }
     else:
-        _c3_3_donut = {'type': 'unavailable', 'title': 'Pricing and Commercial Rationale',
-                        'explanation': f"No explicit arm's-length pricing statement was located for {_co} this run — most RPT notes don't restate the pricing basis in prose per line item."}
+        _c3_3_donut = {'type': 'unavailable',
+            'status': _ux_status((_c3_3 or {}).get('confidence_tag')), 'title': 'Pricing and Commercial Rationale',
+                        'explanation': f"No explicit arm's-length pricing statement was located for {_co} this run - most RPT notes don't restate the pricing basis in prose per line item."}
 
     if _c3_4.get('disclosure_quality_score') is not None:
         _c3_4_donut = {
-            'type': 'kpi_card', 'title': 'Disclosure Quality of RPTs',
+            'type': 'category_bar', 'title': 'Disclosure Quality of RPTs', 'composition': True,
             'data': [{'label': 'Transparent', 'value': _c3_4.get('transparent_count')},
                      {'label': 'Opaque', 'value': _c3_4.get('opaque_count')}],
             'centerValue': f"{_c3_4.get('disclosure_quality_pct')}%",
             'explanation': f"{_co}'s Audit Committee Report explicitly named {_c3_4.get('transparent_count')} transparent (approval-process) vs {_c3_4.get('opaque_count')} opaque (red flag) statement(s) (score {_c3_4.get('disclosure_quality_score')}/5).",
         }
     else:
-        _c3_4_donut = {'type': 'unavailable', 'title': 'Disclosure Quality of RPTs',
+        _c3_4_donut = {'type': 'unavailable',
+            'status': _ux_status((_c3_4 or {}).get('confidence_tag')), 'title': 'Disclosure Quality of RPTs',
                         'explanation': f"No explicit RPT-approval-process disclosure was located for {_co} this run."}
     _c3_panels = [_c3_1_panel, _c3_2_donut, _c3_3_donut, _c3_4_donut]
 
@@ -3290,7 +3334,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s Contingent Liabilities & Commitments note explicitly quantified {_c4_1.get('disclosed_count')} vs left {_c4_1.get('opaque_count')} item(s) unquantifiable (score {_c4_1.get('offbalance_risk_score')}/5).",
         }
     else:
-        _c4_1_donut = {'type': 'unavailable', 'title': 'Off-balance-sheet Exposure',
+        _c4_1_donut = {'type': 'unavailable',
+            'status': _ux_status((_c4_1 or {}).get('confidence_tag')), 'title': 'Off-balance-sheet Exposure',
                         'explanation': f"No Contingent Liabilities & Commitments note with a clear disclosed/opaque signal was located for {_co} this run."}
 
     if _c4_2.get('spv_complexity_score') is not None:
@@ -3302,7 +3347,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s Subsidiaries listing explicitly named {_c4_2.get('operating_count')} operating entities vs {_c4_2.get('spv_count')} SPV-like (Trust/Foundation/Fund) entities (score {_c4_2.get('spv_complexity_score')}/5).",
         }
     else:
-        _c4_2_donut = {'type': 'unavailable', 'title': 'Operating Entities vs SPVs',
+        _c4_2_donut = {'type': 'unavailable',
+            'status': _ux_status((_c4_2 or {}).get('confidence_tag')), 'title': 'Operating Entities vs SPVs',
                         'explanation': f"No Subsidiaries (Extent of holding) listing with named entities was located for {_co} this run."}
 
     if _c4_3.get('offshore_structure_score') is not None:
@@ -3314,12 +3360,13 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s Subsidiaries listing explicitly named {_c4_3.get('domestic_count')} domestic vs {_c4_3.get('overseas_count')} overseas group entities (score {_c4_3.get('offshore_structure_score')}/5).",
         }
     else:
-        _c4_3_donut = {'type': 'unavailable', 'title': 'Domestic vs Overseas Entities',
+        _c4_3_donut = {'type': 'unavailable',
+            'status': _ux_status((_c4_3 or {}).get('confidence_tag')), 'title': 'Domestic vs Overseas Entities',
                         'explanation': f"No Subsidiaries (Extent of holding) listing with named entities was located for {_co} this run."}
 
     if _c4_4.get('group_complexity_score') is not None:
         _c4_4_panel = {
-            'type': 'kpi_card', 'title': 'Group Entities by Type and Jurisdiction',
+            'type': 'category_bar', 'title': 'Group Entities by Type and Jurisdiction', 'composition': True,
             'data': [{'label': 'Domestic', 'value': _c4_4.get('domestic_count')},
                      {'label': 'Overseas', 'value': _c4_4.get('overseas_count')},
                      {'label': 'Trust/Foundation', 'value': _c4_4.get('trust_count')}],
@@ -3327,7 +3374,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co} explicitly named {_c4_4.get('entity_count')} distinct group entities ({_c4_4.get('domestic_count')} domestic, {_c4_4.get('overseas_count')} overseas, {_c4_4.get('trust_count')} trust/foundation) -> score {_c4_4.get('group_complexity_score')}/5.",
         }
     else:
-        _c4_4_panel = {'type': 'unavailable', 'title': 'Group Entities by Type and Jurisdiction',
+        _c4_4_panel = {'type': 'unavailable',
+            'status': _ux_status((_c4_4 or {}).get('confidence_tag')), 'title': 'Group Entities by Type and Jurisdiction',
                         'explanation': f"No Subsidiaries (Extent of holding) listing with named entities was located for {_co} this run."}
     _c4_panels = [_c4_1_donut, _c4_2_donut, _c4_3_donut, _c4_4_panel]
 
@@ -3335,14 +3383,15 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c5_1.get('quality_score') is not None:
         _c5_1_donut = {
-            'type': 'kpi_card', 'title': 'Independent Directors by Quality Tier',
+            'type': 'category_bar', 'title': 'Independent Directors by Quality Tier', 'composition': True,
             'data': [{'label': 'High Quality', 'value': _c5_1.get('high_quality_count')},
                      {'label': 'Standard', 'value': _c5_1.get('standard_count')}],
             'centerValue': f"{_c5_1.get('quality_pct')}%",
             'explanation': f"{_co} explicitly named {_c5_1.get('high_quality_count')} of {_c5_1.get('independent_count')} independent director(s) (of {_c5_1.get('total_directors')} total) as holding both a committee membership and an independent directorship elsewhere, as of {_c5_1.get('as_of_quarter')} (score {_c5_1.get('quality_score')}/5).",
         }
     else:
-        _c5_1_donut = {'type': 'unavailable', 'title': 'Independent Directors by Quality Tier',
+        _c5_1_donut = {'type': 'unavailable',
+            'status': _ux_status((_c5_1 or {}).get('confidence_tag')), 'title': 'Independent Directors by Quality Tier',
                         'explanation': f"NSE's live Corporate Governance filing endpoint returned no board-composition data for {_co} this run."}
 
     if _c5_2.get('effectiveness_score') is not None:
@@ -3354,7 +3403,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s Audit Committee ({_c5_2.get('independent_members')}/{_c5_2.get('total_members')} independent) met quorum in {_c5_2.get('meetings_quorum_met')}/{_c5_2.get('meetings_held')} meeting(s) as of {_c5_2.get('as_of_quarter')} (score {_c5_2.get('effectiveness_score')}/5).",
         }
     else:
-        _c5_2_donut = {'type': 'unavailable', 'title': 'Audit Committee Attendance / Effectiveness',
+        _c5_2_donut = {'type': 'unavailable',
+            'status': _ux_status((_c5_2 or {}).get('confidence_tag')), 'title': 'Audit Committee Attendance / Effectiveness',
                         'explanation': f"NSE's live Corporate Governance filing endpoint had no Audit Committee data for {_co} this run."}
 
     if _c5_3.get('effectiveness_score') is not None:
@@ -3366,19 +3416,21 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s Nomination & Remuneration Committee had {_c5_3.get('independent_members')}/{_c5_3.get('total_members')} independent members as of {_c5_3.get('as_of_quarter')} (score {_c5_3.get('effectiveness_score')}/5).",
         }
     else:
-        _c5_3_donut = {'type': 'unavailable', 'title': 'NRC Effectiveness Distribution',
+        _c5_3_donut = {'type': 'unavailable',
+            'status': _ux_status((_c5_3 or {}).get('confidence_tag')), 'title': 'NRC Effectiveness Distribution',
                         'explanation': f"NSE's live Corporate Governance filing endpoint had no Nomination & Remuneration Committee data for {_co} this run."}
 
     if _c5_4.get('participation_score') is not None:
         _c5_4_donut = {
-            'type': 'kpi_card', 'title': 'Attended vs Missed Meetings',
+            'type': 'category_bar', 'title': 'Attended vs Missed Meetings', 'composition': True,
             'data': [{'label': 'Attended', 'value': _c5_4.get('total_present')},
                      {'label': 'Missed', 'value': max(0, (_c5_4.get('total_possible') or 0) - (_c5_4.get('total_present') or 0))}],
             'centerValue': f"{_c5_4.get('attendance_pct')}%",
             'explanation': f"{_co}'s directors recorded {_c5_4.get('total_present')} of {_c5_4.get('total_possible')} possible attendances across {_c5_4.get('meetings_count')} board meeting(s) as of {_c5_4.get('as_of_quarter')} (score {_c5_4.get('participation_score')}/5).",
         }
     else:
-        _c5_4_donut = {'type': 'unavailable', 'title': 'Attended vs Missed Meetings',
+        _c5_4_donut = {'type': 'unavailable',
+            'status': _ux_status((_c5_4 or {}).get('confidence_tag')), 'title': 'Attended vs Missed Meetings',
                         'explanation': f"NSE's live Corporate Governance filing endpoint had no board-meeting attendance data for {_co} this run."}
     _c5_panels = [_c5_1_donut, _c5_2_donut, _c5_3_donut, _c5_4_donut]
 
@@ -3391,19 +3443,21 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s current statutory auditor ({_c6_1.get('current_auditor')}) has served {_c6_1.get('tenure_years')} consecutive year(s) -> {_c6_1.get('tenure_classification')} (score {_c6_1.get('tenure_score')}/5).",
         }
     else:
-        _c6_1_panel = {'type': 'unavailable', 'title': 'Auditor Tenure Distribution',
+        _c6_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_c6_1 or {}).get('confidence_tag')), 'title': 'Auditor Tenure Distribution',
                         'explanation': f"No auditor signature block was located across {_co}'s available Annual Reports this run."}
 
     _c6_2_by_year = _c6_2.get('switch_by_year') or []
     if _c6_2.get('switch_score') is not None and _c6_2_by_year:
         _c6_2_panel = {
-            'type': 'kpi_card', 'title': 'Auditor Changes by Year',
+            'type': 'category_bar', 'title': 'Auditor Changes by Year',
             'data': [{'label': f"FY{str(y.get('fiscal_year'))[-2:]}", 'value': 1 if y.get('changed') else 0} for y in _c6_2_by_year],
             'centerValue': f"{_c6_2.get('switch_count')} change(s)",
             'explanation': f"{_co} changed statutory auditors {_c6_2.get('switch_count')} time(s) across {_c6_2.get('years_covered')} year(s) (score {_c6_2.get('switch_score')}/5).",
         }
     else:
-        _c6_2_panel = {'type': 'unavailable', 'title': 'Auditor Changes by Year',
+        _c6_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_c6_2 or {}).get('confidence_tag')), 'title': 'Auditor Changes by Year',
                         'explanation': f"Fewer than 2 years of resolvable auditor-name data were available for {_co} this run."}
 
     if _c6_3.get('audit_qualification_score') is not None:
@@ -3413,7 +3467,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s Independent Auditor's Report opinion was explicitly classified as {_c6_3.get('opinion_type')} (score {_c6_3.get('audit_qualification_score')}/5).",
         }
     else:
-        _c6_3_panel = {'type': 'unavailable', 'title': 'Unmodified vs Modified Audit Opinion',
+        _c6_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_c6_3 or {}).get('confidence_tag')), 'title': 'Unmodified vs Modified Audit Opinion',
                         'explanation': f"No explicit opinion-type heading was located for {_co} this run."}
 
     if _c6_4.get('audit_observation_score') is not None:
@@ -3423,7 +3478,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co} explicitly identified {_c6_4.get('kam_count')} Key Audit Matter(s); Emphasis of Matter {'present' if _c6_4.get('has_emphasis_of_matter') else 'not present'} -> {_c6_4.get('observation_classification')} (score {_c6_4.get('audit_observation_score')}/5).",
         }
     else:
-        _c6_4_panel = {'type': 'unavailable', 'title': 'No Material Observation vs Recurring Observation',
+        _c6_4_panel = {'type': 'unavailable',
+            'status': _ux_status((_c6_4 or {}).get('confidence_tag')), 'title': 'No Material Observation vs Recurring Observation',
                         'explanation': f"No Key Audit Matters or Emphasis of Matter section was located for {_co} this run."}
     _c6_panels = [_c6_1_panel, _c6_2_panel, _c6_3_panel, _c6_4_panel]
 
@@ -3434,26 +3490,28 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c7_1.get('capex_execution_score') is not None:
         _c7_1_donut = {
-            'type': 'kpi_card', 'title': 'Growth vs Maintenance / Other Capex',
+            'type': 'category_bar', 'title': 'Growth vs Maintenance / Other Capex', 'composition': True,
             'data': [{'label': 'Growth Capex', 'value': _c7_1.get('growth_count')},
                      {'label': 'Maintenance / Other', 'value': _c7_1.get('maintenance_count')}],
             'centerValue': f"{_c7_1.get('growth_pct')}%",
             'explanation': f"{_co}'s MD&A explicitly named {_c7_1.get('growth_count')} growth-oriented vs {_c7_1.get('maintenance_count')} maintenance/other capex statement(s) (score {_c7_1.get('capex_execution_score')}/5).",
         }
     else:
-        _c7_1_donut = {'type': 'unavailable', 'title': 'Growth vs Maintenance / Other Capex',
+        _c7_1_donut = {'type': 'unavailable',
+            'status': _ux_status((_c7_1 or {}).get('confidence_tag')), 'title': 'Growth vs Maintenance / Other Capex',
                         'explanation': f"No capex-related MD&A text with a clear growth/maintenance signal was located for {_co} this run."}
 
     if _c7_2.get('acquisition_discipline_score') is not None:
         _c7_2_donut = {
-            'type': 'kpi_card', 'title': 'Strategic vs Non-core / Related-party Acquisitions',
+            'type': 'category_bar', 'title': 'Strategic vs Non-core / Related-party Acquisitions', 'composition': True,
             'data': [{'label': 'Strategic', 'value': _c7_2.get('strategic_count')},
                      {'label': 'Non-core / Related-party', 'value': _c7_2.get('noncore_count')}],
             'centerValue': f"{_c7_2.get('strategic_pct')}%",
             'explanation': f"{_co}'s acquisition note(s) explicitly named {_c7_2.get('strategic_count')} strategic vs {_c7_2.get('noncore_count')} non-core/related-party statement(s) (score {_c7_2.get('acquisition_discipline_score')}/5).",
         }
     else:
-        _c7_2_donut = {'type': 'unavailable', 'title': 'Strategic vs Non-core / Related-party Acquisitions',
+        _c7_2_donut = {'type': 'unavailable',
+            'status': _ux_status((_c7_2 or {}).get('confidence_tag')), 'title': 'Strategic vs Non-core / Related-party Acquisitions',
                         'explanation': f"No acquisition-note text with a clear strategic/non-core signal was located for {_co} this run."}
 
     if _c7_3.get('buyback_score') is not None:
@@ -3465,22 +3523,25 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co} deployed ₹{_c7_3.get('total_buyback_cr')} cr on buybacks vs ₹{_c7_3.get('total_other_returns_cr')} cr on dividends across the window (score {_c7_3.get('buyback_score')}/5).",
         }
     elif _c7_3.get('buyback_years') == []:
-        _c7_3_donut = {'type': 'unavailable', 'title': 'Buyback vs Other Capital Returns',
-                        'explanation': f"No share buyback outflow was found for {_co} in the available window — capital was returned via dividends only."}
+        _c7_3_donut = {'type': 'unavailable',
+            'status': _ux_status((_c7_3 or {}).get('confidence_tag')), 'title': 'Buyback vs Other Capital Returns',
+                        'explanation': f"No share buyback outflow was found for {_co} in the available window - capital was returned via dividends only."}
     else:
-        _c7_3_donut = {'type': 'unavailable', 'title': 'Buyback vs Other Capital Returns',
+        _c7_3_donut = {'type': 'unavailable',
+            'status': _ux_status((_c7_3 or {}).get('confidence_tag')), 'title': 'Buyback vs Other Capital Returns',
                         'explanation': f"No Cash Flow Statement data was available for {_co} this run."}
 
     if _c7_4.get('dividend_consistency_score') is not None:
         _c7_4_donut = {
-            'type': 'kpi_card', 'title': 'Dividends vs Reinvestment / Other Uses',
+            'type': 'stacked_bar', 'title': 'Dividends vs Reinvestment / Other Uses',
             'data': [{'label': 'Dividends', 'value': _c7_4.get('total_dividend_cr')},
                      {'label': 'Reinvestment (Capex + M&A)', 'value': _c7_4.get('total_reinvestment_cr')}],
             'centerValue': f"{_c7_4.get('consistency_pct')}%",
             'explanation': f"{_co} paid dividends in {_c7_4.get('years_paid') and len(_c7_4.get('years_paid'))} of {_c7_4.get('years_covered')} year(s) ({_c7_4.get('consistency_pct')}% consistency, score {_c7_4.get('dividend_consistency_score')}/5).",
         }
     else:
-        _c7_4_donut = {'type': 'unavailable', 'title': 'Dividends vs Reinvestment / Other Uses',
+        _c7_4_donut = {'type': 'unavailable',
+            'status': _ux_status((_c7_4 or {}).get('confidence_tag')), 'title': 'Dividends vs Reinvestment / Other Uses',
                         'explanation': f"No Cash Flow Statement data was available for {_co} this run."}
 
     if _c7_5.get('capital_allocation_quality_score') is not None:
@@ -3493,7 +3554,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s FY{_c7_5.get('fiscal_year')} cash deployment: ₹{_c7_5.get('growth_investment_cr')} cr growth investment, ₹{_c7_5.get('shareholder_return_cr')} cr shareholder return, ₹{_c7_5.get('debt_reduction_cr')} cr debt reduction (score {_c7_5.get('capital_allocation_quality_score')}/5).",
         }
     else:
-        _c7_5_donut = {'type': 'unavailable', 'title': 'Growth Investment vs Shareholder Return vs Debt Reduction',
+        _c7_5_donut = {'type': 'unavailable',
+            'status': _ux_status((_c7_5 or {}).get('confidence_tag')), 'title': 'Growth Investment vs Shareholder Return vs Debt Reduction',
                         'explanation': f"No Cash Flow Statement data was available for {_co}'s latest fiscal year this run."}
     _c7_panels = [_c7_1_donut, _c7_2_donut, _c7_3_donut, _c7_4_donut, _c7_5_donut]
 
@@ -3501,26 +3563,28 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _c8_1.get('disclosure_quality_score') is not None:
         _c8_1_panel = {
-            'type': 'kpi_card', 'title': 'Detailed vs Limited Disclosure',
+            'type': 'category_bar', 'title': 'Detailed vs Limited Disclosure', 'composition': True,
             'data': [{'label': 'Detailed', 'value': _c8_1.get('detailed_count')},
                      {'label': 'Limited', 'value': _c8_1.get('limited_count')}],
             'centerValue': f"{_c8_1.get('detailed_pct')}%",
             'explanation': f"{_co}'s RPT/Contingent Liabilities/Commitments disclosures named {_c8_1.get('detailed_count')} detailed (quantified) vs {_c8_1.get('limited_count')} limited (generic) statement(s) (score {_c8_1.get('disclosure_quality_score')}/5).",
         }
     else:
-        _c8_1_panel = {'type': 'unavailable', 'title': 'Detailed vs Limited Disclosure',
+        _c8_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_c8_1 or {}).get('confidence_tag')), 'title': 'Detailed vs Limited Disclosure',
                         'explanation': f"No RPT/Contingent Liabilities/Commitments text with a clear detailed/limited signal was located for {_co} this run."}
 
     if _c8_2.get('minority_treatment_score') is not None:
         _c8_2_panel = {
-            'type': 'kpi_card', 'title': 'Votes For vs Against / Abstained',
+            'type': 'category_bar', 'title': 'Votes For vs Against / Abstained', 'composition': True,
             'data': [{'label': 'Passed', 'value': _c8_2.get('passed_count')},
                      {'label': 'Contested', 'value': _c8_2.get('contested_count')}],
             'centerValue': f"{_c8_2.get('pass_pct')}%",
             'explanation': f"{_co}'s latest AGM/Postal Ballot Scrutinizer's Report explicitly recorded {_c8_2.get('passed_count')} passed vs {_c8_2.get('contested_count')} contested resolution(s) (score {_c8_2.get('minority_treatment_score')}/5).",
         }
     else:
-        _c8_2_panel = {'type': 'unavailable', 'title': 'Votes For vs Against / Abstained',
+        _c8_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_c8_2 or {}).get('confidence_tag')), 'title': 'Votes For vs Against / Abstained',
                         'explanation': f"No resolution outcome was located in the latest AGM/Postal Ballot Scrutinizer's Report for {_co} this run."}
 
     _c8_4_by_event = _c8_4.get('by_event') or []
@@ -3537,7 +3601,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s last {_c8_4.get('events_count')} material event(s) had an average disclosure gap of {_c8_4.get('avg_gap_seconds')}s (max {_c8_4.get('max_gap_seconds')}s), score {_c8_4.get('timeliness_score')}/5.",
         }
     else:
-        _c8_4_panel = {'type': 'unavailable', 'title': 'Material Events vs Disclosure Timing',
+        _c8_4_panel = {'type': 'unavailable',
+            'status': _ux_status((_c8_4 or {}).get('confidence_tag')), 'title': 'Material Events vs Disclosure Timing',
                         'explanation': f"No corporate announcement with a parseable disclosure-timing gap was located for {_co} this run."}
     _c8_panels = [_c8_1_panel, _c8_2_panel, _c8_4_panel]
 
@@ -3552,7 +3617,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co} had {_d1_1.get('sell_count')} insider sell disclosure(s) explicitly recorded across the last 8 quarters (score {_d1_1.get('frequency_score')}/5).",
         }
     else:
-        _d1_1_panel = {'type': 'unavailable', 'title': 'Frequency of Insider Selling',
+        _d1_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_d1_1 or {}).get('confidence_tag')), 'title': 'Frequency of Insider Selling',
                         'explanation': f"No Regulation 7(2) insider-trading disclosure was located for {_co} across the last 8 quarters this run."}
 
     _d1_2_events = _d1_2.get('timing_events') or []
@@ -3570,7 +3636,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co} had {_d1_2.get('near_sensitive_count')} of {_d1_2.get('total_sells')} insider sell(s) explicitly fall within 7 days of a real financial-results/M&A/buyback announcement (score {_d1_2.get('timing_risk_score')}/5).",
         }
     else:
-        _d1_2_panel = {'type': 'unavailable', 'title': 'Timing of Insider Selling',
+        _d1_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_d1_2 or {}).get('confidence_tag')), 'title': 'Timing of Insider Selling',
                         'explanation': f"No insider sell disclosure with a parseable transaction date was located for {_co} across the last 8 quarters this run."}
 
     if _d1_3.get('size_score') is not None:
@@ -3580,7 +3647,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s insider sell(s) explicitly averaged {_d1_3.get('avg_sale_size_pct')}% of the seller's pre-sale holding across {_d1_3.get('events_used')} disclosure(s) -> {_d1_3.get('classification')} (score {_d1_3.get('size_score')}/5).",
         }
     else:
-        _d1_3_panel = {'type': 'unavailable', 'title': 'Size of Insider Selling',
+        _d1_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_d1_3 or {}).get('confidence_tag')), 'title': 'Size of Insider Selling',
                         'explanation': f"No insider sell disclosure with a usable before-holding figure was located for {_co} this run."}
 
     if _d1_4.get('rationale_score') is not None:
@@ -3590,7 +3658,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co} explicitly documented a liquidity/tax/diversification-type reason for {_d1_4.get('documented_count')} of {(_d1_4.get('documented_count') or 0) + (_d1_4.get('unexplained_count') or 0)} insider sell(s) (score {_d1_4.get('rationale_score')}/5).",
         }
     else:
-        _d1_4_panel = {'type': 'unavailable', 'title': 'Rationale for Insider Selling',
+        _d1_4_panel = {'type': 'unavailable',
+            'status': _ux_status((_d1_4 or {}).get('confidence_tag')), 'title': 'Rationale for Insider Selling',
                         'explanation': f"No insider sell disclosure was located for {_co} across the last 8 quarters this run."}
     _d1_panels = [_d1_1_panel, _d1_2_panel, _d1_3_panel, _d1_4_panel]
 
@@ -3615,7 +3684,8 @@ def build_executive_summary(state: SystemState) -> dict:
                            f"{_d2_1.get('buy_count')} insider purchase(s) explicitly recorded across {_d2_1.get('distinct_quarters')} distinct quarter(s) of the last 8 (score {_d2_1.get('frequency_score')}/5).",
         }
     else:
-        _d2_1_panel = {'type': 'unavailable', 'title': 'Frequency of Insider Buying',
+        _d2_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_d2_1 or {}).get('confidence_tag')), 'title': 'Frequency of Insider Buying',
                         'explanation': f"No Regulation 7(2) insider-trading disclosure was located for {_co} across the last 8 quarters this run."}
 
     if _d2_2.get('size_score') is not None:
@@ -3627,7 +3697,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s insider buy(s) explicitly averaged {_d2_2.get('avg_buy_size_pct')}% of the buyer's pre-purchase holding across {_d2_2.get('events_used')} disclosure(s) -> {_d2_2.get('classification')} (score {_d2_2.get('size_score')}/5).",
         }
     else:
-        _d2_2_panel = {'type': 'unavailable', 'title': 'Size of Insider Buying',
+        _d2_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_d2_2 or {}).get('confidence_tag')), 'title': 'Size of Insider Buying',
                         'explanation': f"No insider buy disclosure with a usable before-holding figure was located for {_co} this run."}
 
     if _d2_3.get('conviction_score') is not None:
@@ -3646,7 +3717,8 @@ def build_executive_summary(state: SystemState) -> dict:
                            f"{_d2_3.get('repeat_buyer_count')} named insider(s) explicitly repeated a purchase across different quarters in the last 8 quarters (score {_d2_3.get('conviction_score')}/5).",
         }
     else:
-        _d2_3_panel = {'type': 'unavailable', 'title': 'Repeat Buying / Conviction Pattern',
+        _d2_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_d2_3 or {}).get('confidence_tag')), 'title': 'Repeat Buying / Conviction Pattern',
                         'explanation': f"No Regulation 7(2) insider-trading disclosure was located for {_co} across the last 8 quarters this run."}
     _d2_panels = [_d2_1_panel, _d2_2_panel, _d2_3_panel]
 
@@ -3661,7 +3733,8 @@ def build_executive_summary(state: SystemState) -> dict:
                            + f" (score {_d3_1.get('disclosure_score')}/5).",
         }
     else:
-        _d3_1_panel = {'type': 'unavailable', 'title': 'Placements / Preferential Allotments',
+        _d3_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_d3_1 or {}).get('confidence_tag')), 'title': 'Placements / Preferential Allotments',
                         'explanation': f"No QIP/preferential/private-placement announcement was located for {_co} across the last 10 years this run."}
 
     if _d3_2.get('dilution_pct') is not None:
@@ -3673,7 +3746,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s most recent secondary transaction explicitly diluted existing shareholders by {_d3_2.get('dilution_pct')}% of share capital -> {_d3_2.get('classification')}.",
         }
     else:
-        _d3_2_panel = {'type': 'unavailable', 'title': 'Dilution to Existing Shareholders',
+        _d3_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_d3_2 or {}).get('confidence_tag')), 'title': 'Dilution to Existing Shareholders',
                         'explanation': f"No QIP/preferential/private-placement announcement explicitly stating a dilution % was located for {_co} across the last 10 years this run."}
 
     if _d3_3.get('pricing_rationale_score') is not None:
@@ -3681,7 +3755,7 @@ def build_executive_summary(state: SystemState) -> dict:
             'type': 'kpi_card', 'title': 'Pricing / Discount and Rationale',
             'centerValue': (f"₹{_d3_3.get('issue_price')}" if _d3_3.get('issue_price')
                             else (f"{_d3_3.get('discount_pct')}% disc." if _d3_3.get('discount_pct')
-                            else (f"{_d3_3.get('swap_ratio')} swap" if _d3_3.get('swap_ratio') else '—'))),
+                            else (f"{_d3_3.get('swap_ratio')} swap" if _d3_3.get('swap_ratio') else '-'))),
             'explanation': (f"Issue price ₹{_d3_3.get('issue_price')}" if _d3_3.get('issue_price')
                             else (f"Share-swap ratio {_d3_3.get('swap_ratio')} (no cash issue price - a Scheme of Arrangement share-swap)" if _d3_3.get('swap_ratio')
                             else "Issue price not explicitly stated"))
@@ -3690,7 +3764,8 @@ def build_executive_summary(state: SystemState) -> dict:
                            + f" (score {_d3_3.get('pricing_rationale_score')}/5).",
         }
     else:
-        _d3_3_panel = {'type': 'unavailable', 'title': 'Pricing / Discount and Rationale',
+        _d3_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_d3_3 or {}).get('confidence_tag')), 'title': 'Pricing / Discount and Rationale',
                         'explanation': f"No QIP/preferential/private-placement announcement was located for {_co} across the last 10 years this run."}
     _d3_panels = [_d3_1_panel, _d3_2_panel, _d3_3_panel]
 
@@ -3710,7 +3785,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s most recent lock-in clause explicitly names an expiry date of {_d4_1.get('lockin_expiry_date')} -> {_d4_1.get('lockin_status')}.",
         }
     else:
-        _d4_1_panel = {'type': 'unavailable', 'title': 'Lock-in Expiry Date',
+        _d4_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_d4_1 or {}).get('confidence_tag')), 'title': 'Lock-in Expiry Date',
                         'explanation': f"No lock-in clause with a resolvable date was located for {_co} across its full available NSE Corporate Announcements history this run."}
 
     if _d4_2.get('release_pct') is not None:
@@ -3722,7 +3798,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s matched lock-in filing explicitly states a release of {_d4_2.get('release_pct')}% of share capital -> {_d4_2.get('classification')}.",
         }
     else:
-        _d4_2_panel = {'type': 'unavailable', 'title': 'Potential Sellable Block Size',
+        _d4_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_d4_2 or {}).get('confidence_tag')), 'title': 'Potential Sellable Block Size',
                         'explanation': f"No lock-in/release filing explicitly stating a release % of share capital was located for {_co} across its full available NSE Corporate Announcements history this run."}
     _d4_panels = [_d4_1_panel, _d4_2_panel]
 
@@ -3732,22 +3809,30 @@ def build_executive_summary(state: SystemState) -> dict:
         _d5_1_panel = {
             'type': 'classification', 'title': 'Promoter/Company Loan Direction',
             'zones': ['Company → Promoter/Group', 'Promoter/Group → Company', 'Both'], 'active': _d5_1.get('direction'),
+            # Real matched sentences from the Related Party Disclosures note
+            # (tools.promoter_loan_scoring.score_loan_direction) - the actual
+            # textual basis for the direction classification above, not just
+            # its conclusion.
+            'evidenceQuotes': (_d5_1.get('evidence_sentences') or None),
+            'evidenceQuotesLabel': 'Matched Disclosure Sentences',
             'explanation': f"{_co}'s Related Party Disclosures note explicitly describes loan/advance direction as {_d5_1.get('direction')}.",
         }
     else:
-        _d5_1_panel = {'type': 'unavailable', 'title': 'Promoter/Company Loan Direction',
+        _d5_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_d5_1 or {}).get('confidence_tag')), 'title': 'Promoter/Company Loan Direction',
                         'explanation': f"No promoter/group/KMP-adjacent loan or advance sentence was located for {_co} in the Related Party Disclosures note this run."}
 
     if _d5_2.get('terms_score') is not None:
         _d5_2_panel = {
             'type': 'kpi_card', 'title': 'Interest Rate and Terms',
-            'centerValue': (f"{_d5_2.get('interest_rate_pct')}% p.a." if _d5_2.get('interest_rate_pct') is not None else '—'),
+            'centerValue': (f"{_d5_2.get('interest_rate_pct')}% p.a." if _d5_2.get('interest_rate_pct') is not None else '-'),
             'explanation': (f"Interest rate {_d5_2.get('interest_rate_pct')}% p.a." if _d5_2.get('interest_rate_pct') is not None else "Interest rate not explicitly stated")
                            + (f", repayable {_d5_2.get('repayment_term')}" if _d5_2.get('repayment_term') else ", repayment term not explicitly stated")
                            + f" (score {_d5_2.get('terms_score')}/5).",
         }
     else:
-        _d5_2_panel = {'type': 'unavailable', 'title': 'Interest Rate and Terms',
+        _d5_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_d5_2 or {}).get('confidence_tag')), 'title': 'Interest Rate and Terms',
                         'explanation': f"No promoter/group/KMP-adjacent loan or advance sentence was located for {_co} in the Related Party Disclosures note this run."}
 
     if _d5_3.get('loan_balance_cr') is not None and _d5_3.get('exposure_pct') is not None:
@@ -3765,7 +3850,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s ₹{_d5_3.get('loan_balance_cr')} cr promoter/group-adjacent loan balance was explicitly found, but no Net Worth/Total Assets denominator could be computed this run.",
         }
     else:
-        _d5_3_panel = {'type': 'unavailable', 'title': 'Outstanding Balance / Concentration',
+        _d5_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_d5_3 or {}).get('confidence_tag')), 'title': 'Outstanding Balance / Concentration',
                         'explanation': f"No promoter/group/KMP-adjacent loan balance figure was located for {_co} in the Related Party Disclosures note this run."}
     _d5_panels = [_d5_1_panel, _d5_2_panel, _d5_3_panel]
 
@@ -3786,17 +3872,28 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s current pledge is {_d6_1.get('current_pledge_pct')}% (as of {_d6_1.get('current_quarter')}). NSE's live endpoint has not yet exposed a prior quarter to compute quarter-over-quarter unwinding against this run.",
         }
     else:
-        _d6_1_panel = {'type': 'unavailable', 'title': 'Pledge Release / Unwinding',
+        _d6_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_d6_1 or {}).get('confidence_tag')), 'title': 'Pledge Release / Unwinding',
                         'explanation': f"No on-record pledge was available for {_co} this run."}
 
     if _d6_2.get('classification') is not None:
+        # Real matched NSE announcement / Reg 7(2) insider filing rows
+        # (tools.forced_sale_scoring.score_forced_sale_signals) - each a
+        # {desc, an_dt, evidence} dict - the actual dated filings behind the
+        # classification above, not just the conclusion.
+        _d6_2_events = [
+            {'label': ev.get('an_dt') or '', 'value': ev.get('desc') or ev.get('evidence') or ''}
+            for ev in (_d6_2.get('evidence') or []) if isinstance(ev, dict)
+        ]
         _d6_2_panel = {
             'type': 'classification', 'title': 'Forced-Sale / Invocation Signals',
             'zones': ['No evidence', 'Possible', 'Confirmed'], 'active': _d6_2.get('classification'),
+            'evidenceEvents': _d6_2_events or None, 'evidenceEventsLabel': 'Matched Filings',
             'explanation': _d6_2.get('rationale') or f"{_co}'s forced-sale/invocation risk classification: {_d6_2.get('classification')}.",
         }
     else:
-        _d6_2_panel = {'type': 'unavailable', 'title': 'Forced-Sale / Invocation Signals',
+        _d6_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_d6_2 or {}).get('confidence_tag')), 'title': 'Forced-Sale / Invocation Signals',
                         'explanation': f"NSE's live endpoints were unreachable for {_co} this run."}
     _d6_panels = [_d6_1_panel, _d6_2_panel]
 
@@ -3809,17 +3906,19 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s Related Party Disclosures note names {_e1_1.get('material_counterparty_count')} counterparty(ies) with a disclosed amount" + (", recurring/ongoing nature disclosed" if _e1_1.get('recurring_disclosed') else "") + f" (score {_e1_1.get('frequency_score')}/5).",
         }
     else:
-        _e1_1_panel = {'type': 'unavailable', 'title': 'Related-Party Payment Frequency',
+        _e1_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_e1_1 or {}).get('confidence_tag')), 'title': 'Related-Party Payment Frequency',
                         'explanation': f"No named, amount-attached related-party counterparty was located for {_co} in the Related Party Disclosures note this run."}
 
     if _e1_3.get('rationale_score') is not None:
         _e1_3_panel = {
-            'type': 'kpi_card', 'title': "Payment Rationale / Arm's-Length Basis",
-            'centerValue': f"{_e1_3.get('rationale_score')}/5",
+            'type': 'bar_score', 'title': "Payment Rationale / Arm's-Length Basis",
+            'score': _e1_3.get('rationale_score'),
             'explanation': f"Arm's-length pricing {'confirmed' if _e1_3.get('arms_length_confirmed') else 'not explicitly confirmed'}; Audit Committee approval {'documented' if _e1_3.get('audit_committee_approved') else 'not explicitly documented'} (score {_e1_3.get('rationale_score')}/5).",
         }
     else:
-        _e1_3_panel = {'type': 'unavailable', 'title': "Payment Rationale / Arm's-Length Basis",
+        _e1_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_e1_3 or {}).get('confidence_tag')), 'title': "Payment Rationale / Arm's-Length Basis",
                         'explanation': f"No explicit arm's-length pricing statement or Audit Committee approval language was located for {_co} in the Related Party Disclosures note this run."}
     _e1_panels = [_e1_1_panel, _e1_3_panel]
 
@@ -3833,17 +3932,19 @@ def build_executive_summary(state: SystemState) -> dict:
                             else f"Largest customer represents {_e2_1.get('concentration_pct')}% of total revenue") + f" -> {_e2_1.get('classification')}.",
         }
     else:
-        _e2_1_panel = {'type': 'unavailable', 'title': 'Top Customer Revenue Concentration',
+        _e2_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_e2_1 or {}).get('confidence_tag')), 'title': 'Top Customer Revenue Concentration',
                         'explanation': f"No Ind AS 108 major-customer revenue-concentration disclosure was located for {_co} in the latest Annual Report this run."}
 
     if _e2_2.get('dependency_score') is not None:
         _e2_2_panel = {
-            'type': 'kpi_card', 'title': 'Customer Dependency',
-            'centerValue': f"{_e2_2.get('dependency_score')}/5",
+            'type': 'bar_score', 'title': 'Customer Dependency',
+            'score': _e2_2.get('dependency_score'),
             'explanation': f"Dependency score {_e2_2.get('dependency_score')}/5, based on " + ("the disclosed concentration %." if _e2_2.get('basis') == 'concentration_pct' else "MD&A/risk-factor language."),
         }
     else:
-        _e2_2_panel = {'type': 'unavailable', 'title': 'Customer Dependency',
+        _e2_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_e2_2 or {}).get('confidence_tag')), 'title': 'Customer Dependency',
                         'explanation': f"No disclosed concentration % or explicit customer-diversification/dependency language was located for {_co} in the latest Annual Report this run."}
     _e2_panels = [_e2_1_panel, _e2_2_panel]
 
@@ -3855,22 +3956,24 @@ def build_executive_summary(state: SystemState) -> dict:
         else:
             _e3_1_explanation = ("Single-source/limited-supplier dependence disclosed" if _e3_1.get('single_source_disclosed') else "Diversified supplier base explicitly disclosed") + f" (score {_e3_1.get('concentration_score')}/5)."
         _e3_1_panel = {
-            'type': 'kpi_card', 'title': 'Supplier Concentration',
-            'centerValue': f"{_e3_1.get('concentration_score')}/5",
+            'type': 'bar_score', 'title': 'Supplier Concentration',
+            'score': _e3_1.get('concentration_score'),
             'explanation': _e3_1_explanation,
         }
     else:
-        _e3_1_panel = {'type': 'unavailable', 'title': 'Supplier Concentration',
+        _e3_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_e3_1 or {}).get('confidence_tag')), 'title': 'Supplier Concentration',
                         'explanation': f"No single-source-supplier risk statement or diversified-supplier-base language was located for {_co} in the latest Annual Report this run."}
 
     if _e3_3.get('terms_score') is not None:
         _e3_3_panel = {
-            'type': 'kpi_card', 'title': 'Supplier Terms / Dependence',
-            'centerValue': f"{_e3_3.get('terms_score')}/5",
+            'type': 'bar_score', 'title': 'Supplier Terms / Dependence',
+            'score': _e3_3.get('terms_score'),
             'explanation': ("Transparent commercial terms (long-term/multi-year supply agreement or a stated credit period) disclosed" if _e3_3.get('transparent_terms_disclosed') else "Supplier-dependence risk language disclosed") + f" (score {_e3_3.get('terms_score')}/5).",
         }
     else:
-        _e3_3_panel = {'type': 'unavailable', 'title': 'Supplier Terms / Dependence',
+        _e3_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_e3_3 or {}).get('confidence_tag')), 'title': 'Supplier Terms / Dependence',
                         'explanation': f"No transparent-supplier-terms or supplier-dependence-risk language was located for {_co} in the latest Annual Report this run."}
     _e3_panels = [_e3_1_panel, _e3_3_panel]
 
@@ -3885,7 +3988,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s Trade Receivables moved from ₹{_e4_1.get('prior_receivables_cr')} cr ({_e4_1_trend[0].get('period')}) to ₹{_e4_1.get('current_receivables_cr')} cr ({_e4_1_trend[1].get('period')}) -> {_e4_1.get('growth_pct'):+.2f}% (year-over-year; no quarterly Balance Sheet data source exists for this sub-point).",
         }
     else:
-        _e4_1_panel = {'type': 'unavailable', 'title': 'Receivables Growth',
+        _e4_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_e4_1 or {}).get('confidence_tag')), 'title': 'Receivables Growth',
                         'explanation': f"Trade Receivables could not be located on the Balance Sheet page of {_co}'s latest Annual Report this run."}
 
     if _e4_2.get('overdue_pct') is not None:
@@ -3895,18 +3999,20 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_e4_2.get('overdue_pct')}% of {_co}'s total Trade Receivables (₹{_e4_2.get('total_cr')} cr) is overdue past the due date -> {_e4_2.get('classification')}.",
         }
     else:
-        _e4_2_panel = {'type': 'unavailable', 'title': 'Receivables Aging / Overdue Quality',
+        _e4_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_e4_2 or {}).get('confidence_tag')), 'title': 'Receivables Aging / Overdue Quality',
                         'explanation': f"No Trade Receivables ageing TOTAL row was located for {_co} in the latest Annual Report this run."}
 
     if _e4_3.get('risk_score') is not None:
         _disclosed_bits = [k.replace('_disclosed', '').replace('_', ' ') for k in ('contract_assets_disclosed', 'unbilled_revenue_disclosed', 'variable_consideration_disclosed') if _e4_3.get(k)]
         _e4_3_panel = {
-            'type': 'kpi_card', 'title': 'Revenue-Recognition Disclosure Risk',
-            'centerValue': f"{_e4_3.get('risk_score')}/5",
+            'type': 'bar_score', 'title': 'Revenue-Recognition Disclosure Risk',
+            'score': _e4_3.get('risk_score'),
             'explanation': (f"Discloses {', '.join(_disclosed_bits)}" if _disclosed_bits else "No specific complexity indicators disclosed") + (" with an explicit significant-judgement/estimate flag" if _e4_3.get('judgement_disclosed') else "") + f" (score {_e4_3.get('risk_score')}/5).",
         }
     else:
-        _e4_3_panel = {'type': 'unavailable', 'title': 'Revenue-Recognition Disclosure Risk',
+        _e4_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_e4_3 or {}).get('confidence_tag')), 'title': 'Revenue-Recognition Disclosure Risk',
                         'explanation': f"No contract-assets/unbilled-revenue/variable-consideration language was located for {_co} in the Revenue Recognition accounting policy this run."}
     _e4_panels = [_e4_1_panel, _e4_2_panel, _e4_3_panel]
 
@@ -3921,7 +4027,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s Inventory moved from ₹{_e5_1.get('prior_inventory_cr')} cr ({_e5_1_trend[0].get('period')}) to ₹{_e5_1.get('current_inventory_cr')} cr ({_e5_1_trend[1].get('period')}) -> {_e5_1.get('growth_pct'):+.2f}% (year-over-year; no quarterly Balance Sheet data source exists for this sub-point).",
         }
     else:
-        _e5_1_panel = {'type': 'unavailable', 'title': 'Inventory Trend',
+        _e5_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_e5_1 or {}).get('confidence_tag')), 'title': 'Inventory Trend',
                         'explanation': f"Inventory could not be located on the Balance Sheet page of {_co}'s latest Annual Report this run."}
 
     if _e5_2.get('divergence_pct') is not None:
@@ -3931,7 +4038,8 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_co}'s Inventory grew {_e5_2.get('inventory_growth_pct'):+.2f}% vs Revenue {_e5_2.get('revenue_growth_pct'):+.2f}% YoY -> divergence {_e5_2.get('divergence_pct'):+.2f}pp -> {_e5_2.get('classification')}.",
         }
     else:
-        _e5_2_panel = {'type': 'unavailable', 'title': 'Inventory vs Demand',
+        _e5_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_e5_2 or {}).get('confidence_tag')), 'title': 'Inventory vs Demand',
                         'explanation': f"Inventory and/or Revenue could not both be located for {_co} in the latest Annual Report this run."}
 
     if _e5_3.get('obsolescence_score') is not None:
@@ -3940,12 +4048,13 @@ def build_executive_summary(state: SystemState) -> dict:
         else:
             _e5_3_explanation = f"Obsolete/slow-moving inventory language disclosed without a distinct write-down figure (score {_e5_3.get('obsolescence_score')}/5)."
         _e5_3_panel = {
-            'type': 'kpi_card', 'title': 'Obsolete / Slow-Moving Inventory',
-            'centerValue': f"{_e5_3.get('obsolescence_score')}/5",
+            'type': 'bar_score', 'title': 'Obsolete / Slow-Moving Inventory',
+            'score': _e5_3.get('obsolescence_score'),
             'explanation': _e5_3_explanation,
         }
     else:
-        _e5_3_panel = {'type': 'unavailable', 'title': 'Obsolete / Slow-Moving Inventory',
+        _e5_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_e5_3 or {}).get('confidence_tag')), 'title': 'Obsolete / Slow-Moving Inventory',
                         'explanation': f"No inventory write-down/slow-moving-inventory disclosure was located for {_co} in the latest Annual Report this run."}
     _e5_panels = [_e5_1_panel, _e5_2_panel, _e5_3_panel]
 
@@ -3953,22 +4062,24 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _e6_1.get('risk_score') is not None:
         _e6_1_panel = {
-            'type': 'kpi_card', 'title': 'Off-Market Transactions',
-            'centerValue': f"{_e6_1.get('risk_score')}/5",
+            'type': 'bar_score', 'title': 'Off-Market Transactions',
+            'score': _e6_1.get('risk_score'),
             'explanation': f"{_e6_1.get('transaction_count')} real off-market/block-deal-type disclosure(s) found, {_e6_1.get('named_counterparty_count')} naming a counterparty and {_e6_1.get('rationale_disclosed_count')} stating a commercial rationale (score {_e6_1.get('risk_score')}/5).",
         }
     else:
-        _e6_1_panel = {'type': 'unavailable', 'title': 'Off-Market Transactions',
+        _e6_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_e6_1 or {}).get('confidence_tag')), 'title': 'Off-Market Transactions',
                         'explanation': f"No off-market/block-deal/inter-se-transfer/preferential-issue disclosure was located for {_co} this run."}
 
     if _e6_2.get('evidence_score') is not None:
         _e6_2_panel = {
-            'type': 'kpi_card', 'title': "Non-Arm's-Length Contracts",
-            'centerValue': f"{_e6_2.get('evidence_score')}/5",
+            'type': 'bar_score', 'title': "Non-Arm's-Length Contracts",
+            'score': _e6_2.get('evidence_score'),
             'explanation': (f"Arm's-length pricing {'confirmed' if _e6_2.get('arms_length_confirmed') else 'not explicitly confirmed'}; Audit Committee approval {'documented' if _e6_2.get('audit_committee_approved') else 'not explicitly documented'}" if not _e6_2.get('opaque_flag') else "An explicit non-arm's-length pricing statement or Audit Committee approval gap was found") + f" (score {_e6_2.get('evidence_score')}/5).",
         }
     else:
-        _e6_2_panel = {'type': 'unavailable', 'title': "Non-Arm's-Length Contracts",
+        _e6_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_e6_2 or {}).get('confidence_tag')), 'title': "Non-Arm's-Length Contracts",
                         'explanation': f"No explicit arm's-length pricing statement or Audit Committee approval language was located for {_co} in the Related Party Disclosures note this run."}
     _e6_panels = [_e6_1_panel, _e6_2_panel]
 
@@ -3981,17 +4092,19 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"{_e7_1.get('policy_change_count')} accounting policy change(s)/standard amendment adoption(s) disclosed this year (current year only, not the 5-year comparison the spec describes).",
         }
     else:
-        _e7_1_panel = {'type': 'unavailable', 'title': 'Accounting Policy Changes',
+        _e7_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_e7_1 or {}).get('confidence_tag')), 'title': 'Accounting Policy Changes',
                         'explanation': f"No accounting-policy-change or standard-amendment-adoption language was located for {_co} in the latest Annual Report this run."}
 
     if _e7_2.get('estimate_change_score') is not None:
         _e7_2_panel = {
-            'type': 'kpi_card', 'title': 'Changes in Accounting Estimates',
-            'centerValue': f"{_e7_2.get('estimate_change_score')}/5",
+            'type': 'bar_score', 'title': 'Changes in Accounting Estimates',
+            'score': _e7_2.get('estimate_change_score'),
             'explanation': f"{_e7_2.get('estimate_change_count')} estimate change(s) disclosed, {_e7_2.get('explained_count')} with a stated reason (score {_e7_2.get('estimate_change_score')}/5).",
         }
     else:
-        _e7_2_panel = {'type': 'unavailable', 'title': 'Changes in Accounting Estimates',
+        _e7_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_e7_2 or {}).get('confidence_tag')), 'title': 'Changes in Accounting Estimates',
                         'explanation': f"No accounting-estimate-change language was located for {_co} in the latest Annual Report this run."}
 
     if _e7_3.get('current_exceptional_cr') is not None:
@@ -4001,17 +4114,19 @@ def build_executive_summary(state: SystemState) -> dict:
             'explanation': f"Exceptional items: ₹{_e7_3.get('current_exceptional_cr')} cr this year (₹{_e7_3.get('prior_exceptional_cr')} cr prior year) -> " + ('recurring (non-zero in both years).' if _e7_3.get('recurring_flag') else 'not recurring.'),
         }
     else:
-        _e7_3_panel = {'type': 'unavailable', 'title': 'One-Off Adjustments / Special Items',
+        _e7_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_e7_3 or {}).get('confidence_tag')), 'title': 'One-Off Adjustments / Special Items',
                         'explanation': f"No Exceptional Items P&L line was located for {_co} in the latest Annual Report this run."}
 
     if _e7_4.get('smoothing_risk_score') is not None:
         _e7_4_panel = {
-            'type': 'kpi_card', 'title': 'Earnings Smoothing Signals',
-            'centerValue': f"{_e7_4.get('smoothing_risk_score')}/5",
+            'type': 'bar_score', 'title': 'Earnings Smoothing Signals',
+            'score': _e7_4.get('smoothing_risk_score'),
             'explanation': (f"Recurring exceptional item is {_e7_4.get('exceptional_pct_of_pbt')}% of PBT" if _e7_4.get('exceptional_pct_of_pbt') is not None else "Recurring exceptional item found, PBT unavailable for magnitude context") + f" (score {_e7_4.get('smoothing_risk_score')}/5).",
         }
     else:
-        _e7_4_panel = {'type': 'unavailable', 'title': 'Earnings Smoothing Signals',
+        _e7_4_panel = {'type': 'unavailable',
+            'status': _ux_status((_e7_4 or {}).get('confidence_tag')), 'title': 'Earnings Smoothing Signals',
                         'explanation': f"No Exceptional Items P&L line was located for {_co} in the latest Annual Report this run."}
     _e7_panels = [_e7_1_panel, _e7_2_panel, _e7_3_panel, _e7_4_panel]
 
@@ -4021,10 +4136,12 @@ def build_executive_summary(state: SystemState) -> dict:
         _f1_1_panel = {
             'type': 'kpi_card', 'title': 'Number of Material Competitors',
             'centerValue': str(_f1_1.get('competitor_count')),
+            'namedList': _f1_1.get('competitor_names') or None, 'namedListLabel': 'Named Competitors',
             'explanation': f"{_f1_1.get('competitor_count')} named competitor(s) identified in the latest Annual Report MD&A.",
         }
     else:
-        _f1_1_panel = {'type': 'unavailable', 'title': 'Number of Material Competitors',
+        _f1_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_f1_1 or {}).get('confidence_tag')), 'title': 'Number of Material Competitors',
                         'explanation': f"No named-competitor list was located for {_co} in the latest Annual Report MD&A this run (Indian issuers routinely avoid naming rivals)."}
 
     if _f1_2.get('market_position_score') is not None:
@@ -4035,36 +4152,39 @@ def build_executive_summary(state: SystemState) -> dict:
         else:
             _f1_2_expl = f"Disclosed market leadership/rank claim (no numeric % given; score {_f1_2.get('market_position_score')}/5)."
         _f1_2_panel = {
-            'type': 'kpi_card', 'title': 'Relative Market Position',
-            'centerValue': f"{_f1_2.get('market_position_score')}/5",
+            'type': 'bar_score', 'title': 'Relative Market Position',
+            'score': _f1_2.get('market_position_score'),
             'explanation': _f1_2_expl,
         }
     else:
-        _f1_2_panel = {'type': 'unavailable', 'title': 'Relative Market Position',
+        _f1_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_f1_2 or {}).get('confidence_tag')), 'title': 'Relative Market Position',
                         'explanation': f"No disclosed market share % or leadership/rank claim was located for {_co} in the latest Annual Report this run."}
 
     if _f1_3.get('competitive_strength_score') is not None:
         _f1_3_panel = {
-            'type': 'kpi_card', 'title': 'Competitor Strength',
-            'centerValue': f"{_f1_3.get('competitive_strength_score')}/5",
+            'type': 'bar_score', 'title': 'Competitor Strength',
+            'score': _f1_3.get('competitive_strength_score'),
+            'namedList': _f1_3.get('strength_dimensions') or None, 'namedListLabel': 'Disclosed Advantage Dimensions',
             'explanation': f"Disclosed competitive advantage(s): {', '.join(_f1_3.get('strength_dimensions') or [])} (score {_f1_3.get('competitive_strength_score')}/5).",
         }
     else:
-        _f1_3_panel = {'type': 'unavailable', 'title': 'Competitor Strength',
+        _f1_3_panel = {'type': 'unavailable',
+            'status': _ux_status((_f1_3 or {}).get('confidence_tag')), 'title': 'Competitor Strength',
                         'explanation': f"No disclosed scale/distribution/technology/cost advantage language was located for {_co} in the latest Annual Report this run."}
     _f1_panels = [_f1_1_panel, _f1_2_panel, _f1_3_panel]
 
     _f2_1 = (_f2 or {}).get('f2_1') or {}
     if _f2_1.get('entry_barrier_score') is not None:
         _f2_1_score = _f2_1.get('entry_barrier_score')
-        _f2_1_zone = 'Low' if _f2_1_score <= 2 else ('Moderate' if _f2_1_score == 3 else 'High')
         _f2_1_panel = {
-            'type': 'classification', 'title': 'Entry Barriers',
-            'zones': ['Low', 'Moderate', 'High'], 'active': _f2_1_zone,
+            'type': 'bar_score', 'title': 'Entry Barriers', 'score': _f2_1_score,
+            'namedList': _f2_1.get('barrier_dimensions') or None, 'namedListLabel': 'Disclosed Barrier Dimensions',
             'explanation': f"Disclosed entry-barrier dimension(s): {', '.join(_f2_1.get('barrier_dimensions') or [])} (score {_f2_1_score}/5).",
         }
     else:
-        _f2_1_panel = {'type': 'unavailable', 'title': 'Entry Barriers',
+        _f2_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_f2_1 or {}).get('confidence_tag')), 'title': 'Entry Barriers',
                         'explanation': f"No regulatory/licensing, capital-intensity, distribution, technology/IP, or scale barrier language was located for {_co} in the latest Annual Report this run."}
     _f2_panels = [_f2_1_panel]
 
@@ -4074,24 +4194,25 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _g1_1.get('channel_mix_score') is not None:
         _g1_1_score = _g1_1.get('channel_mix_score')
-        _g1_1_zone = 'Low' if _g1_1_score <= 2 else ('Moderate' if _g1_1_score == 3 else 'High')
         _g1_1_panel = {
-            'type': 'classification', 'title': 'Channel Mix',
-            'zones': ['Low', 'Moderate', 'High'], 'active': _g1_1_zone,
+            'type': 'bar_score', 'title': 'Channel Mix', 'score': _g1_1_score,
+            'namedList': _g1_1.get('channels_identified') or None, 'namedListLabel': 'Disclosed Channels',
             'explanation': f"{len(_g1_1.get('channels_identified') or [])} distinct channel(s) disclosed ({', '.join(_g1_1.get('channels_identified') or [])}) -> score {_g1_1_score}/5.",
         }
     else:
-        _g1_1_panel = {'type': 'unavailable', 'title': 'Channel Mix',
+        _g1_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_g1_1 or {}).get('confidence_tag')), 'title': 'Channel Mix',
                         'explanation': f"No named distribution channel was located for {_co} in MD&A / Business Model text this run."}
 
     if _g1_2.get('channel_control_score') is not None:
         _g1_2_panel = {
-            'type': 'kpi_card', 'title': 'Channel Control',
-            'centerValue': f"{_g1_2.get('channel_control_score')}/5",
+            'type': 'bar_score', 'title': 'Channel Control',
+            'score': _g1_2.get('channel_control_score'),
             'explanation': f"Channel control basis: {_g1_2.get('control_basis')} -> score {_g1_2.get('channel_control_score')}/5.",
         }
     else:
-        _g1_2_panel = {'type': 'unavailable', 'title': 'Channel Control',
+        _g1_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_g1_2 or {}).get('confidence_tag')), 'title': 'Channel Control',
                         'explanation': f"No owned-vs-third-party channel dependence language was located for {_co} this run."}
     _g1_panels = [_g1_1_panel, _g1_2_panel]
 
@@ -4099,29 +4220,28 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _f6_1.get('switching_cost_score') is not None:
         _f6_1_score = _f6_1.get('switching_cost_score')
-        _f6_1_zone = 'Low' if _f6_1_score <= 2 else ('Moderate' if _f6_1_score == 3 else 'High')
         _f6_1_panel = {
-            'type': 'classification', 'title': 'Switching Costs',
-            'zones': ['Low', 'Moderate', 'High'], 'active': _f6_1_zone,
+            'type': 'bar_score', 'title': 'Switching Costs', 'score': _f6_1_score,
             'explanation': _f6_1.get('rationale') or f"Switching cost score {_f6_1_score}/5.",
         }
     else:
-        _f6_1_panel = {'type': 'unavailable', 'title': 'Switching Costs',
+        _f6_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_f6_1 or {}).get('confidence_tag')), 'title': 'Switching Costs',
                         'explanation': f"No contract lock-in term, renewal rate, or switching-barrier evidence was located for {_co} this run."}
 
     if _f6_2.get('applicable') is False:
-        _f6_2_panel = {'type': 'unavailable', 'title': 'Network Effects',
-                        'explanation': f"Not applicable — {_co} has no platform/marketplace element."}
+        _f6_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_f6_2 or {}).get('confidence_tag')), 'title': 'Network Effects',
+                        'explanation': f"Not applicable - {_co} has no platform/marketplace element."}
     elif _f6_2.get('network_effect_score') is not None:
         _f6_2_score = _f6_2.get('network_effect_score')
-        _f6_2_zone = 'Low' if _f6_2_score <= 2 else ('Moderate' if _f6_2_score == 3 else 'High')
         _f6_2_panel = {
-            'type': 'classification', 'title': 'Network Effects',
-            'zones': ['Low', 'Moderate', 'High'], 'active': _f6_2_zone,
+            'type': 'bar_score', 'title': 'Network Effects', 'score': _f6_2_score,
             'explanation': _f6_2.get('rationale') or f"Network effect score {_f6_2_score}/5.",
         }
     else:
-        _f6_2_panel = {'type': 'unavailable', 'title': 'Network Effects',
+        _f6_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_f6_2 or {}).get('confidence_tag')), 'title': 'Network Effects',
                         'explanation': f"No platform/network-effects growth-linkage evidence was located for {_co} this run."}
     _f6_panels = [_f6_1_panel, _f6_2_panel]
 
@@ -4129,22 +4249,24 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _f4_1.get('regulatory_barrier_score') is not None:
         _f4_1_panel = {
-            'type': 'kpi_card', 'title': 'Regulatory Barriers',
-            'centerValue': f"{_f4_1.get('regulatory_barrier_score')}/5",
+            'type': 'bar_score', 'title': 'Regulatory Barriers', 'score': _f4_1.get('regulatory_barrier_score'),
+            'namedList': _f4_1.get('regulatory_barrier_dimensions') or None, 'namedListLabel': 'Disclosed Regulatory Barrier Dimensions',
             'explanation': f"Disclosed regulatory-barrier dimension(s): {', '.join(_f4_1.get('regulatory_barrier_dimensions') or [])} (score {_f4_1.get('regulatory_barrier_score')}/5).",
         }
     else:
-        _f4_1_panel = {'type': 'unavailable', 'title': 'Regulatory Barriers',
+        _f4_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_f4_1 or {}).get('confidence_tag')), 'title': 'Regulatory Barriers',
                         'explanation': f"No regulatory-approval-regime, licence-to-operate, mining/resource-lease, or mandatory-standards language was located for {_co} in the latest Annual Report this run."}
 
     if _f4_2.get('trade_barrier_score') is not None:
         _f4_2_panel = {
-            'type': 'kpi_card', 'title': 'Trade Barriers',
-            'centerValue': f"{_f4_2.get('trade_barrier_score')}/5",
+            'type': 'bar_score', 'title': 'Trade Barriers', 'score': _f4_2.get('trade_barrier_score'),
+            'namedList': _f4_2.get('trade_barrier_dimensions') or None, 'namedListLabel': 'Disclosed Trade Barrier Dimensions',
             'explanation': f"Disclosed trade-barrier dimension(s): {', '.join(_f4_2.get('trade_barrier_dimensions') or [])} (score {_f4_2.get('trade_barrier_score')}/5).",
         }
     else:
-        _f4_2_panel = {'type': 'unavailable', 'title': 'Trade Barriers',
+        _f4_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_f4_2 or {}).get('confidence_tag')), 'title': 'Trade Barriers',
                         'explanation': f"No tariff, import/export duty, anti-dumping/safeguard duty, or trade-policy language was located for {_co} in the latest Annual Report this run."}
     _f4_panels = [_f4_1_panel, _f4_2_panel]
 
@@ -4152,22 +4274,24 @@ def build_executive_summary(state: SystemState) -> dict:
 
     if _f5_1.get('foreign_competition_score') is not None:
         _f5_1_panel = {
-            'type': 'kpi_card', 'title': 'Foreign Competitor Presence',
-            'centerValue': f"{_f5_1.get('foreign_competition_score')}/5",
+            'type': 'bar_score', 'title': 'Foreign Competitor Presence', 'score': _f5_1.get('foreign_competition_score'),
+            'namedList': _f5_1.get('presence_dimensions') or None, 'namedListLabel': 'Disclosed Presence Dimensions',
             'explanation': f"Disclosed foreign-competitor-presence dimension(s): {', '.join(_f5_1.get('presence_dimensions') or [])} (score {_f5_1.get('foreign_competition_score')}/5).",
         }
     else:
-        _f5_1_panel = {'type': 'unavailable', 'title': 'Foreign Competitor Presence',
+        _f5_1_panel = {'type': 'unavailable',
+            'status': _ux_status((_f5_1 or {}).get('confidence_tag')), 'title': 'Foreign Competitor Presence',
                         'explanation': f"No named international competitor, global/multinational player, export-competition, or import-pressure language was located for {_co} in the latest Annual Report this run."}
 
     if _f5_2.get('import_competition_score') is not None:
         _f5_2_panel = {
-            'type': 'kpi_card', 'title': 'Import Competition',
-            'centerValue': f"{_f5_2.get('import_competition_score')}/5",
+            'type': 'bar_score', 'title': 'Import Competition', 'score': _f5_2.get('import_competition_score'),
+            'namedList': _f5_2.get('import_dimensions') or None, 'namedListLabel': 'Disclosed Import-Competition Dimensions',
             'explanation': f"Disclosed import-competition dimension(s): {', '.join(_f5_2.get('import_dimensions') or [])} (score {_f5_2.get('import_competition_score')}/5).",
         }
     else:
-        _f5_2_panel = {'type': 'unavailable', 'title': 'Import Competition',
+        _f5_2_panel = {'type': 'unavailable',
+            'status': _ux_status((_f5_2 or {}).get('confidence_tag')), 'title': 'Import Competition',
                         'explanation': f"No cheap-imports, anti-dumping/safeguard-duty, import duty/quota/policy, or import-pressure language was located for {_co} in the latest Annual Report this run."}
     _f5_panels = [_f5_1_panel, _f5_2_panel]
 
@@ -4176,14 +4300,14 @@ def build_executive_summary(state: SystemState) -> dict:
             'topic': 'A. Company strategy & business model',
             'subpoints': [
                 {
-                    # A.1 — Clarity of Business Model, rendered as ONE combined
+                    # A.1 - Clarity of Business Model, rendered as ONE combined
                     # 4-ring sunburst: Ring 1 is the segment-share/pattern view
                     # (formerly a standalone "business_composition" chart), Rings
                     # 2-4 are the Revenue -> EBITDA/OpCosts -> D&A/Finance/PBT ->
                     # Tax/Net Profit waterfall (formerly a standalone
-                    # "income_statement_flow" chart) — same two underlying,
+                    # "income_statement_flow" chart) - same two underlying,
                     # already-reconciled data sources, just presented as one
-                    # chart instead of two. User-facing title/key only — no
+                    # chart instead of two. User-facing title/key only - no
                     # internal framework IDs (A.1.3, subpoint_id, etc) ever
                     # surface in the frontend.
                     'key': 'a1_sunburst',
@@ -4192,7 +4316,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     'facts': [],
                     'chart': {
                         'type': 'sunburst_combined',
-                        # Ring 1 — segment shares + pattern classification.
+                        # Ring 1 - segment shares + pattern classification.
                         'compositionNote': (_biz_comp_payload or {}).get('composition_note'),
                         'businessModelTag': (_biz_comp_payload or {}).get('business_model_tag'),
                         'totalRevenueCr': (_biz_comp_payload or {}).get('total_revenue_cr'),
@@ -4206,13 +4330,13 @@ def build_executive_summary(state: SystemState) -> dict:
                         'patternClassificationFailed': (_biz_comp_payload or {}).get('pattern_classification_failed'),
                         # The actual AR excerpts (+ whether concall commentary
                         # was also used) the classifier read before assigning
-                        # each segment's pattern — real source trail, not the
+                        # each segment's pattern - real source trail, not the
                         # model's own paraphrase of it.
                         'patternSources': (_biz_comp_payload or {}).get('pattern_sources'),
                         'fiscalYear': (_biz_comp_payload or {}).get('fiscal_year'),
                         'pdfUrl': (_biz_comp_payload or {}).get('pdf_url'),
                         'plPage': (_biz_comp_payload or {}).get('pl_page'),
-                        # Rings 2-4 — reconciled P&L waterfall (Revenue is shared
+                        # Rings 2-4 - reconciled P&L waterfall (Revenue is shared
                         # with Ring 1's total; nodes/links already balance or the
                         # extractor returns nothing rather than fabricate a flow).
                         'nodes': (_income_flow_payload or {}).get('nodes') or [],
@@ -4222,7 +4346,7 @@ def build_executive_summary(state: SystemState) -> dict:
                         'flowRevenueCr': (_income_flow_payload or {}).get('revenue_cr'),
                         # Missing-data reason for rings 2-4 specifically, surfaced
                         # verbatim when the flow couldn't be built (e.g. a bank/
-                        # NBFC where EBITDA isn't an applicable measure) — Ring 1
+                        # NBFC where EBITDA isn't an applicable measure) - Ring 1
                         # still renders on its own in that case. Never fabricated.
                         'flowUnavailableReason': (_income_flow or {}).get('reason') if not _income_flow_payload else None,
                     },
@@ -4235,12 +4359,12 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': (_biz_comp or {}).get('pathway_results') or [],
                 },
                 {
-                    # 1B — Recurring vs Cyclical revenue pattern, current-year
+                    # 1B - Recurring vs Cyclical revenue pattern, current-year
                     # mix + real multi-year trend (up to 5 Annual Reports),
                     # revenue-weighted across segments via the SAME classifier
                     # as the A.1 sunburst's Ring 1 (compute_a1_2_pattern_trend
                     # reuses _classify_segments_pattern per historical filing
-                    # — never a single company-wide guess, and a year with no
+                    # - never a single company-wide guess, and a year with no
                     # reconciled segment note is skipped, not estimated).
                     'key': 'recurring_cyclical_trend',
                     'title': 'Cyclical vs Recurring Revenue Pattern',
@@ -4251,7 +4375,7 @@ def build_executive_summary(state: SystemState) -> dict:
                         'currentYearMix': (_a12_trend or {}).get('current_year_mix'),
                         'trend': (_a12_trend or {}).get('trend') or [],
                         # Passed through so a short trend explains ITSELF rather
-                        # than looking like lost data — e.g. HINDUNILVR, whose
+                        # than looking like lost data - e.g. HINDUNILVR, whose
                         # segment note only reconciles for FY2026, legitimately
                         # has ONE plottable year out of five.
                         'skippedYears': (_a12_trend or {}).get('skipped_years') or [],
@@ -4277,7 +4401,7 @@ def build_executive_summary(state: SystemState) -> dict:
                         (['Qualitative evidence source', (f23.get('qualitative_evidence') or {}).get('source')] if (f23.get('qualitative_evidence') or {}).get('score') is not None else None),
                     ] if f],
                     'chart': ({'type': 'bar', 'data': _moat_bars, 'scaleMax': 5} if _moat_bars else None),
-                    # Second, independent chart on the SAME card — the combined
+                    # Second, independent chart on the SAME card - the combined
                     # 5-slice A.2.A-E donut, additive per the locked-in design
                     # decision (see _moat_secondary_chart above). Minimal schema
                     # extension: one new optional card-level key, no change to
@@ -4298,10 +4422,10 @@ def build_executive_summary(state: SystemState) -> dict:
                 },
 
                 {
-                    # A.3 — deterministic, evidence-grounded classification (see
+                    # A.3 - deterministic, evidence-grounded classification (see
                     # tools/revenue_model_scoring.py + compute_a3_revenue_model_quality).
                     # A SPECTRUM_BAR marker positioned by a revenue-weighted blend of
-                    # segment contract types (never eyeballed) — see the payload's
+                    # segment contract types (never eyeballed) - see the payload's
                     # 'segment_classification_note' for the documented no-per-segment-
                     # extractor limitation when 2+ segments are reported.
                     'key': 'revenue_model_quality',
@@ -4309,7 +4433,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     'finding': f24.get('rationale') or None,
                     'facts': [f for f in [
                         (['Contract type', _contract_type_label] if _contract_type_label else None),
-                        # Renewal rate KPI — a hard disclosed fact per F-24's docstring,
+                        # Renewal rate KPI - a hard disclosed fact per F-24's docstring,
                         # never estimated. Shown explicitly as "Not disclosed" (not
                         # omitted, not 0%) whenever the company hasn't stated it, so the
                         # card never implies a 0% renewal rate that isn't real.
@@ -4319,7 +4443,7 @@ def build_executive_summary(state: SystemState) -> dict:
                         (['Segment basis', f24.get('segment_classification_note')] if f24.get('segment_classification_note') else None),
                     ] if f],
                     # Revenue-weighted donut per contract type, built from the real
-                    # per-segment pct/contract_type pairs (see _a3_donut_data above) —
+                    # per-segment pct/contract_type pairs (see _a3_donut_data above) -
                     # replaces the SPECTRUM_BAR marker per the locked-in design decision
                     # (A.3 has genuine revenue weights to sum, unlike a pure
                     # classification card, so it gets a real weighted donut, not an
@@ -4336,9 +4460,9 @@ def build_executive_summary(state: SystemState) -> dict:
                     'pathway_results': f24.get('pathway_results'),
                 },
                 {
-                    # A.4 — deterministic, sector-CAGR-benchmarked segment classification
+                    # A.4 - deterministic, sector-CAGR-benchmarked segment classification
                     # (see tools/product_lifecycle_scoring.py + compute_a4_product_lifecycle_stage).
-                    # A diversified company NEVER collapses to one word here — the
+                    # A diversified company NEVER collapses to one word here - the
                     # 'segment_stage_breakdown' chart shows every classified segment's
                     # own stage + revenue weight, per the documented Reliance-mismatch
                     # rationale (see that function's docstring).
@@ -4358,8 +4482,8 @@ def build_executive_summary(state: SystemState) -> dict:
                                'sector': f25.get('sector'), 'sector_median_cagr_pct': f25.get('sector_median_cagr_pct'),
                                # Aggregate-by-STAGE summary donut, ADDED alongside the
                                # existing per-segment stacked bar (kept for its real
-                               # per-segment detail — see main.jsx's SegmentStageBreakdown).
-                               # Segments with stage=None (unclassified — CAGR/sector-median
+                               # per-segment detail - see main.jsx's SegmentStageBreakdown).
+                               # Segments with stage=None (unclassified - CAGR/sector-median
                                # unavailable, or label unmatched across years) are EXCLUDED
                                # from the donut by construction, never guessed into a stage.
                                'stageDonutData': _lifecycle_donut_data,
@@ -4369,18 +4493,18 @@ def build_executive_summary(state: SystemState) -> dict:
                     'sources': {
                         'primary': {'label': 'Company Annual Report', 'note': 'Segment revenue note, multi-year'},
                         'secondary': {'label': 'NSE fixed sector universe', 'note': 'Peer-median 3yr revenue CAGR by sector'},
-                        'tertiary': {'label': 'CRISIL Ratings/Research', 'url': 'https://www.crisilratings.com', 'note': 'Not wired — PORTAL-07 not checked this run.'},
+                        'tertiary': {'label': 'CRISIL Ratings/Research', 'url': 'https://www.crisilratings.com', 'note': 'Not wired - PORTAL-07 not checked this run.'},
                     },
                     'confidence_tag': f25.get('confidence_tag'), 'retrieved_at': f25.get('retrieved_at'),
                     'pathway_results': f25.get('pathway_results'),
                 },
                 {
-                    # A.5 — deterministic classification (see
+                    # A.5 - deterministic classification (see
                     # tools/pricing_power_scoring.py + compute_a5_pricing_power).
                     # 4-zone SPECTRUM_BAR (Weak/Moderate/Strong/Insufficient Data)
                     # reuses the SAME generic component built for A.3 (it takes
                     # `options` as a prop, so a different zone count/set needed no
-                    # frontend component change) — 'Insufficient Data' renders
+                    # frontend component change) - 'Insufficient Data' renders
                     # visually distinct (greyed out) per the spec, never silently
                     # rendered as Moderate. See f26.realisation_volume_confirmation
                     # for the independent 5A cross-check (realisation vs volume).
@@ -4396,21 +4520,21 @@ def build_executive_summary(state: SystemState) -> dict:
                         (['5A confirmation', 'Confirmed' if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is True
                           else ('Not confirmed' if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is False else None)]
                          if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is not None else None),
-                        # "Price Increase Sustained" KPI — the SAME 5A confirmation
+                        # "Price Increase Sustained" KPI - the SAME 5A confirmation
                         # boolean, re-labelled as the plain-English question the spec
                         # asks for. Omitted entirely (not forced to Yes/No) when
-                        # `confirmed` is genuinely None — never guessed.
+                        # `confirmed` is genuinely None - never guessed.
                         (['Price increase sustained', 'Yes' if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is True
                           else 'No']
                          if (f26.get('realisation_volume_confirmation') or {}).get('confirmed') is not None else None),
                     ] if f],
-                    # Equal-wedge classification donut — Pricing Power is a fixed
+                    # Equal-wedge classification donut - Pricing Power is a fixed
                     # category (Weak/Moderate/Strong/Insufficient Data), not a real
                     # revenue-weighted blend, so it never gets a weighted-donut style
                     # slice size; every zone is an equal wedge, the actual rating's
                     # wedge shown full-color, the rest dimmed (per the locked-in
                     # design decision). Center shows the real pass-through ratio when
-                    # known, else 'Insufficient Data' — never a fabricated number.
+                    # known, else 'Insufficient Data' - never a fabricated number.
                     'chart': ({
                         'type': 'pricing_power_analyzer',
                         'activeRating': _pricing_power_rating or 'Strong',
@@ -4435,7 +4559,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     'sources': {
                         'primary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab'},
                         'secondary': {'label': 'Company Annual Report', 'note': 'MD&A, sourced via BSE announcement / company IR page'},
-                        'tertiary': {'label': 'FRED (St. Louis Fed)', 'note': f26.get('commodity_source') or 'Proxy for MCX/LME commodity input costs — no free historical MCX/LME feed exists', 'url': 'https://fred.stlouisfed.org'},
+                        'tertiary': {'label': 'FRED (St. Louis Fed)', 'note': f26.get('commodity_source') or 'Proxy for MCX/LME commodity input costs - no free historical MCX/LME feed exists', 'url': 'https://fred.stlouisfed.org'},
                     },
                     'confidence_tag': f26.get('confidence_tag'), 'retrieved_at': f26.get('retrieved_at'),
                     'pathway_results': f26.get('pathway_results'),
@@ -4448,7 +4572,7 @@ def build_executive_summary(state: SystemState) -> dict:
                         (['Structural defensibility', _structural_defensibility] if _structural_defensibility else None),
                         (['Margin volatility (5Y)', f"{_margin_volatility:.2f}"] if _margin_volatility is not None else None),
                         # New KPI, computed directly from the real margin series above
-                        # (not an LLM estimate) — shown alongside volatility per the spec.
+                        # (not an LLM estimate) - shown alongside volatility per the spec.
                         (['Average EBITDA margin', f"{_avg_ebitda_margin:.2f}%"] if _avg_ebitda_margin is not None else None),
                         (['One-off years flagged', '; '.join(f27.get('one_off_flags') or [])] if f27.get('one_off_flags') else None),
                     ] if f],
@@ -4480,7 +4604,7 @@ def build_executive_summary(state: SystemState) -> dict:
             'topic': 'B. Management team & culture',
             'subpoints': [
                 {
-                    # B.1 — the three sub-points (B.1.1 past initiatives, B.1.2
+                    # B.1 - the three sub-points (B.1.1 past initiatives, B.1.2
                     # management tenure, B.1.3 strategy alignment) combined into
                     # ONE card as a 3-panel donut set, mirroring the A.2 combined-
                     # donut pattern: every panel comes from a real Annual Report
@@ -4501,15 +4625,15 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Tenure Stability Score = 1 + 4 x (long-tenured / total directors); '
                                'Strategy alignment = High / Moderate / Low, per explicit AR text.',
                     'sources': {
-                        'primary': {'label': 'Company Annual Report', 'note': "Chairman & CEO Message — historical milestones, expansions, turnarounds, failed initiatives"},
-                        'secondary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report — Board of Directors / Key Managerial Personnel'},
+                        'primary': {'label': 'Company Annual Report', 'note': "Chairman & CEO Message - historical milestones, expansions, turnarounds, failed initiatives"},
+                        'secondary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report - Board of Directors / Key Managerial Personnel'},
                         'tertiary': {'label': 'Company Annual Report', 'note': 'MD&A Business Strategy + Director Profiles'},
                     },
                     'confidence_tag': f28.get('confidence_tag'), 'retrieved_at': f28.get('retrieved_at'),
                     'pathway_results': f28.get('pathway_results'),
                 },
                 {
-                    # B.2 — the four sub-points (B.2.1 pay structure, B.2.2
+                    # B.2 - the four sub-points (B.2.1 pay structure, B.2.2
                     # equity ownership, B.2.3 vesting structure, B.2.4
                     # long-term orientation) combined into ONE card as a
                     # 4-panel donut set, same pattern as B.1: every panel
@@ -4529,15 +4653,15 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Long-term Incentive Score = unvested % of ESOP options, banded 1-5; '
                                'Long-term Alignment Score = long-term incentive mentions / total incentive mentions, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report — Remuneration to Directors/KMP'},
-                        'secondary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report — Shareholding of Directors and KMP'},
+                        'primary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report - Remuneration to Directors/KMP'},
+                        'secondary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report - Shareholding of Directors and KMP'},
                         'tertiary': {'label': 'Company Annual Report', 'note': 'ESOP / Stock Option Scheme Vesting Schedule + Remuneration Policy'},
                     },
                     'confidence_tag': f29.get('confidence_tag'), 'retrieved_at': f29.get('retrieved_at'),
                     'pathway_results': f29.get('pathway_results'),
                 },
                 {
-                    # B.3 — the three sub-points (B.3.1 leadership depth,
+                    # B.3 - the three sub-points (B.3.1 leadership depth,
                     # B.3.2 succession readiness, B.3.3 key executive
                     # dependency) combined into ONE card as a 3-panel
                     # classification-donut set, same pattern as B.1/B.2.
@@ -4555,14 +4679,14 @@ def build_executive_summary(state: SystemState) -> dict:
                                'succession process is explicitly stated; Key-person Dependency = leadership bench size, banded 1-5.',
                     'sources': {
                         'primary': {'label': 'Company Annual Report', 'note': 'Senior Management Personnel / Executive Leadership Team'},
-                        'secondary': {'label': 'Company Annual Report', 'note': 'Nomination & Remuneration Committee Report — Succession Planning'},
-                        'tertiary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report — Management Structure'},
+                        'secondary': {'label': 'Company Annual Report', 'note': 'Nomination & Remuneration Committee Report - Succession Planning'},
+                        'tertiary': {'label': 'Company Annual Report', 'note': 'Corporate Governance Report - Management Structure'},
                     },
                     'confidence_tag': f30.get('confidence_tag'), 'retrieved_at': f30.get('retrieved_at'),
                     'pathway_results': f30.get('pathway_results'),
                 },
                 {
-                    # B.4 — the three sub-points (B.4.1 disclosure
+                    # B.4 - the three sub-points (B.4.1 disclosure
                     # transparency, B.4.2 guidance clarity, B.4.3 investor
                     # openness) combined into ONE card as a 3-panel donut
                     # set, same pattern as B.1/B.2/B.3.
@@ -4580,14 +4704,14 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Investor Communication Score = analyst Q&A turns answered without evasion, banded 1-5.',
                     'sources': {
                         'primary': {'label': 'Company Annual Report', 'note': 'MD&A / Notes to Accounts / Risk Disclosures'},
-                        'secondary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab — Outlook & Guidance'},
+                        'secondary': {'label': 'Concall Transcript', 'note': 'Company IR page or Screener.in Documents tab - Outlook & Guidance'},
                         'tertiary': {'label': 'Concall Transcript', 'note': 'Q&A Discussion'},
                     },
                     'confidence_tag': f31.get('confidence_tag'), 'retrieved_at': f31.get('retrieved_at'),
                     'pathway_results': f31.get('pathway_results'),
                 },
                 {
-                    # B.5 — the three sub-points (B.5.1 delivered vs stated
+                    # B.5 - the three sub-points (B.5.1 delivered vs stated
                     # milestones, B.5.2 capital allocation execution, B.5.3
                     # strategic execution consistency) combined into ONE
                     # card as a 3-panel set, same pattern as B.1/B.2/B.3/B.4.
@@ -4604,15 +4728,15 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Capital Execution Score = actual capex vs planned/budgeted capex, banded 1-5 on deviation from 100%; '
                                'Consistency Score = year-over-year strategic-priority theme overlap in MD&A, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Latest 3-5 Annual Reports — MD&A', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': "Cash Flow Statement / Board's Report — Capex & Acquisition Updates", 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — strategy statements compared across years', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Latest 3-5 Annual Reports - MD&A', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': "Cash Flow Statement / Board's Report - Capex & Acquisition Updates", 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'tertiary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'MD&A - strategy statements compared across years', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': f32.get('confidence_tag'), 'retrieved_at': f32.get('retrieved_at'),
                     'pathway_results': f32.get('pathway_results'),
                 },
                 {
-                    # B.6 — the four sub-points (B.6.1 innovation focus,
+                    # B.6 - the four sub-points (B.6.1 innovation focus,
                     # B.6.2 compliance orientation, B.6.3 employee morale,
                     # B.6.4 attrition evidence) combined into ONE card as a
                     # 4-panel donut set, same pattern as B.1/B.2/B.3/B.4.
@@ -4631,9 +4755,9 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Employee Engagement Score = evidence-backed vs generic employee-culture statements, banded 1-5; '
                                'Attrition Stability Score = disclosed employee turnover rate, banded 1-5 (lower = more stable).',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'R&D / Innovation / Digital Transformation sections', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Corporate Governance Report — Vigil Mechanism / Internal Controls', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Human Resources section — engagement / attrition / retention disclosures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'R&D / Innovation / Digital Transformation sections', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Corporate Governance Report - Vigil Mechanism / Internal Controls', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'tertiary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Human Resources section - engagement / attrition / retention disclosures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': f33.get('confidence_tag'), 'retrieved_at': f33.get('retrieved_at'),
                     'pathway_results': f33.get('pathway_results'),
@@ -4644,7 +4768,7 @@ def build_executive_summary(state: SystemState) -> dict:
             'topic': 'C. Corporate governance & promoter behavior',
             'subpoints': [
                 {
-                    # C.1 — the three sub-points (C.1.1 control levels,
+                    # C.1 - the three sub-points (C.1.1 control levels,
                     # C.1.2 changes over time, C.1.3 direction) combined
                     # into ONE card as a 3-panel set, same pattern as
                     # B.1/B.2/B.3/B.4/B.5/B.6.
@@ -4661,15 +4785,15 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Promoter Trend Score = net change in promoter holding over the last 8 quarters, banded 1-5; '
                                'Buying/Selling Direction Score = quarter-over-quarter increases vs reductions in promoter holding, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Latest quarterly filing — Promoter and Promoter Group Holding', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
-                        'secondary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Last 8 quarters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
-                        'tertiary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Quarterly changes in promoter holding', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'primary': {'label': 'NSE India - Shareholding Pattern', 'note': 'Latest quarterly filing - Promoter and Promoter Group Holding', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'secondary': {'label': 'NSE India - Shareholding Pattern', 'note': 'Last 8 quarters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'tertiary': {'label': 'NSE India - Shareholding Pattern', 'note': 'Quarterly changes in promoter holding', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
                     },
                     'confidence_tag': f34.get('confidence_tag'), 'retrieved_at': f34.get('retrieved_at'),
                     'pathway_results': f34.get('pathway_results'),
                 },
                 {
-                    # C.2 — the four sub-points (C.2.1 presence, C.2.2
+                    # C.2 - the four sub-points (C.2.1 presence, C.2.2
                     # size, C.2.3 trend, C.2.4 margin-call risk) combined
                     # into ONE card as a 4-panel set, same pattern as
                     # B.1/.../B.6, C.1.
@@ -4688,15 +4812,15 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Pledge Trend Score = net change in pledge % across quarters with an on-record pledge, banded 1-5; '
                                'Margin-call Risk Score = Low (<25%) vs High (>=25%) pledge.',
                     'sources': {
-                        'primary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Promoter and Promoter Group — Pledged / Encumbered Shares', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
-                        'secondary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Pledged shares as % of promoter holding', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
-                        'tertiary': {'label': 'NSE India — Shareholding Pattern', 'note': 'Pledged share disclosures and encumbrance details', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'primary': {'label': 'NSE India - Shareholding Pattern', 'note': 'Promoter and Promoter Group - Pledged / Encumbered Shares', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'secondary': {'label': 'NSE India - Shareholding Pattern', 'note': 'Pledged shares as % of promoter holding', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'tertiary': {'label': 'NSE India - Shareholding Pattern', 'note': 'Pledged share disclosures and encumbrance details', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
                     },
                     'confidence_tag': f35.get('confidence_tag'), 'retrieved_at': f35.get('retrieved_at'),
                     'pathway_results': f35.get('pathway_results'),
                 },
                 {
-                    # C.3 — the four sub-points (C.3.1 frequency, C.3.2
+                    # C.3 - the four sub-points (C.3.1 frequency, C.3.2
                     # counterparty identity, C.3.3 pricing fairness, C.3.4
                     # disclosure quality) combined into ONE card as a
                     # 4-panel set, same pattern as B.1/.../B.6, C.1, C.2.
@@ -4715,15 +4839,15 @@ def build_executive_summary(state: SystemState) -> dict:
                                "Pricing Fairness Score = arm's-length vs non-arm's-length pricing statements, banded 1-5; "
                                'RPT Disclosure Score = transparent (approval-process named) vs opaque (red flag) statements, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Related Party Disclosures (Ind AS 24)', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Related Party Disclosures — transaction descriptions and pricing basis', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Audit Committee Report — Related Party Approval Process', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Notes to Accounts - Related Party Disclosures (Ind AS 24)', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Related Party Disclosures - transaction descriptions and pricing basis', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'tertiary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Audit Committee Report - Related Party Approval Process', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': f36.get('confidence_tag'), 'retrieved_at': f36.get('retrieved_at'),
                     'pathway_results': f36.get('pathway_results'),
                 },
                 {
-                    # C.4 — the four sub-points (C.4.1 off-balance-sheet
+                    # C.4 - the four sub-points (C.4.1 off-balance-sheet
                     # vehicles, C.4.2 SPVs, C.4.3 subsidiaries abroad,
                     # C.4.4 group structure complexity) combined into ONE
                     # card as a 4-panel set (3 donuts + 1 category bar).
@@ -4742,15 +4866,15 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Offshore Structure Score = domestic vs overseas entity concentration, banded 1-5; '
                                'Group Structure Complexity Score = total distinct named group entities, banded 1-5 (fewer = simpler).',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Contingent Liabilities & Commitments / Guarantees', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'List of Subsidiaries / Associates / Joint Ventures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Corporate Information / Group Structure', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Notes to Accounts - Contingent Liabilities & Commitments / Guarantees', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'List of Subsidiaries / Associates / Joint Ventures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'tertiary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Corporate Information / Group Structure', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': f37.get('confidence_tag'), 'retrieved_at': f37.get('retrieved_at'),
                     'pathway_results': f37.get('pathway_results'),
                 },
                 {
-                    # C.5 — the four sub-points (C.5.1 independent
+                    # C.5 - the four sub-points (C.5.1 independent
                     # director quality, C.5.2 audit committee, C.5.3 NRC,
                     # C.5.4 board attendance) combined into ONE card as a
                     # 4-panel donut set, same pattern as B.1/.../C.4.
@@ -4768,15 +4892,15 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Audit/NRC Effectiveness Score = independence % x quorum-met rate, banded 1-5; '
                                'Board Participation Score = director-attendances / possible attendances across board meetings held.',
                     'sources': {
-                        'primary': {'label': 'NSE India — Corporate Governance Filings', 'note': 'Composition of Board of Directors', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-governance'},
-                        'secondary': {'label': 'NSE India — Corporate Governance Filings', 'note': 'Audit Committee / Nomination and Remuneration Committee', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-governance'},
-                        'tertiary': {'label': 'NSE India — Corporate Governance Filings', 'note': 'Board Meetings / Committee Meetings / Attendance', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-governance'},
+                        'primary': {'label': 'NSE India - Corporate Governance Filings', 'note': 'Composition of Board of Directors', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-governance'},
+                        'secondary': {'label': 'NSE India - Corporate Governance Filings', 'note': 'Audit Committee / Nomination and Remuneration Committee', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-governance'},
+                        'tertiary': {'label': 'NSE India - Corporate Governance Filings', 'note': 'Board Meetings / Committee Meetings / Attendance', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-governance'},
                     },
                     'confidence_tag': f38.get('confidence_tag'), 'retrieved_at': f38.get('retrieved_at'),
                     'pathway_results': f38.get('pathway_results'),
                 },
                 {
-                    # C.6 — the four sub-points (C.6.1 auditor tenure,
+                    # C.6 - the four sub-points (C.6.1 auditor tenure,
                     # C.6.2 auditor switches, C.6.3 audit qualifications,
                     # C.6.4 reservations/emphasis of matter) combined
                     # into ONE card as a 4-panel set, same pattern as
@@ -4796,15 +4920,15 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Audit Qualification Score = Unmodified (clean) vs Modified (qualified/adverse/disclaimer) opinion; '
                                'Audit Observation Score = Key Audit Matters + explicit Emphasis of Matter / Material Uncertainty presence.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': "Independent Auditor's Report — Auditor name", 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': "Independent Auditor's Report — Opinion / Basis for Opinion", 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Emphasis of Matter / Material Uncertainty / Key Audit Matters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': "Independent Auditor's Report - Auditor name", 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': "Independent Auditor's Report - Opinion / Basis for Opinion", 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'tertiary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Emphasis of Matter / Material Uncertainty / Key Audit Matters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': f39.get('confidence_tag'), 'retrieved_at': f39.get('retrieved_at'),
                     'pathway_results': f39.get('pathway_results'),
                 },
                 {
-                    # C.7 — the five sub-points (C.7.1 capex, C.7.2
+                    # C.7 - the five sub-points (C.7.1 capex, C.7.2
                     # acquisitions, C.7.3 buybacks, C.7.4 dividends, C.7.5
                     # capital allocation rationale) combined into ONE card
                     # as a 5-panel donut set, same pattern as B.1/.../C.6.
@@ -4824,9 +4948,9 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Dividend Consistency Score = years with a disclosed dividend / years covered, banded 1-5; '
                                'Capital Allocation Quality Score = completeness of the growth/return/debt-reduction split disclosed for the latest year.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Cash Flow Statement / Board\'s Report / MD&A — capex plans and rationale', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'secondary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'Acquisition / Business Transfer', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
-                        'tertiary': {'label': 'NSE Corporate Filings — Corporate Actions', 'note': 'Buyback / Dividend', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-actions'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Cash Flow Statement / Board\'s Report / MD&A - capex plans and rationale', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings - Corporate Announcements', 'note': 'Acquisition / Business Transfer', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'tertiary': {'label': 'NSE Corporate Filings - Corporate Actions', 'note': 'Buyback / Dividend', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-actions'},
                     },
                     'confidence_tag': (_c7 or {}).get('confidence_tag'), 'retrieved_at': (_c7 or {}).get('retrieved_at'),
                     'pathway_results': (_c7 or {}).get('pathway_results'),
@@ -4841,9 +4965,9 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Minority Treatment Score = resolutions explicitly passed vs contested in the latest AGM/Postal Ballot Scrutinizer\'s Report, banded 1-5; '
                                'Disclosure Timeliness Score = average NSE-recorded disclosure gap across recent material events, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Corporate Governance Report / Notes to Accounts — RPT / Contingent Liabilities / Commitments', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'secondary': {'label': 'NSE Corporate Filings — Shareholders\' Meetings', 'note': 'Notice / Voting Results / Scrutinizer Report', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholders-meetings'},
-                        'tertiary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'material event announcements and their timing', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Corporate Governance Report / Notes to Accounts - RPT / Contingent Liabilities / Commitments', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings - Shareholders\' Meetings', 'note': 'Notice / Voting Results / Scrutinizer Report', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholders-meetings'},
+                        'tertiary': {'label': 'NSE Corporate Filings - Corporate Announcements', 'note': 'material event announcements and their timing', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
                     },
                     'confidence_tag': (_c8 or {}).get('confidence_tag'), 'retrieved_at': (_c8 or {}).get('retrieved_at'),
                     'pathway_results': (_c8 or {}).get('pathway_results'),
@@ -4854,7 +4978,7 @@ def build_executive_summary(state: SystemState) -> dict:
             'topic': 'D. Promoter / insider activity & market signalling',
             'subpoints': [
                 {
-                    # D.1 — the four sub-points (D.1.1 frequency, D.1.2
+                    # D.1 - the four sub-points (D.1.1 frequency, D.1.2
                     # timing, D.1.3 size, D.1.4 rationale) combined into ONE
                     # card as a 4-panel set, same pattern as B.1/.../C.8.
                     # All sourced from NSE's real Regulation 7(2) insider-
@@ -4874,14 +4998,14 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Insider Sale Size % = shares sold / seller\'s pre-sale holding x 100, classified Low/Moderate/High; '
                                'Rationale Score = share of sell disclosures whose own remarks field documents a liquidity/tax/diversification-type reason, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Insider Trading', 'note': 'Regulation 7(2) disclosures, last 8 quarters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-insider-trading'},
-                        'secondary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'financial results / M&A / buyback events, cross-checked by date', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'primary': {'label': 'NSE Corporate Filings - Insider Trading', 'note': 'Regulation 7(2) disclosures, last 8 quarters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-insider-trading'},
+                        'secondary': {'label': 'NSE Corporate Filings - Corporate Announcements', 'note': 'financial results / M&A / buyback events, cross-checked by date', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
                     },
                     'confidence_tag': (_d1 or {}).get('confidence_tag'), 'retrieved_at': (_d1 or {}).get('retrieved_at'),
                     'pathway_results': (_d1 or {}).get('pathway_results'),
                 },
                 {
-                    # D.2 — the three sub-points (D.2.1 frequency, D.2.2
+                    # D.2 - the three sub-points (D.2.1 frequency, D.2.2
                     # size, D.2.3 repeat/conviction) combined into ONE card
                     # as a 3-panel set. Same real NSE Regulation 7(2) feed as
                     # D.1, filtered to Buy-direction rows instead of Sell.
@@ -4898,13 +5022,13 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Buying Size % = shares acquired / buyer\'s pre-purchase holding x 100, classified Low/Moderate/High (High = stronger conviction); '
                                'Conviction Score = number of named insiders repeating a purchase across different quarters, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Insider Trading', 'note': 'Regulation 7(2) disclosures, acquisition/purchase transactions, last 8 quarters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-insider-trading'},
+                        'primary': {'label': 'NSE Corporate Filings - Insider Trading', 'note': 'Regulation 7(2) disclosures, acquisition/purchase transactions, last 8 quarters', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-insider-trading'},
                     },
                     'confidence_tag': (_d2 or {}).get('confidence_tag'), 'retrieved_at': (_d2 or {}).get('retrieved_at'),
                     'pathway_results': (_d2 or {}).get('pathway_results'),
                 },
                 {
-                    # D.3 — the three sub-points (D.3.1 transaction type,
+                    # D.3 - the three sub-points (D.3.1 transaction type,
                     # D.3.2 dilution %, D.3.3 pricing/rationale) combined
                     # into ONE card as a 3-panel set, all sourced from the
                     # same real NSE Corporate Announcement PDF (the formal
@@ -4912,7 +5036,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     # recent QIP/preferential/private-placement in the
                     # no cutoff - full available history).
                     'key': 'secondary_transactions_dilution',
-                    'title': 'Secondary transactions: placements, preferential allotments — dilution concerns',
+                    'title': 'Secondary transactions: placements, preferential allotments - dilution concerns',
                     'finding': (_d3 or {}).get('rationale') or None,
                     'facts': [f for f in [
                         (['Type', _d3_1.get('transaction_type')] if _d3_1.get('transaction_type') else None),
@@ -4924,15 +5048,15 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Dilution % = New Shares Issued / Post-Issue Shares x 100, as explicitly stated in the filing; '
                                'Pricing & Rationale Score = issue price/floor/discount AND purpose both explicitly stated, banded 1-5.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'Preferential Issue / QIP / Placement / Allotment, last 10 years', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
-                        'secondary': {'label': 'NSE Corporate Filings — Corporate Actions', 'note': 'Purpose search cross-check', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-actions'},
-                        'tertiary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Equity / Share Capital', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Corporate Announcements', 'note': 'Preferential Issue / QIP / Placement / Allotment, last 10 years', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'secondary': {'label': 'NSE Corporate Filings - Corporate Actions', 'note': 'Purpose search cross-check', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-actions'},
+                        'tertiary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Notes to Equity / Share Capital', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_d3 or {}).get('confidence_tag'), 'retrieved_at': (_d3 or {}).get('retrieved_at'),
                     'pathway_results': (_d3 or {}).get('pathway_results'),
                 },
                 {
-                    # D.4 — the two sub-points (D.4.1 lock-in status,
+                    # D.4 - the two sub-points (D.4.1 lock-in status,
                     # D.4.2 sellable block size) combined into ONE card as
                     # a 2-panel set, both sourced from the same real NSE
                     # Corporate Announcement text mentioning a lock-in
@@ -4950,8 +5074,8 @@ def build_executive_summary(state: SystemState) -> dict:
                     'formula': 'Lock-in Status = Upcoming / Expired, with the exact date read directly from a matched allotment/preferential-issue/IPO-related filing\'s own lock-in clause; '
                                'Potential Release % = Shares Becoming Saleable / Total Shares Outstanding x 100, as explicitly stated in the filing.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'lock-in/release/listing/allotment/preferential-issue/IPO-related filings, full available announcement history', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
-                        'secondary': {'label': 'NSE Corporate Filings — Shareholding Patterns', 'note': 'Promoter/Public Shareholder tables cross-check', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'primary': {'label': 'NSE Corporate Filings - Corporate Announcements', 'note': 'lock-in/release/listing/allotment/preferential-issue/IPO-related filings, full available announcement history', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'secondary': {'label': 'NSE Corporate Filings - Shareholding Patterns', 'note': 'Promoter/Public Shareholder tables cross-check', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
                     },
                     'confidence_tag': (_d4 or {}).get('confidence_tag'), 'retrieved_at': (_d4 or {}).get('retrieved_at'),
                     'pathway_results': (_d4 or {}).get('pathway_results'),
@@ -4972,7 +5096,7 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Terms Score (1-5) = arm\'s-length rate and documented repayment/maturity terms score higher; '
                                'Exposure % = Promoter/Group Loan Balance / Net Worth or Total Assets, using the most relevant disclosed denominator.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Related Party Disclosures (Ind AS 24), Loans/Advances/Other Receivables', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Notes to Accounts - Related Party Disclosures (Ind AS 24), Loans/Advances/Other Receivables', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_d5 or {}).get('confidence_tag'), 'retrieved_at': (_d5 or {}).get('retrieved_at'),
                     'pathway_results': (_d5 or {}).get('pathway_results'),
@@ -4990,8 +5114,8 @@ def build_executive_summary(state: SystemState) -> dict:
                     'formula': 'Pledge Unwinding = Previous Pledged % - Current Pledged %; a positive decline is a release, but the reason is not assumed; '
                                'Forced-Sale Risk Classification = No evidence / Possible / Confirmed, based only on disclosed evidence (NSE Corporate Announcements, Shareholding Pattern, Regulation 7(2) Insider Trading).',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Shareholding Patterns', 'note': 'Promoter & Promoter Group — Pledged/Encumbered Shares, quarter over quarter', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
-                        'secondary': {'label': 'NSE Corporate Filings — Corporate Announcements & Insider Trading', 'note': 'pledge invocation/default keyword search, cross-checked with Regulation 7(2) disclosures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'primary': {'label': 'NSE Corporate Filings - Shareholding Patterns', 'note': 'Promoter & Promoter Group - Pledged/Encumbered Shares, quarter over quarter', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern'},
+                        'secondary': {'label': 'NSE Corporate Filings - Corporate Announcements & Insider Trading', 'note': 'pledge invocation/default keyword search, cross-checked with Regulation 7(2) disclosures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
                     },
                     'confidence_tag': (_d6 or {}).get('confidence_tag'), 'retrieved_at': (_d6 or {}).get('retrieved_at'),
                     'pathway_results': (_d6 or {}).get('pathway_results'),
@@ -5014,7 +5138,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     'formula': 'Frequency Score (1-5) = based on the recurring nature and number of named, amount-attached related-party counterparties disclosed (more/recurring scores lower); '
                                "Rationale Score (1-5) = documented commercial purpose and arm's-length basis score higher.",
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Related Party Disclosures (Ind AS 24), transactions with promoter/group entities', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Notes to Accounts - Related Party Disclosures (Ind AS 24), transactions with promoter/group entities', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_e1 or {}).get('confidence_tag'), 'retrieved_at': (_e1 or {}).get('retrieved_at'),
                     'pathway_results': (_e1 or {}).get('pathway_results'),
@@ -5032,7 +5156,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     'formula': 'Top Customer Concentration % = Revenue from Largest Customer(s) / Total Revenue x 100 where disclosed; '
                                'Dependency Score (1-5) = a diversified recurring customer base scores higher than reliance on one/few customers.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Revenue from Customers / Segment Information / Major Customer disclosures (Ind AS 108)', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Notes to Accounts - Revenue from Customers / Segment Information / Major Customer disclosures (Ind AS 108)', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_e2 or {}).get('confidence_tag'), 'retrieved_at': (_e2 or {}).get('retrieved_at'),
                     'pathway_results': (_e2 or {}).get('pathway_results'),
@@ -5049,14 +5173,14 @@ def build_executive_summary(state: SystemState) -> dict:
                     'formula': 'Supplier Concentration Score (1-5) = based on disclosed single-source dependence; '
                                'Supplier Terms Score (1-5) = transparent commercial terms and diversified procurement score higher.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Risk Factors / Supply Chain; Notes to Accounts — trade payables / commitments', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'MD&A - Risk Factors / Supply Chain; Notes to Accounts - trade payables / commitments', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_e3 or {}).get('confidence_tag'), 'retrieved_at': (_e3 or {}).get('retrieved_at'),
                     'pathway_results': (_e3 or {}).get('pathway_results'),
                 },
                 {
                     'key': 'receivables_disclosure_risk',
-                    'title': 'High or growing receivables with limited disclosure — revenue recognition risk',
+                    'title': 'High or growing receivables with limited disclosure - revenue recognition risk',
                     'finding': (_e4 or {}).get('rationale') or None,
                     'facts': [f for f in [
                         (['Receivables growth', f"{_e4_1.get('growth_pct'):+.2f}% YoY"] if _e4_1.get('growth_pct') is not None else None),
@@ -5068,7 +5192,7 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Overdue Concentration = Overdue Receivables / Total Trade Receivables x 100; '
                                'Revenue Recognition Risk Score (1-5) based on complexity and disclosure clarity.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Balance Sheet — Trade Receivables; Notes to Accounts — Trade Receivables Ageing; Significant Accounting Policies — Revenue Recognition (Ind AS 115)', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Balance Sheet - Trade Receivables; Notes to Accounts - Trade Receivables Ageing; Significant Accounting Policies - Revenue Recognition (Ind AS 115)', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_e4 or {}).get('confidence_tag'), 'retrieved_at': (_e4 or {}).get('retrieved_at'),
                     'pathway_results': (_e4 or {}).get('pathway_results'),
@@ -5087,7 +5211,7 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Inventory-Demand Divergence = Inventory Growth - Revenue Growth; '
                                'Obsolescence Risk Score (1-5) based on write-downs, ageing and management commentary.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Balance Sheet — Inventories; P&L — Revenue; Notes to Accounts — Inventories write-down/provision/NRV disclosures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Balance Sheet - Inventories; P&L - Revenue; Notes to Accounts - Inventories write-down/provision/NRV disclosures', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_e5 or {}).get('confidence_tag'), 'retrieved_at': (_e5 or {}).get('retrieved_at'),
                     'pathway_results': (_e5 or {}).get('pathway_results'),
@@ -5104,8 +5228,8 @@ def build_executive_summary(state: SystemState) -> dict:
                     'formula': 'Transaction Risk Score (1-5) = based on disclosure, counterparty and commercial rationale of off-market/block-deal-type transactions; '
                                "Arm's-length Evidence Score (1-5) = based on documented commercial purpose and arm's-length basis in Related Party Disclosures.",
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'off-market/block-deal/preferential-transaction keyword search', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
-                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Notes to Accounts — Related Party Disclosures — contractual terms, pricing basis and approval', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Corporate Announcements', 'note': 'off-market/block-deal/preferential-transaction keyword search', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'secondary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Notes to Accounts - Related Party Disclosures - contractual terms, pricing basis and approval', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_e6 or {}).get('confidence_tag'), 'retrieved_at': (_e6 or {}).get('retrieved_at'),
                     'pathway_results': (_e6 or {}).get('pathway_results'),
@@ -5126,7 +5250,7 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Recurring One-off Flag = a non-zero exceptional item in both the current and prior year; '
                                'Smoothing Risk Score (1-5) = based on recurring exceptional items that materially change reported earnings.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'Significant Accounting Policies — Changes in Accounting Policies/Estimates; Statement of Profit & Loss — Exceptional Items', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'Significant Accounting Policies - Changes in Accounting Policies/Estimates; Statement of Profit & Loss - Exceptional Items', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_e7 or {}).get('confidence_tag'), 'retrieved_at': (_e7 or {}).get('retrieved_at'),
                     'pathway_results': (_e7 or {}).get('pathway_results'),
@@ -5150,8 +5274,8 @@ def build_executive_summary(state: SystemState) -> dict:
                                'Market Position Score (1-5) = from disclosed market share/rank, not estimated when not disclosed; '
                                'Competitive Strength Score (1-5) = based on disclosed peer advantages (scale, distribution, technology, cost position).',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Industry Structure / Competition; Industry Overview / Market Share; competitive advantages / peer comparison', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'secondary': {'label': 'NSE Corporate Filings — Corporate Announcements', 'note': 'investor presentations for market context', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'MD&A - Industry Structure / Competition; Industry Overview / Market Share; competitive advantages / peer comparison', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'NSE Corporate Filings - Corporate Announcements', 'note': 'investor presentations for market context', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-announcements'},
                     },
                     'confidence_tag': (_f1 or {}).get('confidence_tag'), 'retrieved_at': (_f1 or {}).get('retrieved_at'),
                     'pathway_results': (_f1 or {}).get('pathway_results'),
@@ -5166,7 +5290,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     'chart': ({'type': 'multi_donut', 'panels': _f2_panels} if _f2_panels else None),
                     'formula': 'Entry Barrier Score (1-5) = based on disclosed regulatory/licensing, capital-intensity, distribution, technology/IP, and scale barriers.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Industry Structure / Risk Factors — licences, capital intensity, distribution, technology or scale barriers', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'MD&A - Industry Structure / Risk Factors - licences, capital intensity, distribution, technology or scale barriers', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_f2 or {}).get('confidence_tag'), 'retrieved_at': (_f2 or {}).get('retrieved_at'),
                     'pathway_results': (_f2 or {}).get('pathway_results'),
@@ -5189,8 +5313,8 @@ def build_executive_summary(state: SystemState) -> dict:
                     } if _f3_2.get('op_margin_series') and len(_f3_2.get('op_margin_series')) >= 3 else None),
                     'formula': 'Margin Pressure = Current Operating Margin - Prior-period Operating Margin (real, audited annual figures from the same financial-statement pipeline every ratio card uses); interpret alongside management commentary.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Financial Results', 'note': 'XBRL / attachment — gross/operating margin trend', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-financial-results'},
-                        'secondary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — margins / competition', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Financial Results', 'note': 'XBRL / attachment - gross/operating margin trend', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-financial-results'},
+                        'secondary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'MD&A - margins / competition', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_f3 or {}).get('confidence_tag'), 'retrieved_at': (_f3 or {}).get('retrieved_at'),
                     'pathway_results': (_f3 or {}).get('pathway_results'),
@@ -5206,7 +5330,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     'chart': ({'type': 'multi_donut', 'panels': _f6_panels} if _f6_panels else None),
                     'formula': 'Switching Cost Score (1-5) and Network Effect Score (1-5) re-surface the already-computed A.2.E/A.2.D moat-factor scores (contract lock-in term/renewal rate/switching barriers; growth-linked platform/network evidence) rather than re-fetching/re-scoring the same real Annual Report evidence a second time.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Business Model / Customer Relationships / Contracts / Platform / Ecosystem', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'MD&A - Business Model / Customer Relationships / Contracts / Platform / Ecosystem', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_f6 or {}).get('confidence_tag'), 'retrieved_at': (_f6 or {}).get('retrieved_at'),
                     'pathway_results': (_f6 or {}).get('pathway_results'),
@@ -5223,8 +5347,8 @@ def build_executive_summary(state: SystemState) -> dict:
                     'formula': 'Barrier Score (1-5) = strength and durability of disclosed regulatory-approval regime, licence-to-operate, mining/resource-lease, and mandatory-standards barriers; '
                                'Trade Barrier Exposure Score (1-5) = based on disclosed tariffs, import/export duties, anti-dumping/safeguard duty, and trade-policy references.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Regulation / Licensing / Industry Structure; imports/exports, tariffs and duties', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'secondary': {'label': 'DGFT — Regulatory Updates / Foreign Trade Policy', 'note': 'ITC(HS) relevant product policy', 'url': 'https://www.dgft.gov.in/'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'MD&A - Regulation / Licensing / Industry Structure; imports/exports, tariffs and duties', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'DGFT - Regulatory Updates / Foreign Trade Policy', 'note': 'ITC(HS) relevant product policy', 'url': 'https://www.dgft.gov.in/'},
                     },
                     'confidence_tag': (_f4 or {}).get('confidence_tag'), 'retrieved_at': (_f4 or {}).get('retrieved_at'),
                     'pathway_results': (_f4 or {}).get('pathway_results'),
@@ -5241,8 +5365,8 @@ def build_executive_summary(state: SystemState) -> dict:
                     'formula': 'Foreign Competition Score (1-5) = based on disclosed named foreign/China-sourced competition, global/multinational player presence, and export-market competitive pressure; '
                                'Import Competition Score (1-5) = based on disclosed cheap/low-cost imports, anti-dumping/safeguard duty, and import duty/quota/policy references.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Competition / Industry Overview; imports / raw materials / competition', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
-                        'secondary': {'label': 'DGFT — Regulatory Updates / Foreign Trade Policy', 'note': 'ITC(HS) import policy', 'url': 'https://www.dgft.gov.in/'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'MD&A - Competition / Industry Overview; imports / raw materials / competition', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'secondary': {'label': 'DGFT - Regulatory Updates / Foreign Trade Policy', 'note': 'ITC(HS) import policy', 'url': 'https://www.dgft.gov.in/'},
                     },
                     'confidence_tag': (_f5 or {}).get('confidence_tag'), 'retrieved_at': (_f5 or {}).get('retrieved_at'),
                     'pathway_results': (_f5 or {}).get('pathway_results'),
@@ -5264,7 +5388,7 @@ def build_executive_summary(state: SystemState) -> dict:
                     'formula': 'Channel Mix % = Revenue by Channel / Total Revenue where disclosed (a clean per-channel revenue table is essentially never disclosed in Indian AR prose, so this counts real, named channel types actually evidenced instead); '
                                'Channel Control Score (1-5) = based on disclosed owned vs third-party channel dependence.',
                     'sources': {
-                        'primary': {'label': 'NSE Corporate Filings — Annual Reports', 'note': 'MD&A — Business Model / Distribution; Distribution Network / Business Model', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
+                        'primary': {'label': 'NSE Corporate Filings - Annual Reports', 'note': 'MD&A - Business Model / Distribution; Distribution Network / Business Model', 'url': 'https://www.nseindia.com/companies-listing/corporate-filings-annual-reports'},
                     },
                     'confidence_tag': (_g1 or {}).get('confidence_tag'), 'retrieved_at': (_g1 or {}).get('retrieved_at'),
                     'pathway_results': (_g1 or {}).get('pathway_results'),
@@ -5273,10 +5397,246 @@ def build_executive_summary(state: SystemState) -> dict:
         },
     }
 
+    # ------------------------------------------------------------------
+    # Sections G.2-G.4 and H-U: same manual-upload-aware qualitative_engine
+    # compute_fn's as A-G above (deterministic, real Annual-Report-sourced -
+    # see tools/qualitative_engine.py), just not yet given their own hand-
+    # written panel per sub-point. Every one of these is a real 1-5 score,
+    # boolean, or short classification string (confirmed: no array/list
+    # field exists anywhere in H-U) - _auto_hu_panel below picks the right
+    # generic visual (rating bar / classification card / evidence card)
+    # from the ACTUAL fields the compute_fn returned, the same shape-driven
+    # rule the rest of this file's panels follow by hand. Never fabricates a
+    # chart shape the real payload doesn't have.
+    # ------------------------------------------------------------------
+    def _auto_hu_panel(result, title):
+        if not result or not result.get('available'):
+            return {'type': 'unavailable', 'title': title, 'status': _ux_status((result or {}).get('confidence_tag')),
+                    'explanation': (result or {}).get('rationale') or 'Not analysed this run.'}
+        tag = result.get('confidence_tag')
+        if tag == 'NOT_APPLICABLE':
+            return {'type': 'unavailable', 'title': title, 'status': 'NOT_APPLICABLE',
+                    'explanation': result.get('rationale') or 'Not applicable to this company/business model.'}
+        if tag in ('DATA_MISSING', 'EXTERNAL_DATA_REQUIRED'):
+            return {'type': 'unavailable', 'title': title, 'status': 'DATA_MISSING',
+                    'explanation': result.get('rationale') or 'The required document was not uploaded this run.',
+                    'requiredDocument': result.get('required_document')}
+        _skip = {'subpoint_id', 'title', 'rationale', 'available', 'pathway_results',
+                 'confidence_tag', 'retrieved_at', 'required_document', 'source_pdf_url'}
+        score_field = next((k for k, v in result.items()
+                             if k.endswith('_score') and isinstance(v, (int, float)) and not isinstance(v, bool) and v is not None and 0 <= v <= 5), None)
+        if score_field is not None:
+            return {'type': 'bar_score', 'title': title, 'score': result[score_field],
+                    'explanation': result.get('rationale') or f"{title}: score {result[score_field]}/5."}
+        bool_field = next((k for k, v in result.items() if k not in _skip and isinstance(v, bool)), None)
+        if bool_field is not None:
+            val = result[bool_field]
+            return {'type': 'classification', 'title': title, 'zones': ['No', 'Yes'], 'active': 'Yes' if val else 'No',
+                    'explanation': result.get('rationale') or f"{title}: {'Yes' if val else 'No'}."}
+        str_field = next((k for k, v in result.items()
+                           if k not in _skip and isinstance(v, str) and v.strip() and len(v) <= 40), None)
+        if str_field is not None:
+            return {'type': 'classification', 'title': title, 'zones': [result[str_field]], 'active': result[str_field],
+                    'explanation': result.get('rationale') or f"{title}: {result[str_field]}."}
+        if result.get('rationale'):
+            return {'type': 'kpi_card', 'title': title, 'centerValue': '—', 'explanation': result.get('rationale')}
+        return {'type': 'unavailable', 'title': title, 'status': _ux_status(tag),
+                'explanation': result.get('rationale') or 'No data available for this sub-point this run.'}
+
+    def _hu_topic(topic_label, key_prefix, fn_title_pairs):
+        import tools.qualitative_engine as _qe
+        panels = []
+        for fn_name, title in fn_title_pairs:
+            try:
+                fn = getattr(_qe, fn_name)
+                result = fn(symbol, name)
+            except Exception as e:
+                print(f"[qualitative_topics] {key_prefix} {fn_name} failed: {e}")
+                result = None
+            panels.append(_auto_hu_panel(result, title))
+        return {
+            'topic': topic_label,
+            'subpoints': [{
+                'key': key_prefix,
+                'title': topic_label.split('. ', 1)[-1],
+                'finding': None,
+                'facts': [],
+                'chart': {'type': 'multi_donut', 'panels': panels},
+                'formula': 'Each panel is a real 1-5 score, boolean, or classification computed deterministically from the uploaded Annual Report (and other uploaded documents where required) by this sub-point\'s own scorer in tools/qualitative_engine.py - never fabricated.',
+                'sources': {'primary': {'label': 'NSE Corporate Filings - Annual Reports (+ uploaded supporting documents where required)'}},
+                'confidence_tag': None, 'retrieved_at': None, 'pathway_results': [],
+            }],
+        }
+
+    _HU_SECTIONS = [
+        ('G2. Group-channel conflicts', 'group_channel_overlap', [
+            ('compute_g2_1_group_channel_overlap', 'Group-channel overlap'),
+        ]),
+        ('G3. Customer relationship quality', 'customer_relationship_quality', [
+            ('compute_g3_1_contract_quality', 'Contract duration / renewal'),
+            ('compute_g3_2_customer_retention', 'Customer churn / retention'),
+        ]),
+        ('G4. Distribution reach vs peers', 'distribution_reach_vs_peers', [
+            ('compute_g4_1_distribution_reach', 'Distribution reach'),
+            ('compute_g4_2_peer_distribution_advantage', 'Peer distribution advantage'),
+        ]),
+        ('H. Intellectual property & technology dependence', 'ip_technology_dependence', [
+            ('compute_h1_2_ip_expiry', 'Patent / trademark expiry'),
+            ('compute_h2_1_rd_pipeline_depth', 'R&D pipeline depth'),
+            ('compute_h3_1_legacy_dependence', 'Legacy technology dependence'),
+            ('compute_h3_2_cybersecurity_posture', 'Cybersecurity posture'),
+            ('compute_h4_1_thirdparty_tech_dependence', 'Third-party technology dependence'),
+            ('compute_h4_2_license_continuity_risk', 'License continuity risk'),
+        ]),
+        ('I. Supply chain & operational resilience', 'supply_chain_resilience', [
+            ('compute_i1_1_single_source_risk', 'Single-source suppliers'),
+            ('compute_i1_2_geographic_concentration', 'Geographic concentration / China exposure'),
+            ('compute_i1_3_inventory_buffers', 'Inventory buffers'),
+            ('compute_i2_2_capacity_demand_balance', 'Capacity vs demand'),
+            ('compute_i2_3_scale_constraints', 'Capital constraints to scale'),
+            ('compute_i3_1_price_protection', 'Price protection clauses'),
+            ('compute_i3_2_currency_protection', 'Currency clauses'),
+            ('compute_i4_1_operational_efficiency', 'Lead time / throughput'),
+            ('compute_i4_2_quality_risk', 'Quality defects / warranty claims'),
+        ]),
+        ('J. Regulatory, litigation & tax exposure', 'litigation_tax_regulatory', [
+            ('compute_j1_2_renewal_burden', 'Renewal burden'),
+            ('compute_j2_1_litigation_materiality', 'Litigation count and materiality'),
+            ('compute_j2_2_outcome_assessment', 'Probability / management assessment'),
+            ('compute_j3_1_competition_investigation_status', 'Competition investigations'),
+            ('compute_j3_2_competition_impact', 'Potential financial / operational impact'),
+            ('compute_j4_1_tax_disputes', 'Tax disputes'),
+            ('compute_j4_2_historic_tax_exposures', 'Historic tax exposures'),
+            ('compute_j4_3_tax_audit_status', 'Ongoing tax audits / assessments'),
+            ('compute_j5_1_subsidy_dependence', 'Subsidy dependence'),
+            ('compute_j5_2_environmental_regulation_exposure', 'Environmental regulation exposure'),
+        ]),
+        ('K. Macro & regulatory sensitivity', 'macro_regulatory_sensitivity', [
+            ('compute_k_1_1', 'Commodity input dependence'),
+            ('compute_k_2_1', 'Export/import dependence'),
+            ('compute_k_2_2', 'Geopolitical trade risk'),
+            ('compute_k_3_1', 'Interest-rate sensitivity'),
+            ('compute_k_3_2', 'Economic cyclicality'),
+            ('compute_k_4_2', 'Hedging protection'),
+        ]),
+        ('L. Leverage, covenants & capital structure', 'leverage_covenants', [
+            ('compute_l_1_1', 'Leverage policy'),
+            ('compute_l_1_2', 'Covenant management'),
+            ('compute_l_2_1', 'Refinancing history'),
+            ('compute_l_2_2', 'Covenant breaches / remedies'),
+            ('compute_l_3_1', 'Dividend consistency'),
+            ('compute_l_3_2', 'Rationale for changes'),
+            ('compute_l_4_1', 'Lease commitments'),
+            ('compute_l_4_2', 'Structured / off-balance-sheet arrangements'),
+        ]),
+        ('M. M&A and capital-allocation framework', 'ma_capital_framework', [
+            ('compute_m_1_1', 'M&A frequency'),
+            ('compute_m_1_3', 'Acquisitive vs disciplined pattern'),
+            ('compute_m_2_1', 'Related-party acquisitions'),
+            ('compute_m_2_2', 'Assets sold to affiliates'),
+            ('compute_m_3_1', 'M&A pipeline'),
+            ('compute_m_3_2', 'Value-creation rationale'),
+        ]),
+        ('N. ESG & social factors', 'esg_social_factors', [
+            ('compute_n_1_1', 'ESG targets'),
+            ('compute_n_2_1', 'Community impact'),
+            ('compute_n_3_1', 'Pollution / environmental incidents'),
+            ('compute_n_3_2', 'Hazardous waste'),
+            ('compute_n_3_3', 'Pending clearances'),
+            ('compute_n_4_1', 'Union / collective bargaining exposure'),
+            ('compute_n_4_2', 'Strikes / disputes'),
+            ('compute_n_4_3', 'Employee grievances'),
+            ('compute_n_5_1', 'Human-rights policy / supplier screening'),
+            ('compute_n_5_2', 'Forced/child labour incidents'),
+        ]),
+        ('O. Reputation & controversies', 'reputation_controversies', [
+            ('compute_o_1_1', 'Material controversies'),
+            ('compute_o_1_2', 'Stakeholder complaints'),
+            ('compute_o_2_2', 'Safety incidents'),
+            ('compute_o_2_3', 'Negative campaigns / reputation response'),
+            ('compute_o_3_1', 'Regulatory fines'),
+            ('compute_o_3_2', 'Public investigations'),
+        ]),
+        ('P. Disclosure quality & financial-statement complexity', 'disclosure_statement_complexity', [
+            ('compute_p_1_1', 'Disclosure detail'),
+            ('compute_p1_2_timeliness', 'Timeliness / frequency'),
+            ('compute_p_2_1', 'RPT completeness'),
+            ('compute_p_2_2', 'RPT explanation quality'),
+            ('compute_p_3_1', 'Audit opinion'),
+            ('compute_p_3_2', 'Emphasis of matter / key audit matters'),
+            ('compute_p_3_3', 'Restatements'),
+            ('compute_p4_1_financial_statement_complexity', 'Financial statement complexity'),
+            ('compute_p_4_2', 'Multiple currencies'),
+            ('compute_p_4_3', 'Subsidiary complexity'),
+        ]),
+        ('Q. Group structure & finance leadership', 'group_structure_finance_leadership', [
+            ('compute_q_1_2', 'CFO / finance leadership churn'),
+            ('compute_q_3_1', 'Group structure opacity'),
+            ('compute_q_3_2', 'Dormant / non-operating entities'),
+            ('compute_q_4_1', 'Year-end transaction concentration'),
+            ('compute_q_4_2', 'Explanation quality'),
+        ]),
+        ('R. Management departures & financial-engineering red flags', 'management_departures_red_flags', [
+            ('compute_r_1_1', 'Sudden departures'),
+            ('compute_r_1_2', 'Succession response'),
+            ('compute_r2_1_rapid_insider_selling', 'Rapid insider selling'),
+            ('compute_r2_2_concentrated_block_sales', 'Concentrated block sales'),
+            ('compute_r_3_1', 'Capital raise frequency'),
+            ('compute_r_3_2', 'Discount / pricing'),
+            ('compute_r_4_1', 'One-off transaction frequency'),
+            ('compute_r_4_2', 'Transfer pricing / rationale'),
+            ('compute_r_5_1', 'Auditor resignation'),
+            ('compute_r_5_2', 'Internal control issues'),
+            ('compute_r_6_1', 'Response cadence'),
+            ('compute_r_6_2', 'Substance of response'),
+        ]),
+        ('S. Industry-specific applicability', 'industry_specific_applicability', [
+            ('compute_s_1_1', 'Asset quality'),
+            ('compute_s_1_2', 'Related-party exposures'),
+            ('compute_s_1_3', 'Regulatory capital'),
+            ('compute_s_1_4', 'Loan underwriting quality'),
+            ('compute_s_2_2', 'Patent cliffs'),
+            ('compute_s_2_3', 'Regulatory inspections'),
+            ('compute_s_2_4', 'Price controls'),
+            ('compute_s_3_1', 'Model refresh cycle'),
+            ('compute_s_3_2', 'Channel inventory'),
+            ('compute_s_3_3', 'Export dependency'),
+            ('compute_s_4_1', 'Client concentration'),
+            ('compute_s_4_2', 'Contract renewal risk'),
+            ('compute_s_4_3', 'Visa / immigration dependence'),
+            ('compute_s_5_1', 'Brand strength'),
+            ('compute_s_5_2', 'Distribution depth'),
+            ('compute_s_5_3', 'Commodity input volatility'),
+        ]),
+        ('T. Tariff, tax & currency sensitivity', 'tariff_tax_currency_sensitivity', [
+            ('compute_t_1_1', 'Sanctions / embargo exposure'),
+            ('compute_t_1_2', 'Tariff exposure'),
+            ('compute_t_2_1', 'GST sensitivity'),
+            ('compute_t_2_2', 'Import duty sensitivity'),
+            ('compute_t_3_1', 'Convertibility risk'),
+            ('compute_t_3_2', 'Repatriation risk'),
+        ]),
+        ('U. Management risk disclosure & succession quality', 'management_risk_disclosure_succession', [
+            ('compute_u_1_1', 'Top management-identified risk'),
+            ('compute_u_2_1', 'Management-named competitors'),
+            ('compute_u_3_1', 'Capital allocation framework'),
+            ('compute_u_4_1', 'Revenue sensitivity'),
+            ('compute_u_4_2', 'Margin sensitivity'),
+            ('compute_u_5_1', 'Management explanation of material RPTs'),
+            ('compute_u_6_1', 'CEO succession'),
+            ('compute_u_6_2', 'CFO succession'),
+        ]),
+    ]
+    for _topic_label, _key_prefix, _pairs in _HU_SECTIONS:
+        try:
+            qualitative_topics[_key_prefix] = _hu_topic(_topic_label, _key_prefix, _pairs)
+        except Exception as e:
+            print(f"[qualitative_topics] section {_topic_label} failed entirely: {e}")
+
     ml_forecast = build_ml_forecast(m, info, symbol)
 
     # SOIC-style deterministic financial analysis (Piotroski F-Score, DuPont ROE,
-    # green/amber/red financial-health checklist) — computed from the 12-yr
+    # green/amber/red financial-health checklist) - computed from the 12-yr
     # statements, rendered as scorecards/tables (not prose).
     financial_analysis = {}
     try:
@@ -5285,7 +5645,7 @@ def build_executive_summary(state: SystemState) -> dict:
     except Exception as _fae:
         print(f"[summary] financial analysis skipped: {_fae}")
 
-    # Forward valuation (#10) — forward EPS/PE/PEG/EV-Sales/EV-EBITDA/MCap-Sales
+    # Forward valuation (#10) - forward EPS/PE/PEG/EV-Sales/EV-EBITDA/MCap-Sales
     # from the model's projected growth applied to latest actuals.
     forward_valuation = {}
     try:

@@ -8,22 +8,22 @@ ad hoc web search): walk the same fixed NSE sector map
 symbol's own 3yr revenue CAGR, and cache it. A.4 (tools/qualitative_engine.py's
 compute_a4_product_lifecycle_stage) then compares a company's SEGMENT revenue
 CAGR against its own single NSE sector's peer-MEDIAN company-level revenue
-CAGR — a documented scoping simplification (no per-segment sector
+CAGR - a documented scoping simplification (no per-segment sector
 reclassification exists in this codebase), not a per-segment benchmark.
 
 Revenue CAGR is computed via the EXACT SAME formula tools/metrics_engine.py's
 FundamentalMetricsEngine already uses for F-05 (cagr_3y_revenue, requires 4
-consecutive annual income-statement columns: (rev[-1]/rev[-4])**(1/3) - 1) —
+consecutive annual income-statement columns: (rev[-1]/rev[-4])**(1/3) - 1) -
 reusing get_row_series so a future fix to that row-matching logic (e.g. new
 label aliases) automatically applies here too, rather than drifting from a
 second hand-rolled copy.
 
 This is fast/live per-symbol (yfinance .income_stmt call), NOT an Annual
-Report PDF fetch — comparable in cost to peer_universe.py's per-symbol market
+Report PDF fetch - comparable in cost to peer_universe.py's per-symbol market
 cap fetch, just one extra yfinance call. Still slow in aggregate across 751
 symbols, so it is precomputed the same way peer_universe.build_universe() is
 today: a standalone script entry point (`python -m tools.sector_cagr_universe
-build`), not triggered per-request or by a scheduler — this codebase has no
+build`), not triggered per-request or by a scheduler - this codebase has no
 scheduled job for peer_universe.build_universe() either (checked: it's only
 invoked from its own __main__ block), so sector_cagr_universe follows the
 same manual-trigger convention rather than inventing new wiring.
@@ -43,11 +43,11 @@ CACHE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "sector_cagr_universe.json"
 )
 STALE_AFTER = 7 * 24 * 3600  # same weekly-refresh convention as peer_universe.STALE_AFTER
-MIN_PEERS = 5  # mirrors peer_universe.MIN_PEERS — a median of <5 companies is not a defensible benchmark
+MIN_PEERS = 5  # mirrors peer_universe.MIN_PEERS - a median of <5 companies is not a defensible benchmark
 
 
 def _fetch_revenue_cagr_3y(symbol):
-    """3yr revenue CAGR via yfinance's annual income statement — same source
+    """3yr revenue CAGR via yfinance's annual income statement - same source
     and same formula as tools/metrics_engine.py's F-05 cagr_3y_revenue.
     Returns float or None (never a guess: None whenever <4 annual columns or
     a non-positive start/end revenue, exactly like metrics_engine's own
@@ -81,7 +81,7 @@ def _fetch_revenue_cagr_3y(symbol):
 def build_sector_cagr_universe(force=False, symbols=None):
     """
     Precompute step. Walks every symbol in the fixed NSE sector map
-    (or `symbols`, an explicit subset — used for scoped test runs), computes
+    (or `symbols`, an explicit subset - used for scoped test runs), computes
     3yr revenue CAGR, and writes {symbol: {sector, revenue_cagr_3y, as_of_ts}}
     to cache/sector_cagr_universe.json. Checkpoints every 25 symbols like
     peer_universe.build_universe. Resumable: skips symbols already present
@@ -124,7 +124,7 @@ def build_sector_cagr_universe(force=False, symbols=None):
                 "as_of": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
             if done % 25 == 0:
-                print(f"[sector_cagr_universe] {done}/{total} ({sym}: {cagr}) — checkpointing")
+                print(f"[sector_cagr_universe] {done}/{total} ({sym}: {cagr}) - checkpointing")
                 _write(universe)
     _write(universe)
     n_priced = sum(1 for r in universe.values() if r.get("revenue_cagr_3y") is not None)
@@ -151,7 +151,7 @@ def load_sector_cagr_universe():
 def get_sector_median_cagr(sector, universe=None):
     """
     Median 3yr revenue CAGR across every priced company in `sector` within
-    the fixed universe. Never mean (per spec — a single outlier CAGR
+    the fixed universe. Never mean (per spec - a single outlier CAGR
     shouldn't swing the benchmark). Requires >=MIN_PEERS priced companies,
     mirroring peer_universe.select_peer_set's INSUFFICIENT_PEER_SET floor.
 

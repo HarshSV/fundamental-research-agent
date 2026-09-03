@@ -2,7 +2,21 @@ import os
 import time
 import requests
 import pyotp
-from SmartApi import SmartConnect
+try:
+    from SmartApi import SmartConnect
+except Exception as _smartapi_import_error:
+    # The `smartapi-python` package (requirements.txt) can be absent/broken
+    # in a given environment (not installed, incompatible Python version,
+    # etc.) - that used to crash this WHOLE module at import time, which
+    # took down `market_price.get_live_price()`'s entire price pipeline
+    # before it ever reached the yfinance fallback this class already
+    # implements for auth/API failures. An unavailable Angel SDK should
+    # degrade to yfinance-only, exactly like a failed Angel login already
+    # does - not silently return no price at all for every ratio that needs
+    # one (P/E, P/B, P/S, Dividend Yield, EV/EBITDA, FCF Yield, Price/CF).
+    SmartConnect = None
+    print(f"[angel_scraper] SmartApi unavailable ({_smartapi_import_error}) - "
+          f"Angel One live-tick path disabled, yfinance fallback only.")
 import yfinance as yf
 from dotenv import load_dotenv
 
@@ -11,11 +25,29 @@ load_dotenv()
 
 # Process-level Angel One session cache. Logging in (TOTP + generateSession) is a
 # real network round-trip; re-running it on every single AngelDataScraper()
-# instantiation — which used to happen once per /generate-report request — was
+# instantiation - which used to happen once per /generate-report request - was
 # pure wasted latency, since an Angel session stays valid for hours. Reuse the
 # same authenticated SmartConnect object across requests until it expires.
 _SESSION_TTL = 6 * 3600
 _session_cache = {"smart_connect": None, "authenticated": False, "ts": 0.0}
+# Process-wide Scrip Master cache, same rationale as _session_cache above -
+# `self.scrip_master` was an INSTANCE attribute, so it reset to None on
+# every fresh `AngelDataScraper()` construction even though the same
+# 151,191-row instrument list is identical for the whole process's
+# lifetime. Confirmed real cost: a single qualitative analysis run
+# constructs a fresh AngelDataScraper() independently from several
+# different compute_fn's (A.4's growth fallback alone does it once per
+# A.4/A.4.A/A.4.B/A.4.C/A.4.D sub-point - 5 times for one company), each
+# re-parsing the same multi-MB on-disk JSON file from scratch. Sharing it
+# at module level turns that into one parse per process, not one per
+# instantiation.
+_scrip_master_cache = {"data": None, "failed": False}
+# Short-lived process-wide cache for fetch_fundamental_payload - see that
+# method's docstring. 5 minutes is long enough to dedupe every call
+# within a single analysis run, short enough that a live price genuinely
+# doesn't go stale across separate requests.
+_FUNDAMENTAL_PAYLOAD_TTL = 300
+_fundamental_payload_cache = {}
 
 
 def _usd_inr_rate():
@@ -76,7 +108,7 @@ def compute_pe_band(symbol, income_stmt_annual, current_pe=None):
     Derive a historical P/E band entirely from FREE data: monthly price history
     (yfinance) divided by the company's annual EPS (already INR-normalized in our
     income statement). Returns a series + median/min/max so the UI can draw a
-    valuation band chart. Never raises — returns None if it can't be built.
+    valuation band chart. Never raises - returns None if it can't be built.
     """
     try:
         sym = str(symbol).strip().upper().replace('.NS', '')
@@ -186,6 +218,10 @@ class AngelDataScraper:
         password = os.getenv("ANGEL_PASSWORD")
         totp_secret = os.getenv("ANGEL_TOTP_SECRET")
 
+        if SmartConnect is None:
+            print("[AngelDataScraper] SmartApi package unavailable in this environment - sliding over to yfinance fallback.")
+            return False
+
         if not all([api_key, client_code, password, totp_secret]) or \
            any(p in (api_key or "") for p in ["your_copied", "dummy", "here"]):
             print("[AngelDataScraper] Warning: One or more Angel One credentials (ANGEL_API_KEY, ANGEL_CLIENT_CODE, ANGEL_PASSWORD, ANGEL_TOTP_SECRET) are missing or set to placeholder values. Sliding over to yfinance fallback.")
@@ -229,13 +265,20 @@ class AngelDataScraper:
         process start. If the download fails (common behind a TLS-inspecting
         firewall, where it read-times-out), the failure is memoized for the
         session so subsequent quote calls skip straight to the yfinance fallback
-        instead of eating another full timeout every single time — that repeated
+        instead of eating another full timeout every single time - that repeated
         timeout was the root cause of multi-minute quote latency.
         """
         if self.scrip_master is not None:
             return
-        if getattr(self, '_scrip_master_failed', False):
-            return  # already failed this session — don't retry the slow download
+        # Process-wide first: another AngelDataScraper instance (this
+        # same pipeline run, a different compute_fn) may have already
+        # loaded it - reuse that in-memory list instead of re-reading the
+        # multi-MB disk cache file all over again.
+        if _scrip_master_cache["data"] is not None:
+            self.scrip_master = _scrip_master_cache["data"]
+            return
+        if _scrip_master_cache["failed"] or getattr(self, '_scrip_master_failed', False):
+            return  # already failed this session - don't retry the slow download
 
         import json as _json
         import tempfile
@@ -247,6 +290,7 @@ class AngelDataScraper:
             if os.path.exists(cache_path) and (_t.time() - os.path.getmtime(cache_path) < 86400):
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     self.scrip_master = _json.load(f)
+                _scrip_master_cache["data"] = self.scrip_master
                 print(f"[AngelDataScraper] Loaded {len(self.scrip_master)} instruments from disk cache.")
                 return
         except Exception as e:
@@ -259,6 +303,7 @@ class AngelDataScraper:
 
             if response.status_code == 200:
                 self.scrip_master = response.json()
+                _scrip_master_cache["data"] = self.scrip_master
                 print(f"[AngelDataScraper] Loaded {len(self.scrip_master)} instrument tokens from Scrip Master.")
                 try:
                     with open(cache_path, 'w', encoding='utf-8') as f:
@@ -268,27 +313,38 @@ class AngelDataScraper:
             else:
                 print(f"[AngelDataScraper] Failed to download Scrip Master. Status Code: {response.status_code}")
                 self._scrip_master_failed = True
+                _scrip_master_cache["failed"] = True
         except Exception as e:
             print(f"[AngelDataScraper] Failed to fetch Instrument List: {e}")
             self._scrip_master_failed = True
+            _scrip_master_cache["failed"] = True
 
     def _resolve_symbol(self, symbol: str) -> dict:
         """
-        Finds matching token and trading symbol details for NSE segment.
+        Finds matching token and trading symbol details. Tries NSE first
+        (most Indian-listed companies trade there and it's the deepest/most
+        liquid quote), then falls back to BSE - many smaller/SME-IPO
+        companies (e.g. Prime Fresh Limited, BSE scrip code 540404) are
+        listed ONLY on BSE and were previously unresolvable here, silently
+        blanking every market-price-dependent ratio (P/E, P/B, P/S,
+        Dividend Yield, EV/EBITDA, FCF Yield, Price/Cash Flow, Altman
+        Z-Score, and everything derived from them) for any BSE-only
+        company, generically - not specific to one symbol.
         """
         self._load_scrip_master()
         if not self.scrip_master:
             return None
-            
+
         clean_symbol = symbol.strip().upper()
-        if clean_symbol.endswith('.NS'):
+        if clean_symbol.endswith('.NS') or clean_symbol.endswith('.BO'):
             clean_symbol = clean_symbol[:-3]
-            
+
         # Match name or trading symbol (typically NAME=INFY, SYMBOL=INFY-EQ)
-        for instrument in self.scrip_master:
-            if instrument.get('exch_seg') == 'NSE':
-                if instrument.get('name') == clean_symbol or instrument.get('symbol') == f"{clean_symbol}-EQ":
-                    return instrument
+        for exch in ('NSE', 'BSE'):
+            for instrument in self.scrip_master:
+                if instrument.get('exch_seg') == exch:
+                    if instrument.get('name') == clean_symbol or instrument.get('symbol') == f"{clean_symbol}-EQ":
+                        return instrument
         return None
 
     def _serialize_df(self, df) -> dict:
@@ -391,9 +447,9 @@ class AngelDataScraper:
     def _fetch_with_fallback_chain(self, symbol: str) -> dict:
         """
         Cascading data fetch, Screener-primary (P0 rework):
-          1. Direct Screener.in scrape — ONE HTML page, INR, complete financials.
+          1. Direct Screener.in scrape - ONE HTML page, INR, complete financials.
              Replaces 6+ serial yfinance calls; fast and cloud-reliable.
-          2. yfinance — fallback for tickers Screener can't parse (odd slugs, banks).
+          2. yfinance - fallback for tickers Screener can't parse (odd slugs, banks).
         Returns the first result that actually has financial statements.
         """
         # 1. Direct Screener.in scrape (PRIMARY).
@@ -410,12 +466,22 @@ class AngelDataScraper:
         result = self._fetch_from_yfinance_fallback(symbol)
         return result
 
-    def fetch_live_quote(self, symbol: str) -> dict:
+    def fetch_live_quote(self, symbol: str, bse_code: str = None) -> dict:
         """
         Lightweight real-time quote (LTP + OHLC + volume) for live tracking/polling.
         Deliberately does NOT pull financial statements, so it is cheap to call on a
         short interval. Uses Angel One live market data when authenticated, else a
         fast yfinance fallback. Never raises.
+
+        `bse_code` (optional) is the company's real BSE scrip code, as
+        printed in its own Annual Report/registry - a stable,
+        exchange-assigned identifier, independent of whatever internal
+        registry `symbol` this system happens to key the company under.
+        Used as a DIRECT, exact fallback token match on the BSE segment
+        when name/symbol-based resolution fails - covers the case where
+        the internal `symbol` is a synthetic placeholder that was never a
+        real tradeable ticker (see manual_document_pipeline.py's
+        `_extract_listing_identifiers`/`_backfill_listing_identifiers`).
         """
         symbol_clean = symbol.strip().upper()
         if symbol_clean.endswith('.NS'):
@@ -425,9 +491,14 @@ class AngelDataScraper:
         if self.authenticated and self.smart_connect:
             try:
                 inst = self._resolve_symbol(symbol_clean)
+                if not inst and bse_code:
+                    self._load_scrip_master()
+                    inst = next((i for i in (self.scrip_master or [])
+                                 if i.get('exch_seg') == 'BSE' and str(i.get('token')) == str(bse_code)), None)
                 if inst:
                     token = inst.get('token')
-                    md = self.smart_connect.getMarketData("FULL", {"NSE": [token]})
+                    exch = inst.get('exch_seg') or 'NSE'
+                    md = self.smart_connect.getMarketData("FULL", {exch: [token]})
                     if md.get('status') is True:
                         items = md.get('data', {}).get('fetched', [])
                         if items:
@@ -442,43 +513,87 @@ class AngelDataScraper:
             except Exception as e:
                 print(f"[AngelDataScraper] live quote via Angel failed for {symbol_clean}: {e}")
 
-        # Fallback: yfinance fast quote
-        try:
-            ticker = yf.Ticker(f"{symbol_clean}.NS")
-            ltp = open_ = high = low = close = volume = None
+        # Fallback: yfinance fast quote. Try NSE (".NS", by trading symbol)
+        # first since it's most Indian-listed companies' primary/most liquid
+        # listing, then BSE (".BO") - which Yahoo indexes by numeric scrip
+        # code rather than ticker text, so a BSE-only company (no NSE
+        # listing at all, e.g. Prime Fresh Limited / scrip 540404) needs
+        # its scrip code, not its name, for the ".BO" attempt. Generic for
+        # any BSE-only-listed company, not just one symbol.
+        resolved_bse_token = bse_code
+        if not resolved_bse_token:
             try:
-                fi = ticker.fast_info
-                ltp = getattr(fi, 'last_price', None)
-                open_ = getattr(fi, 'open', None)
-                high = getattr(fi, 'day_high', None)
-                low = getattr(fi, 'day_low', None)
-                close = getattr(fi, 'previous_close', None)
-                volume = getattr(fi, 'last_volume', None)
+                inst = self._resolve_symbol(symbol_clean)
+                if inst and inst.get('exch_seg') == 'BSE':
+                    resolved_bse_token = inst.get('token')
             except Exception:
                 pass
-            if ltp is None:
-                info = ticker.info or {}
-                ltp = info.get('currentPrice') or info.get('regularMarketPrice')
-                close = close or info.get('previousClose') or info.get('regularMarketPreviousClose')
-                volume = volume or info.get('volume')
-            return {
-                'symbol': symbol_clean, 'ltp': ltp, 'open': open_, 'high': high,
-                'low': low, 'close': close, 'volume': volume, 'source': 'yfinance'
-            }
-        except Exception as e:
-            print(f"[AngelDataScraper] live quote fallback failed for {symbol_clean}: {e}")
-            return {'symbol': symbol_clean, 'ltp': None, 'source': 'unavailable', 'error': str(e)}
+
+        yf_candidates = [f"{symbol_clean}.NS"]
+        if resolved_bse_token:
+            yf_candidates.append(f"{resolved_bse_token}.BO")
+        else:
+            yf_candidates.append(f"{symbol_clean}.BO")
+
+        last_err = None
+        for yf_symbol in yf_candidates:
+            try:
+                ticker = yf.Ticker(yf_symbol)
+                ltp = open_ = high = low = close = volume = None
+                try:
+                    fi = ticker.fast_info
+                    ltp = getattr(fi, 'last_price', None)
+                    open_ = getattr(fi, 'open', None)
+                    high = getattr(fi, 'day_high', None)
+                    low = getattr(fi, 'day_low', None)
+                    close = getattr(fi, 'previous_close', None)
+                    volume = getattr(fi, 'last_volume', None)
+                except Exception:
+                    pass
+                if ltp is None:
+                    info = ticker.info or {}
+                    ltp = info.get('currentPrice') or info.get('regularMarketPrice')
+                    close = close or info.get('previousClose') or info.get('regularMarketPreviousClose')
+                    volume = volume or info.get('volume')
+                if ltp is not None:
+                    return {
+                        'symbol': symbol_clean, 'ltp': ltp, 'open': open_, 'high': high,
+                        'low': low, 'close': close, 'volume': volume, 'source': 'yfinance'
+                    }
+            except Exception as e:
+                last_err = e
+                print(f"[AngelDataScraper] live quote fallback failed for {yf_symbol}: {e}")
+
+        return {'symbol': symbol_clean, 'ltp': None, 'source': 'unavailable',
+                'error': str(last_err) if last_err else 'no quote found on NSE or BSE'}
 
     def fetch_fundamental_payload(self, symbol: str) -> dict:
         """
         Fetches LTP, Volume, and OHLC data from Angel One SmartAPI,
         and aggregates ownership metrics/financial arrays.
         Formats payload into a uniform dictionary: lastPrice, volume, ohlc, ownership_metrics, financial_arrays.
+
+        Process-wide cached per symbol for a short TTL - several
+        independent compute_fn's in a single qualitative-analysis run
+        (confirmed real: A.4's growth fallback alone calls this once for
+        each of A.4/A.4.A/A.4.B/A.4.C/A.4.D - 5 times for one company)
+        each ask for the SAME symbol's SAME live data within seconds of
+        each other. Without this, every one of those repeats the full
+        token-resolution attempt, then the yfinance 404 fallback network
+        round-trip, for a company that's already known (from the very
+        first call) to have no live coverage at all.
         """
         symbol_clean = symbol.strip().upper()
         if symbol_clean.endswith('.NS'):
             symbol_clean = symbol_clean[:-3]
-            
+        cached = _fundamental_payload_cache.get(symbol_clean)
+        if cached is not None and (time.time() - cached[0]) < _FUNDAMENTAL_PAYLOAD_TTL:
+            return cached[1]
+        result = self._fetch_fundamental_payload_impl(symbol_clean)
+        _fundamental_payload_cache[symbol_clean] = (time.time(), result)
+        return result
+
+    def _fetch_fundamental_payload_impl(self, symbol_clean: str) -> dict:
         if not self.authenticated or not self.smart_connect:
             print("[AngelDataScraper] Angel One client not authenticated. Using Screener API -> yfinance chain.")
             return self._fetch_with_fallback_chain(symbol_clean)
@@ -512,7 +627,7 @@ class AngelDataScraper:
                     }
                     
                     # Financials: Screener.in scrape is PRIMARY (matches the rest of
-                    # the codebase's NSE/BSE-first sourcing) — yfinance is only the
+                    # the codebase's NSE/BSE-first sourcing) - yfinance is only the
                     # fallback when Screener has no parseable income statement for
                     # this ticker (e.g. an odd slug or a very new listing).
                     financial_arrays = {}

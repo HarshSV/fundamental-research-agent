@@ -2,7 +2,7 @@
 Screener.in shareholding + concall source.
 
 Free, public, and covers essentially every NSE/BSE-listed company with ~12 quarters
-of promoter / FII / DII / Government / Public holding — which fixes the "Awaiting NSE
+of promoter / FII / DII / Government / Public holding - which fixes the "Awaiting NSE
 Filing / N/A" gaps and powers the real multi-quarter ownership / FII-DII / promoter
 trend charts. Also surfaces the latest concall transcript links for the AI summary.
 
@@ -249,7 +249,20 @@ def download_transcript(url, max_chars=14000, max_pages=16):
 
 
 def fetch_concall_list(symbol, name=None):
-    """Public: per-month concall entries for the UI tabs (newest first)."""
+    """Public: per-month concall entries for the UI tabs (newest first).
+
+    Same guard convention as tools.crisil_scraper.fetch_crisil_rationale /
+    tools.nse_announcements.fetch_announcements: in tools.manual_mode's
+    document-only manual workflow, this NEVER reaches live screener.in -
+    B.4.3's fallback pathway (used when NSE's own transcript announcement
+    isn't found) must not silently live-fetch just because the sub-point's
+    gate let its compute_fn run for a different, uploaded document type.
+    Returns [] (its existing "nothing found" contract - no caller of this
+    function distinguishes not-checked from checked-and-empty, unlike
+    fetch_announcements), never fabricated data."""
+    from tools.manual_mode import is_manual_mode
+    if is_manual_mode():
+        return []
     sym = symbol.strip().upper().replace(".NS", "")
     try:
         return (fetch_screener(sym, name) or {}).get("concall_list") or []
@@ -331,7 +344,7 @@ def _ranges_table(html, title_substr):
 # ===========================================================================
 # PRIMARY FINANCIALS SOURCE (P0 rework)
 # Parse the P&L / balance sheet / cash flow / quarterly tables straight off the
-# Screener.in company page — ONE HTML GET that replaces 6+ serial yfinance calls.
+# Screener.in company page - ONE HTML GET that replaces 6+ serial yfinance calls.
 # Output matches the payload shape angel_scraper produces, so metrics_engine needs
 # zero changes. INR throughout (no USD->INR conversion needed). Never raises.
 # ===========================================================================
@@ -751,7 +764,7 @@ def fetch_screener_moat_data(symbol, name=None):
 
 def fetch_screener_peers(symbol, name=None):
     """
-    FREE size/sector-aware peer list from Screener.in — no Apify, no API key, and it
+    FREE size/sector-aware peer list from Screener.in - no Apify, no API key, and it
     works from cloud hosts (screener.in is globally reachable, unlike NSE). Returns a
     list of Apify-shaped peer records (incl. the target itself), or [] on failure.
     Cached 12h. Never raises.
@@ -920,7 +933,7 @@ def fetch_concall_text(symbol, max_chars=14000, name=None):
                 return None
 
         # Download the (up to 3) candidate PDFs concurrently instead of one at a
-        # time — sequentially this was up to 3x a 30s timeout (90s worst case) on
+        # time - sequentially this was up to 3x a 30s timeout (90s worst case) on
         # a cold cache; in parallel it's bounded by the slowest single download.
         from concurrent.futures import ThreadPoolExecutor
         candidates = links[:3]

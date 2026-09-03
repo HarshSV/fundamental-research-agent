@@ -1,5 +1,5 @@
 """
-Concall Intelligence (#2/#5) — continuous earnings-call tracking.
+Concall Intelligence (#2/#5) - continuous earnings-call tracking.
 
 For EVERY concall Screener lists (with a transcript), extract a compact structured
 record (sentiment, guidance, commitments, positives, risks). Then do cross-call
@@ -105,7 +105,7 @@ def _extract_one(date, url, api_key):
         # normalise list fields (LLM sometimes returns a string/object)
         def _list(v):
             if isinstance(v, list):
-                return [str(x) if not isinstance(x, dict) else " — ".join(str(t) for t in x.values() if t) for x in v if x][:5]
+                return [str(x) if not isinstance(x, dict) else " - ".join(str(t) for t in x.values() if t) for x in v if x][:5]
             return [str(v)] if v else []
         rec = {
             "date": date, "url": url,

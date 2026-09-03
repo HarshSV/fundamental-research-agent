@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { searchSymbols } from '../lib/api.js';
+import ManualUpload from '../components/ManualUpload.jsx';
 
 /* ---- small inline icon set (stroke, currentColor) ---- */
 const I = ({ children, s = 20 }) => (
@@ -18,10 +19,11 @@ const IconArrow = () => (<I s={16}><path d="M5 12h14M13 6l6 6-6 6" /></I>);
 const IconEdit = () => (<I s={14}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></I>);
 const IconX = () => (<I s={12}><path d="M18 6 6 18M6 6l12 12" /></I>);
 const IconPlus = () => (<I s={14}><path d="M12 5v14M5 12h14" /></I>);
+const IconUpload = () => (<I s={14}><path d="M12 3v12M8 7l4-4 4 4M4 21h16" /></I>);
 
 // India's top 5 listed companies by market cap.
 const DEFAULT_WATCHLIST = ['RELIANCE', 'HDFCBANK', 'TCS', 'BHARTIARTL', 'ICICIBANK'];
-// The previous default (10 stocks) — anyone whose stored list still matches
+// The previous default (10 stocks) - anyone whose stored list still matches
 // this exactly never customized it, so switch them to the new 5-stock
 // default too rather than leave them stuck on the old list forever.
 const PRIOR_DEFAULT_WATCHLIST = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'LT', 'ITC', 'SBIN', 'BHARTIARTL', 'MARUTI'];
@@ -44,9 +46,9 @@ function loadWatchlist() {
 }
 
 const FEATURES = [
-  { Icon: IconAI, title: 'AI research', body: 'Executive summaries, growth drivers, moat and risks — reasoned from filings, not guessed.' },
+  { Icon: IconAI, title: 'AI research', body: 'Executive summaries, growth drivers, moat and risks - reasoned from filings, not guessed.' },
   { Icon: IconSector, title: 'Sector intelligence', body: 'Official NSE classification drives sector-aware ratio tiers and the right peer set.' },
-  { Icon: IconStatements, title: 'Financial statements', body: 'Audited annual and quarterly income, balance sheet and cash flow — standalone or consolidated.' },
+  { Icon: IconStatements, title: 'Financial statements', body: 'Audited annual and quarterly income, balance sheet and cash flow - standalone or consolidated.' },
   { Icon: IconBenchmark, title: 'Benchmarking', body: 'Every ratio graded against verified industry benchmarks with confidence scoring.' },
   { Icon: IconTrace, title: 'Traceable calculations', body: 'Open any number to see its formula and the exact filing, page and line it came from.' },
   { Icon: IconChart, title: 'Interactive charts', body: 'Revenue, margins, returns and cash flow over 5–10 years with hover and compare.' },
@@ -63,12 +65,16 @@ const TRUST = [
   'Investor presentations', 'Verified industry benchmarks', 'Explainable AI',
 ];
 
-export default function Landing({ onSelect, onLogout }) {
+export default function Landing({ onSelect, onOpenManual, onLogout }) {
   const [q, setQ] = useState('');
   const [matches, setMatches] = useState([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const boxRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  const [showManual, setShowManual] = useState(false);
+  const [manualSymbol, setManualSymbol] = useState('');
 
   const [watchlist, setWatchlist] = useState(loadWatchlist);
   const [editing, setEditing] = useState(false);
@@ -123,10 +129,17 @@ export default function Landing({ onSelect, onLogout }) {
   }, []);
 
   const go = (sym) => { if (sym) onSelect(String(sym).toUpperCase()); };
+  // No company needs to be picked first - the Annual Report itself says
+  // who it's for; ManualUpload detects and resolves it after upload.
+  const openManual = () => {
+    const sym = matches[active]?.symbol || q.trim();
+    setManualSymbol(sym ? String(sym).toUpperCase() : '');
+    setShowManual(true);
+  };
   const onKey = async (e) => {
     if (!open || !matches.length) {
       // No dropdown match yet (typed faster than the debounced search
-      // resolved) — try one direct lookup before sending the raw text as
+      // resolved) - try one direct lookup before sending the raw text as
       // the "symbol", otherwise a full company name like "Gopal Snacks"
       // reaches the backend instead of its real ticker "GOPAL".
       if (e.key === 'Enter' && q.trim()) {
@@ -177,6 +190,7 @@ export default function Landing({ onSelect, onLogout }) {
             <div className={`flex items-center gap-3 bg-slate-900 border rounded-2xl px-4 h-[60px] transition-colors ${open ? 'border-blue-500' : 'border-slate-800'} nv-elev`}>
               <span className="text-slate-500"><IconSearch /></span>
               <input
+                ref={searchInputRef}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={onKey}
@@ -187,6 +201,17 @@ export default function Landing({ onSelect, onLogout }) {
               />
               <button onClick={() => go(matches[active]?.symbol || q.trim())} className="nv-btn nv-btn-primary h-10 px-5 flex-shrink-0">
                 Analyze <IconArrow />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 mt-3">
+              <span className="nv-eyebrow text-slate-500 self-center">Automatic search</span>
+              <button
+                onClick={openManual}
+                className="nv-btn nv-btn-ghost h-8 px-3.5 text-[12.5px] font-semibold"
+                title="Upload the company's Annual Report and NSE/BSE XBRL filing instead of relying on automatic fetch"
+              >
+                <IconUpload /> Upload Documents
               </button>
             </div>
 
@@ -250,7 +275,7 @@ export default function Landing({ onSelect, onLogout }) {
               </span>
             ))}
             {watchlist.length === 0 && (
-              <span className="text-[12.5px] text-slate-600">No stocks yet — add up to {WATCHLIST_MAX}.</span>
+              <span className="text-[12.5px] text-slate-600">No stocks yet - add up to {WATCHLIST_MAX}.</span>
             )}
           </div>
 
@@ -266,7 +291,7 @@ export default function Landing({ onSelect, onLogout }) {
                   value={wq}
                   onChange={(e) => setWq(e.target.value)}
                   disabled={watchlist.length >= WATCHLIST_MAX}
-                  placeholder={watchlist.length >= WATCHLIST_MAX ? 'Limit reached — remove one first' : 'Search company or ticker…'}
+                  placeholder={watchlist.length >= WATCHLIST_MAX ? 'Limit reached - remove one first' : 'Search company or ticker…'}
                   className="flex-1 bg-transparent outline-none text-slate-100 placeholder:text-slate-500 text-[13px] min-w-0"
                 />
               </div>
@@ -295,7 +320,7 @@ export default function Landing({ onSelect, onLogout }) {
         <div className="max-w-2xl">
           <div className="nv-eyebrow text-blue-600">Capabilities</div>
           <h2 className="nv-h2 text-[26px] text-slate-100 mt-2">Everything to understand a company in 30 seconds</h2>
-          <p className="text-slate-400 mt-3">Progressive disclosure — headline first, evidence one click away.</p>
+          <p className="text-slate-400 mt-3">Progressive disclosure - headline first, evidence one click away.</p>
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-9">
           {FEATURES.map((f) => (
@@ -337,7 +362,7 @@ export default function Landing({ onSelect, onLogout }) {
               <div className="nv-eyebrow text-blue-600">Grounded in evidence</div>
               <h2 className="nv-h2 text-[24px] text-slate-100 mt-2">Every claim is sourced and verifiable</h2>
               <p className="text-slate-400 mt-3 text-[14px] leading-relaxed">
-                Not a screener. A research terminal that shows its work — official classifications,
+                Not a screener. A research terminal that shows its work - official classifications,
                 audited filings and explainable AI.
               </p>
             </div>
@@ -357,6 +382,14 @@ export default function Landing({ onSelect, onLogout }) {
         <p className="text-slate-500 font-medium">© 2026 Navrist · Research Terminal</p>
         <p className="text-slate-600">For internal research use only. Not investment advice.</p>
       </footer>
+
+      {showManual && (
+        <ManualUpload
+          symbol={manualSymbol || null}
+          onClose={() => setShowManual(false)}
+          onOpenDashboard={(sym, name) => onOpenManual?.(sym || manualSymbol, name)}
+        />
+      )}
     </div>
   );
 }

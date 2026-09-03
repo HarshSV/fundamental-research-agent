@@ -3,6 +3,7 @@ import { authFetch, fetchRatio } from '../../lib/api.js';
 import { inr, inrCrore, isNum } from '../../lib/format.js';
 import { getNseSector } from '../../lib/nseSectorMap.js';
 import StockSearch from '../StockSearch.jsx';
+import ManualUpload from '../ManualUpload.jsx';
 
 const I = ({ children, s = 16 }) => (
   <svg viewBox="0 0 24 24" width={s} height={s} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
@@ -48,10 +49,10 @@ function useQuote(symbol) {
 }
 
 // Same fast, Supabase-precompute-backed shares-outstanding endpoint Overview.jsx
-// already uses for its Market Cap tile (~1s) — the header used to only read
-// Market Cap from the slow /api/v1/generate-report blob, so it sat on "—" long
+// already uses for its Market Cap tile (~1s) - the header used to only read
+// Market Cap from the slow /api/v1/generate-report blob, so it sat on "-" long
 // after the metric grid right below it had already filled in. One extra fetch,
-// no change to what's shown once it resolves — same source, just not blocked
+// no change to what's shown once it resolves - same source, just not blocked
 // on the slow qualitative pipeline.
 function useFastShares(symbol, name) {
   const [shares, setShares] = useState(null);
@@ -74,16 +75,17 @@ const Stat = ({ label, value }) => (
   </div>
 );
 
-export default function DashHeader({ symbol, name, data, score, loading, onRefresh, onExport, onCompare, onSearch }) {
+export default function DashHeader({ symbol, name, data, score, loading, onRefresh, onExport, onCompare, onSearch, onOpenManual }) {
   const quote = useQuote(symbol);
   const marketLive = useMarketLive();
+  const [showManual, setShowManual] = useState(false);
   const val = data?.calculated_metrics?.['F-03_Valuation_Metrics'] || {};
   const peer = data?.peer_synthesis_data || {};
   // Verbatim official NSE industry classification (nseSectorMap.js, ~750
   // Nifty Total Market symbols) takes priority over the AI-guessed/
-  // peer-group-derived `peer.sector` label — falls back to that only for
+  // peer-group-derived `peer.sector` label - falls back to that only for
   // symbols outside the Nifty Total Market universe.
-  const sectorDisplay = getNseSector(symbol) || peer.sector || '—';
+  const sectorDisplay = getNseSector(symbol) || peer.sector || '-';
 
   const price = isNum(quote?.ltp) ? quote.ltp : val.last_price;
   const chg = isNum(quote?.change) ? quote.change : null;
@@ -91,7 +93,7 @@ export default function DashHeader({ symbol, name, data, score, loading, onRefre
   const tone = isNum(chgPct) ? (chgPct > 0 ? 'nv-pos' : chgPct < 0 ? 'nv-neg' : 'nv-muted') : 'nv-muted';
 
   // Fast Market Cap = live price x fast shares-outstanding (same formula
-  // Overview.jsx's metric grid uses) — falls back to the slow calculated_metrics
+  // Overview.jsx's metric grid uses) - falls back to the slow calculated_metrics
   // figure only until the fast fetch itself resolves.
   const sharesFast = useFastShares(symbol, name);
   const sharesVal = sharesFast?.applicable ? sharesFast.value : null;
@@ -119,7 +121,7 @@ export default function DashHeader({ symbol, name, data, score, loading, onRefre
               {peer.cap_tier && <span className="text-[11px] font-semibold text-slate-400 bg-slate-850 border border-slate-800 rounded-md px-1.5 py-0.5">{peer.cap_tier}</span>}
             </div>
             <div className="flex items-baseline gap-2.5 mt-1.5">
-              <span className="text-[24px] font-bold text-slate-100 nv-num leading-none">{isNum(price) ? inr(price) : '—'}</span>
+              <span className="text-[24px] font-bold text-slate-100 nv-num leading-none">{isNum(price) ? inr(price) : '-'}</span>
               {isNum(chg) && (
                 <span className={`text-[13px] font-semibold nv-num ${tone}`}>
                   {chg > 0 ? '+' : ''}{Number(chg).toFixed(2)}
@@ -143,6 +145,13 @@ export default function DashHeader({ symbol, name, data, score, loading, onRefre
         {/* actions */}
         <div className="flex items-center gap-2 flex-shrink-0 lg:order-3">
           {onSearch && <StockSearch compact onSelect={onSearch} placeholder="Search a company…" />}
+          <button
+            onClick={() => setShowManual(true)}
+            className="nv-btn h-9 px-3.5 text-[13px] font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-500"
+            title="Upload the Annual Report and NSE/BSE XBRL filing instead of relying on automatic fetch"
+          >
+            Upload Documents
+          </button>
           <button onClick={onCompare} className="nv-btn nv-btn-ghost h-9 px-3 text-[13px]" title="Compare"><IconCompare /><span className="hidden sm:inline">Compare</span></button>
           <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1">
             <button onClick={onRefresh} className="nv-icon-btn w-8 h-8 !border-0" title="Refresh"><IconRefresh /></button>
@@ -158,17 +167,25 @@ export default function DashHeader({ symbol, name, data, score, loading, onRefre
         <span className="hidden sm:block w-px h-8 bg-slate-800" />
         <Stat label="Exchange" value="NSE" />
         <span className="hidden sm:block w-px h-8 bg-slate-800" />
-        <Stat label="Market cap" value={isNum(marketCap) ? inrCrore(marketCap) : '—'} />
+        <Stat label="Market cap" value={isNum(marketCap) ? inrCrore(marketCap) : '-'} />
         <span className="hidden sm:block w-px h-8 bg-slate-800" />
         <div className="flex flex-col">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Quality</span>
           {loading ? (
             <span className="text-[13px] font-bold text-slate-500 animate-pulse mt-0.5">···</span>
           ) : (
-            <span className="text-[13px] font-bold text-blue-600 nv-num mt-0.5">{isNum(score) ? `${score} / 100` : '—'}</span>
+            <span className="text-[13px] font-bold text-blue-600 nv-num mt-0.5">{isNum(score) ? `${score} / 100` : '-'}</span>
           )}
         </div>
       </div>
+
+      {showManual && (
+        <ManualUpload
+          symbol={symbol}
+          onClose={() => setShowManual(false)}
+          onOpenDashboard={(sym, docName) => onOpenManual?.(sym || symbol, docName || name)}
+        />
+      )}
     </div>
   );
 }

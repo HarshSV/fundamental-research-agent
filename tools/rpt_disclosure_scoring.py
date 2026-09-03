@@ -154,6 +154,19 @@ _ARMS_LENGTH_CONFIRMED = re.compile(r"\barm'?s[- ]length\b", re.I)
 _NON_ARMS_LENGTH = re.compile(
     r"(?:not|other than|were not|was not)\s+(?:conducted\s+|entered\s+into\s+)?(?:at\s+|on\s+)?arm'?s[- ]length", re.I
 )
+# Form AOC-2 (Companies Act 2013, Sec. 134(3)(h)/Rule 8(2)) mandates BOTH
+# of these exact section headings verbatim in every filer's AOC-2
+# disclosure - "Details of contracts...NOT at arm's length basis" and
+# "Details of...contracts...AT arm's length basis" - regardless of
+# whether the company actually had any such transactions. Left unfiltered,
+# every single filer that includes this standard form would register one
+# false "non-arm's-length" AND one false "confirmed" hit purely from the
+# blank template's own field labels, not from any real disclosed fact -
+# confirmed real on Prime Fresh Limited's AOC-2 Annexure.
+_AOC2_TEMPLATE_HEADING = re.compile(
+    r"details\s+of\s+(?:material\s+)?contracts?\s+or\s+arrangements?\s*(?:/|or)?\s*transactions?\s+"
+    r"(?:not\s+)?at\s+arm'?s[- ]length\s+basis", re.I,
+)
 
 
 def score_pricing_fairness(rpt_text):
@@ -170,6 +183,8 @@ def score_pricing_fairness(rpt_text):
         return {"arms_length_count": None, "non_arms_length_count": None, "pricing_fairness_pct": None, "pricing_fairness_score": None}
     confirmed = non_arms = 0
     for sent in _sentences(rpt_text):
+        if _AOC2_TEMPLATE_HEADING.search(sent):
+            continue
         if _NON_ARMS_LENGTH.search(sent):
             non_arms += 1
         elif _ARMS_LENGTH_CONFIRMED.search(sent):

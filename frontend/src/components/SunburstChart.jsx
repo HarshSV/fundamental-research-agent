@@ -7,7 +7,7 @@ const { useState } = React;
  * Business Model"). Replaces what used to be two separate charts:
  *   - Ring 1 (innermost): reported business segments, sized by revenue
  *     share, colored by that segment's own Recurring/Mixed/Cyclical pattern
- *     (never inferred from segment name — see tools/qualitative_engine.py's
+ *     (never inferred from segment name - see tools/qualitative_engine.py's
  *     compute_business_composition).
  *   - Outer rings: the SAME reconciled Revenue -> ... -> Net Profit P&L
  *     waterfall already used by IncomeIcicle.jsx (nodes/links from
@@ -17,7 +17,7 @@ const { useState } = React;
  *     actually discloses (e.g. a bank without a COGS split gets fewer rings,
  *     never a fabricated one).
  * All rings share the same 12-o'clock start angle and sweep clockwise. A
- * minimum-angle floor keeps thin slices (e.g. Tax, Finance Costs) readable —
+ * minimum-angle floor keeps thin slices (e.g. Tax, Finance Costs) readable -
  * the "borrowed" angle is taken proportionally from larger slices in the
  * same ring/sub-arc, and floored slices get an external leader-line label.
  */
@@ -44,7 +44,50 @@ const FLOW_COLOR = {
 
 const FLOOR_DEG = 9;
 
-// Distributes `weights` across `spanDeg`, applying a minimum-angle floor —
+// Small standalone donut: current-year Recurring vs Cyclical revenue mix,
+// derived from the SAME revenue-weighted pattern score already computed by
+// compute_business_composition (0 = fully recurring, 1 = fully cyclical) -
+// no new backend computation, just a second, simpler view of it. "Mixed"
+// segments aren't a separate slice here (they're already blended into the
+// 0-1 score by revenue weight), matching the score's own definition.
+function RecurringCyclicalDonut({ score, label }) {
+    if (score == null) return null;
+    const recurringPct = Math.round((1 - score) * 100);
+    const cyclicalPct = 100 - recurringPct;
+    const R = 42, CXY = 50, SW = 16;
+    const circumference = 2 * Math.PI * R;
+    const recurringLen = (recurringPct / 100) * circumference;
+    return (
+        <div>
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Current Year Mix</div>
+            <div className="flex items-center gap-4">
+                <svg viewBox="0 0 100 100" className="flex-shrink-0" style={{ width: 90, height: 90 }}>
+                    <circle cx={CXY} cy={CXY} r={R} fill="none" stroke={PATTERN_COLOR.cyclical} strokeWidth={SW} />
+                    <circle cx={CXY} cy={CXY} r={R} fill="none" stroke={PATTERN_COLOR.recurring} strokeWidth={SW}
+                        strokeDasharray={`${recurringLen} ${circumference - recurringLen}`}
+                        transform={`rotate(-90 ${CXY} ${CXY})`} strokeLinecap="butt" />
+                </svg>
+                <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: PATTERN_COLOR.recurring }} />
+                        <span className="text-[11px] text-slate-300">Recurring <span className="font-bold text-slate-100">{recurringPct}%</span></span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: PATTERN_COLOR.cyclical }} />
+                        <span className="text-[11px] text-slate-300">Cyclical <span className="font-bold text-slate-100">{cyclicalPct}%</span></span>
+                    </div>
+                    {label && (
+                        <p className="text-[9px] text-slate-500 pt-0.5">
+                            {{ recurring_leaning: 'Recurring-leaning', cyclical_leaning: 'Cyclical-leaning', mixed: 'Mixed', unclassified: 'Unclassified' }[label] || label}
+                        </p>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Distributes `weights` across `spanDeg`, applying a minimum-angle floor -
 // any slice that would fall below the floor is raised to it, and the
 // deficit is taken proportionally from the remaining (non-floored) slices.
 function anglesWithFloor(weights, spanDeg, floorDeg = FLOOR_DEG) {
@@ -89,7 +132,7 @@ function wedgePath(cx, cy, rInner, rOuter, startDeg, endDeg) {
 }
 
 export function inrCroreShort(v) {
-    if (v == null) return '—';
+    if (v == null) return '-';
     const abs = Math.abs(v);
     if (abs >= 100000) return `₹${(v / 100000).toFixed(2)}L Cr`;
     if (abs >= 1000) return `₹${(v / 1000).toFixed(2)}K Cr`;
@@ -97,7 +140,7 @@ export function inrCroreShort(v) {
 }
 
 // Walks the income-statement-flow nodes/links tree level by level so ring
-// depth self-adapts to whatever the company's Annual Report discloses —
+// depth self-adapts to whatever the company's Annual Report discloses -
 // mirrors IncomeIcicle.jsx's frontier walk, just producing angle levels
 // instead of x-columns.
 function buildFlowLevels(nodes, links) {
@@ -140,7 +183,7 @@ function buildFlowLevels(nodes, links) {
         if (!nextLevel.length) break;
         levels.push(nextLevel);
         frontier = nextLevel;
-        if (levels.length >= 4) break; // Ring 2/3/4 — never render more than 3 outer rings
+        if (levels.length >= 4) break; // Ring 2/3/4 - never render more than 3 outer rings
     }
     return { root, levels };
 }
@@ -154,6 +197,11 @@ const HoverCard = ({ item }) => (
         {item.value != null && <p className="text-[11px] text-slate-300 nv-num">{inrCroreShort(item.value)}</p>}
         {item.pct != null && <p className="text-[10px] text-slate-500 mt-0.5">{item.pct.toFixed(1)}% of total</p>}
         {item.detail && <p className="text-[10px] text-slate-400 mt-1 leading-snug">{item.detail}</p>}
+        {item.segmentSourced != null && (
+            <p className={`text-[9.5px] mt-1 font-semibold ${item.segmentSourced ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {item.segmentSourced ? "Sourced from this segment's own AR text" : 'No segment-specific AR text found - company-wide / general reasoning'}
+            </p>
+        )}
         {item.reasonPoints?.length > 0 && (
             <ul className="mt-1 space-y-0.5">
                 {item.reasonPoints.map((p, i) => (
@@ -193,6 +241,7 @@ export function SunburstChart({ chart }) {
             color: PATTERN_COLOR[s.pattern] || PATTERN_COLOR.unclassified,
             detail: `${PATTERN_LABEL[s.pattern] || 'Unclassified'} revenue`,
             reasonPoints: s.pattern_reason_points,
+            segmentSourced: s.segment_sourced,
         };
     });
     if (residualPct > 0) {
@@ -221,57 +270,164 @@ export function SunburstChart({ chart }) {
         };
     });
 
+    // Rough monospace-ish width estimate for our bold 9.5px label font, used
+    // to decide whether a wedge is wide enough (in actual on-screen pixels at
+    // its own radius, not just angular degrees) to hold its FULL label
+    // inline - never truncated. Anything that doesn't fit gets a leader-line
+    // label instead, drawn in a dedicated side lane sized to fit the
+    // longest one of those in full (same idea as IncomeIcicle.jsx's overflow
+    // lane) so a long name like "Purchases of stock-in-trade" never clips.
+    const estTextPx = (label) => (label ? label.length * 5.7 + 4 : 0);
+    const needsLeader = (it, rIn, rOut) => {
+        const spanDeg = it.endDeg - it.startDeg;
+        const midR = (rIn + rOut) / 2;
+        // Text renders as a straight horizontal line, not a curved one, so
+        // the available width is the wedge's CHORD at its own radius - not
+        // the (longer) arc length. Using arc length overestimated how much
+        // room a thin/acute wedge actually offered, which let long labels
+        // ("Operating Expenses", "Profit Before Tax"...) render inline on
+        // slivers too small for them and pile up on top of each other/
+        // neighbouring rings. A 1.25x safety margin plus a higher minimum
+        // span keeps genuinely-marginal wedges on the leader-line path
+        // (which IS collision-checked against every other label) instead.
+        const spanRad = (spanDeg * Math.PI) / 180;
+        const chordPx = 2 * midR * Math.sin(spanRad / 2);
+        return !(spanDeg >= 20 && chordPx >= estTextPx(it.label) * 1.25);
+    };
+    let maxLeaderLabelPx = 0;
+    const _trackMaxLeader = (it) => {
+        const px = estTextPx(it.label) + (it.pct != null ? 42 : 0);
+        if (px > maxLeaderLabelPx) maxLeaderLabelPx = px;
+    };
+    if (hasRing1) ring1Items.forEach((it) => { if (needsLeader(it, R0_IN, R0_IN + RING_W)) _trackMaxLeader(it); });
+    outerRings.forEach((r) => r.items.forEach((it) => { if (needsLeader(it, r.rIn, r.rOut)) _trackMaxLeader(it); }));
+    const labelLaneW = Math.max(40, Math.min(220, maxLeaderLabelPx));
+
     const maxR = R0_IN + (RING_W + RING_GAP) * (1 + outerRings.length) + 10;
-    const VB = maxR * 2 + 60;
+    // BASE_VB is what the viewBox would be with no side label lanes at all -
+    // the ring geometry (R0_IN, RING_W...) is defined in these units.
+    // BASE_DISPLAY_PX is how big the rings themselves should read on screen;
+    // adding the label lanes below only grows VB, and DISPLAY_PX scales the
+    // rendered size by the same factor so the rings stay at (at least) that
+    // size instead of shrinking inside a now-larger viewBox.
+    const BASE_VB = maxR * 2 + 60;
+    const VB = BASE_VB + labelLaneW * 2;
+    const BASE_DISPLAY_PX = 620;
+    const DISPLAY_PX = Math.min(860, Math.round(BASE_DISPLAY_PX * (VB / BASE_VB)));
     const centerOffset = VB / 2 - CX;
     const cx = CX + centerOffset, cy = CY + centerOffset;
 
     const showTip = (item, e) => setHover({ item, x: e.clientX, y: e.clientY });
     const hideTip = () => setHover(null);
 
-    const renderRing = (items, rIn, rOut, leaderLaneR) => items.map((it) => {
+    // The chord-vs-text-width check above only guarantees a label fits
+    // WITHIN its own wedge - it says nothing about whether two DIFFERENT
+    // rings' inline labels, at nearby angles, end up close enough on screen
+    // to collide with each other (this happens often on the "profit" side,
+    // where a node's angular position barely moves from one P&L level to
+    // the next - e.g. Operating Profit -> Profit Before Tax often sit at
+    // almost the same angle, just one ring further out). So: walk every
+    // item inner-ring-first, and only keep a candidate inline if its
+    // estimated on-screen box doesn't overlap any inline label already
+    // accepted; anything that collides gets demoted to a leader-line label,
+    // which IS fully collision-checked (both against other leaders and
+    // against these accepted inline boxes) in the pass below.
+    const finalInlineMap = new Map();
+    {
+        const accepted = [];
+        const PAD = 4;
+        // Half-height generous enough to cover the bold font + its 2.75px
+        // outline stroke, which getBBox() alone under-reports.
+        const HALF_H = 10;
+        const decide = (it, rIn, rOut) => {
+            if (needsLeader(it, rIn, rOut)) { finalInlineMap.set(it.key, false); return; }
+            const midR = (rIn + rOut) / 2;
+            const midDeg = (it.startDeg + it.endDeg) / 2;
+            const [lx, ly] = polar(cx, cy, midR, midDeg);
+            const halfW = estTextPx(it.label) / 2;
+            const collides = accepted.some((a) =>
+                Math.abs(a.x - lx) < (a.halfW + halfW + PAD) && Math.abs(a.y - ly) < (a.halfH + HALF_H + PAD));
+            if (collides) { finalInlineMap.set(it.key, false); }
+            else { finalInlineMap.set(it.key, true); accepted.push({ x: lx, y: ly, halfW, halfH: HALF_H }); }
+        };
+        if (hasRing1) ring1Items.forEach((it) => decide(it, R0_IN, R0_IN + RING_W));
+        outerRings.forEach((r) => r.items.forEach((it) => decide(it, r.rIn, r.rOut)));
+    }
+
+    const leaderQueue = [];
+    // Every INLINE label's (side, y) position, so leader-line labels get
+    // laid out around them too - without this, a leader label's collision
+    // avoidance only looked at other leader labels and could still land
+    // right on top of an inner ring's inline text.
+    const inlineObstacles = [];
+    // Inline <text> elements are collected here and rendered in ONE pass
+    // AFTER every ring's <path>s (see the JSX below) instead of interleaved
+    // ring-by-ring. Interleaving meant a later (outer) ring's semi-opaque
+    // wedge - drawn after an inner ring's label - could paint over any part
+    // of that label that grazed the ring boundary, showing up as a faded/
+    // "ghosted" word. Drawing every path first, then every label on top,
+    // makes that impossible regardless of how close two rings' geometry
+    // happens to sit.
+    const inlineLabels = [];
+
+    const renderRing = (items, rIn, rOut) => items.map((it) => {
         const midDeg = (it.startDeg + it.endDeg) / 2;
-        // Single-line label only, sized to the wedge — a stacked name+% label
-        // easily overflows a thin ring's radial band at angles far from 12/6
-        // o'clock (the text is screen-vertical, not angle-rotated), bleeding
-        // into the neighboring ring. Full value/% detail lives in the side
-        // legend and the hover card instead, so nothing is lost.
-        const canLabel = !it.floored && (it.endDeg - it.startDeg) >= 16;
-        const [lx, ly] = polar(cx, cy, (rIn + rOut) / 2, midDeg);
-        const maxChars = Math.max(4, Math.floor((it.endDeg - it.startDeg) / 4.2));
-        const short = it.label && it.label.length > maxChars ? `${it.label.slice(0, Math.max(3, maxChars - 1))}…` : it.label;
-        const pctText = it.pct != null ? `${it.pct.toFixed(1)}%` : null;
+        const midR = (rIn + rOut) / 2;
+        const fitsInline = finalInlineMap.get(it.key) || false;
+        const [lx, ly] = polar(cx, cy, midR, midDeg);
+        if (!fitsInline) {
+            leaderQueue.push({ key: it.key, label: it.label, pct: it.pct, midDeg, outerR: rOut });
+        } else {
+            inlineObstacles.push({ midDeg, midR });
+            inlineLabels.push({ key: it.key, label: it.label, lx, ly });
+        }
         return (
             <g key={it.key} onMouseMove={(e) => showTip(it, e)} onMouseLeave={hideTip} className="cursor-default">
                 <path d={wedgePath(cx, cy, rIn, rOut, it.startDeg, it.endDeg)} fill={it.color} opacity={0.9}
                     stroke="#0f172a" strokeWidth="1.4" />
-                {canLabel && (
-                    <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
-                        fontSize="9.5" fontWeight="800" fill="#ffffff" stroke="#0f172a" strokeWidth="2.75"
-                        paintOrder="stroke" className="select-none pointer-events-none">
-                        {short}
-                    </text>
-                )}
-                {it.floored && (() => {
-                    const [fx, fy] = polar(cx, cy, rOut, midDeg);
-                    const [tx, ty] = polar(cx, cy, leaderLaneR, midDeg);
-                    return (
-                        <g className="pointer-events-none">
-                            <line x1={fx} y1={fy} x2={tx} y2={ty} stroke="#94a3b8" strokeWidth="1.2" opacity="0.85" />
-                            <text x={tx} y={ty} textAnchor={tx > cx ? 'start' : 'end'} dx={tx > cx ? 3 : -3}
-                                dominantBaseline="middle" fontSize="9" fontWeight="700" fill="#f1f5f9" className="select-none">
-                                {short}{pctText ? ` · ${pctText}` : ''}
-                            </text>
-                        </g>
-                    );
-                })()}
             </g>
         );
     });
 
     const leaderLaneR = maxR + 4;
 
-    // Side data table — every wedge's exact value + %, grouped the same way
+    // Lays every queued leader-line label out on a per-side (left/right)
+    // vertical lane, pushing any label that would collide with the one
+    // above/below it - OR with an inline label from a closer-in ring sitting
+    // in the same vertical region - further along that lane. Same "no two
+    // labels ever overlap" guarantee IncomeIcicle.jsx uses for its own
+    // overflow labels, adapted to polar coordinates and extended to treat
+    // inline labels as fixed obstacles rather than only spacing leaders
+    // against each other.
+    const layoutLeaders = (items, obstacles) => {
+        const LABEL_H = 13;
+        const withPos = items.map((it) => {
+            const [nx, ny] = polar(cx, cy, leaderLaneR, it.midDeg);
+            return { ...it, nx, ny, labelY: ny, side: nx >= cx ? 'right' : 'left' };
+        });
+        const obsPos = obstacles.map((o) => {
+            const [ox, oy] = polar(cx, cy, o.midR, o.midDeg);
+            return { y: oy, side: ox >= cx ? 'right' : 'left' };
+        });
+        ['left', 'right'].forEach((side) => {
+            const combined = [
+                ...withPos.filter((it) => it.side === side).map((it) => ({ ref: it, y: it.labelY, fixed: false })),
+                ...obsPos.filter((it) => it.side === side).map((it) => ({ ref: null, y: it.y, fixed: true })),
+            ].sort((a, b) => a.y - b.y);
+            let prevBottom = -Infinity;
+            combined.forEach((entry) => {
+                let top = entry.y - LABEL_H / 2;
+                if (!entry.fixed && top < prevBottom) {
+                    entry.y += prevBottom - top;
+                    entry.ref.labelY = entry.y;
+                }
+                prevBottom = Math.max(prevBottom, entry.y + LABEL_H / 2);
+            });
+        });
+        return withPos;
+    };
+
+    // Side data table - every wedge's exact value + %, grouped the same way
     // the rings are, so a reader who doesn't want to hover/decode the chart
     // can just read the numbers straight off the list next to it.
     const legendSections = [
@@ -279,12 +435,41 @@ export function SunburstChart({ chart }) {
         hasFlow ? { title: 'Income Statement Flow', items: outerRings.flatMap((r) => r.items) } : null,
     ].filter(Boolean);
 
+    // Capped by vw too, not just a fixed px ceiling - otherwise a wide chart
+    // (e.g. 860px) crowds the side legend down to an unreadably narrow
+    // column on a typical ~1280px window. min() keeps it as big as
+    // DISPLAY_PX allows while always leaving room for the legend next to it.
+    const chartMaxWidth = `min(${DISPLAY_PX}px, 56vw)`;
+
     return (
         <div className="w-full flex flex-col lg:flex-row gap-4 items-start">
-            <div className="flex-shrink-0 w-full lg:w-auto mx-auto" style={{ maxWidth: 460 }}>
-                <svg viewBox={`0 0 ${VB} ${VB}`} className="w-full h-auto mx-auto block" style={{ maxWidth: 460, maxHeight: 460 }}>
-                    {hasRing1 && renderRing(ring1Items, R0_IN, R0_IN + RING_W, leaderLaneR)}
-                    {outerRings.map((r, i) => renderRing(r.items, r.rIn, r.rOut, leaderLaneR))}
+            <div className="mx-auto lg:mx-0" style={{ width: '100%', maxWidth: chartMaxWidth, flex: `0 1 ${DISPLAY_PX}px` }}>
+                <svg viewBox={`0 0 ${VB} ${VB}`} className="w-full h-auto mx-auto block" style={{ maxWidth: chartMaxWidth, maxHeight: chartMaxWidth }}>
+                    {hasRing1 && renderRing(ring1Items, R0_IN, R0_IN + RING_W)}
+                    {outerRings.map((r, i) => renderRing(r.items, r.rIn, r.rOut))}
+                    {inlineLabels.map((it) => (
+                        <text key={it.key} x={it.lx} y={it.ly} textAnchor="middle" dominantBaseline="middle"
+                            fontSize="9.5" fontWeight="800" fill="#ffffff" stroke="#0f172a" strokeWidth="2.75"
+                            paintOrder="stroke" className="select-none pointer-events-none">
+                            {it.label}
+                        </text>
+                    ))}
+                    {layoutLeaders(leaderQueue, inlineObstacles).map((it) => {
+                        const [fx, fy] = polar(cx, cy, it.outerR, it.midDeg);
+                        const labelX = it.side === 'right' ? cx + leaderLaneR : cx - leaderLaneR;
+                        const pctText = it.pct != null ? ` · ${it.pct.toFixed(1)}%` : '';
+                        return (
+                            <g key={it.key} className="pointer-events-none">
+                                <polyline points={`${fx},${fy} ${it.nx},${it.labelY} ${labelX},${it.labelY}`}
+                                    fill="none" stroke="#94a3b8" strokeWidth="1" opacity="0.7" />
+                                <text x={labelX + (it.side === 'right' ? 4 : -4)} y={it.labelY}
+                                    textAnchor={it.side === 'right' ? 'start' : 'end'} dominantBaseline="middle"
+                                    fontSize="9" fontWeight="700" fill="#f1f5f9" className="select-none">
+                                    {it.label}{pctText}
+                                </text>
+                            </g>
+                        );
+                    })}
                     <text x={cx} y={cy - 6} textAnchor="middle" fontSize="12" fontWeight="700" fill="#e2e8f0">
                         {inrCroreShort(totalRevenueCr)}
                     </text>
@@ -311,6 +496,9 @@ export function SunburstChart({ chart }) {
 
             {legendSections.length > 0 && (
                 <div className="flex-1 min-w-0 w-full space-y-4">
+                    {chart?.weightedPatternScore != null && (
+                        <RecurringCyclicalDonut score={chart.weightedPatternScore} label={chart.weightedPatternLabel} />
+                    )}
                     {legendSections.map((sec) => (
                         <div key={sec.title}>
                             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">{sec.title}</div>
@@ -326,7 +514,7 @@ export function SunburstChart({ chart }) {
                                         <div className="flex items-baseline gap-2 flex-shrink-0">
                                             <span className="text-[12px] font-bold text-slate-100 nv-num">{inrCroreShort(it.value)}</span>
                                             <span className="text-[11px] font-semibold text-slate-400 w-12 text-right">
-                                                {it.pct != null ? `${it.pct.toFixed(1)}%` : '—'}
+                                                {it.pct != null ? `${it.pct.toFixed(1)}%` : '-'}
                                             </span>
                                         </div>
                                     </div>

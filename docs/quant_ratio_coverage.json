@@ -1,0 +1,614 @@
+[
+  {
+    "sr_no": 1,
+    "ratio_key": "inventory_turnover",
+    "label": "Inventory Turnover",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 2,
+    "ratio_key": "days_inventory_outstanding",
+    "label": "Days Inventory Outstanding (DOH)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 3,
+    "ratio_key": "receivables_turnover",
+    "label": "Receivables Turnover",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 4,
+    "ratio_key": "days_sales_outstanding",
+    "label": "Days Sales Outstanding (DSO)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 5,
+    "ratio_key": "payables_turnover",
+    "label": "Payables Turnover",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 6,
+    "ratio_key": "days_payables_outstanding",
+    "label": "Days Payables Outstanding (DPO)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 7,
+    "ratio_key": "asset_turnover",
+    "label": "Asset Turnover",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 8,
+    "ratio_key": "working_capital_turnover",
+    "label": "Working Capital Turnover",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 9,
+    "ratio_key": "cash_conversion_cycle",
+    "label": "Cash Conversion Cycle",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 10,
+    "ratio_key": "current_ratio",
+    "label": "Current Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 11,
+    "ratio_key": "quick_ratio",
+    "label": "Quick Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 12,
+    "ratio_key": "cash_ratio",
+    "label": "Cash Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 13,
+    "ratio_key": "working_capital",
+    "label": "Working Capital",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 14,
+    "ratio_key": "gross_profit_margin",
+    "label": "Gross Profit Margin",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 15,
+    "ratio_key": "operating_profit_margin",
+    "label": "Operating Profit Margin (EBIT Basis)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 16,
+    "ratio_key": "net_profit_margin",
+    "label": "Net Profit Margin",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 17,
+    "ratio_key": "roa",
+    "label": "Return on Assets (ROA)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 18,
+    "ratio_key": "roe",
+    "label": "Return on Equity (ROE)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 19,
+    "ratio_key": "roce",
+    "label": "Return on Capital Employed (ROCE)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 20,
+    "ratio_key": "debt_to_equity",
+    "label": "Debt-to-Equity Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 21,
+    "ratio_key": "debt_ratio",
+    "label": "Debt Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 22,
+    "ratio_key": "interest_coverage_ratio",
+    "label": "Interest Coverage Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 23,
+    "ratio_key": "financial_leverage_ratio",
+    "label": "Financial Leverage Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 24,
+    "ratio_key": "pe_ratio",
+    "label": "Price-to-Earnings (P/E)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 25,
+    "ratio_key": "pb_ratio",
+    "label": "Price-to-Book (P/B)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 26,
+    "ratio_key": "ps_ratio",
+    "label": "Price-to-Sales (P/S)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 27,
+    "ratio_key": "dividend_yield",
+    "label": "Dividend Yield",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 28,
+    "ratio_key": "earnings_yield",
+    "label": "Earnings Yield",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 29,
+    "ratio_key": "ev_to_ebitda",
+    "label": "Enterprise Value/EBITDA",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 30,
+    "ratio_key": "fixed_asset_turnover",
+    "label": "Fixed Asset Turnover",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 31,
+    "ratio_key": "days_working_capital",
+    "label": "Days Working Capital",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 32,
+    "ratio_key": "receivables_to_payables",
+    "label": "Receivables-to-Payables Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 33,
+    "ratio_key": "net_debt_to_ebitda",
+    "label": "Net Debt/EBITDA",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 34,
+    "ratio_key": "dscr",
+    "label": "Debt Service Coverage Ratio (DSCR)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 35,
+    "ratio_key": "cash_flow_coverage_ratio",
+    "label": "Cash Flow Coverage Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 36,
+    "ratio_key": "free_cash_flow",
+    "label": "Free Cash Flow (FCF)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 37,
+    "ratio_key": "fcf_yield",
+    "label": "FCF Yield",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 38,
+    "ratio_key": "fcf_margin",
+    "label": "FCF Margin",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 39,
+    "ratio_key": "ocf_ratio",
+    "label": "Operating Cash Flow Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 40,
+    "ratio_key": "capex_intensity",
+    "label": "Capex Intensity",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 41,
+    "ratio_key": "ocf_to_net_profit",
+    "label": "OCF/Net Profit",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 42,
+    "ratio_key": "roic",
+    "label": "Return on Invested Capital (ROIC)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 43,
+    "ratio_key": "effective_tax_rate",
+    "label": "Effective Tax Rate",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 44,
+    "ratio_key": "contribution_margin",
+    "label": "Contribution Margin",
+    "classification": "INSUFFICIENT_DATA_BY_DEFINITION",
+    "engine": "legacy_nse_xbrl_fallback",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 45,
+    "ratio_key": "eps_growth_rate",
+    "label": "EPS Growth Rate",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 46,
+    "ratio_key": "bvps",
+    "label": "Book Value per Share (BVPS)",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 47,
+    "ratio_key": "dividend_payout_ratio",
+    "label": "Dividend Payout Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 48,
+    "ratio_key": "retention_ratio",
+    "label": "Retention Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 49,
+    "ratio_key": "sustainable_growth_rate",
+    "label": "Sustainable Growth Rate",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 50,
+    "ratio_key": "peg_ratio",
+    "label": "PEG Ratio",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 51,
+    "ratio_key": "ev_to_sales",
+    "label": "EV/Sales",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 52,
+    "ratio_key": "ev_to_fcf",
+    "label": "EV/FCF",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 53,
+    "ratio_key": "price_to_cash_flow",
+    "label": "Price/Cash Flow",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 54,
+    "ratio_key": "graham_number",
+    "label": "Graham Number",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 55,
+    "ratio_key": "altman_z_score",
+    "label": "Altman Z-Score",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": true,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 56,
+    "ratio_key": "piotroski_f_score",
+    "label": "Piotroski F-Score",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 57,
+    "ratio_key": "beneish_m_score",
+    "label": "Beneish M-Score",
+    "classification": "FULLY_WIRED",
+    "engine": "ratio_calculation_engine",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 58,
+    "ratio_key": "net_interest_margin",
+    "label": "Net Interest Margin (NIM)",
+    "classification": "REQUIRES_STRUCTURED_FILING",
+    "engine": "legacy_nse_xbrl_fallback",
+    "market_data_required": false,
+    "sector_gate": "bank_only"
+  },
+  {
+    "sr_no": 59,
+    "ratio_key": "casa_ratio",
+    "label": "CASA Ratio",
+    "classification": "REQUIRES_STRUCTURED_FILING",
+    "engine": "legacy_nse_xbrl_fallback",
+    "market_data_required": false,
+    "sector_gate": "bank_only"
+  },
+  {
+    "sr_no": 60,
+    "ratio_key": "gross_npa_pct",
+    "label": "Gross NPA %",
+    "classification": "REQUIRES_STRUCTURED_FILING",
+    "engine": "legacy_nse_xbrl_fallback",
+    "market_data_required": false,
+    "sector_gate": "bank_only"
+  },
+  {
+    "sr_no": 61,
+    "ratio_key": "net_npa_pct",
+    "label": "Net NPA %",
+    "classification": "REQUIRES_STRUCTURED_FILING",
+    "engine": "legacy_nse_xbrl_fallback",
+    "market_data_required": false,
+    "sector_gate": "bank_only"
+  },
+  {
+    "sr_no": 62,
+    "ratio_key": "provision_coverage_ratio",
+    "label": "Provision Coverage Ratio (PCR)",
+    "classification": "REQUIRES_STRUCTURED_FILING",
+    "engine": "none",
+    "market_data_required": false,
+    "sector_gate": "bank_only"
+  },
+  {
+    "sr_no": 63,
+    "ratio_key": "capital_adequacy_ratio",
+    "label": "Capital Adequacy Ratio (CRAR)",
+    "classification": "REQUIRES_STRUCTURED_FILING",
+    "engine": "legacy_nse_xbrl_fallback",
+    "market_data_required": false,
+    "sector_gate": "bank_only"
+  },
+  {
+    "sr_no": 64,
+    "ratio_key": "credit_to_deposit_ratio",
+    "label": "Credit-to-Deposit Ratio",
+    "classification": "REQUIRES_STRUCTURED_FILING",
+    "engine": "none",
+    "market_data_required": false,
+    "sector_gate": "bank_only"
+  },
+  {
+    "sr_no": 65,
+    "ratio_key": "cost_to_income_ratio",
+    "label": "Cost-to-Income Ratio",
+    "classification": "REQUIRES_STRUCTURED_FILING",
+    "engine": "legacy_nse_xbrl_fallback",
+    "market_data_required": false,
+    "sector_gate": "bank_only"
+  },
+  {
+    "sr_no": 66,
+    "ratio_key": "beta",
+    "label": "Beta",
+    "classification": "REQUIRES_EXTERNAL_DATA",
+    "engine": "market_history",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 67,
+    "ratio_key": "promoter_pledge_pct",
+    "label": "Promoter Pledge %",
+    "classification": "REQUIRES_EXTERNAL_DATA",
+    "engine": "shareholding_scraper",
+    "market_data_required": false,
+    "sector_gate": null
+  },
+  {
+    "sr_no": 68,
+    "ratio_key": "free_float_pct",
+    "label": "Free Float %",
+    "classification": "REQUIRES_EXTERNAL_DATA",
+    "engine": "shareholding_scraper",
+    "market_data_required": false,
+    "sector_gate": null
+  }
+]

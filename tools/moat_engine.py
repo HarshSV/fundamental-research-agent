@@ -11,7 +11,7 @@ computed from the parameters Screener.in publishes per company:
   - Growth durability (compounded sales/profit growth)
 
 Lenders/financials are scored on a separate branch (ROCE/OPM/working-capital are
-not meaningful for banks) — there ROE track record and profit-growth durability lead.
+not meaningful for banks) - there ROE track record and profit-growth durability lead.
 
 Output is deterministic and differentiates companies (e.g. Nestlé = Wide, a fast-
 but-capital-hungry small-cap = Narrow). An LLM may *explain* the result, but never
@@ -96,7 +96,7 @@ def compute_moat(data: dict, company_name: str = None, fallback: dict = None) ->
     roe_track = data.get("roe_3y") or data.get("roe_5y") or data.get("roe_latest") or fallback.get("roe")
     ccc = data.get("cash_conversion_cycle")
     # Fall back to our own metrics-engine CAGRs when Screener's ranges-tables don't
-    # parse (common for insurers/NBFCs) — this keeps lenders from scoring "Unrated".
+    # parse (common for insurers/NBFCs) - this keeps lenders from scoring "Unrated".
     sales_g = data.get("sales_growth_5y") or data.get("sales_growth_3y") or fallback.get("sales_growth")
     profit_g = data.get("profit_growth_5y") or data.get("profit_growth_3y") or fallback.get("profit_growth")
 
@@ -125,64 +125,64 @@ def compute_moat(data: dict, company_name: str = None, fallback: dict = None) ->
 
     if not financial:
         # ============ Non-financial: capital-efficiency-led moat ============
-        # 1) ROCE level (20) — the single strongest moat signal.
+        # 1) ROCE level (20) - the single strongest moat signal.
         if roce is not None:
             n_inputs += 1
             p = _band(roce, [(20, 20), (15, 14), (12, 8), (10, 4)])
-            total += add_check("ROCE — level", p, 20,
+            total += add_check("ROCE - level", p, 20,
                                f"ROCE {roce:.0f}%  (≥20%→full · ≥15% · ≥12% · <10%→0)")
             if roce >= 20:
-                signals.append(f"High ROCE of {roce:.0f}% — earns far above its cost of capital, the hallmark of a real moat.")
+                signals.append(f"High ROCE of {roce:.0f}% - earns far above its cost of capital, the hallmark of a real moat.")
             elif roce < 12:
-                warnings.append(f"Low ROCE of {roce:.0f}% — little evidence of a durable competitive edge.")
+                warnings.append(f"Low ROCE of {roce:.0f}% - little evidence of a durable competitive edge.")
 
-        # 2) ROCE consistency (10) — is the high return SUSTAINED?
+        # 2) ROCE consistency (10) - is the high return SUSTAINED?
         if roce_hist and len(roce_hist) >= 2:
             n_inputs += 1
             lo = min(roce_hist)
             p = _band(lo, [(18, 10), (14, 7), (10, 4)])
-            total += add_check("ROCE — consistency", p, 10,
+            total += add_check("ROCE - consistency", p, 10,
                                f"{len(roce_hist)}-yr ROCE low {lo:.0f}%, range {lo:.0f}–{max(roce_hist):.0f}%  (floor ≥18%→full)")
             if lo >= 18:
-                signals.append(f"ROCE stayed above {lo:.0f}% every year — a consistently high return, not a one-off.")
+                signals.append(f"ROCE stayed above {lo:.0f}% every year - a consistently high return, not a one-off.")
 
-        # 3) Operating-margin level (15) — pricing power.
+        # 3) Operating-margin level (15) - pricing power.
         if opm_mean is not None:
             n_inputs += 1
             p = _band(opm_mean, [(20, 15), (15, 10), (10, 5)])
-            total += add_check("Operating margin — level", p, 15,
+            total += add_check("Operating margin - level", p, 15,
                                f"OPM ~{opm_mean:.0f}%  (≥20%→full · ≥15% · ≥10% · <10%→0)")
 
-        # 4) Operating-margin stability (10) — pricing power = steady margins.
+        # 4) Operating-margin stability (10) - pricing power = steady margins.
         if opm_hist and len(opm_hist) >= 3:
             n_inputs += 1
             stab = _stability(opm_hist) or 0
             p = round(10 * stab, 1)
-            total += add_check("Operating margin — stability", p, 10,
+            total += add_check("Operating margin - stability", p, 10,
                                f"OPM {min(opm_hist):.0f}–{max(opm_hist):.0f}% over {len(opm_hist)} yrs  ({'steady' if stab >= 0.7 else 'variable'})")
             if opm_mean and opm_mean >= 18 and stab >= 0.7:
-                signals.append(f"Operating margins held steady around {opm_mean:.0f}% for years — defensible pricing power.")
+                signals.append(f"Operating margins held steady around {opm_mean:.0f}% for years - defensible pricing power.")
             elif stab < 0.5:
-                warnings.append("Operating margins are volatile year to year — limited pricing power / cyclical.")
+                warnings.append("Operating margins are volatile year to year - limited pricing power / cyclical.")
 
         # 5) ROE track record (15).
         if roe_track is not None:
             n_inputs += 1
             p = _band(roe_track, [(18, 15), (15, 11), (12, 6)])
-            total += add_check("ROE — 3-yr track record", p, 15,
+            total += add_check("ROE - 3-yr track record", p, 15,
                                f"{roe_track:.0f}%  (≥18%→full · ≥15% · ≥12% · <12%→0)")
             if roe_track < 12 and (sales_g or 0) >= 25:
-                warnings.append(f"ROE only {roe_track:.0f}% despite ~{sales_g:.0f}% sales growth — growth is capital-hungry with weak returns.")
+                warnings.append(f"ROE only {roe_track:.0f}% despite ~{sales_g:.0f}% sales growth - growth is capital-hungry with weak returns.")
 
         # 6) Balance-sheet strength (10).
         n_inputs += 1
         p = 10 if debt_free else (6 if (fallback.get("debt_to_equity") or 9) < 0.5 else 3)
-        total += add_check("Balance sheet — leverage", p, 10,
+        total += add_check("Balance sheet - leverage", p, 10,
                            "Debt-free / net cash" if debt_free else "Carries debt")
         if debt_free:
-            signals.append("Debt-free / net-cash balance sheet — resilience through downturns and reinvestment optionality.")
+            signals.append("Debt-free / net-cash balance sheet - resilience through downturns and reinvestment optionality.")
 
-        # 7) Working-capital efficiency (10) — cash conversion cycle.
+        # 7) Working-capital efficiency (10) - cash conversion cycle.
         if ccc is not None:
             n_inputs += 1
             p = _band(-ccc if ccc < 0 else -0.001, [(0, 10)]) or _band(ccc, [(9999, 0)])
@@ -190,9 +190,9 @@ def compute_moat(data: dict, company_name: str = None, fallback: dict = None) ->
             total += add_check("Working-capital efficiency", p, 10,
                                f"Cash conversion cycle {ccc:.0f} days  (negative→full · <45 · <90 · >180→0)")
             if ccc < 0:
-                signals.append("Negative cash-conversion cycle — suppliers/customers fund its growth, a structural advantage.")
+                signals.append("Negative cash-conversion cycle - suppliers/customers fund its growth, a structural advantage.")
             elif ccc > 180:
-                warnings.append(f"High cash-conversion cycle ({ccc:.0f} days) — heavy working-capital lock-up.")
+                warnings.append(f"High cash-conversion cycle ({ccc:.0f} days) - heavy working-capital lock-up.")
 
         # 8) Growth durability (10).
         if profit_g is not None or sales_g is not None:
@@ -214,19 +214,19 @@ def compute_moat(data: dict, company_name: str = None, fallback: dict = None) ->
         if roe_track is not None:
             n_inputs += 1
             p = _band(roe_track, [(18, 40), (15, 30), (12, 18), (10, 8)])
-            total += add_check("ROE — 3-yr track record", p, 40,
+            total += add_check("ROE - 3-yr track record", p, 40,
                                f"{roe_track:.0f}%  (≥18%→full · ≥15% · ≥12% · <10%→0)")
             if roe_track >= 15:
-                signals.append(f"Consistent ROE of {roe_track:.0f}% — an efficient deposit/loan franchise.")
+                signals.append(f"Consistent ROE of {roe_track:.0f}% - an efficient deposit/loan franchise.")
             elif roe_track < 10:
-                warnings.append(f"Subdued ROE of {roe_track:.0f}% — weaker franchise economics.")
+                warnings.append(f"Subdued ROE of {roe_track:.0f}% - weaker franchise economics.")
 
         if profit_g is not None:
             n_inputs += 1
             p = _band(profit_g, [(18, 25), (12, 17), (8, 9)])
             total += add_check("Profit-growth durability", p, 25, f"~{profit_g:.0f}% 5-yr CAGR")
             if profit_g >= 15:
-                signals.append(f"Compounded profit growth ~{profit_g:.0f}% — durable franchise expansion.")
+                signals.append(f"Compounded profit growth ~{profit_g:.0f}% - durable franchise expansion.")
 
         if sales_g is not None:
             n_inputs += 1
@@ -251,7 +251,7 @@ def compute_moat(data: dict, company_name: str = None, fallback: dict = None) ->
     confidence = round(_clamp(40 + n_inputs * 12, 0, 95))
 
     if not signals:
-        signals.append("No standout moat signals in the data — competitive position looks average.")
+        signals.append("No standout moat signals in the data - competitive position looks average.")
 
     # Fold in Screener's own auto-generated flags as supporting context.
     screener_pros = [p for p in (data.get("pros") or []) if p][:4]

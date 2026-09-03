@@ -9,7 +9,7 @@ Design goals
 * Swappable providers. ``ShareholdingProvider`` is an abstract interface; today the
   free ``NSEShareholdingProvider`` is wired in, but a paid vendor (Trendlyne /
   Tickertape / etc.) can be dropped in later by implementing the same two methods
-  and registering it in ``get_provider()`` — zero changes elsewhere.
+  and registering it in ``get_provider()`` - zero changes elsewhere.
 * Resilient transport. Uses curl_cffi (real-browser TLS fingerprint) to get past
   NSE's bot wall, warms up session cookies, retries once, and degrades gracefully.
 * Cached. Pledge data only changes quarterly and FII/DII once a day, so responses
@@ -133,7 +133,24 @@ class NSEShareholdingProvider(ShareholdingProvider):
         return s
 
     def _session_get(self, url: str, referer: str):
-        """GET with a warm cookie session, one retry, and an SSL-fallback."""
+        """GET with a warm cookie session, one retry, and an SSL-fallback.
+
+        Same guard convention as tools.crisil_scraper.fetch_crisil_rationale:
+        in tools.manual_mode's document-only manual workflow, this NEVER
+        reaches live nseindia.com. This is the single shared HTTP entry
+        point for every live-fetching method on this class (fetch_pledge,
+        fetch_promoter_holding_trend, fetch_promoter_holding_history,
+        fetch_pledge_trend, fetch_market_fii_dii) - guarding here covers
+        all of them at once. Returns None, which every one of those methods
+        already treats as "no data this run" (their existing `data or {}` /
+        `isinstance(data, list)` checks fail closed to an honest empty/
+        unavailable result, never a fabricated value - note fetch_pledge's
+        real "0% pledge" branch requires an actual dict response from NSE
+        and is correctly skipped when this returns None, so a genuine zero
+        is never confused with "didn't check")."""
+        from tools.manual_mode import is_manual_mode
+        if is_manual_mode():
+            return None
         with self._lock:
             # Rebuild the session every ~5 min so cookies stay fresh
             if self._session is None or (time.time() - self._session_ts) > 300:
@@ -216,7 +233,7 @@ class NSEShareholdingProvider(ShareholdingProvider):
 
     def fetch_promoter_holding_trend(self, symbol: str) -> list:
         """Every quarter NSE's corporate-pledgedata endpoint returns (same endpoint
-        `fetch_pledge` uses, just not truncated to `rows[0]`) — used for C.1's
+        `fetch_pledge` uses, just not truncated to `rows[0]`) - used for C.1's
         promoter-shareholding trend / QoQ change, since PORTAL-02 (BSE/NSE
         Shareholding Pattern) is the same real filing either way. Returns
         [{quarter, promoter_holding_pct}, ...] oldest-first, or [] on failure.
@@ -242,12 +259,12 @@ class NSEShareholdingProvider(ShareholdingProvider):
 
     def fetch_promoter_holding_history(self, symbol: str, max_quarters: int = 8) -> list:
         """Real quarter-by-quarter Promoter/Public shareholding split, straight
-        from NSE's own Shareholding Pattern master (SEBI LODR Reg. 31 filing) —
+        from NSE's own Shareholding Pattern master (SEBI LODR Reg. 31 filing) -
         `corporate-share-holdings-master?index=equities&symbol=X` (confirmed
         working, returns up to 20 historical quarters, newest-first). This is a
         different, more reliable endpoint than fetch_promoter_holding_trend's
         pledge-data byproduct, which only carries a promoter% row for quarters
-        where a pledge was ALSO reported — silently empty for the many
+        where a pledge was ALSO reported - silently empty for the many
         zero-pledge companies where this data matters most.
 
         Returns [{quarter, promoter_pct, public_pct}, ...] oldest-first
@@ -277,7 +294,7 @@ class NSEShareholdingProvider(ShareholdingProvider):
     def fetch_pledge_trend(self, symbol: str) -> list:
         """Every quarter NSE's corporate-pledgedata endpoint has an on-record
         pledge for (same endpoint fetch_pledge uses, not truncated to
-        rows[0]) — used for C.2.3's pledge-% trend. NSE only lists a row for
+        rows[0]) - used for C.2.3's pledge-% trend. NSE only lists a row for
         a quarter where SOME pledge existed, so a company with no pledge
         history at all returns [] here (a real, honest "no trend to show",
         not a failure). Returns [{quarter, pledge_pct}, ...] oldest-first,
@@ -405,7 +422,7 @@ def fetch_shareholding(symbol: str, name: str = None) -> dict:
                 "public": _at("public", i),
             })
 
-    # Promoter / institutional / public — Screener first, then NSE/yfinance fallback.
+    # Promoter / institutional / public - Screener first, then NSE/yfinance fallback.
     fii_stake = latest.get("fii")
     dii_stake = latest.get("dii")
     if have_scr:
@@ -423,7 +440,7 @@ def fetch_shareholding(symbol: str, name: str = None) -> dict:
         as_of = pledge.get("as_of_quarter")
         source = "NSE" if pledge.get("status") == "ok" else "fallback"
 
-    # Pledge — NSE is authoritative. "ok" => real value; "zero" => NSE responded with
+    # Pledge - NSE is authoritative. "ok" => real value; "zero" => NSE responded with
     # no pledge on record (= 0%); otherwise default to 0 (NSE lists only pledged
     # scrips, so absence overwhelmingly means zero) but flag it as assumed.
     if pledge.get("status") in ("ok", "zero"):
@@ -439,19 +456,19 @@ def fetch_shareholding(symbol: str, name: str = None) -> dict:
         "source": source,
         "as_of_quarter": as_of,
         "pledge_status": pledge_status,
-        # F-11 — promoter pledge
+        # F-11 - promoter pledge
         "promoter_holding_pct": promoter_pct,
         "promoter_pledge_pct": pledge_pct,
         "num_shares_pledged": pledge.get("num_shares_pledged"),
         "total_promoter_holding": pledge.get("total_promoter_holding"),
-        # F-10 — ownership split (REAL via Screener)
+        # F-10 - ownership split (REAL via Screener)
         "institutional_holding_pct": institutional_pct,
         "fii_stake": fii_stake,
         "dii_stake": dii_stake,
         "public_holding_pct": public_pct,
         # multi-quarter history (REAL) for ownership / promoter / FII-DII trends
         "ownership_history": history,
-        # F-12 — market-wide institutional flows (REAL, latest session)
+        # F-12 - market-wide institutional flows (REAL, latest session)
         "market_fii_dii": market,
         "fund_flows": [],
         "concall_links": concall_links,

@@ -1,8 +1,8 @@
 """
 Forward valuation engine (#10). Applies the model's projected growth (from the
 ML forecast, which fits the company's own multi-year revenue/earnings) to the
-latest actuals to derive FORWARD metrics — Forward EPS, Forward P/E, PEG,
-EV/Sales, EV/EBITDA, Market-Cap/Sales, Forward Revenue/PAT/Margins — for +1y and
+latest actuals to derive FORWARD metrics - Forward EPS, Forward P/E, PEG,
+EV/Sales, EV/EBITDA, Market-Cap/Sales, Forward Revenue/PAT/Margins - for +1y and
 +3y. Deterministic, computed from data already in the payload. Never raises.
 
 Rendered as a Current vs 1Y-Fwd vs 3Y-Fwd comparison table (visual, not prose).

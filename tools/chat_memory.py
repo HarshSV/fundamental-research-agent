@@ -1,12 +1,12 @@
 """
-Ask Navrist persistent memory — stores chat turns in Supabase (db/003_chat_memory.sql)
+Ask Navrist persistent memory - stores chat turns in Supabase (db/003_chat_memory.sql)
 so the assistant can recall earlier questions across page reloads / browser
 sessions, not just the current in-memory 16-message window. There's no real
 per-user login here (single shared SITE_PASSWORD, see auth.py), so history is
 keyed by a client-generated anonymous `session_id` the frontend stores in
 localStorage and sends with every request.
 
-Never raises — if Supabase isn't configured (or the table doesn't exist yet),
+Never raises - if Supabase isn't configured (or the table doesn't exist yet),
 memory silently becomes a no-op rather than breaking the chat.
 """
 
@@ -70,7 +70,7 @@ def memory_block(session_id: str, exclude_last_n: int = 0) -> str:
     if exclude_last_n:
         rows = rows[:-exclude_last_n] if exclude_last_n < len(rows) else []
     # Keep only user questions + a trimmed version of the assistant's answer,
-    # most recent SUMMARY_TURNS pairs — enough to notice recurring interests
+    # most recent SUMMARY_TURNS pairs - enough to notice recurring interests
     # or follow-up threads without bloating the prompt.
     user_qs = [r for r in rows if r.get("role") == "user"]
     if not user_qs:
@@ -87,7 +87,7 @@ def memory_block(session_id: str, exclude_last_n: int = 0) -> str:
     if not lines:
         return ""
     return (
-        "\n\nPRIOR CONVERSATION HISTORY (earlier sessions with this user — use it to "
+        "\n\nPRIOR CONVERSATION HISTORY (earlier sessions with this user - use it to "
         "avoid repeating yourself, notice recurring interests, and answer follow-ups "
         "consistently with what you said before; do not re-greet them):\n" + "\n".join(lines)
     )

@@ -3,7 +3,7 @@ import React from 'react';
 const { useState } = React;
 
 /*
- * C.7 — Capital allocation mix by year: a 4-category (Capex / M&A /
+ * C.7 - Capital allocation mix by year: a 4-category (Capex / M&A /
  * Buybacks / Dividends) stacked bar chart, one bar per fiscal year with
  * real reconciled Cash Flow Statement data (tools/qualitative_engine.py's
  * compute_c7_capital_allocation -> tools/annual_report_financials.py's
@@ -15,12 +15,12 @@ const { useState } = React;
  * A year whose row has one or more `missingCategories` (a category that
  * genuinely could not be parsed from that year's filing, per CLAUDE.md never
  * silently treated as 0%) is flagged via a small marker under that bar
- * rather than hidden — the mix % shown for that bar is only the split AMONG
+ * rather than hidden - the mix % shown for that bar is only the split AMONG
  * the categories that WERE found that year, not a true 4-way split.
  */
 
 const CATEGORY_COLORS = {
-    Capex: '#3b82f6',      // blue — matches RECURRING_COLOR family for palette consistency
+    Capex: '#3b82f6',      // blue - matches RECURRING_COLOR family for palette consistency
     'M&A': '#a855f7',      // purple
     Buybacks: '#f59e0b',   // amber
     Dividends: '#22c55e',  // green
@@ -41,7 +41,7 @@ const TrendBars = ({ trend }) => {
     return (
         <div className="flex-1 min-w-0">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                {n === 1 ? `FY${String(trend[0].fiscal_year).slice(-2)} only — single year, not a trend` : `${n}-Year Capital Allocation Mix`}
+                {n === 1 ? `FY${String(trend[0].fiscal_year).slice(-2)} only - single year, not a trend` : `${n}-Year Capital Allocation Mix`}
             </div>
             <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" style={{ maxHeight: 220 }}>
                 {[0, 25, 50, 75, 100].map((g) => {
@@ -106,7 +106,7 @@ const TrendBars = ({ trend }) => {
             {trend.some((t) => (t.missingCategories || []).length > 0) && (
                 <p className="text-[10px] text-slate-500 leading-relaxed mt-2">
                     "partial" years had at least one category (see tooltip data) not parseable from that year's
-                    Cash Flow Statement — the mix % shown reflects only the categories that WERE found that year,
+                    Cash Flow Statement - the mix % shown reflects only the categories that WERE found that year,
                     not a true 4-way split.
                 </p>
             )}

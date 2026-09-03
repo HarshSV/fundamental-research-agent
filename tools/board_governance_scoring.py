@@ -6,6 +6,7 @@ composition, board/committee meeting attendance. No text regex here (the
 source is already structured JSON, not prose), just real-data banding,
 generic across every filer's data shape.
 """
+import re
 
 
 def _band_score_pct(pct):
@@ -143,4 +144,54 @@ def score_board_attendance(bodmeeting):
     return {
         "total_present": total_present, "total_possible": total_possible, "attendance_pct": pct,
         "meetings_count": len(bodmeeting), "participation_score": _band_score_pct(pct),
+    }
+
+
+# The Annual Report's OWN Corporate Governance chapter routinely carries
+# this exact "ATTENDANCE & OTHER DIRECTORSHIP" table (mandated by SEBI
+# LODR Schedule V Part C) - a per-DIRECTOR row of (Meetings Held while on
+# the board, Meetings Eligible to attend, Meetings Attended), immediately
+# followed by the AGM-attendance flag (Yes/NO/NA) and the director's own
+# DIN in parentheses. This is a real, independent, equally authoritative
+# source for the SAME fact `score_board_attendance` computes from NSE's
+# live per-quarter filing feed - just aggregated per-director instead of
+# per-meeting (mathematically equivalent: total attended / total
+# eligible across the year). Confirmed real on Prime Fresh Limited: the
+# NSE-only pathway has nothing for this BSE-only filer, but its own
+# Annual Report has the complete table.
+_BOARD_ATTENDANCE_ROW_RE = re.compile(
+    r"(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(?:Yes|NO|NA)\s*\(DIN\s*:", re.I,
+)
+
+
+def extract_board_attendance_from_ar_text(text):
+    """Returns {'total_present','total_possible','attendance_pct',
+    'meetings_count','participation_score'} (same shape as
+    `score_board_attendance`) from the Annual Report's own per-director
+    attendance table, or all-None if the table isn't present. Each
+    matched row is (Held, Eligible, Attended); Attended is capped at
+    Eligible (guards against an OCR/extraction glitch inflating the
+    figure, same defensive convention as score_board_attendance's own
+    `min(present, possible)`)."""
+    if not text:
+        return {"total_present": None, "total_possible": None, "attendance_pct": None,
+                "meetings_count": None, "participation_score": None}
+    rows = []
+    for m in _BOARD_ATTENDANCE_ROW_RE.finditer(text):
+        held, eligible, attended = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if eligible <= 0 or eligible > held:
+            continue
+        rows.append((eligible, min(attended, eligible)))
+    if not rows:
+        return {"total_present": None, "total_possible": None, "attendance_pct": None,
+                "meetings_count": None, "participation_score": None}
+    total_possible = sum(e for e, _ in rows)
+    total_present = sum(a for _, a in rows)
+    if total_possible == 0:
+        return {"total_present": None, "total_possible": None, "attendance_pct": None,
+                "meetings_count": None, "participation_score": None}
+    pct = round(100 * total_present / total_possible, 1)
+    return {
+        "total_present": total_present, "total_possible": total_possible, "attendance_pct": pct,
+        "meetings_count": len(rows), "participation_score": _band_score_pct(pct),
     }

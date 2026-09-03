@@ -1,29 +1,29 @@
 """
-A.2.C — Cost leadership moat: deterministic (no-LLM) 0-5 evidence scorer.
+A.2.C - Cost leadership moat: deterministic (no-LLM) 0-5 evidence scorer.
 
 Per the sheet's row 2C, this is the only A.2.x factor with TWO legs:
   - QUANT proxy: operating margin vs the peer set (identical Peer Set
-    Protocol as the main Moat row — same NSE sector code, 0.4x-2.5x
+    Protocol as the main Moat row - same NSE sector code, 0.4x-2.5x
     market-cap band), computed from real Screener data via
     tools/moat_peer_scoring.score_quant_pillars's `opm_level` pillar. Never
     text-scanned or estimated here.
   - QUALITATIVE confirmation: CRISIL/ICRA rationale or AR MD&A must NAME the
     SOURCE of the cost advantage (scale, captive raw material, proprietary
-    process/technology) — a margin lead with no stated reason is quant-only
+    process/technology) - a margin lead with no stated reason is quant-only
     evidence and scores lower, per the rubric below.
 
-Deliberately does NOT call any LLM for the qualitative leg — same rationale
+Deliberately does NOT call any LLM for the qualitative leg - same rationale
 as tools/moat_brand_scoring.py / tools/moat_distribution_scoring.py.
 
 Rubric:
   5 = a named cost-advantage source (AR or CRISIL) WITH a numeric/dated
-      anchor — e.g. "captive limestone mine reduces cost per tonne by X%".
+      anchor - e.g. "captive limestone mine reduces cost per tonne by X%".
   4 = a named source with no anchor, or the same kind of evidence from a
       source >2 years stale.
   3 = operating margin is above the peer-set average (quant proxy only) but
-      no source names WHY — a margin lead with no explained cause.
+      no source names WHY - a margin lead with no explained cause.
   2 = only generic company language ("cost efficient operations") with no
-      margin data or explanation — MANAGEMENT_CLAIM.
+      margin data or explanation - MANAGEMENT_CLAIM.
   1 = only generic boilerplate phrasing, no specifics from any source.
   None (Missing) = no cost-structure commentary found AND no peer margin
       comparison available (quant leg also came back empty/insufficient).
@@ -69,8 +69,8 @@ def _sentences(text):
     if not text:
         return []
     # PDF-extracted text routinely line-wraps MID-PHRASE (table/form layouts
-    # splitting a two-word term across lines — confirmed on HDFCLIFE's
-    # "Persistency"/"ratio") — splitting on every newline the way a
+    # splitting a two-word term across lines - confirmed on HDFCLIFE's
+    # "Persistency"/"ratio") - splitting on every newline the way a
     # prose-sentence splitter would broke those phrases apart entirely, so
     # newlines are normalized to spaces first and only real sentence-ending
     # punctuation is treated as a boundary.
@@ -94,11 +94,11 @@ def score_cost_leadership_moat(ar_mdna_text="", crisil_text="", business_descrip
                                 opm_percentile=None):
     """
     Deterministic 0-5 cost-leadership score, combining the qualitative
-    named-driver search (AR primary, CRISIL secondary — same ordering as
+    named-driver search (AR primary, CRISIL secondary - same ordering as
     Distribution, since a named cost-advantage source in the AR is treated
     as verifiable, not marketing prose) with the quant `opm_percentile`
     (0-100, from tools/moat_peer_scoring.score_quant_pillars's `opm_level`
-    pillar — pass None if the peer set itself was unavailable).
+    pillar - pass None if the peer set itself was unavailable).
 
     Returns:
       {"score": 0-5|None, "categories_covered": [...], "evidence_quote": "...",
@@ -132,13 +132,13 @@ def score_cost_leadership_moat(ar_mdna_text="", crisil_text="", business_descrip
         }
 
     # A NAMED source (AR primary, CRISIL secondary) always outranks a bare
-    # margin lead — per the rubric, the "why" matters more than the number.
+    # margin lead - per the rubric, the "why" matters more than the number.
     if ar_matches:
         return _score_named(ar_matches, "Annual Report MD&A")
     if crisil_matches:
         return _score_named(crisil_matches, "CRISIL rationale")
 
-    # No named source anywhere — fall back to the quant-only margin-lead
+    # No named source anywhere - fall back to the quant-only margin-lead
     # tier (3/5) if the peer comparison shows a real lead, per the rubric's
     # explicit "3/5 = margin lead, no explained cause" example.
     if opm_percentile is not None and opm_percentile > 50:
@@ -146,7 +146,7 @@ def score_cost_leadership_moat(ar_mdna_text="", crisil_text="", business_descrip
             "score": 3, "categories_covered": [], "numeric_anchor": False,
             "evidence_quote": "", "source": "peer margin comparison (quant only)",
             "reasoning": f"Operating margin ranks in the {opm_percentile}th percentile of its peer set "
-                         f"(above average), but no CRISIL/ICRA rationale or AR MD&A names a reason why — "
+                         f"(above average), but no CRISIL/ICRA rationale or AR MD&A names a reason why - "
                          f"a margin lead alone, not a confirmed structural cost advantage.",
             "opm_percentile": opm_percentile,
         }

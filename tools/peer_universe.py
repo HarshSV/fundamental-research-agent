@@ -2,26 +2,26 @@
 Fixed, ranked peer universe for A.2's moat peer-set protocol.
 
 The rule (per the qualitative sourcing protocol): peers may ONLY be drawn
-from an existing fixed, auditable universe — never an open web search or
+from an existing fixed, auditable universe - never an open web search or
 the AI's own "similar companies" judgment. This codebase has no ready-made
 "Emkay ~258-company" list; what it DOES already have is
 tools/nse_sector_map.py's NSE-sourced sector classification (751 Nifty
 Total Market constituents, the exact codes used by the ratio workbook's
 Sector Applicability Matrix). That is used here as the fixed universe of
-record — every company in it has a verifiable NSE sector tag, and the
+record - every company in it has a verifiable NSE sector tag, and the
 list itself is reproducible from frontend/src/lib/nseSectorMap.js.
 COVERAGE CAVEAT (must be surfaced, never hidden): this covers the ~751
-most liquid NSE names, not the full ~2,400-symbol registry — a micro-cap
+most liquid NSE names, not the full ~2,400-symbol registry - a micro-cap
 outside Nifty Total Market has no valid peer set under this protocol and
 must be flagged "insufficient peer set", not silently skipped.
 
 This module has two parts:
-  1. build_universe() — a precompute step (slow; run offline/background)
+  1. build_universe() - a precompute step (slow; run offline/background)
      that fetches market cap for every symbol in the fixed sector map and
      writes cache/peer_universe.json.
-  2. select_peer_set() — the live, fast peer-set-selection algorithm
+  2. select_peer_set() - the live, fast peer-set-selection algorithm
      (market-cap-band widening per the protocol) that reads that cache.
-     Never fetches live — if the cache is empty/stale for a symbol, it
+     Never fetches live - if the cache is empty/stale for a symbol, it
      returns an explicit "insufficient peer set" result, never a guess.
 """
 
@@ -47,7 +47,7 @@ MAX_PEERS = 10
 
 
 def _fetch_market_cap_cr(symbol):
-    """Market cap in ₹ crore via yfinance — same source/approach already
+    """Market cap in ₹ crore via yfinance - same source/approach already
     used by tools/peer_synthesis.py's PeerSectorEvaluator, so this stays
     on the same-source-lock rule when compared against other peer data
     built the same way."""
@@ -65,7 +65,7 @@ def build_universe(force=False, symbols=None):
     """
     Precompute step. Walks every symbol in the fixed NSE sector map, fetches
     its market cap, and writes {symbol: {sector, market_cap_cr, as_of}} to
-    cache/peer_universe.json. Long-running (network call per symbol) —
+    cache/peer_universe.json. Long-running (network call per symbol) -
     meant to run in the background, same pattern as run_full_precompute.py.
     Resumable: skips symbols already present with a fresh market_cap_cr
     unless force=True.
@@ -98,7 +98,7 @@ def build_universe(force=False, symbols=None):
                 "as_of": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
             if done % 25 == 0:
-                print(f"[peer_universe] {done}/{total} ({sym}: {mc} cr) — checkpointing")
+                print(f"[peer_universe] {done}/{total} ({sym}: {mc} cr) - checkpointing")
                 _write(universe)
     _write(universe)
     n_priced = sum(1 for r in universe.values() if r.get("market_cap_cr"))
@@ -147,7 +147,7 @@ def select_peer_set(symbol, market_cap_cr=None, universe=None):
         return {
             "status": "NOT_IN_UNIVERSE",
             "reason": f"{sym} is not in the fixed NSE sector universe (outside Nifty Total Market "
-                      f"coverage) — no valid peer set can be constructed under the protocol.",
+                      f"coverage) - no valid peer set can be constructed under the protocol.",
         }
 
     mc = market_cap_cr if market_cap_cr is not None else (row or {}).get("market_cap_cr")
@@ -156,7 +156,7 @@ def select_peer_set(symbol, market_cap_cr=None, universe=None):
             "status": "INSUFFICIENT_PEER_SET",
             "sector": sector,
             "reason": f"{sym}'s market cap is not yet in the precomputed peer universe "
-                      f"(run tools.peer_universe.build_universe) — cannot band-match peers.",
+                      f"(run tools.peer_universe.build_universe) - cannot band-match peers.",
         }
 
     candidates = [

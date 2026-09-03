@@ -56,10 +56,10 @@ function stmtSeries(incomeStmt, field) {
 
 // Fetches the metric-grid numbers independently of the slow qualitative
 // pipeline (`calculated_metrics`, populated only once /api/v1/generate-report
-// resolves — that can take minutes on a cold cache). Every endpoint here is
+// resolves - that can take minutes on a cold cache). Every endpoint here is
 // the SAME fast, Supabase-precompute-backed path the deeper AI-research
 // ratio cards already use (falls back to a live PDF parse only on a genuine
-// cache miss), fetched in parallel — so the grid fills in near-instantly for
+// cache miss), fetched in parallel - so the grid fills in near-instantly for
 // any already-precomputed company instead of blocking on the whole report.
 function useFastOverviewMetrics(symbol, name) {
   const [fast, setFast] = React.useState(null);
@@ -99,7 +99,7 @@ export default function Overview({ data, onOpenSection, onSearch }) {
 
   const fast = useFastOverviewMetrics(data?.symbol, m.company_name || data?.symbol);
 
-  // latest / series — sparklines/trend arrows still come from the slower
+  // latest / series - sparklines/trend arrows still come from the slower
   // multi-year `calculated_metrics` blob (no fast multi-year endpoint exists
   // yet) and simply fade in once that arrives; the headline numbers below
   // don't wait for them.
@@ -112,17 +112,17 @@ export default function Overview({ data, onOpenSection, onSearch }) {
 
   const headline = typeof ai.headline === 'string' ? ai.headline : null;
   const narrative = Array.isArray(ai.narrative) ? ai.narrative[0] : (typeof ai.narrative === 'string' ? ai.narrative : null);
-  // investment_view is an object { verdict, invest_score, reason, ... } — never render it directly.
+  // investment_view is an object { verdict, invest_score, reason, ... } - never render it directly.
   const iv = ai.investment_view;
   const verdict = iv && typeof iv === 'object' ? iv.verdict : (typeof iv === 'string' ? iv : null);
   const investScore = iv && typeof iv === 'object' && isNum(iv.invest_score) ? iv.invest_score : null;
 
-  // Fast-path values (preferred — ready in ~1s), each falling back to the
+  // Fast-path values (preferred - ready in ~1s), each falling back to the
   // slower calculated_metrics figure only until/unless the fast fetch itself
   // comes back inapplicable (e.g. a genuinely unlisted/illiquid instrument).
   // The fast /api/v1/* endpoints report money fields in ₹ CRORE ("unit": "₹
   // Cr"), while `calculated_metrics` stores plain RAW RUPEES (that's what
-  // `inrCrore()` — which itself divides by 1e7 — expects) — every fast
+  // `inrCrore()` - which itself divides by 1e7 - expects) - every fast
   // monetary value below is multiplied by 1e7 right at the point of use so
   // the two sources combine/display correctly without a silent 1e7 unit bug.
   const price = fast?.quote?.ltp ?? (isNum(val.last_price) ? val.last_price : null);
@@ -136,7 +136,7 @@ export default function Overview({ data, onOpenSection, onSearch }) {
   const patLatest = patFast ?? patSeries.filter(isNum).slice(-1)[0];
 
   const epsVal = fast?.eps?.applicable ? fast.eps.value : null; // ₹ per share, no Cr conversion
-  // ROE/ROCE come back from the fast endpoints already as a %, e.g. 15.23 —
+  // ROE/ROCE come back from the fast endpoints already as a %, e.g. 15.23 -
   // divided by 100 here so this variable is always a FRACTION (0.1523),
   // matching calculated_metrics's convention and what `pct()` expects.
   const roeVal = fast?.roe?.applicable ? fast.roe.value / 100 : (isNum(latest.ROE) ? latest.ROE : null);
@@ -154,23 +154,23 @@ export default function Overview({ data, onOpenSection, onSearch }) {
   const cashVal = fast?.cash?.applicable ? fast.cash.value * 1e7 : (isNum(sol.cash_equivalents) ? sol.cash_equivalents : null);
   const ev = isNum(marketCap) ? marketCap + (isNum(debtVal) ? debtVal : 0) - (isNum(cashVal) ? cashVal : 0) : null;
 
-  // No fast Free Cash Flow endpoint exists yet — stays sourced from the
+  // No fast Free Cash Flow endpoint exists yet - stays sourced from the
   // slower qualitative blob until one is built.
   const fcfYield = isNum(val.FCF_Yield) ? val.FCF_Yield : null;
 
   const cards = [
-    { label: 'Current price', value: isNum(price) ? inr(price) : '—', sub: 'NSE · live/last' },
-    { label: 'Market cap', value: isNum(marketCap) ? inrCrore(marketCap) : '—', sub: 'Total equity value' },
-    { label: 'Enterprise value', value: isNum(ev) ? inrCrore(ev) : '—', sub: 'Mkt cap + debt − cash' },
-    { label: 'Revenue', value: isNum(revenueVal) ? inrCrore(revenueVal) : '—', sub: 'Latest FY', series: revSeries, seriesTone: 'pos', trend: isNum(growth.cagr_3y_revenue) ? signedPct(growth.cagr_3y_revenue) : null },
-    { label: 'Net profit', value: isNum(patLatest) ? inrCrore(patLatest) : '—', sub: 'Latest FY', series: patSeries, seriesTone: 'pos', trend: isNum(growth.cagr_3y_pat) ? signedPct(growth.cagr_3y_pat) : null },
-    { label: 'EPS', value: isNum(epsVal) ? num(epsVal, { decimals: 1, suffix: '' }) : '—', sub: 'Net profit / shares' },
-    { label: 'ROE', value: isNum(roeVal) ? pct(roeVal) : '—', sub: 'Return on equity', series: roeSeries, seriesTone: 'blue' },
-    { label: 'ROCE', value: isNum(roceVal) ? pct(roceVal) : '—', sub: 'Return on capital', series: roceSeries, seriesTone: 'blue' },
-    { label: 'P/E', value: isNum(peVal) ? num(peVal, { decimals: 1, suffix: '×' }) : '—', sub: 'Price / earnings', series: peSeries, seriesTone: 'neutral' },
-    { label: 'P/B', value: isNum(pbVal) ? num(pbVal, { decimals: 2, suffix: '×' }) : '—', sub: 'Price / book' },
-    { label: 'EBITDA margin', value: isNum(ebitdaMarginVal) ? pct(ebitdaMarginVal) : '—', sub: 'Operating profitability' },
-    { label: 'FCF yield', value: isNum(fcfYield) ? pct(fcfYield) : '—', sub: 'Free cash flow / mkt cap' },
+    { label: 'Current price', value: isNum(price) ? inr(price) : '-', sub: 'NSE · live/last' },
+    { label: 'Market cap', value: isNum(marketCap) ? inrCrore(marketCap) : '-', sub: 'Total equity value' },
+    { label: 'Enterprise value', value: isNum(ev) ? inrCrore(ev) : '-', sub: 'Mkt cap + debt − cash' },
+    { label: 'Revenue', value: isNum(revenueVal) ? inrCrore(revenueVal) : '-', sub: 'Latest FY', series: revSeries, seriesTone: 'pos', trend: isNum(growth.cagr_3y_revenue) ? signedPct(growth.cagr_3y_revenue) : null },
+    { label: 'Net profit', value: isNum(patLatest) ? inrCrore(patLatest) : '-', sub: 'Latest FY', series: patSeries, seriesTone: 'pos', trend: isNum(growth.cagr_3y_pat) ? signedPct(growth.cagr_3y_pat) : null },
+    { label: 'EPS', value: isNum(epsVal) ? num(epsVal, { decimals: 1, suffix: '' }) : '-', sub: 'Net profit / shares' },
+    { label: 'ROE', value: isNum(roeVal) ? pct(roeVal) : '-', sub: 'Return on equity', series: roeSeries, seriesTone: 'blue' },
+    { label: 'ROCE', value: isNum(roceVal) ? pct(roceVal) : '-', sub: 'Return on capital', series: roceSeries, seriesTone: 'blue' },
+    { label: 'P/E', value: isNum(peVal) ? num(peVal, { decimals: 1, suffix: '×' }) : '-', sub: 'Price / earnings', series: peSeries, seriesTone: 'neutral' },
+    { label: 'P/B', value: isNum(pbVal) ? num(pbVal, { decimals: 2, suffix: '×' }) : '-', sub: 'Price / book' },
+    { label: 'EBITDA margin', value: isNum(ebitdaMarginVal) ? pct(ebitdaMarginVal) : '-', sub: 'Operating profitability' },
+    { label: 'FCF yield', value: isNum(fcfYield) ? pct(fcfYield) : '-', sub: 'Free cash flow / mkt cap' },
   ];
 
   return (

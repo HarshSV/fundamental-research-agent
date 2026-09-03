@@ -4,14 +4,14 @@ import { createPortal } from 'react-dom';
 const { useState, useRef } = React;
 
 /*
- * Straight-edge icicle-style flow diagram — shared by the Overview page
+ * Straight-edge icicle-style flow diagram - shared by the Overview page
  * (via IncomeSankey.jsx's default export) and the Qualitative Analysis
  * page's "Consolidated Income Statement Flow" card, so both render the
  * SAME chart for the SAME nodes/links tree (see IncomeTree in
  * IncomeSankey.jsx for the reconciliation-safe tree-building logic this
  * mirrors). Node and its outgoing flow are drawn as ONE continuous opaque
  * shape (like a single cut of paper) with only a thin darker "stripe" at
- * each node's own x-position — that's what makes adjacent flows read as
+ * each node's own x-position - that's what makes adjacent flows read as
  * distinct, sharp-edged ribbons instead of a blocky, disjointed pattern.
  *
  * Column/bar geometry is computed entirely in viewBox units so it can
@@ -95,19 +95,19 @@ export function IncomeIcicle({ nodes, links }) {
         // bars: { node, depth, y0, y1 (own rendered slot, WITH a gap
         // before each non-first sibling), height, srcY0, srcY1
         // (the tight, gap-free slice this flow occupies inside its
-        // PARENT's slot — used only for the link's parent-side edge),
+        // PARENT's slot - used only for the link's parent-side edge),
         // parentId, parentLabel }. mergeLinks handles the reverse,
         // many-to-one case (several segments merging into one
         // Revenue bar) separately since a single "srcY" pair on the
         // child can't represent multiple distinct parents.
         const bars = [];
-        const mergeLinks = []; // { fromBar, toY0, toY1 } — segment's own (gapped) slot -> its tight slice inside Revenue
+        const mergeLinks = []; // { fromBar, toY0, toY1 } - segment's own (gapped) slot -> its tight slice inside Revenue
 
         let rawRootTotal;
         if (mergeSources.length) rawRootTotal = mergeSources.reduce((s, m) => s + (Math.abs(m.value) || 0), 0) || 1;
         else rawRootTotal = Math.abs(nodesById[treeRootId].value) || 1;
-        // A small gap between sibling blocks — same convention the
-        // reference "straight-edge" icicle uses — is what makes a
+        // A small gap between sibling blocks - same convention the
+        // reference "straight-edge" icicle uses - is what makes a
         // flow band read as a distinct diagonal ribbon rather than a
         // flat, indistinguishable rectangle: the band has to bridge
         // from its tight (gap-free) slice inside the parent to its
@@ -125,7 +125,7 @@ export function IncomeIcicle({ nodes, links }) {
             // Revenue itself: one bar, no internal gap (it's a single
             // node), fed by every segment above. Each segment's link
             // targets a tight, contiguous slice of Revenue matching
-            // segment order — that contiguous-vs-gapped mismatch is
+            // segment order - that contiguous-vs-gapped mismatch is
             // what makes the segment->Revenue bands slant too.
             bars.push({ node: nodesById[treeRootId], depth: depthOffset, y0: 0, y1: rawRootTotal, height: rawRootTotal, srcY0: null, srcY1: null, parentId: null, parentLabel: null });
             let slice = 0;
@@ -146,7 +146,7 @@ export function IncomeIcicle({ nodes, links }) {
         let depth = depthOffset;
         while (frontier.length) {
             // Collect this level's children first (tight, gap-free
-            // slice inside each parent — this is the link's true
+            // slice inside each parent - this is the link's true
             // source-side edge), grouped in parent-frontier order.
             const nextRaw = [];
             frontier.forEach((parentBar) => {
@@ -165,7 +165,7 @@ export function IncomeIcicle({ nodes, links }) {
                 });
             });
             // Now place them top-down in their own column WITH a gap
-            // between each — this is what shifts them away from
+            // between each - this is what shifts them away from
             // their tight source slice and produces the diagonal.
             let cur = 0;
             nextRaw.forEach((b) => {
@@ -181,7 +181,7 @@ export function IncomeIcicle({ nodes, links }) {
         // pixel-per-value ratio across every column (that's what
         // makes narrowing/widening between columns meaningful), so
         // find the tallest column's total gapped extent and scale
-        // everything to fit that — columns with fewer/larger gaps
+        // everything to fit that - columns with fewer/larger gaps
         // just don't use the full height, they don't get stretched.
         const maxDepth = bars.reduce((m, b) => Math.max(m, b.depth), 0);
         let layoutExtent = rawRootTotal;
@@ -205,11 +205,11 @@ export function IncomeIcicle({ nodes, links }) {
     const yPix = (v) => HEADER_H + (v / layoutExtent) * BODY_H;
     const MIN_LABEL_H = 20;
 
-    // Header per column = the topmost (y0 === 0) bar in that depth —
+    // Header per column = the topmost (y0 === 0) bar in that depth -
     // the continuous "spine" (Revenue -> Operating Profit -> PBT ->
     // Net Profit) that every icicle chart anchors at the top edge.
     // Skipped for the leftmost segments column (if any) since those
-    // are parallel siblings, not a spine — each already gets its own
+    // are parallel siblings, not a spine - each already gets its own
     // inline label, same as the reference chart.
     const headerByDepth = {};
     bars.forEach((b) => {
@@ -235,7 +235,7 @@ export function IncomeIcicle({ nodes, links }) {
     const hideTip = () => setHover(null);
 
     // First pass, in VALUE-space only (no x yet): find which nodes
-    // are too small to caption inline, per depth — used next to
+    // are too small to caption inline, per depth - used next to
     // decide which columns need a little extra room right after
     // them for a leader-line label. This keeps every label close to
     // the exact block/angle it belongs to instead of parking them
@@ -256,7 +256,7 @@ export function IncomeIcicle({ nodes, links }) {
 
     // Column x-positions: every column is COL_W wide, plus a small
     // extra lane right after any column that has overflow labels to
-    // place — so a label always lands immediately beside the block
+    // place - so a label always lands immediately beside the block
     // it describes, never far across the chart. The lane is sized to
     // fit the LONGEST overflow label in full (no truncation) rather
     // than a fixed guess.
@@ -269,8 +269,8 @@ export function IncomeIcicle({ nodes, links }) {
     }
     const totalW = colX[maxDepth + 1];
 
-    // One unified edge list — a real parent->child link, or a
-    // segment->Revenue merge link — each rendered as a single opaque
+    // One unified edge list - a real parent->child link, or a
+    // segment->Revenue merge link - each rendered as a single opaque
     // trapezoid running from just past the source node's stripe to
     // just before the target node's stripe.
     const edges = [];
@@ -351,7 +351,7 @@ export function IncomeIcicle({ nodes, links }) {
                         </g>
                     );
                 })}
-                {/* thin accent stripe at every node's own x-position —
+                {/* thin accent stripe at every node's own x-position -
                     the only visual seam between one flow and the next */}
                 {bars.map((b, i) => (
                     <rect key={`stripe-${i}`} x={colX[b.depth]} y={yPix(b.y0)} width={NODE_LINE_W}
@@ -359,12 +359,12 @@ export function IncomeIcicle({ nodes, links }) {
                         fill={stripeColorFor(b)}
                         onMouseEnter={(e) => showTip(b, e)} onMouseLeave={hideTip} className="cursor-default" />
                 ))}
-                {/* column headers — always visible, never overlaps edge labels since it lives in the reserved header band */}
+                {/* column headers - always visible, never overlaps edge labels since it lives in the reserved header band */}
                 {Object.values(headerByDepth).map((b, i) => {
                     const labelText = b.node.label.length > 18 ? b.node.label.slice(0, 17) + '…' : b.node.label;
                     const valueText = inrCroreShort(b.node.value);
                     // A header sits centred over its own node stripe, but the
-                    // first column's stripe is at x=0 — centring there would
+                    // first column's stripe is at x=0 - centring there would
                     // push half the text to negative x, where it's clipped by
                     // the viewBox. Clamp the centre by the wider line's
                     // half-width so the text always renders fully inside the

@@ -1,5 +1,5 @@
 """
-Generic, STRUCTURAL Annual Report table extraction — reads a table by its
+Generic, STRUCTURAL Annual Report table extraction - reads a table by its
 actual row/column layout (via pdfplumber) instead of matching exact
 wording in flowing text. This is the fix for the core limitation of the
 keyword-window regex approach used elsewhere in this codebase (founder_
@@ -47,11 +47,17 @@ def _pdf_cache_path(symbol, fiscal_year):
     return os.path.join(_PDF_BYTES_CACHE_DIR, f"{sym}_{fiscal_year}.pdf")
 
 
-def download_ar_pdf_bytes(symbol, name, fiscal_year):
+def download_ar_pdf_bytes(symbol, name, fiscal_year, pdf_url=None):
     """Downloads (or reads from a long-TTL disk cache) the raw Annual
     Report PDF bytes for one fiscal year. Shared cache so a company already
     visited by the fitz-based text-window extractors pays no extra
-    download cost here. Returns bytes or None."""
+    download cost here. Returns bytes or None.
+
+    `pdf_url`: pass this when the caller already knows the PDF URL (e.g.
+    from companies.latest_ar_url via tools/ar_document_cache.py) to skip
+    the live BSE `_find_annual_report_pdf` lookup entirely on a cache miss.
+    Falls back to that lookup when omitted, preserving every existing
+    caller's behavior exactly."""
     try:
         sym = symbol.strip().upper().replace(".NS", "")
         p = _pdf_cache_path(sym, fiscal_year)
@@ -59,8 +65,9 @@ def download_ar_pdf_bytes(symbol, name, fiscal_year):
             with open(p, "rb") as fh:
                 return fh.read()
 
-        from tools.annual_report_financials import _find_annual_report_pdf
-        pdf_url = _find_annual_report_pdf(sym, name, fiscal_year)
+        if not pdf_url:
+            from tools.annual_report_financials import _find_annual_report_pdf
+            pdf_url = _find_annual_report_pdf(sym, name, fiscal_year)
         if not pdf_url:
             return None
 
