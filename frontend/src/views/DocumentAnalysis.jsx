@@ -132,8 +132,19 @@ function FundamentalTab({ symbol, query }) {
   if (results === null) return <p className="text-[13px] text-slate-600 text-center py-10">Loading...</p>;
   if (results.length === 0) return <p className="text-[13px] text-slate-600 text-center py-10">No Fundamental results yet.</p>;
 
+  // "Not Disclosed" (this filer's Annual Report/XBRL genuinely never
+  // states the underlying line item) is hidden by default, the same
+  // rule already applied on the Qualitative tab - it varies filer to
+  // filer, so it's noise rather than a finding. Not Applicable and
+  // Insufficient Data stay visible: both are themselves meaningful
+  // classifications (e.g. NPA ratios on a non-bank), not an absence of
+  // data. Generic across every company - no ticker-specific logic.
+  const HIDDEN_STATUSES = new Set(['not_disclosed']);
+  const visibleResults = results.filter((r) => !HIDDEN_STATUSES.has(r.status));
+  const hiddenCount = results.length - visibleResults.length;
+
   const q = (query || '').trim().toLowerCase();
-  const filtered = q ? results.filter((r) => r.label.toLowerCase().includes(q)) : results;
+  const filtered = q ? visibleResults.filter((r) => r.label.toLowerCase().includes(q)) : visibleResults;
   if (q && filtered.length === 0) {
     return <p className="text-[13px] text-slate-600 text-center py-10">No ratio matches "{query}".</p>;
   }
@@ -144,6 +155,11 @@ function FundamentalTab({ symbol, query }) {
 
   return (
     <div className="space-y-6">
+      {hiddenCount > 0 && (
+        <p className="text-[11px] text-slate-600 -mt-2">
+          {hiddenCount} ratio{hiddenCount === 1 ? '' : 's'} not disclosed for this company - hidden from view.
+        </p>
+      )}
       {categories.map((cat) => (
         <div key={cat}>
           <h3 className="text-[13px] font-bold text-slate-300 uppercase tracking-wide mb-2.5">{cat}</h3>

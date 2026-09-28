@@ -9,6 +9,7 @@ import Landing from "./views/Landing.jsx";
 import DocumentAnalysis from "./views/DocumentAnalysis.jsx";
 import DashHeader from "./components/layout/DashHeader.jsx";
 import Overview from "./views/Overview.jsx";
+import LiveChart from "./views/LiveChart.jsx";
 import Settings from "./views/Settings.jsx";
 import History from "./views/History.jsx";
 import AskNavrist from "./components/AskNavrist.jsx";
@@ -13727,7 +13728,11 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                         <History onSearch={fetchResearch} />
                                     )}
 
-                                    {dashView !== 'overview' && dashView !== 'settings' && dashView !== 'history' && (
+                                    {dashView === 'liveChart' && (
+                                        <LiveChart symbol={reportData.data.symbol} name={reportData.data.calculated_metrics?.company_name} />
+                                    )}
+
+                                    {dashView !== 'overview' && dashView !== 'settings' && dashView !== 'history' && dashView !== 'liveChart' && (
                                 <main className="w-full space-y-6">
                                                               {activeTab === 1 && (
                                          <section className="p-6 bg-slate-900 border border-slate-800 rounded-lg space-y-6">

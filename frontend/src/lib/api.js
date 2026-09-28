@@ -58,6 +58,39 @@ export async function fetchQuote(symbol) {
   }
 }
 
+// Live-chart candles/ticker - currently yfinance-backed (polling, not push)
+// as a stand-in until Axis Direct's RAPID API or ICICI Breeze is
+// provisioned; response shape won't change when that swap happens.
+export async function fetchLiveChartCandles(symbol, interval = '5m') {
+  try {
+    const res = await authFetch(`/api/live-chart/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function fetchLiveChartDay(symbol, date, interval = '5m') {
+  try {
+    const res = await authFetch(`/api/live-chart/${encodeURIComponent(symbol)}/day?date=${encodeURIComponent(date)}&interval=${encodeURIComponent(interval)}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function fetchLiveChartLatest(symbol) {
+  try {
+    const res = await authFetch(`/api/live-chart/${encodeURIComponent(symbol)}/latest`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function searchSymbols(q) {
   if (!q || !q.trim()) return [];
   try {

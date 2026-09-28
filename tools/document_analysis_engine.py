@@ -93,7 +93,17 @@ _LINE_ITEM_ALIASES = {
     # already used throughout this module handles that correctly.
     "changes_in_inventories": ["changes in inventories", "change in inventories", "changes in inventory",
                                 "change in inventory", "changes in inventories of finished",
-                                "increase/decrease in inventories", "movement in inventories"],
+                                "increase/decrease in inventories", "movement in inventories",
+                                # Trading-company Schedule III phrasing inserts "the" and names
+                                # "Stock-in-Trade" explicitly instead of "finished goods/WIP" -
+                                # confirmed real on Prime Fresh Limited ("Changes In The
+                                # Inventories Of Stock In Trade"), a standard alternate caption
+                                # for any trader/retailer, not unique to one filing.
+                                "changes in the inventories of stock in trade",
+                                "changes in the inventories of stock-in-trade",
+                                "change in the inventories of stock in trade",
+                                "changes in inventories of stock-in-trade",
+                                "changes in inventories of stock in trade"],
     "ebitda": ["earnings before interest, tax, depreciation and amortisation", "ebitda"],
     "ebit": ["profit before interest and tax", "operating profit", "ebit"],
     "interest_expense": ["finance costs", "interest expense", "interest and finance charges",

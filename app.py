@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 
 # Fix TLS trust BEFORE any HTTPS call. On Windows behind a TLS-inspecting
@@ -392,11 +393,22 @@ def resolve_symbol_from_registry(query_symbol: str) -> str:
         print(f"[Symbol Resolver] Mapped shorthand '{cleaned}' to alias: {aliases[cleaned]}")
         return aliases[cleaned]
 
-    # Check if the query matches the name or symbol in registry
+    # Check if the query matches the name or symbol in registry. Whole-word
+    # match only (not raw substring): a raw `cleaned in name` check let an
+    # unrelated manual-upload symbol (e.g. a synthetic slug like
+    # "PRIMEFRESHLIM" minted for a company with no registry match, see
+    # tools/manual_document_pipeline.py's _slug_symbol) accidentally collide
+    # with a completely different company whenever it happened to appear as
+    # a substring of that company's symbol/name - silently routing every
+    # later qualitative/document-analysis lookup for the uploaded company to
+    # the wrong ticker's cached data. Whole-word boundaries keep genuine
+    # partial-name lookups (e.g. "TATA MOTORS" typed without "LTD") working
+    # while ruling out mid-word/mid-token accidents.
+    cleaned_pattern = rf"\b{re.escape(cleaned)}\b"
     for item in STOCK_REGISTRY:
         sym = item["symbol"].upper()
         name = item["name"].upper()
-        if cleaned == sym or cleaned == name or cleaned in sym or cleaned in name:
+        if cleaned == sym or cleaned == name or re.search(cleaned_pattern, sym) or re.search(cleaned_pattern, name):
             print(f"[Symbol Resolver] Auto-resolved query '{cleaned}' to: {sym}")
             return sym
             
@@ -466,6 +478,50 @@ def live_quote(symbol: str = "", _: dict = Depends(auth.require_session)):
     q["change"] = change
     q["change_pct"] = change_pct
     return q
+
+@app.get("/api/live-chart/{symbol}")
+def live_chart_candles(symbol: str, interval: str = "5m", period: str | None = None, _: dict = Depends(auth.require_session)):
+    """OHLCV candles for the live-charts view (lightweight-charts). Sourced
+    from yfinance polling ONLY as a stand-in until Axis Direct's RAPID API
+    (tools/axis_feed_ws.py) or ICICI Breeze is provisioned - swap the
+    provider call below, response shape stays the same."""
+    sym = resolve_symbol_from_registry(symbol)
+    if not sym:
+        raise HTTPException(status_code=400, detail="Symbol required.")
+    from tools.live_chart_yf import get_candles
+    candles = get_candles(sym, interval=interval, period=period)
+    if candles is None:
+        return {"symbol": sym, "candles": [], "source": "unavailable"}
+    return {"symbol": sym, "candles": candles, "source": "yfinance"}
+
+@app.get("/api/live-chart/{symbol}/day")
+def live_chart_day_candles(symbol: str, date: str, interval: str = "5m", _: dict = Depends(auth.require_session)):
+    """Full trading-day (9:15-3:30 IST) candles for one calendar date - the
+    History view's data source. `date` is 'YYYY-MM-DD'. Returns an empty
+    list (source="unavailable") for a non-trading day or a date beyond
+    yfinance's intraday retention window for the given interval - never a
+    substituted nearby day."""
+    sym = resolve_symbol_from_registry(symbol)
+    if not sym:
+        raise HTTPException(status_code=400, detail="Symbol required.")
+    from tools.live_chart_yf import get_candles_for_date
+    candles = get_candles_for_date(sym, date, interval=interval)
+    if candles is None:
+        return {"symbol": sym, "date": date, "candles": [], "source": "unavailable"}
+    return {"symbol": sym, "date": date, "candles": candles, "source": "yfinance"}
+
+@app.get("/api/live-chart/{symbol}/latest")
+def live_chart_latest(symbol: str, _: dict = Depends(auth.require_session)):
+    """Polling ticker (LTP/change) for the top of the live-chart view."""
+    sym = resolve_symbol_from_registry(symbol)
+    if not sym:
+        raise HTTPException(status_code=400, detail="Symbol required.")
+    from tools.live_chart_yf import get_latest
+    latest = get_latest(sym)
+    if latest is None:
+        return {"symbol": sym, "ltp": None, "source": "unavailable"}
+    latest["symbol"] = sym
+    return latest
 
 @app.post("/api/research")
 async def research_endpoint(request: ResearchRequest, _: dict = Depends(auth.require_session)):

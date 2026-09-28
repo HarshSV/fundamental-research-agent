@@ -40,13 +40,41 @@ except Exception:  # pragma: no cover
     _HAVE_CFFI = False
 
 try:
-    from tools.db_ratio_reader import try_db_ratio, write_db_ratio
+    from tools.db_ratio_reader import try_db_ratio as _db_try_db_ratio, write_db_ratio as _db_write_db_ratio
 except Exception:  # pragma: no cover - DB unreachable/misconfigured falls through to live path
-    def try_db_ratio(symbol, ratio_no):
+    def _db_try_db_ratio(symbol, ratio_no, consolidated=None, extraction_version=None):
         return None
 
-    def write_db_ratio(symbol, ratio_no, out, consolidated=True):
+    def _db_write_db_ratio(symbol, ratio_no, out, consolidated=True, extraction_version=None):
         pass
+
+
+def try_db_ratio(symbol, ratio_no, consolidated=None):
+    """Central, version-aware wrapper around `db_ratio_reader.try_db_ratio` -
+    every one of this file's ~50 `fetch_X` wrappers calls this exact name
+    (`try_db_ratio(sym, ratio_no)`), so shadowing the module-level name here
+    (rather than editing each of those ~50 call sites individually) makes
+    EVERY one of them - existing AND any future ratio added the same way -
+    automatically version-aware with zero extra code at the call site. See
+    `_current_extraction_version()` for what "version-aware" means and why
+    it matters: without it, a Supabase row precomputed under OLDER
+    extraction/calculation logic would be served forever regardless of any
+    later code fix, since this DB fast-path sits BEFORE this file's own
+    `_doc_tag_for_cache`-based cache invalidation entirely."""
+    return _db_try_db_ratio(symbol, ratio_no, consolidated=consolidated,
+                             extraction_version=_current_extraction_version())
+
+
+def write_db_ratio(symbol, ratio_no, out, consolidated=True):
+    """Central, version-aware wrapper around `db_ratio_reader.write_db_ratio`
+    - same "shadow the name once, every caller benefits" reasoning as
+    `try_db_ratio` above. Every live-computed result gets written back
+    tagged with the CURRENT extraction version, so the next `try_db_ratio`
+    call for it is a hit again immediately (self-healing), and a future
+    extraction/logic fix will correctly treat it as stale without anyone
+    needing to remember to bump anything at this call site."""
+    return _db_write_db_ratio(symbol, ratio_no, out, consolidated=consolidated,
+                               extraction_version=_current_extraction_version())
 
 
 def _resolved_consolidated(sym, name, fiscal_year):
@@ -71,6 +99,31 @@ def _resolved_consolidated(sym, name, fiscal_year):
         return select_statement_basis(sym, name, fiscal_year).selected_basis == "CONSOLIDATED"
     except Exception:
         return True
+
+
+def _current_extraction_version():
+    """Current Annual-Report shared-extraction/calculation logic version -
+    reuses `tools.annual_report_financials._EXTRACTION_LOGIC_VERSION` (the
+    SAME constant that already auto-invalidates every wrapper cache in that
+    file via `_document_identity_tag`, and that gets bumped whenever a
+    shared-extraction bug fix or a ratio's own formula changes).
+
+    Passed to `try_db_ratio(..., extraction_version=...)` so a Supabase-
+    precomputed row written under OLDER extraction/calculation logic is
+    treated as a cache miss (falls through to a fresh live computation,
+    which then writes back through `write_db_ratio` under the CURRENT
+    version) rather than being served forever regardless of code fixes -
+    the Supabase fast-path sits BEFORE this file's own `_doc_tag_for_cache`-
+    based invalidation entirely, so without this, a formula/extraction fix
+    could be fully correct in code and still show a stale result end-to-end
+    for any company the precompute worker had already reached. Returns None
+    (unversioned - unchanged prior behaviour) if the constant can't be
+    imported for any reason, never raises."""
+    try:
+        from tools.annual_report_financials import _EXTRACTION_LOGIC_VERSION
+        return _EXTRACTION_LOGIC_VERSION
+    except Exception:
+        return None
 
 
 # Cache-key prefix -> ratio_no, for every ratio the DB fast-path covers (see

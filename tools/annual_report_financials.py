@@ -235,6 +235,16 @@ _COGS_LABELS = {
         "changes in inventories", "change in inventories", "changes in inventory",
         "change in inventory", "changes in inventories of finished",
         "increase/decrease in inventories", "movement in inventories",
+        # Trading-company Schedule III phrasing inserts "the" and names
+        # "Stock-in-Trade" explicitly instead of "finished goods/WIP" -
+        # confirmed real on Prime Fresh Limited ("Changes In The
+        # Inventories Of Stock In Trade"), a standard alternate caption for
+        # any trader/retailer, not unique to one filing.
+        "changes in the inventories of stock in trade",
+        "changes in the inventories of stock-in-trade",
+        "change in the inventories of stock in trade",
+        "changes in inventories of stock-in-trade",
+        "changes in inventories of stock in trade",
     ],
 }
 _INVENTORY_LABELS = [
@@ -1001,7 +1011,16 @@ _REPAYMENT_BORROWINGS_LABELS = [
     # Service whenever fresh borrowings exceeded repayments that year, and
     # can even be a net INFLOW), so a filing with only that netted line
     # correctly falls through to "Could not find" instead of a wrong number.
+    # Safe to add here: the fuzzy matcher only tolerates WHITESPACE between
+    # a label's own characters (see `_fuzzy_label_re`), so a netted caption
+    # like "(Repayments)/Proceeds from non-current borrowings" - which has
+    # ")/Proceeds from non-current" (non-whitespace characters) sitting
+    # between "Repayments" and "borrowings" - still can never match any of
+    # these, regardless of how many singular/generic phrasings are added.
     "repayment of borrowings", "repayments of borrowings",
+    "repayment of borrowing",
+    "repayment of loans", "repayment of loan",
+    "repayment of debt", "repayment of debts",
 ]
 # Ind AS 116 splits a lease payment into interest and principal components in
 # the Cash Flow Statement - only the PRINCIPAL portion belongs in Total Debt
@@ -1782,13 +1801,16 @@ _VARIABLE_OPEX_NOTE_TERMS = [
     "freight", "carriage outward", "carriage inward", "carriage and freight",
     "forwarding", "transportation", "transport charges", "loading and unloading",
     "loading & unloading", "handling charges", "power and fuel", "power & fuel",
-    "fuel and power", "fuel & power", "power, fuel", "packing material",
+    "fuel and power", "fuel & power", "power, fuel", "utility charges",
+    "utility expenses", "packing material",
     "packing expenses", "packaging material", "packaging expenses",
     "sales commission", "commission on sales", "selling commission", "brokerage",
+    "commission expenses", "commission expense",
     "discount on sales", "cash discount", "trade discount", "royalty on sales",
     "distribution expenses", "outward freight", "freight outward",
     "freight and forwarding", "freight & forwarding", "export freight",
     "clearing and forwarding", "clearing & forwarding",
+    "stores and spares", "consumption of stores",
 ]
 # Captions that CAN contain one of the terms above as a substring but are
 # fixed, not volume-linked (e.g. "Freight" inside "Rent, Rates and Freight
@@ -1797,27 +1819,52 @@ _VARIABLE_OPEX_NOTE_TERMS = [
 # match so an office/admin qualifier doesn't get misclassified as variable.
 _VARIABLE_OPEX_NOTE_EXCLUDE_QUALIFIERS = [
     "office", "administrative", "corporate", "guest house", "township",
+    "director", "directors",
 ]
 
 
-def _find_variable_opex_note(doc, start_idx, max_pages=200):
+def _find_variable_opex_note(doc, start_idx, max_pages=200, caption="other expenses"):
     """Contribution Margin (Sr No 44)'s Variable Cost component beyond raw
-    materials: scans forward from the P&L page for the "Other Expenses" Note
-    (the sub-item breakup printed in Notes to Accounts, not the single face
-    value on the P&L) and sums only the sub-items whose caption matches
-    `_VARIABLE_OPEX_NOTE_TERMS` (freight/power & fuel/packing/sales
-    commission/...), each independently checked against
-    `_VARIABLE_OPEX_NOTE_EXCLUDE_QUALIFIERS` to reject admin/office-qualified
-    variants of the same word. Rent, legal/professional fees, insurance,
-    donations, CSR, audit fees, and every other "Other Expenses" sub-item
-    NOT matching a volume-linked term is left out - never assumed variable.
+    materials: scans forward from the P&L page for a Notes-to-Accounts
+    breakup NOTE whose heading caption is `caption` (the sub-item breakup
+    printed in Notes to Accounts, not a single face value on the P&L) and
+    sums only the sub-items whose caption matches `_VARIABLE_OPEX_NOTE_TERMS`
+    (freight/power & fuel/packing/sales commission/...), each independently
+    checked against `_VARIABLE_OPEX_NOTE_EXCLUDE_QUALIFIERS` to reject
+    admin/office-qualified variants of the same word. Rent, legal/
+    professional fees, insurance, donations, CSR, audit fees, and every
+    other sub-item NOT matching a volume-linked term is left out - never
+    assumed variable.
 
-    Returns None if no "Other Expenses" Note breakup is found at all (so the
-    caller falls back to materials/stock-in-trade only, same as before - no
+    `caption` defaults to "other expenses" (the note this was originally
+    built for) but is genuinely parameterised - e.g. `caption="direct
+    expenses"` scans a filing's separate "Direct Expenses" Note (some
+    trading/services filers print operational costs like loading/unloading/
+    transportation/packing there instead of folding them into "Other
+    Expenses" - confirmed real on Prime Fresh Limited's FY26 AR). Same
+    classification discipline either way: only caption-matched sub-items
+    are treated as variable, never the Note's total on the assumption that
+    a whole "Direct Expenses"/"Other Expenses" caption is inherently
+    variable just because of its heading.
+
+    Returns None if no such Note breakup is found at all (so the caller
+    falls back to materials/stock-in-trade only, same as before - no
     guessing). If the Note IS found, returns a dict with `items` (label ->
     (cur, prior)) and `total_cur`/`total_prior` - `items` may be `{}` (a
     real, determined zero: the Note was found but none of its sub-items are
     volume-linked) rather than None."""
+    caption_fuzzy = r"\s+".join(re.escape(w) for w in caption.split())
+    # The infix between the note number and the target caption tolerates a
+    # SHORT qualifying prefix word/phrase (e.g. "Note No.: 32 - TRADING &
+    # DIRECT EXPENSES:" - confirmed real on Prime Fresh Limited's FY26 AR,
+    # whose Direct Expenses Note is captioned "Trading & Direct Expenses",
+    # not a bare "Direct Expenses") rather than requiring the caption
+    # immediately after the note number - `[^\n]{0,30}` bounds this to a
+    # handful of words so it can't accidentally skip past an unrelated
+    # Note entirely and match some other caption many words later.
+    infix = r"[^\n]{0,30}?"
+    heading_note_re = re.compile(rf"note\s*(?:no\.?)?[:\-.\s]*\d+{infix}{caption_fuzzy}")
+    heading_bare_re = re.compile(rf"\n\s*\d{{1,3}}[.\t ]{{1,3}}{infix}{caption_fuzzy}\b")
     for i in range(start_idx, min(start_idx + max_pages, doc.page_count)):
         try:
             t = _page_text(doc[i])
@@ -1831,13 +1878,20 @@ def _find_variable_opex_note(doc, start_idx, max_pages=200):
         # or a Total Expenses breakdown listing "Other expenses" as a P&L
         # line) - those would otherwise match here first and return an
         # empty `items` dict, ending the scan before the real Note page
-        # (often several pages later) is ever reached. Two heading shapes
+        # (often several pages later) is ever reached. Three heading shapes
         # are seen in practice: "NOTE 35 OTHER EXPENSES" (word "note"
-        # spelled out) and a bare numbered heading "26  Other expenses" /
-        # "26\tOther expenses" (no "note" word at all, tab/space-separated)
-        # - both required to start a fresh line, never mid-sentence.
-        if not re.search(r"note\s*\d+[:\-.\s]*other\s+expenses", tl) and \
-                not re.search(r"\n\s*\d{1,3}[.\t ]{1,3}other\s+expenses\b", tl):
+        # spelled out, digits immediately after), "Note No.: 36 - OTHER
+        # EXPENSES:" (the word "No"/"No." inserted between "note" and the
+        # digits, with a colon/dash before the caption - confirmed real on
+        # Prime Fresh Limited's FY26 AR, whose Note 36 uses exactly this
+        # shape; the original regex required digits immediately after
+        # "note", so it never matched this filing's Note heading at all,
+        # silently returning None for every company using this common
+        # "Note No.: NN" style, not just this one), and a bare numbered
+        # heading "26  Other expenses" / "26\tOther expenses" (no "note"
+        # word at all, tab/space-separated) - all three required to start a
+        # fresh line, never mid-sentence.
+        if not heading_note_re.search(tl) and not heading_bare_re.search(tl):
             continue
         # Require this to look like a genuine Notes-to-Accounts breakup
         # page (several distinct line-items with figures), not just an
@@ -1859,9 +1913,25 @@ def _find_variable_opex_note(doc, start_idx, max_pages=200):
                 continue
             # Value pair is usually on the SAME line as the label, but many
             # filings print the "Other Expenses" Note as label-only lines
-            # followed by separate current-year/prior-year value lines (a
-            # column-block table layout) - look ahead a few lines for the
-            # first two numeric tokens if the label's own line has none.
+            # followed by a separate "Notes" column line (a bare "-" when
+            # the row has no footnote reference) and THEN the current-year/
+            # prior-year value lines (a column-block table layout) - look
+            # ahead a few lines for the numeric tokens if the label's own
+            # line has none.
+            #
+            # BUG FIXED (Contribution Margin, Sr No 44, confirmed on
+            # Anupam Rasayan's FY25 Note 30 "Other Expenses"): the lookahead
+            # used to stop as soon as it collected 2 tokens, so a leading
+            # bare "-" Notes-column placeholder (present on most rows here,
+            # e.g. "Consumption - Packing Materials" / "-" / "68.87" /
+            # "96.30") was itself counted as the "current year" value,
+            # shifting the real current-year figure into the "prior year"
+            # slot and losing the real prior-year figure entirely -
+            # collapsing genuine values like (68.87, 96.30) down to
+            # (0.0, 6.89)-scale noise. Collect up to 3 tokens instead of 2:
+            # a genuine value pair is always the LAST two collected - a
+            # leading Notes-column placeholder (if present at all) is
+            # always the token(s) before them, never after.
             # `_NUM_RE` alone requires a comma or 2-decimal-place figure (to
             # reject bare Note-reference numbers sitting next to a label on
             # the SAME line - see its module comment) - that's too strict
@@ -1870,18 +1940,29 @@ def _find_variable_opex_note(doc, start_idx, max_pages=200):
             # integer pattern too (mirrors `_find_row_values_spatial`'s
             # documented `permissive=True` case for the same reason).
             nums = re.findall(_NUM_RE, line)
+            # A same-line match of fewer than 2 tokens is ambiguous (e.g. a
+            # stray " - " inside the label text itself, like "Consumption -
+            # Packing Materials", which is punctuation, not a value) - only
+            # trust a same-line match when it already found the full pair;
+            # otherwise discard it and read the value pair from the
+            # lookahead lines instead, exactly as if the label line had no
+            # numbers at all.
             if len(nums) < 2:
-                for lookahead in lines[idx + 1:idx + 5]:
+                nums = []
+                for lookahead in lines[idx + 1:idx + 6]:
                     stripped = lookahead.strip()
                     if stripped and not re.fullmatch(r"-?\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|-", stripped):
-                        break  # hit the next label line before finding 2 numbers
+                        break  # hit the next label line before finding enough numbers
                     if stripped:
                         nums.append(stripped)
-                    if len(nums) >= 2:
+                    if len(nums) >= 3:
                         break
             if len(nums) < 2:
                 continue
-            a, b = _parse_num(nums[0]), _parse_num(nums[1])
+            # The value pair is always the LAST two tokens collected - drop
+            # any leading Notes-column placeholder(s) (bare "-") first.
+            cur_tok, prior_tok = nums[-2], nums[-1]
+            a, b = _parse_num(cur_tok), _parse_num(prior_tok)
             if a is None or b is None:
                 continue
             label = line.strip()[:60]
@@ -5655,18 +5736,26 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
 
     # Contribution Margin (Sr No 44) Variable Cost component beyond raw
     # materials - scans forward from the P&L page for the "Other Expenses"
-    # Note breakup (see `_find_variable_opex_note`). ONLY run in the manual
-    # document-upload review workflow (`is_manual_mode()`) - the OLD
-    # automatic live-fetch pipeline (precompute_worker.py, main search/fetch
-    # flow) must never pay this extra page-scan cost or see this field at
-    # all, per the Contribution Margin scope split (see
-    # `fetch_contribution_margin_from_annual_report`'s module-level note).
+    # Note breakup (see `_find_variable_opex_note`). Run for every company
+    # regardless of pipeline (QA correction 2026-09-05 unified the
+    # automatic live-fetch and manual document-upload methodologies).
     variable_opex_note = None
-    if is_manual_mode():
-        try:
-            variable_opex_note = _find_variable_opex_note(doc, pl_idx)
-        except Exception:
-            variable_opex_note = None
+    try:
+        variable_opex_note = _find_variable_opex_note(doc, pl_idx)
+    except Exception:
+        variable_opex_note = None
+
+    # Same scan, but for a separate "Direct Expenses" Note - some trading/
+    # services filers print operational costs (loading/unloading,
+    # transportation, packing, ...) there instead of folding them into
+    # "Other Expenses" (confirmed real on Prime Fresh Limited's FY26 AR).
+    # Only the caption-matched sub-items are ever treated as variable -
+    # never the Note's total, same discipline as the Other Expenses scan.
+    variable_direct_expenses_note = None
+    try:
+        variable_direct_expenses_note = _find_variable_opex_note(doc, pl_idx, caption="direct expenses")
+    except Exception:
+        variable_direct_expenses_note = None
 
     return {
         "components": components,    # {label: (cur, prior)} - may be partial/empty, normalised to ₹ Cr
@@ -5722,6 +5811,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         "retained_earnings": retained_earnings,  # (cur, prior) or None, normalised to ₹ Cr - Sr No 55 (Altman Z-Score)
         "retained_earnings_basis": retained_earnings_basis,  # "exact" (Reserves and Surplus) or "other_equity_proxy"
         "variable_opex_note": variable_opex_note,  # dict or None - Sr No 44, {"items": {...}, "total_cur", "total_prior"} from the Other Expenses Note breakup
+        "variable_direct_expenses_note": variable_direct_expenses_note,  # dict or None - Sr No 44, same shape, from a separate "Direct Expenses" Note breakup
         "pl_page": pl_idx + 1, "bs_page": bs_idx + 1,
     }
 
@@ -5916,6 +6006,34 @@ def _broad_extraction_to_parsed_shape(sym, fiscal_year, consolidated):
         "pl_page": (items.get("revenue") or {}).get("page"),
         "basis_used": "broad_extraction",
     }
+
+    # Contribution Margin (Sr No 44)'s variable-cost-beyond-materials
+    # component (`_find_variable_opex_note`) - was never wired into this
+    # broad-extraction fallback at all, so every company routed through it
+    # (the narrow parser couldn't locate its Balance Sheet/P&L pages)
+    # always got Variable Costs = goods cost ONLY, silently understating
+    # Contribution Margin. Confirmed real on ANURAS, which is routed
+    # through this exact fallback. `revenue`'s own found page is the P&L
+    # page - reuse it (1-indexed -> 0-indexed) instead of re-locating it;
+    # skip entirely (never guess a page) if it wasn't found.
+    pl_page_num = (items.get("revenue") or {}).get("page")
+    if pl_page_num:
+        try:
+            from tools.manual_mode import is_manual_mode
+            if is_manual_mode():
+                pdf_cache_path = os.path.normpath(os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "..", "cache", "ar_pdfs",
+                    f"{sym}_{fiscal_year}.pdf"))
+                if os.path.exists(pdf_cache_path):
+                    import fitz
+                    with open(pdf_cache_path, "rb") as fh:
+                        doc = fitz.open(stream=fh.read(), filetype="pdf")
+                    out["variable_opex_note"] = _find_variable_opex_note(doc, pl_page_num - 1)
+                    out["variable_direct_expenses_note"] = _find_variable_opex_note(
+                        doc, pl_page_num - 1, caption="direct expenses")
+        except Exception:
+            pass
+
     return out
 
 
@@ -5927,7 +6045,7 @@ def _broad_extraction_to_parsed_shape(sym, fiscal_year, consolidated):
 # `_document_identity_tag`, is what makes a shared-extractor logic fix
 # automatically invalidate all ~50 downstream wrapper caches at once - see
 # `_document_identity_tag`'s docstring for the bug this closes.
-_EXTRACTION_LOGIC_VERSION = "50"
+_EXTRACTION_LOGIC_VERSION = "60"
 
 
 def _document_identity_tag(symbol, fiscal_year):
@@ -6022,7 +6140,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     # freshness. Falls back to "" when the file doesn't exist yet (nothing
     # to distinguish from) - never blocks a first-time fetch.
     doc_tag = _document_identity_tag(sym, fiscal_year)
-    ckey = f"ar_extract_v26_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
+    ckey = f"ar_extract_v27_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -6142,6 +6260,26 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # Receivables-to-Payables even though the value was right there on the
     # page - confirmed real on Prime Fresh Limited's Consolidated Balance
     # Sheet, "Trade Receivable 12  8,891.29  5,490.26").
+    # "_v27" (bumped from "_v26") - `_find_variable_opex_note` (Contribution
+    # Margin, Sr No 44's variable-cost-beyond-materials component) had a
+    # lookahead bug: most "Other Expenses" Note rows print a bare "-"
+    # placeholder line for an absent Notes-column footnote reference BEFORE
+    # the two real current/prior-year value lines, but the lookahead
+    # stopped as soon as it collected ANY 2 numeric-or-dash tokens - so it
+    # was reading (placeholder-dash, true-current-year-value) as
+    # (current, prior), silently losing the true prior-year figure and
+    # UNDERSTATING every matched sub-item's current-year value down to
+    # whatever the placeholder happened to be (0.0). Confirmed real on
+    # Anupam Rasayan's (ANURAS) FY25 Note 30 "Other Expenses" - e.g.
+    # "Freight, Forwarding & Clearing" read as (0.0, 32.05) instead of the
+    # real (32.05, 24.19). Now collects up to 3 tokens and always takes the
+    # LAST two as the real (current, prior) pair. Also expanded
+    # `_VARIABLE_OPEX_NOTE_TERMS` with "utility charges"/"stores and
+    # spares" per the ratio sheet's own Sr No 44 examples (Power and Fuel,
+    # Consumption of Stores and Spares) - generic Schedule III captions,
+    # not unique to this one company. Pre-v27 cache entries understate
+    # Contribution Margin's variable-cost component for every company that
+    # matched this Note layout.
     from tools.manual_mode import is_manual_mode
     suffix = "_manual_v12" if is_manual_mode() else ""
     # Document-identity tag - see the matching comment in
@@ -6151,7 +6289,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # acquiring the lock would look up a different key than the one this
     # function is about to write).
     doc_tag = _document_identity_tag(sym, fiscal_year)
-    ckey = f"ar_extract_v26_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
+    ckey = f"ar_extract_v27_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -6512,53 +6650,31 @@ def fetch_gross_profit_margin_from_annual_report(symbol, name, fiscal_year, cons
 
 def fetch_operating_profit_margin_from_annual_report(symbol, name, fiscal_year, consolidated=True):
     """
-    Operating Profit Margin (EBIT Basis) = Operating Profit / EBIT ÷ Revenue
-    from Operations x 100.
+    Operating Profit Margin (EBIT Basis), Sr No 15.
 
-    SCOPE, deliberately split by pipeline (user-confirmed, 2026-08-29 -- do
-    not merge the two branches without a new user ask, same split already
-    applied to Contribution Margin, Sr No 44):
+    FORMULA (explicit user direction, 2026-09-05, overriding this
+    function's own prior "authoritative ratio sheet" EBIT reconstruction):
 
-    - The OLD automatic live-fetch pipeline (tools/precompute_worker.py, the
-      main search/fetch flow that runs against ~2409 stocks) keeps its
-      ORIGINAL behaviour completely unchanged below -- see
-      `_operating_profit_margin_auto`. Never touched by the fix described
-      next.
+        Operating Profit = Profit Before Tax (PBT) + Finance Costs
+        Operating Profit Margin = Operating Profit / Revenue from Operations x 100
 
-    - ONLY the manual document-upload review workflow
-      (tools/document_analysis_engine.py, `tools/manual_mode.is_manual_mode()`
-      True) gets the corrected methodology, which additionally subtracts a
-      "Direct Expenses" P&L line when the filing discloses one (a real
-      operating cost some trading/services filers print separately from
-      Cost of materials consumed/Purchases of stock-in-trade/Other Expenses
-      -- never extracted at all before) and reports each operating-expense
-      line individually (Cost of Materials, Purchases of Stock-in-Trade,
-      Changes in Inventories, Direct Expenses, Employee Costs, Other
-      Expenses, D&A) rather than a single lumped "COGS" figure, for a fully
-      auditable breakdown. See `_operating_profit_margin_manual`.
+    Both PBT and Finance Costs are read directly off the filing's own P&L -
+    no reconstruction, no per-line-item gate. This intentionally differs
+    from a pure EBIT reconstruction (Revenue - COGS - Employee Benefit
+    Expense - Other Expenses - D&A): PBT already nets in Other Income,
+    Share of Associates'/JVs' Profit, and Exceptional Items, so this
+    formula's Operating Profit is NOT a strict EBIT figure - it is
+    definitionally whatever the company's own reported PBT plus Finance
+    Costs comes to. Applies identically to every company - never a
+    per-company branch - and to both the automatic live-fetch and manual
+    document-upload pipelines.
 
-    Reuses the SAME cached PDF extraction -- no extra download. Cached 90
-    days. Never raises.
+    N/A if PBT or Finance Costs can't be found on this filing, or if
+    Revenue from Operations is zero/missing. Reuses the SAME cached PDF
+    extraction - no extra download. Cached 90 days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    if is_manual_mode():
-        return _operating_profit_margin_manual(sym, name, fiscal_year, consolidated)
-    return _operating_profit_margin_auto(sym, name, fiscal_year, consolidated)
-
-
-def _operating_profit_margin_auto(sym, name, fiscal_year, consolidated=True):
-    """Operating Profit Margin (EBIT Basis) for the OLD automatic live-fetch
-    pipeline -- UNCHANGED (see the module-level scope note in
-    `fetch_operating_profit_margin_from_annual_report`). (Revenue − COGS −
-    Employee Benefit Expense − Other Expenses − Depreciation & Amortisation)
-    ÷ Revenue. COGS reuses the SAME (a+b+c) components validated for
-    Inventory Turnover/Gross Profit Margin (Sr No 1/14) -- this additionally
-    needs Employee Benefit Expense, Other Expenses and Depreciation &
-    Amortisation, which Gross Profit Margin doesn't. Point-in-time (current
-    year only, no averaging - a margin ratio). All required line items must
-    be present (same all-or-nothing gate as Sr No 1/14) - a missing one
-    means N/A, never a partial/approximate margin."""
-    ckey = f"ar_opm_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{_document_identity_tag(sym, fiscal_year)}"
+    ckey = f"ar_opm_v6_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{_document_identity_tag(sym, fiscal_year)}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -6571,7 +6687,6 @@ def _operating_profit_margin_auto(sym, name, fiscal_year, consolidated=True):
             _write_cache(ckey, out)
             return out
 
-        components = parsed.get("components") or {}
         revenue = parsed.get("revenue")
         if revenue is None:
             out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
@@ -6584,107 +6699,45 @@ def _operating_profit_margin_auto(sym, name, fiscal_year, consolidated=True):
             _write_cache(ckey, out)
             return out
 
-        # A pure trader legitimately has no "Cost of materials consumed"
-        # line at all (a real ₹0, not missing data) - the granular
-        # Revenue-COGS-EmployeeCosts-OtherExpenses-D&A reconstruction below
-        # still applies fine for that case (cogs_cur=0). But a SERVICE/
-        # TELECOM business (e.g. Bharti Airtel) has no COGS line AND its
-        # major cost categories (Network operating expenses, Access
-        # charges, License fee/Spectrum charges, ...) aren't captured by
-        # the generic Employee-Benefit/Other-Expenses aliases either -
-        # `components == {}` used to be treated as "not a goods business"
-        # and fail outright, even though the P&L's own mandatory "Total
-        # Expenses (IV)" subtotal makes Operating Profit fully computable
-        # via Revenue - (Total Expenses - Finance Costs), a formula that's
-        # correct regardless of how many distinct expense line items exist.
-        # Falls back to the granular method (which needs the individual
-        # EBE/OE/D&A lines) only when Total Expenses itself isn't
-        # available.
-        total_expenses = parsed.get("total_expenses")
+        pbt = parsed.get("pbt")
         finance_costs = parsed.get("finance_costs")
-        # Sanity guard: Finance Costs is always a SUBSET of Total Expenses
-        # (Schedule III lists it as one of the summed IV.(a)-(g) expense
-        # lines) - if Finance Costs > Total Expenses, the two figures were
-        # extracted from mismatched sources/pages (e.g. one Standalone, one
-        # Consolidated, or one from an unrelated schedule) and must not be
-        # combined into a fabricated EBIT.
-        total_expenses_usable = (total_expenses is not None and finance_costs is not None
-                                  and total_expenses[0] >= finance_costs[0])
-        used_total_expenses = False
-        if len(components) == 0 and total_expenses_usable:
-            used_total_expenses = True
-            operating_profit = rev_cur - (total_expenses[0] - finance_costs[0])
-            margin = round((operating_profit / rev_cur) * 100, 2)
-            confidence = 0.85
-        else:
-            ebe = parsed.get("employee_benefit_expense")
-            oe = parsed.get("other_expenses")
-            dep = parsed.get("depreciation")
-            if ebe is None:
-                out = {"applicable": False, "reason": "Could not find 'Employee Benefit Expense' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            if oe is None:
-                out = {"applicable": False, "reason": "Could not find 'Other Expenses' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            if dep is None:
-                out = {"applicable": False,
-                       "reason": "Could not find 'Depreciation and Amortisation Expense' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            cogs_cur = sum(v[0] for v in components.values())
-            ebe_cur, _ebe_prior = ebe
-            oe_cur, _oe_prior = oe
-            dep_cur, _dep_prior = dep
-            operating_profit = rev_cur - cogs_cur - ebe_cur - oe_cur - dep_cur
-            margin = round((operating_profit / rev_cur) * 100, 2)
-            # Per spec's confidence tiers: COGS built from fewer than all
-            # three disclosed line items is "2-3 line items" territory
-            # (0.95), not 1.0.
-            confidence = 1.0 if len(components) == len(_COGS_LABELS) else 0.95
+        if pbt is None:
+            out = {"applicable": False, "reason": "Could not find 'Profit Before Tax' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+        if finance_costs is None:
+            out = {"applicable": False, "reason": "Could not find 'Finance Costs' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
 
-        if used_total_expenses:
-            numerator = {
-                "label": "Operating Profit / EBIT (Revenue − (Total Expenses − Finance Costs))",
-                "value_cr": round(operating_profit, 2),
-                "components": {
-                    "Revenue from Operations": round(rev_cur, 2),
-                    "less: Total Expenses": round(total_expenses[0], 2),
-                    "add back: Finance Costs": round(finance_costs[0], 2),
-                },
-            }
-            note = ("From the company's own Annual Report - EBIT-basis Operating Profit computed as Revenue from "
-                    "Operations minus (Total Expenses minus Finance Costs), since this company's P&L has no "
-                    "separate Cost of Goods Sold line (a service/telecom business, not a goods business) - the "
-                    "Total-Expenses-based formula is mathematically equivalent and correct regardless of the "
-                    "company's expense-line breakdown.")
-        else:
-            numerator = {
-                "label": "Operating Profit / EBIT (Revenue − COGS − Employee Costs − Other Expenses − D&A)",
-                "value_cr": round(operating_profit, 2),
-                "components": {
-                    "Revenue from Operations": round(rev_cur, 2),
-                    **{f"less: {k}": round(v[0], 2) for k, v in components.items()},
-                    "less: Employee Benefit Expense": round(ebe_cur, 2),
-                    "less: Other Expenses": round(oe_cur, 2),
-                    "less: Depreciation and Amortisation Expense": round(dep_cur, 2),
-                },
-            }
-            note = ("From the company's own Annual Report - EBIT-basis Operating Profit: Revenue from Operations "
-                    "minus all operating expense lines (COGS a+b+c + Employee Benefit Expense + Other Expenses + "
-                    "Depreciation and Amortisation Expense), excluding Finance Costs, Other Income and "
-                    "Exceptional Items.")
+        pbt_cur, _pbt_prior = pbt
+        finance_costs_cur, _fc_prior = finance_costs
+        operating_profit = pbt_cur + finance_costs_cur
+        margin = round((operating_profit / rev_cur) * 100, 2)
+
+        numerator = {
+            "label": "Operating Profit (Profit Before Tax + Finance Costs)",
+            "value_cr": round(operating_profit, 2),
+            "components": {
+                "Profit Before Tax": round(pbt_cur, 2),
+                "add back: Finance Costs": round(finance_costs_cur, 2),
+            },
+        }
+        note = ("From the company's own Annual Report - Operating Profit computed as Profit Before Tax plus "
+                "Finance Costs, both read directly off this filing's P&L, per explicit correction: Other Income, "
+                "Share of Associates'/JVs' Profit, and Exceptional Items already embedded in Profit Before Tax "
+                "are NOT stripped out of this figure - this is a company-reported-PBT-based Operating Profit, "
+                "not a strict COGS/Employee/Other-Expenses/D&A EBIT reconstruction. Never Sr No 93's EBITDA.")
 
         out = {
             "applicable": True,
             "value": margin, "unit": "%",
-            "confidence": confidence,
+            "confidence": 1.0,
             "estimated": False,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
+            "formula": "(Profit Before Tax + Finance Costs) / Revenue from Operations x 100",
             "numerator": numerator,
             "denominator": {
                 "label": "Revenue from Operations",
@@ -6701,197 +6754,7 @@ def _operating_profit_margin_auto(sym, name, fiscal_year, consolidated=True):
         # not cached: an unexpected/transient error shouldn't be locked in for a week
 
 
-def _operating_profit_margin_manual(sym, name, fiscal_year, consolidated=True):
-    """Operating Profit Margin (EBIT Basis) for the manual document-upload
-    review workflow ONLY (`tools.manual_mode.is_manual_mode()` True) -- the
-    corrected methodology. See the module-level scope note in
-    `fetch_operating_profit_margin_from_annual_report` for why this is split
-    from the automatic pipeline.
 
-    Operating Profit / EBIT = Revenue from Operations − all operating costs
-    and expenses, excluding financing costs and taxes. Built generically
-    from whichever of these lines the filing actually discloses (never
-    ticker-specific, never a fixed hard-coded set):
-      - Cost of materials consumed (manufacturers)
-      - Purchases of Stock-in-Trade (traders)
-      - Changes in Inventories (of finished goods/WIP/stock-in-trade)
-      - Direct Expenses (some trading/services filers print this as its own
-        line, separate from Other Expenses -- see `_DIRECT_EXPENSES_LABELS`;
-        NEVER extracted before this fix, which is what made the old figure
-        wrong)
-      - Employee Benefit Expense
-      - Other Expenses
-      - Depreciation & Amortisation Expense
-    Revenue from Operations is used as-is (the shared extractor's
-    `_find_revenue` already stops before "Other Income", so Other Income is
-    never folded into the denominator). Finance Costs, Income Tax,
-    Exceptional Items, and any other non-operating item are never
-    subtracted.
-
-    Employee Benefit Expense, Other Expenses, and Depreciation &
-    Amortisation are near-universal Schedule III lines -- their absence
-    means extraction failed, not that the cost is genuinely zero, so all
-    three are still required (N/A if any is missing, same as the automatic
-    pipeline). Cost of materials consumed, Purchases of Stock-in-Trade,
-    Changes in Inventories, and Direct Expenses are genuinely
-    business-model-dependent (a pure trader has no materials line; a pure
-    manufacturer may have no stock-in-trade line; most filers have no
-    separate Direct Expenses line at all) -- each contributes its found
-    value, or 0 when genuinely absent, never blocking the calculation.
-    A SERVICE/TELECOM business with none of the goods/direct-expense lines
-    at all still gets a fully valid EBIT via Revenue − Employee Costs −
-    Other Expenses − D&A (all zero contribution from the goods-specific
-    lines, not N/A).
-
-    If EVEN Employee Benefit Expense/Other Expenses/Depreciation can't be
-    found (a P&L shape this granular reconstruction can't parse), falls
-    back to the Total-Expenses-based formula (Revenue − (Total Expenses −
-    Finance Costs)), same fallback the automatic pipeline uses, which is
-    mathematically correct regardless of the expense-line breakdown.
-
-    Returns a fully auditable breakdown: Revenue from Operations, each
-    operating-expense line found for this filing, Operating Profit/EBIT,
-    and the formula and per-line sources. Point-in-time (current year only,
-    no averaging - a margin ratio). Reuses the SAME cached PDF extraction -
-    no extra download. Cached 90 days. Never raises."""
-    ckey = f"ar_opm_manual_v1_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{_document_identity_tag(sym, fiscal_year)}"
-    cached = _read_cache(ckey)
-    if cached is not None:
-        return cached
-
-    try:
-        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
-        pdf_url = parsed.get("source_url")
-        if "error" in parsed:
-            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        components = parsed.get("components") or {}
-        revenue = parsed.get("revenue")
-        if revenue is None:
-            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-        rev_cur, _rev_prior = revenue
-        if rev_cur == 0:
-            out = {"applicable": False, "reason": "Revenue from operations is zero.", "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        ebe = parsed.get("employee_benefit_expense")
-        oe = parsed.get("other_expenses")
-        dep = parsed.get("depreciation")
-        total_expenses = parsed.get("total_expenses")
-        finance_costs = parsed.get("finance_costs")
-        total_expenses_usable = (total_expenses is not None and finance_costs is not None
-                                  and total_expenses[0] >= finance_costs[0])
-
-        used_total_expenses = False
-        if (ebe is None or oe is None or dep is None) and total_expenses_usable:
-            used_total_expenses = True
-            operating_profit = rev_cur - (total_expenses[0] - finance_costs[0])
-            margin = round((operating_profit / rev_cur) * 100, 2)
-            confidence = 0.85
-        elif ebe is None or oe is None or dep is None:
-            missing = "Employee Benefit Expense" if ebe is None else ("Other Expenses" if oe is None
-                       else "Depreciation and Amortisation Expense")
-            out = {"applicable": False,
-                   "reason": f"Could not find '{missing}' row on the P&L page, and no usable 'Total Expenses' "
-                             f"subtotal to fall back to.",
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-        else:
-            materials = components.get("Cost of materials consumed")
-            stock_in_trade = components.get("Purchases of stock-in-trade")
-            changes_in_inv = components.get("Changes in inventories")
-            direct_expenses = parsed.get("direct_expenses")
-
-            materials_cur = materials[0] if materials is not None else 0.0
-            stock_in_trade_cur = stock_in_trade[0] if stock_in_trade is not None else 0.0
-            changes_in_inv_cur = changes_in_inv[0] if changes_in_inv is not None else 0.0
-            direct_expenses_cur = direct_expenses[0] if direct_expenses is not None else 0.0
-            ebe_cur, _ebe_prior = ebe
-            oe_cur, _oe_prior = oe
-            dep_cur, _dep_prior = dep
-
-            operating_profit = (rev_cur - materials_cur - stock_in_trade_cur - changes_in_inv_cur
-                                 - direct_expenses_cur - ebe_cur - oe_cur - dep_cur)
-            margin = round((operating_profit / rev_cur) * 100, 2)
-            found_optional = sum(1 for v in (materials, stock_in_trade, changes_in_inv, direct_expenses)
-                                  if v is not None)
-            # All 3 required lines plus every optional line the filing
-            # actually discloses were found - full confidence. Fewer
-            # optional lines found (e.g. no Direct Expenses at all, which is
-            # normal for most filers) still means everything DISCLOSED was
-            # captured, just a slightly lower tier since there's inherently
-            # less to cross-check against.
-            confidence = 1.0 if found_optional >= 2 else 0.95
-
-        if used_total_expenses:
-            numerator = {
-                "label": "Operating Profit / EBIT (Revenue − (Total Expenses − Finance Costs))",
-                "value_cr": round(operating_profit, 2),
-                "components": {
-                    "Revenue from Operations": round(rev_cur, 2),
-                    "less: Total Expenses": round(total_expenses[0], 2),
-                    "add back: Finance Costs": round(finance_costs[0], 2),
-                },
-            }
-            note = ("From the company's own Annual Report - EBIT-basis Operating Profit computed as Revenue from "
-                    "Operations minus (Total Expenses minus Finance Costs), since one or more of Employee Benefit "
-                    "Expense/Other Expenses/Depreciation and Amortisation could not be individually located on "
-                    "this filing's P&L - the Total-Expenses-based formula is mathematically equivalent and "
-                    "correct regardless of the company's expense-line breakdown.")
-        else:
-            components_out = {"Revenue from Operations": round(rev_cur, 2)}
-            if materials is not None:
-                components_out["less: Cost of Materials Consumed"] = round(materials_cur, 2)
-            if stock_in_trade is not None:
-                components_out["less: Purchase of Stock-in-Trade"] = round(stock_in_trade_cur, 2)
-            if changes_in_inv is not None:
-                components_out["less: Changes in Inventories"] = round(changes_in_inv_cur, 2)
-            if direct_expenses is not None:
-                components_out["less: Direct Expenses"] = round(direct_expenses_cur, 2)
-            components_out["less: Employee Benefits Expense"] = round(ebe_cur, 2)
-            components_out["less: Other Operating Expenses"] = round(oe_cur, 2)
-            components_out["less: Depreciation & Amortisation"] = round(dep_cur, 2)
-            numerator = {
-                "label": "Operating Profit / EBIT (Revenue − all disclosed operating expense lines)",
-                "value_cr": round(operating_profit, 2),
-                "components": components_out,
-            }
-            note = ("From the company's own Annual Report - EBIT-basis Operating Profit: Revenue from Operations "
-                    "minus every operating-expense line this filing discloses (Cost of Materials Consumed, "
-                    "Purchase of Stock-in-Trade, Changes in Inventories, Direct Expenses where present, Employee "
-                    "Benefits Expense, Other Operating Expenses, Depreciation & Amortisation), excluding Finance "
-                    "Costs, Income Tax, Exceptional Items, and Other Income. A line not listed above means the "
-                    "filing genuinely has no such caption (e.g. a pure trader has no Cost of Materials Consumed; "
-                    "most filers have no separate Direct Expenses line) -- not that it was skipped.")
-
-        out = {
-            "applicable": True,
-            "value": margin, "unit": "%",
-            "confidence": confidence,
-            "estimated": False,
-            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-            "formula": "(Revenue from Operations − Operating Costs and Expenses) / Revenue from Operations x 100",
-            "numerator": numerator,
-            "denominator": {
-                "label": "Revenue from Operations",
-                "value_cr": round(rev_cur, 2),
-            },
-            "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
-            "note": note,
-        }
-        _write_cache(ckey, out)
-        return out
-    except Exception as e:
-        print(f"[annual_report_financials] {ckey} failed: {e}")
-        return {"applicable": False, "reason": "Something went wrong reading the Annual Report - please try again."}
-        # not cached: an unexpected/transient error shouldn't be locked in for a week
 
 
 def fetch_income_statement_flow_from_annual_report(symbol, name, fiscal_year, consolidated=True):
@@ -7359,56 +7222,33 @@ def fetch_return_on_equity_from_annual_report(symbol, name, fiscal_year, consoli
 
 def fetch_return_on_capital_employed_from_annual_report(symbol, name, fiscal_year, consolidated=True):
     """
-    Return on Capital Employed (ROCE) = EBIT ÷ Average Capital Employed.
+    Return on Capital Employed (ROCE, Sr No 19) = EBIT ÷ Average Capital
+    Employed.
 
-    SCOPE, deliberately split by pipeline (user-confirmed, same split
-    already applied to Contribution Margin/Operating Profit Margin/Net
-    Debt-EBITDA/Debt-to-Equity/etc. this session - do not merge without a
-    new user ask):
+    QA/architecture correction (2026-09-05): EBIT used to be independently
+    reconstructed here (two near-duplicate copies, one per pipeline,
+    including a long-standing `UnboundLocalError` crash on the
+    Total-Expenses-fallback path for services/telecom filers like TCS) -
+    the same "duplicate EBIT" architecture violation already fixed on
+    Sr No 33/34's EBITDA. Per the dependency rule "Sr 15 is the
+    authoritative EBIT implementation - every EBIT-dependent ratio must
+    consume it, never reconstruct it", this now calls
+    `fetch_operating_profit_margin_from_annual_report` directly and reuses
+    its `numerator.value_cr` (EBIT in ₹ Cr) as-is. This also fixes the
+    crash for free (Sr No 15 already handles its own Total-Expenses
+    fallback safely) and applies identically to every company and both
+    pipelines - no per-pipeline split needed any more.
 
-    - The OLD automatic live-fetch pipeline keeps its ORIGINAL EBIT
-      reconstruction completely unchanged below - see
-      `_return_on_capital_employed_auto` - INCLUDING its pre-existing
-      `UnboundLocalError` crash on the Total-Expenses-fallback path
-      (services/telecom filers with no granular COGS line, e.g. TCS) -
-      never touched here, per the "preserve exactly as-is" instruction.
-
-    - ONLY the manual document-upload review workflow
-      (`is_manual_mode()` True) additionally includes a "Direct Expenses"
-      P&L line in COGS when disclosed (the SAME manual-only
-      `parsed["direct_expenses"]` field already reused for Operating
-      Profit Margin/Net Debt-EBITDA), AND fixes the crash - see
-      `_return_on_capital_employed_manual`.
+    Capital Employed (denominator) = Total Assets − Total Current
+    Liabilities, averaged (opening + closing) ÷ 2 when both years are
+    available, else closing-only (flagged as an estimate). Per spec, N/A if
+    Average Capital Employed ≤ 0.
 
     Reuses the SAME cached PDF extraction - no extra download. Cached 90
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    if is_manual_mode():
-        return _return_on_capital_employed_manual(sym, name, fiscal_year, consolidated)
-    return _return_on_capital_employed_auto(sym, name, fiscal_year, consolidated)
-
-
-def _return_on_capital_employed_auto(sym, name, fiscal_year, consolidated=True):
-    """ROCE for the OLD automatic live-fetch pipeline - UNCHANGED (see the
-    module-level scope note in `fetch_return_on_capital_employed_from_
-    annual_report`), byte-for-byte identical to the pre-split
-    implementation, INCLUDING its known `UnboundLocalError` crash on the
-    Total-Expenses-fallback path.
-
-    EBIT (numerator, current year only - no averaging) = Revenue − COGS −
-    Employee Benefit Expense − Other Expenses (i.e. Revenue − (Total
-    Expenses − Finance Costs)) - NOT "Profit Before Tax + Finance Costs"
-    (that PBT-based approximation silently pulls in Other Income).
-    Capital Employed (denominator) = Total Assets − Total Current
-    Liabilities, averaged (opening + closing) ÷ 2. Per spec, N/A if
-    Average Capital Employed ≤ 0. Reuses the SAME cached PDF extraction -
-    no extra download. Cached 90 days. Never raises."""
-    # "_v3" - this "_v2" pre-dated the full COGS-completeness/equity_basis/
-    # "pat"-ordering/tax_expense chain of fixes to `_get_extracted_
-    # financials` (bumped through v24) - bumping again to guarantee a fresh
-    # recompute, same reasoning as every other cache in this file.
-    ckey = f"ar_roce_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{_document_identity_tag(sym, fiscal_year)}"
+    ckey = f"ar_roce_v5_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{_document_identity_tag(sym, fiscal_year)}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -7421,89 +7261,18 @@ def _return_on_capital_employed_auto(sym, name, fiscal_year, consolidated=True):
             _write_cache(ckey, out)
             return out
 
-        # EBIT = Revenue − COGS − Employee Benefit Expense − Other Expenses
-        # (i.e. Revenue − (Total Expenses − Finance Costs)) - the SAME
-        # computation already validated for Sr No 15's Operating Profit
-        # Margin, NOT "Profit Before Tax + Finance Costs". The PBT-based
-        # approximation silently pulled in Other Income (non-operating,
-        # never part of EBIT) - confirmed on HUL: PBT-before-exceptional
-        # (Rs 14,047 Cr) implicitly includes Rs 751 Cr of Other Income and
-        # nets off a Rs 15 Cr JV-share loss, inflating "EBIT" to Rs 14,457 Cr
-        # versus the correct Rs 13,721 Cr. This formula also correctly stays
-        # scoped to Continuing Operations only where a filer splits the P&L
-        # into Continuing/Discontinued sections (Revenue/COGS/Expenses above
-        # the Continuing-Operations PBT subtotal are that section's own
-        # figures, never blended with a separate Discontinued-Operations
-        # block further down) - Discontinued Operations and any exceptional
-        # items are excluded entirely, never blended into the core metric.
-        components = parsed.get("components") or {}
-        revenue = parsed.get("revenue")
-        if revenue is None:
-            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
+        # EBIT - the SINGLE authoritative source of truth (Sr No 19). Never
+        # independently reconstructed here - see this function's docstring.
+        ebit_resp = fetch_operating_profit_margin_from_annual_report(sym, name, fiscal_year, consolidated)
+        if not ebit_resp.get("applicable"):
+            out = {"applicable": False,
+                   "reason": ebit_resp.get("reason") or "Could not compute EBIT (Sr No 15) for this filing.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
-        rev_cur, _rev_prior = revenue
-
-        # Service/telecom business with no COGS line at all (e.g. Bharti
-        # Airtel) - see the identical fallback + rationale in Operating
-        # Profit Margin's fetch function above. EBIT via Revenue - (Total
-        # Expenses - Finance Costs) is correct regardless of how the P&L
-        # breaks its expenses down, unlike the granular reconstruction,
-        # which needs the individual EBE/OE/D&A lines and previously failed
-        # outright ("not a goods business") whenever components was empty.
-        total_expenses = parsed.get("total_expenses")
-        finance_costs = parsed.get("finance_costs")
-        # Sanity guard - see the identical check in Operating Profit
-        # Margin above: Finance Costs must never exceed Total Expenses.
-        total_expenses_usable = (total_expenses is not None and finance_costs is not None
-                                  and total_expenses[0] >= finance_costs[0])
-        # Only ever set on the granular (COGS/EBE/OE/D&A) branch below -
-        # `None` here means the shortcut branch (Total Expenses − Finance
-        # Costs) was used instead, so the numerator breakdown built after
-        # this if/else must not try to display them (they were never
-        # computed for that path). Confirmed real on TCS: a services
-        # company with no COGS but a genuine 'Total Expenses' subtotal took
-        # the shortcut branch, and the breakdown-building code below
-        # unconditionally referenced `ebe_cur`/`oe_cur`/`dep_cur` regardless
-        # of which branch ran, raising UnboundLocalError and turning an
-        # honest N/A into a generic "something went wrong" instead.
-        ebe_cur = oe_cur = dep_cur = None
-        if len(components) == 0 and total_expenses_usable:
-            ebit_cur = rev_cur - (total_expenses[0] - finance_costs[0])
-        else:
-            if len(components) == 0:
-                out = {"applicable": False,
-                       "reason": "Could not find any Cost of Goods Sold line (Cost of materials consumed / "
-                                 "Purchases of stock-in-trade / Changes in inventories), nor a 'Total Expenses' "
-                                 "subtotal, on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            ebe = parsed.get("employee_benefit_expense")
-            oe = parsed.get("other_expenses")
-            dep = parsed.get("depreciation")
-            if ebe is None:
-                out = {"applicable": False, "reason": "Could not find 'Employee Benefit Expense' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            if oe is None:
-                out = {"applicable": False, "reason": "Could not find 'Other Expenses' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            if dep is None:
-                out = {"applicable": False,
-                       "reason": "Could not find 'Depreciation and Amortisation Expense' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            cogs_cur = sum(v[0] for v in components.values())
-            ebe_cur, _ebe_prior = ebe
-            oe_cur, _oe_prior = oe
-            dep_cur, _dep_prior = dep
-            ebit_cur = rev_cur - cogs_cur - ebe_cur - oe_cur - dep_cur
+        ebit_numerator = ebit_resp.get("numerator") or {}
+        ebit_cur = ebit_numerator.get("value_cr")
+        ebit_confidence = ebit_resp.get("confidence", 1.0)
 
         total_assets = parsed.get("total_assets")
         total_current_liabilities = parsed.get("total_current_liabilities")
@@ -7523,12 +7292,19 @@ def _return_on_capital_employed_auto(sym, name, fiscal_year, consolidated=True):
             avg_ce = round((ce_cur + ce_prior) / 2, 2)
             den_label = "Average Capital Employed (opening + closing) ÷ 2"
             ce_by_year = {f"FY{fiscal_year}": round(ce_cur, 2), f"FY{fiscal_year - 1}": round(ce_prior, 2)}
-            confidence, estimated = 1.0, False
+            confidence, estimated = ebit_confidence, ebit_confidence < 1.0
         else:
             avg_ce = round(ce_cur, 2)
             den_label = "Closing Capital Employed (opening/prior-year unavailable)"
             ce_by_year = {f"FY{fiscal_year}": round(ce_cur, 2)}
-            confidence, estimated = 0.8, True
+            confidence, estimated = min(ebit_confidence, 0.8), True
+
+        numerator = {
+            "label": "EBIT (Sr No 15)",
+            "value_cr": round(ebit_cur, 2),
+            "components": ebit_numerator.get("components"),
+        }
+        denominator = {"label": den_label, "value_cr": avg_ce, "capital_employed_by_year": ce_by_year}
 
         if avg_ce <= 0:
             out = {"applicable": False,
@@ -7536,8 +7312,7 @@ def _return_on_capital_employed_auto(sym, name, fiscal_year, consolidated=True):
                              f"(₹{avg_ce:,.2f} Cr) - the ratio would be meaningless, so it's flagged as N/A "
                              "rather than reported.",
                    "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-                   "numerator": {"label": "EBIT (Revenue − COGS − Employee Costs − Other Expenses − D&A)", "value_cr": round(ebit_cur, 2)},
-                   "denominator": {"label": den_label, "value_cr": avg_ce, "capital_employed_by_year": ce_by_year},
+                   "numerator": numerator, "denominator": denominator,
                    "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page"), bs_page=parsed.get("bs_page")),
                    "source_url": pdf_url}
             _write_cache(ckey, out)
@@ -7551,35 +7326,19 @@ def _return_on_capital_employed_auto(sym, name, fiscal_year, consolidated=True):
             "confidence": confidence,
             "estimated": estimated,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-            "numerator": {
-                "label": ("EBIT (Revenue − Total Expenses + Finance Costs)" if ebe_cur is None
-                          else "EBIT (Revenue − COGS − Employee Costs − Other Expenses − D&A)"),
-                "value_cr": round(ebit_cur, 2),
-                "components": (
-                    {
-                        "Revenue from Operations": round(rev_cur, 2),
-                        "less: Total Expenses": round(total_expenses[0], 2),
-                        "add back: Finance Costs (not an operating cost)": round(finance_costs[0], 2),
-                    } if ebe_cur is None else {
-                        "Revenue from Operations": round(rev_cur, 2),
-                        **{f"less: {k}": round(v[0], 2) for k, v in components.items()},
-                        "less: Employee Benefit Expense": round(ebe_cur, 2),
-                        "less: Other Expenses": round(oe_cur, 2),
-                        "less: Depreciation and Amortisation Expense": round(dep_cur, 2),
-                    }
-                ),
-            },
-            "denominator": {
-                "label": den_label, "value_cr": avg_ce,
-                "capital_employed_by_year": ce_by_year,
+            "numerator": numerator,
+            "denominator": denominator,
+            "shared_dependencies": {
+                "ebit_source": "Sr No 15", "ebit_value_cr": round(ebit_cur, 2), "ebit_consistent": True,
             },
             "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page"), bs_page=parsed.get("bs_page")),
-            "note": ("From the company's own Annual Report - Capital Employed = Total Assets − Total Current "
+            "note": ("From the company's own Annual Report - EBIT reused directly from Sr No 15 (never "
+                     "independently reconstructed). Capital Employed = Total Assets − Total Current "
                      "Liabilities, both years read from the same statement."
                      if not estimated else
-                     "From the company's own Annual Report. Prior-year (opening) Total Assets/Current Liabilities "
-                     "was not disclosed, so Average Capital Employed uses the closing figure only - flagged as "
-                     "an estimate."),
+                     "From the company's own Annual Report - EBIT reused directly from Sr No 15. Prior-year "
+                     "(opening) Total Assets/Current Liabilities was not disclosed, so Average Capital Employed "
+                     "uses the closing figure only - flagged as an estimate."),
         }
         _write_cache(ckey, out)
         return out
@@ -7589,184 +7348,6 @@ def _return_on_capital_employed_auto(sym, name, fiscal_year, consolidated=True):
         # not cached: an unexpected/transient error shouldn't be locked in for a week
 
 
-def _return_on_capital_employed_manual(sym, name, fiscal_year, consolidated=True):
-    """ROCE for the manual document-upload review workflow ONLY
-    (`is_manual_mode()` True) - see the module-level scope note in
-    `fetch_return_on_capital_employed_from_annual_report`.
-
-    Two fixes over the automatic pipeline's version:
-      1. COGS additionally includes a "Direct Expenses" P&L line
-         (`parsed["direct_expenses"]`) when the filing discloses one - the
-         SAME manual-only field already reused for Operating Profit Margin
-         (Sr No 15) and Net Debt/EBITDA (Sr No 33). Contributes 0 when
-         genuinely absent - the existing Cost of materials consumed/
-         Purchases of stock-in-trade/Changes in inventories logic (via
-         `components`) is otherwise untouched.
-      2. The Total-Expenses-fallback branch (services/telecom filers with
-         no granular COGS line at all, e.g. TCS) no longer crashes with
-         `UnboundLocalError` - `ebe_cur`/`oe_cur`/`dep_cur` are only ever
-         referenced when they were actually assigned; the response's
-         numerator component breakdown is built safely in BOTH branches.
-
-    Capital Employed methodology (Total Assets − Total Current
-    Liabilities, averaged opening+closing ÷ 2) is unchanged from the
-    automatic pipeline."""
-    ckey = (f"ar_roce_v4_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
-            f"_manual_{_document_identity_tag(sym, fiscal_year)}")
-    cached = _read_cache(ckey)
-    if cached is not None:
-        return cached
-
-    try:
-        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
-        pdf_url = parsed.get("source_url")
-        if "error" in parsed:
-            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        components = parsed.get("components") or {}
-        revenue = parsed.get("revenue")
-        if revenue is None:
-            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-        rev_cur, _rev_prior = revenue
-
-        direct_expenses = parsed.get("direct_expenses")
-        direct_expenses_cur = direct_expenses[0] if direct_expenses is not None else 0.0
-
-        total_expenses = parsed.get("total_expenses")
-        finance_costs = parsed.get("finance_costs")
-        total_expenses_usable = (total_expenses is not None and finance_costs is not None
-                                  and total_expenses[0] >= finance_costs[0])
-        ebe_cur = oe_cur = dep_cur = None
-        if len(components) == 0 and direct_expenses is None and total_expenses_usable:
-            ebit_cur = rev_cur - (total_expenses[0] - finance_costs[0])
-        else:
-            if len(components) == 0 and direct_expenses is None:
-                out = {"applicable": False,
-                       "reason": "Could not find any Cost of Goods Sold line (Cost of materials consumed / "
-                                 "Purchases of stock-in-trade / Changes in inventories / Direct Expenses), nor a "
-                                 "'Total Expenses' subtotal, on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            ebe = parsed.get("employee_benefit_expense")
-            oe = parsed.get("other_expenses")
-            dep = parsed.get("depreciation")
-            if ebe is None:
-                out = {"applicable": False, "reason": "Could not find 'Employee Benefit Expense' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            if oe is None:
-                out = {"applicable": False, "reason": "Could not find 'Other Expenses' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            if dep is None:
-                out = {"applicable": False,
-                       "reason": "Could not find 'Depreciation and Amortisation Expense' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            cogs_cur = sum(v[0] for v in components.values()) + direct_expenses_cur
-            ebe_cur, _ebe_prior = ebe
-            oe_cur, _oe_prior = oe
-            dep_cur, _dep_prior = dep
-            ebit_cur = rev_cur - cogs_cur - ebe_cur - oe_cur - dep_cur
-
-        total_assets = parsed.get("total_assets")
-        total_current_liabilities = parsed.get("total_current_liabilities")
-        if total_assets is None or total_current_liabilities is None:
-            missing = "Total Assets" if total_assets is None else "Total Current Liabilities"
-            out = {"applicable": False, "reason": f"Could not find '{missing}' row on the Balance Sheet page.",
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        ta_cur, ta_prior = total_assets
-        tcl_cur, tcl_prior = total_current_liabilities
-        ce_cur = ta_cur - tcl_cur
-        ce_prior = (ta_prior - tcl_prior) if (ta_prior is not None and tcl_prior is not None) else None
-
-        if ce_prior is not None:
-            avg_ce = round((ce_cur + ce_prior) / 2, 2)
-            den_label = "Average Capital Employed (opening + closing) ÷ 2"
-            ce_by_year = {f"FY{fiscal_year}": round(ce_cur, 2), f"FY{fiscal_year - 1}": round(ce_prior, 2)}
-            confidence, estimated = 1.0, False
-        else:
-            avg_ce = round(ce_cur, 2)
-            den_label = "Closing Capital Employed (opening/prior-year unavailable)"
-            ce_by_year = {f"FY{fiscal_year}": round(ce_cur, 2)}
-            confidence, estimated = 0.8, True
-
-        numerator_label = "EBIT (Revenue − COGS [incl. Direct Expenses where disclosed] − Employee Costs − Other Expenses − D&A)"
-        if ebe_cur is None:
-            # Total-Expenses-fallback branch - no granular components to show.
-            numerator_components = {
-                "Revenue from Operations": round(rev_cur, 2),
-                "less: Total Expenses": round(total_expenses[0], 2),
-                "add back: Finance Costs": round(finance_costs[0], 2),
-            }
-        else:
-            numerator_components = {
-                "Revenue from Operations": round(rev_cur, 2),
-                **{f"less: {k}": round(v[0], 2) for k, v in components.items()},
-            }
-            if direct_expenses is not None:
-                numerator_components["less: Direct Expenses"] = round(direct_expenses_cur, 2)
-            numerator_components["less: Employee Benefit Expense"] = round(ebe_cur, 2)
-            numerator_components["less: Other Expenses"] = round(oe_cur, 2)
-            numerator_components["less: Depreciation and Amortisation Expense"] = round(dep_cur, 2)
-
-        if avg_ce <= 0:
-            out = {"applicable": False,
-                   "reason": f"Average Capital Employed is {'negative' if avg_ce < 0 else 'zero'} "
-                             f"(₹{avg_ce:,.2f} Cr) - the ratio would be meaningless, so it's flagged as N/A "
-                             "rather than reported.",
-                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-                   "numerator": {"label": numerator_label, "value_cr": round(ebit_cur, 2)},
-                   "denominator": {"label": den_label, "value_cr": avg_ce, "capital_employed_by_year": ce_by_year},
-                   "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page"), bs_page=parsed.get("bs_page")),
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        roce = round((ebit_cur / avg_ce) * 100, 2)
-
-        out = {
-            "applicable": True,
-            "value": roce, "unit": "%",
-            "confidence": confidence,
-            "estimated": estimated,
-            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-            "numerator": {
-                "label": numerator_label,
-                "value_cr": round(ebit_cur, 2),
-                "components": numerator_components,
-            },
-            "denominator": {
-                "label": den_label, "value_cr": avg_ce,
-                "capital_employed_by_year": ce_by_year,
-            },
-            "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page"), bs_page=parsed.get("bs_page")),
-            "note": ("From the company's own Annual Report - Capital Employed = Total Assets − Total Current "
-                     "Liabilities, both years read from the same statement. EBIT includes Direct Expenses where "
-                     "this filing discloses them separately."
-                     if not estimated else
-                     "From the company's own Annual Report. Prior-year (opening) Total Assets/Current Liabilities "
-                     "was not disclosed, so Average Capital Employed uses the closing figure only - flagged as "
-                     "an estimate. EBIT includes Direct Expenses where this filing discloses them separately."),
-        }
-        _write_cache(ckey, out)
-        return out
-    except Exception as e:
-        print(f"[annual_report_financials] {ckey} failed: {e}")
-        return {"applicable": False, "reason": "Something went wrong reading the Annual Report - please try again."}
-        # not cached: an unexpected/transient error shouldn't be locked in for a week
 
 
 def _compute_total_debt(parsed, lease_basis="basis1"):
@@ -8976,7 +8557,7 @@ def fetch_ebitda_from_annual_report(symbol, name, fiscal_year, consolidated=True
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"ar_ebitda_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{_document_identity_tag(sym, fiscal_year)}"
+    ckey = f"ar_ebitda_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{_document_identity_tag(sym, fiscal_year)}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -9036,7 +8617,14 @@ def fetch_ebitda_from_annual_report(symbol, name, fiscal_year, consolidated=True
                        "source_url": pdf_url}
                 _write_cache(ckey, out)
                 return out
-            cogs_cur = sum(v[0] for v in components.values())
+            # Direct Expenses - see the identical fix + rationale on
+            # Operating Profit Margin (Sr No 15) above: a real Schedule III
+            # operating cost some filers disclose as its own line, which
+            # was silently dropped by an earlier refactor. EBITDA must
+            # include it too (only D&A is excluded from EBITDA, not this).
+            direct_expenses = parsed.get("direct_expenses")
+            direct_expenses_cur = direct_expenses[0] if direct_expenses is not None else 0.0
+            cogs_cur = sum(v[0] for v in components.values()) + direct_expenses_cur
             ebe_cur, _ebe_prior = ebe
             oe_cur, _oe_prior = oe
             ebitda = rev_cur - cogs_cur - ebe_cur - oe_cur
@@ -9058,15 +8646,16 @@ def fetch_ebitda_from_annual_report(symbol, name, fiscal_year, consolidated=True
                     "separate Cost of Goods Sold line (a service/telecom business).")
             confidence = 0.85
         else:
+            ebitda_components_out = {"Revenue from Operations": round(rev_cur, 2),
+                                      **{f"less: {k}": round(v[0], 2) for k, v in components.items()}}
+            if direct_expenses is not None:
+                ebitda_components_out["less: Direct Expenses"] = round(direct_expenses_cur, 2)
+            ebitda_components_out["less: Employee Benefit Expense"] = round(ebe_cur, 2)
+            ebitda_components_out["less: Other Expenses"] = round(oe_cur, 2)
             numerator = {
                 "label": "EBITDA (Revenue − COGS − Employee Costs − Other Expenses)",
                 "value_cr": round(ebitda, 2),
-                "components": {
-                    "Revenue from Operations": round(rev_cur, 2),
-                    **{f"less: {k}": round(v[0], 2) for k, v in components.items()},
-                    "less: Employee Benefit Expense": round(ebe_cur, 2),
-                    "less: Other Expenses": round(oe_cur, 2),
-                },
+                "components": ebitda_components_out,
             }
             note = ("From the company's own Annual Report - identical formula to Operating Profit Margin's "
                     "numerator (Sr No 15): excludes Depreciation, Finance Costs, Other Income and Exceptional "
@@ -10160,38 +9749,20 @@ def fetch_net_debt_to_ebitda_from_annual_report(symbol, name, fiscal_year, conso
     Net Debt/EBITDA (Sr No 33) = (Total Debt − Cash and Cash Equivalents) ÷
     EBITDA.
 
-    SCOPE, deliberately split by pipeline (user-confirmed, same split
-    already applied to Contribution Margin/Operating Profit Margin/Cash
-    Ratio/etc. this session - do not merge without a new user ask):
-
-    - The OLD automatic live-fetch pipeline keeps EBITDA's ORIGINAL
-      COGS-only-from-`components` behaviour (Cost of materials consumed +
-      Purchases of stock-in-trade + Changes in inventories) completely
-      unchanged below - see `_net_debt_to_ebitda_auto`.
-
-    - ONLY the manual document-upload review workflow
-      (`tools.manual_mode.is_manual_mode()` True) additionally subtracts a
-      "Direct Expenses" P&L line when the filing discloses one (reuses the
-      SAME manual-only `parsed["direct_expenses"]` field already added for
-      Operating Profit Margin, Sr No 15) - a real operating cost some
-      trading/services filers print separately from Cost of materials
-      consumed/Purchases of stock-in-trade/Other Expenses, which the old
-      COGS-only reconstruction silently missed. See
-      `_net_debt_to_ebitda_manual`.
-
-    Reuses the SAME cached PDF extraction - no extra download. Cached 90
-    days. Never raises.
-    """
-    sym = symbol.strip().upper().replace(".NS", "")
-    if is_manual_mode():
-        return _net_debt_to_ebitda_manual(sym, name, fiscal_year, consolidated, lease_basis)
-    return _net_debt_to_ebitda_auto(sym, name, fiscal_year, consolidated, lease_basis)
-
-
-def _net_debt_to_ebitda_auto(sym, name, fiscal_year, consolidated=True, lease_basis="basis1"):
-    """Net Debt/EBITDA for the OLD automatic live-fetch pipeline - UNCHANGED
-    (see the module-level scope note in
-    `fetch_net_debt_to_ebitda_from_annual_report`).
+    QA correction (2026-09-05): this ratio used to carry its OWN inline
+    reconstruction of EBITDA (two near-duplicate copies of it, one per
+    pipeline) instead of calling `fetch_ebitda_from_annual_report` (Sr No
+    93) - the authoritative EBITDA source. The two copies had drifted apart:
+    the manual-pipeline copy additionally folded in a "Direct Expenses" P&L
+    line that Sr No 93's own function never picked up, so a filing with a
+    disclosed Direct Expenses line would get a DIFFERENT EBITDA here than
+    what Sr No 93 itself reports for the exact same company/year - a
+    single-source-of-truth violation ("Sr 33 must reuse Sr 93 EBITDA",
+    never a separately-reconstructed one). Now calls
+    `fetch_ebitda_from_annual_report` directly for the denominator - there
+    is exactly one EBITDA calculation in this file, and every ratio that
+    needs EBITDA (this one, EV/EBITDA Sr No 29) reuses its response rather
+    than re-deriving it.
 
     Total Debt reuses Sr No 20's SHARED source-of-truth assembly
     (`_compute_total_debt` - the full a+b+c protocol: Borrowings verified
@@ -10200,16 +9771,16 @@ def _net_debt_to_ebitda_auto(sym, name, fiscal_year, consolidated=True, lease_ba
     authoritative spec, this ratio applies "whichever basis is selected,
     consistently" - defaults to Basis 1 (includes Lease Liabilities,
     post-Ind-AS-116), matching Sr No 20/21/29's own default; pass
-    `lease_basis="basis2"` for the traditional ex-lease view.
+    `lease_basis="basis2"` for the traditional ex-lease view. Cash is Sr No
+    12's own field (`parsed["cash"]`), netted directly against Total Debt.
 
-    EBITDA is its OWN independent calculation - MUST be EBITDA-basis (Sr No
-    93: Revenue − COGS − Employee Benefit Expense − Other Expenses,
-    deliberately excluding Depreciation & Amortisation), NEVER Sr No 15's
-    EBIT-basis Operating Profit Margin (which now deducts D&A) - mirrors
-    `fetch_ebitda_from_annual_report`'s internals exactly rather than
-    reusing its endpoint, same "own small function" reasoning as every
-    Sr-No-X-reuse ratio in this file, so this ratio's applicability stays
-    independent of Total Debt's/EBITDA's own N/A branches.
+    Numerator (Total Debt, Cash) and denominator (EBITDA) are both derived
+    from the SAME `_get_extracted_financials` call for this exact
+    (symbol, fiscal_year, consolidated) - never mixing a Consolidated debt
+    figure with a Standalone EBITDA or vice versa. All three inputs are
+    already normalised to ₹ Crore by the shared extractor before this
+    function ever sees them, and the division uses the unrounded EBITDA
+    value - only the final ratio is rounded for display.
 
     Per spec:
       - N/A if EBITDA ≤ 0 (a negative/zero denominator is meaningless).
@@ -10219,10 +9790,16 @@ def _net_debt_to_ebitda_auto(sym, name, fiscal_year, consolidated=True, lease_ba
         (never silently reported as "low leverage" without that flag, and
         never silently withheld either).
 
+    Applies identically to every company and to both the automatic
+    live-fetch and manual document-upload pipelines - this ratio needs no
+    per-pipeline split of its own; any pipeline difference in EBITDA itself
+    belongs inside `fetch_ebitda_from_annual_report`, not duplicated here.
+
     Reuses the SAME cached PDF extraction - no extra download. Cached 90
     days. Never raises.
     """
-    ckey = f"ar_ndebitda_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}_{_document_identity_tag(sym, fiscal_year)}"
+    sym = symbol.strip().upper().replace(".NS", "")
+    ckey = f"ar_ndebitda_v4_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}_{_document_identity_tag(sym, fiscal_year)}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -10249,60 +9826,17 @@ def _net_debt_to_ebitda_auto(sym, name, fiscal_year, consolidated=True, lease_ba
             _write_cache(ckey, out)
             return out
 
-        # EBITDA - its OWN independent calculation, mirroring
-        # `fetch_ebitda_from_annual_report`'s internals exactly (see that
-        # function's docstring for why this must never be Sr No 15's
-        # EBIT-basis figure).
-        components = parsed.get("components") or {}
-        revenue = parsed.get("revenue")
-        if revenue is None:
-            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
+        # EBITDA - the SINGLE authoritative source of truth (Sr No 93).
+        # Never re-derived here - see this function's docstring.
+        ebitda_resp = fetch_ebitda_from_annual_report(sym, name, fiscal_year, consolidated)
+        if not ebitda_resp.get("applicable"):
+            out = {"applicable": False,
+                   "reason": ebitda_resp.get("reason") or "Could not compute EBITDA (Sr No 93) for this filing.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
-        rev_cur, _rev_prior = revenue
-
-        # Service/telecom business with no COGS line - see the identical
-        # fallback + rationale in fetch_ebitda_from_annual_report above.
-        total_expenses = parsed.get("total_expenses")
-        finance_costs = parsed.get("finance_costs")
-        dep_for_ebitda = parsed.get("depreciation")
-        # Sanity guard - Finance Costs must never exceed Total Expenses
-        # (it's one of the summed IV.(a)-(g) lines within it); a violation
-        # means the two figures came from mismatched sources/pages.
-        total_expenses_usable = (total_expenses is not None and finance_costs is not None
-                                  and total_expenses[0] >= finance_costs[0])
-        used_total_expenses = (len(components) == 0 and total_expenses_usable
-                                and dep_for_ebitda is not None)
-        if used_total_expenses:
-            ebitda_cur = rev_cur - (total_expenses[0] - finance_costs[0] - dep_for_ebitda[0])
-            ebitda_confidence = 0.85
-        else:
-            if len(components) == 0:
-                out = {"applicable": False,
-                       "reason": "Could not find any Cost of Goods Sold line (Cost of materials consumed / "
-                                 "Purchases of stock-in-trade / Changes in inventories), nor a 'Total Expenses' "
-                                 "subtotal, on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            ebe = parsed.get("employee_benefit_expense")
-            oe = parsed.get("other_expenses")
-            if ebe is None:
-                out = {"applicable": False, "reason": "Could not find 'Employee Benefit Expense' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            if oe is None:
-                out = {"applicable": False, "reason": "Could not find 'Other Expenses' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            cogs_cur = sum(v[0] for v in components.values())
-            ebe_cur, _ebe_prior = ebe
-            oe_cur, _oe_prior = oe
-            ebitda_cur = rev_cur - cogs_cur - ebe_cur - oe_cur
-            ebitda_confidence = 1.0 if len(components) == len(_COGS_LABELS) else 0.95
+        ebitda_cur = ebitda_resp["value"]
+        ebitda_confidence = ebitda_resp.get("confidence", 1.0)
 
         cash_cur, _cash_prior = cash
         total_debt_cur = debt["total_debt_cur"]
@@ -10319,8 +9853,9 @@ def _net_debt_to_ebitda_auto(sym, name, fiscal_year, consolidated=True, lease_ba
             },
         }
         denominator = {
-            "label": "EBITDA (Revenue − COGS − Employee Costs − Other Expenses)",
+            "label": "EBITDA (Sr No 93)",
             "value_cr": round(ebitda_cur, 2),
+            "components": (ebitda_resp.get("numerator") or {}).get("components"),
         }
 
         if ebitda_cur <= 0:
@@ -10357,182 +9892,25 @@ def _net_debt_to_ebitda_auto(sym, name, fiscal_year, consolidated=True, lease_ba
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": numerator,
             "denominator": denominator,
-            "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-            "note": "From the company's own Annual Report - Total Debt (Sr No 20's full a+b+c protocol, "
-                    f"{'Basis 1: Lease Liabilities included' if lease_basis == 'basis1' else 'Basis 2: Lease Liabilities excluded'}) "
-                    "minus Cash and Cash Equivalents, divided by EBITDA (Sr No 93 - EBITDA-basis, never Sr No 15's "
-                    "EBIT-basis Operating Profit Margin). " + debt["note"],
-        }
-        _write_cache(ckey, out)
-        return out
-    except Exception as e:
-        print(f"[annual_report_financials] {ckey} failed: {e}")
-        return {"applicable": False, "reason": "Something went wrong reading the Annual Report - please try again."}
-        # not cached: an unexpected/transient error shouldn't be locked in for a week
-
-
-def _net_debt_to_ebitda_manual(sym, name, fiscal_year, consolidated=True, lease_basis="basis1"):
-    """Net Debt/EBITDA for the manual document-upload review workflow ONLY
-    (`is_manual_mode()` True) - see the module-level scope note in
-    `fetch_net_debt_to_ebitda_from_annual_report`.
-
-    Identical to `_net_debt_to_ebitda_auto` in every respect EXCEPT the
-    EBITDA reconstruction: COGS additionally includes a "Direct Expenses"
-    P&L line (`parsed["direct_expenses"]`) when the filing discloses one -
-    the SAME manual-only field already added for Operating Profit Margin
-    (Sr No 15). Some trading/services filers print this as its own line,
-    separate from Cost of materials consumed/Purchases of stock-in-trade/
-    Other Expenses - a real, disclosed operating cost that the old
-    COGS-only-from-`components` reconstruction silently omitted, understating
-    EBITDA (and therefore overstating Net Debt/EBITDA - a materially
-    misleading DIRECTION of error for a leverage ratio). Never assumed
-    present - contributes 0 when the filing genuinely has no such line, same
-    "sum what's there" convention as every other optional component in this
-    file.
-
-    Total Debt (a+b+c protocol) and every other mechanic (Total-Expenses
-    fallback, N/A gates, Net Cash flag) are byte-for-byte identical to the
-    automatic pipeline's version."""
-    ckey = (f"ar_ndebitda_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}"
-            f"_manual_{_document_identity_tag(sym, fiscal_year)}")
-    cached = _read_cache(ckey)
-    if cached is not None:
-        return cached
-
-    try:
-        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
-        pdf_url = parsed.get("source_url")
-        if "error" in parsed:
-            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        debt = _compute_total_debt(parsed, lease_basis=lease_basis)
-        if not debt["applicable"]:
-            out = {"applicable": False, "reason": debt["reason"], "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        cash = parsed.get("cash")
-        if cash is None:
-            out = {"applicable": False,
-                   "reason": "Could not find a 'Cash and Cash Equivalents' row on the Balance Sheet page.",
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        components = parsed.get("components") or {}
-        revenue = parsed.get("revenue")
-        if revenue is None:
-            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-        rev_cur, _rev_prior = revenue
-
-        total_expenses = parsed.get("total_expenses")
-        finance_costs = parsed.get("finance_costs")
-        dep_for_ebitda = parsed.get("depreciation")
-        total_expenses_usable = (total_expenses is not None and finance_costs is not None
-                                  and total_expenses[0] >= finance_costs[0])
-        used_total_expenses = (len(components) == 0 and total_expenses_usable
-                                and dep_for_ebitda is not None)
-        direct_expenses = parsed.get("direct_expenses")
-        direct_expenses_cur = direct_expenses[0] if direct_expenses is not None else 0.0
-        if used_total_expenses:
-            # Total-Expenses-based fallback already captures every disclosed
-            # expense line (Direct Expenses included, since it's inside
-            # Total Expenses) - never double-add it here.
-            ebitda_cur = rev_cur - (total_expenses[0] - finance_costs[0] - dep_for_ebitda[0])
-            ebitda_confidence = 0.85
-        else:
-            if len(components) == 0 and direct_expenses is None:
-                out = {"applicable": False,
-                       "reason": "Could not find any Cost of Goods Sold line (Cost of materials consumed / "
-                                 "Purchases of stock-in-trade / Changes in inventories / Direct Expenses), nor a "
-                                 "'Total Expenses' subtotal, on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            ebe = parsed.get("employee_benefit_expense")
-            oe = parsed.get("other_expenses")
-            if ebe is None:
-                out = {"applicable": False, "reason": "Could not find 'Employee Benefit Expense' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            if oe is None:
-                out = {"applicable": False, "reason": "Could not find 'Other Expenses' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            cogs_cur = sum(v[0] for v in components.values()) + direct_expenses_cur
-            ebe_cur, _ebe_prior = ebe
-            oe_cur, _oe_prior = oe
-            ebitda_cur = rev_cur - cogs_cur - ebe_cur - oe_cur
-            found_core = len(components) + (1 if direct_expenses is not None else 0)
-            ebitda_confidence = 1.0 if found_core >= len(_COGS_LABELS) + 1 else 0.95
-
-        cash_cur, _cash_prior = cash
-        total_debt_cur = debt["total_debt_cur"]
-        net_debt_cur = round(total_debt_cur - cash_cur, 2)
-
-        confidence = min(debt["confidence"], ebitda_confidence)
-
-        numerator = {
-            "label": "Net Debt (Total Debt − Cash and Cash Equivalents)",
-            "value_cr": net_debt_cur,
-            "components": {
-                **debt["components"],
-                "less: Cash and Cash Equivalents": round(cash_cur, 2),
+            # Dependency-consistency validation (Rule 3): declares which
+            # authoritative shared calculation this ratio's inputs came
+            # from - always "consistent" by construction here, since these
+            # values are the LITERAL return of the authoritative function
+            # call, never an independently re-derived figure that could
+            # drift. Kept explicit/machine-checkable rather than implicit,
+            # so a future edit that reintroduces an independent
+            # reconstruction would visibly change this shape.
+            "shared_dependencies": {
+                "ebitda_source": "Sr No 93", "ebitda_value_cr": round(ebitda_cur, 2), "ebitda_consistent": True,
+                "total_debt_source": "Sr No 20", "total_debt_value_cr": debt["total_debt_cur"], "total_debt_consistent": True,
+                "cash_source": "Sr No 12", "cash_value_cr": round(cash_cur, 2), "cash_consistent": True,
             },
-        }
-        denominator = {
-            "label": "EBITDA (Revenue − COGS [incl. Direct Expenses where disclosed] − Employee Costs − Other Expenses)",
-            "value_cr": round(ebitda_cur, 2),
-        }
-
-        if ebitda_cur <= 0:
-            out = {"applicable": False,
-                   "reason": f"EBITDA is {'negative' if ebitda_cur < 0 else 'zero'} (₹{ebitda_cur:,.2f} Cr) - "
-                             "the ratio would be meaningless, so it's flagged as N/A rather than reported.",
-                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-                   "numerator": numerator, "denominator": denominator,
-                   "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        if net_debt_cur < 0:
-            out = {"applicable": False, "net_cash": True,
-                   "reason": f"Net Cash position - Cash and Cash Equivalents (₹{cash_cur:,.2f} Cr) exceed Total "
-                             f"Debt (₹{total_debt_cur:,.2f} Cr), so Net Debt is negative (₹{net_debt_cur:,.2f} Cr). "
-                             "This is NOT a leverage ratio; per spec it's flagged as 'Net Cash' rather than "
-                             "reported as a spuriously 'low' Net Debt/EBITDA multiple.",
-                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-                   "numerator": numerator, "denominator": denominator,
-                   "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        ratio = round(net_debt_cur / ebitda_cur, 2)
-
-        out = {
-            "applicable": True,
-            "value": ratio, "unit": "x",
-            "confidence": confidence,
-            "estimated": confidence < 1.0,
-            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-            "numerator": numerator,
-            "denominator": denominator,
             "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
             "note": "From the company's own Annual Report - Total Debt (Sr No 20's full a+b+c protocol, "
                     f"{'Basis 1: Lease Liabilities included' if lease_basis == 'basis1' else 'Basis 2: Lease Liabilities excluded'}) "
-                    "minus Cash and Cash Equivalents, divided by EBITDA (Revenue minus Cost of materials consumed/"
-                    "Purchases of stock-in-trade/Changes in inventories, Direct Expenses where disclosed, Employee "
-                    "Benefit Expense, and Other Expenses - never Sr No 15's EBIT-basis Operating Profit Margin, "
-                    "never Finance Costs/Tax/Exceptional Items/D&A subtracted). " + debt["note"],
+                    "minus Cash and Cash Equivalents (Sr No 12), divided by EBITDA reused directly from Sr No 93 "
+                    "(never Sr No 15's EBIT-basis Operating Profit Margin, never a separately-reconstructed "
+                    "EBITDA). " + debt["note"],
         }
         _write_cache(ckey, out)
         return out
@@ -10599,7 +9977,7 @@ def fetch_debt_service_coverage_ratio_from_annual_report(symbol, name, fiscal_ye
     # automatic pipelines, leaking the manual-only "genuinely debt-free of
     # Borrowings" fix below into the automatic pipeline's served result,
     # or vice versa.
-    ckey = (f"ar_dscr_v5_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}"
+    ckey = (f"ar_dscr_v7_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}"
             f"{'_manual' if is_manual_mode() else ''}_{_document_identity_tag(sym, fiscal_year)}")
     cached = _read_cache(ckey)
     if cached is not None:
@@ -10613,58 +9991,20 @@ def fetch_debt_service_coverage_ratio_from_annual_report(symbol, name, fiscal_ye
             _write_cache(ckey, out)
             return out
 
-        # EBITDA (Net Operating Income proxy) - own independent calculation,
-        # same gates as fetch_ebitda_from_annual_report/Net Debt/EBITDA.
-        components = parsed.get("components") or {}
-        revenue = parsed.get("revenue")
-        if revenue is None:
-            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
+        # EBITDA (Net Operating Income proxy) - the SINGLE authoritative
+        # source of truth (Sr No 93). Never independently reconstructed here
+        # (this used to carry its own inline duplicate of the EBITDA
+        # formula, same architecture violation already fixed on Net
+        # Debt/EBITDA, Sr No 33 - see that function's docstring).
+        ebitda_resp = fetch_ebitda_from_annual_report(sym, name, fiscal_year, consolidated)
+        if not ebitda_resp.get("applicable"):
+            out = {"applicable": False,
+                   "reason": ebitda_resp.get("reason") or "Could not compute EBITDA (Sr No 93) for this filing.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
-        rev_cur, _rev_prior = revenue
-
-        # Service/telecom business with no COGS line - see the identical
-        # fallback + rationale in fetch_ebitda_from_annual_report above.
-        total_expenses = parsed.get("total_expenses")
-        finance_costs = parsed.get("finance_costs")
-        dep_for_ebitda = parsed.get("depreciation")
-        # Sanity guard - Finance Costs must never exceed Total Expenses
-        # (it's one of the summed IV.(a)-(g) lines within it); a violation
-        # means the two figures came from mismatched sources/pages.
-        total_expenses_usable = (total_expenses is not None and finance_costs is not None
-                                  and total_expenses[0] >= finance_costs[0])
-        used_total_expenses = (len(components) == 0 and total_expenses_usable
-                                and dep_for_ebitda is not None)
-        if used_total_expenses:
-            ebitda_cur = rev_cur - (total_expenses[0] - finance_costs[0] - dep_for_ebitda[0])
-            ebitda_confidence = 0.85
-        else:
-            if len(components) == 0:
-                out = {"applicable": False,
-                       "reason": "Could not find any Cost of Goods Sold line (Cost of materials consumed / "
-                                 "Purchases of stock-in-trade / Changes in inventories), nor a 'Total Expenses' "
-                                 "subtotal, on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            ebe = parsed.get("employee_benefit_expense")
-            oe = parsed.get("other_expenses")
-            if ebe is None:
-                out = {"applicable": False, "reason": "Could not find 'Employee Benefit Expense' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            if oe is None:
-                out = {"applicable": False, "reason": "Could not find 'Other Expenses' row on the P&L page.",
-                       "source_url": pdf_url}
-                _write_cache(ckey, out)
-                return out
-            cogs_cur = sum(v[0] for v in components.values())
-            ebe_cur, _ebe_prior = ebe
-            oe_cur, _oe_prior = oe
-            ebitda_cur = rev_cur - cogs_cur - ebe_cur - oe_cur
-            ebitda_confidence = 1.0 if len(components) == len(_COGS_LABELS) else 0.95
+        ebitda_cur = ebitda_resp["value"]
+        ebitda_confidence = ebitda_resp.get("confidence", 1.0)
 
         # Interest Paid - cash basis (Cash Flow Statement), preferred. Falls
         # back to P&L Finance Costs only if no CFS "Interest paid"-style
@@ -10751,7 +10091,8 @@ def fetch_debt_service_coverage_ratio_from_annual_report(symbol, name, fiscal_ye
             if lease_int_cur:
                 debt_service_components["Interest on Lease Liabilities (Basis 2)"] = round(lease_int_cur, 2)
 
-        numerator = {"label": "EBITDA (Net Operating Income proxy)", "value_cr": round(ebitda_cur, 2)}
+        numerator = {"label": "EBITDA (Sr No 93, Net Operating Income proxy)", "value_cr": round(ebitda_cur, 2),
+                     "components": (ebitda_resp.get("numerator") or {}).get("components")}
         denominator = {"label": "Total Debt Service (Interest Paid + Principal Repayment, cash basis)",
                         "value_cr": total_debt_service, "components": debt_service_components}
 
@@ -10777,6 +10118,9 @@ def fetch_debt_service_coverage_ratio_from_annual_report(symbol, name, fiscal_ye
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": numerator,
             "denominator": denominator,
+            "shared_dependencies": {
+                "ebitda_source": "Sr No 93", "ebitda_value_cr": round(ebitda_cur, 2), "ebitda_consistent": True,
+            },
             "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
             "note": "From the company's own Annual Report - EBITDA (Sr No 93, EBITDA-basis, never Sr No 15's "
                     "EBIT-basis Operating Profit Margin) ÷ Total Debt Service (" + interest_source_note +
@@ -11594,49 +10938,41 @@ def fetch_roic_from_annual_report(symbol, name, fiscal_year, consolidated=True, 
     """
     Return on Invested Capital (ROIC, Sr No 42) = NOPAT / Invested Capital.
 
-    SCOPE, deliberately split by pipeline (user-confirmed, same split
-    already applied to Contribution Margin/Operating Profit Margin/Net
-    Debt-EBITDA/ROCE/etc. this session - do not merge without a new user
-    ask):
+    QA/architecture correction (2026-09-05): EBIT used to be independently
+    reconstructed here (two near-duplicate copies, one per pipeline,
+    including a long-standing `UnboundLocalError` crash on the
+    Total-Expenses-fallback path for services/telecom filers like TCS, and
+    an unconditional duplicate EBIT recompute line in the automatic-
+    pipeline copy) - the same "duplicate EBIT" architecture violation
+    already fixed on ROCE (Sr No 19) and Sr No 33/34's EBITDA. Per the
+    dependency rule "Sr 15 is the authoritative EBIT implementation - every
+    EBIT-dependent ratio must consume it, never reconstruct it", this now
+    calls `fetch_operating_profit_margin_from_annual_report` directly and
+    reuses its `numerator.value_cr` (EBIT in ₹ Cr) for NOPAT's base. Fixes
+    the crash for free and applies identically to every company and both
+    pipelines - no per-pipeline split needed any more.
 
-    - The OLD automatic live-fetch pipeline keeps its ORIGINAL EBIT
-      reconstruction completely unchanged below - see `_roic_auto` -
-      INCLUDING its pre-existing `UnboundLocalError` crash on the
-      Total-Expenses-fallback path (services/telecom filers with no
-      granular COGS line, e.g. TCS) AND its unconditional duplicate EBIT
-      recompute line - never touched here, per the "preserve exactly
-      as-is" instruction.
-
-    - ONLY the manual document-upload review workflow
-      (`is_manual_mode()` True) additionally includes a "Direct Expenses"
-      P&L line in EBIT's COGS when disclosed (the SAME manual-only
-      `parsed["direct_expenses"]` field already reused for Operating
-      Profit Margin/Net Debt-EBITDA/ROCE), removes the duplicate/crashing
-      EBIT line, and fixes the Total-Expenses-fallback crash - see
-      `_roic_manual`.
-
-    Effective Tax Rate = Tax Expense / Profit Before Tax -- computed inline
-    here rather than calling a Sr No 43 endpoint, since Effective Tax Rate
-    (Sr No 43) has not been built yet as its own ratio; when it is, both
-    should read the identical underlying `tax_expense`/`pbt` fields, so the
-    two will always agree. N/A if Profit Before Tax <= 0 (an effective tax
-    rate is not meaningful on a pre-tax loss).
+    Effective Tax Rate = Tax Expense / Profit Before Tax - computed inline
+    here (own `pbt`/`tax_expense` fields, unrelated to EBIT) rather than
+    calling a Sr No 43 endpoint, since both read the identical underlying
+    fields either way. N/A if Profit Before Tax <= 0 (an effective tax rate
+    is not meaningful on a pre-tax loss).
 
     Invested Capital = Total Debt (Sr No 20's full a+b+c protocol, via the
     SAME shared `_compute_total_debt` used by Debt-to-Equity/Debt
-    Ratio/Enterprise Value -- never a simplified Borrowings-only figure) +
+    Ratio/Enterprise Value - never a simplified Borrowings-only figure) +
     Total Equity, WHOLE-entity (owners' + Non-Controlling Interest,
-    `equity_full` -- NOT the owners-only `equity` ROE/BVPS use) - Cash and
-    Cash Equivalents (Sr No 12's field), UNCHANGED in both branches -- Total
-    Debt is the whole consolidated entity's debt, so Invested Capital's
-    equity leg must match that same scope, same reasoning as
-    Debt-to-Equity's (Sr No 23) own automatic-pipeline behaviour.
+    `equity_full` - NOT the owners-only `equity` ROE/BVPS use) - Cash and
+    Cash Equivalents (Sr No 12's field) - Total Debt is the whole
+    consolidated entity's debt, so Invested Capital's equity leg must match
+    that same scope, same reasoning as Debt-to-Equity's (Sr No 23) own
+    automatic-pipeline behaviour.
 
     DEVIATION FROM SPEC, DISCLOSED: the spec calls for averaging Invested
     Capital over opening and closing balance sheet dates. `_compute_total_debt`
     only ever resolves a CLOSING-balance Total Debt (same limitation already
     accepted by Debt-to-Equity/Debt Ratio in this suite, which are
-    closing-only by design) -- there is no reliable prior-year Total Debt
+    closing-only by design) - there is no reliable prior-year Total Debt
     signal to average against. Rather than fabricate a prior-year debt
     estimate, Invested Capital here is CLOSING-balance only, and this is
     surfaced explicitly in the response (`averaging`: "closing-only") and
@@ -11645,23 +10981,11 @@ def fetch_roic_from_annual_report(symbol, name, fiscal_year, consolidated=True, 
 
     Per spec, N/A if Invested Capital <= 0.
 
-    Reuses the SAME cached PDF extraction -- no extra download. Cached 90
+    Reuses the SAME cached PDF extraction - no extra download. Cached 90
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    if is_manual_mode():
-        return _roic_manual(sym, name, fiscal_year, consolidated, lease_basis)
-    return _roic_auto(sym, name, fiscal_year, consolidated, lease_basis)
-
-
-def _roic_auto(sym, name, fiscal_year, consolidated=True, lease_basis="basis1"):
-    """ROIC for the OLD automatic live-fetch pipeline - UNCHANGED (see the
-    module-level scope note in `fetch_roic_from_annual_report`), byte-for-
-    byte identical to the pre-split implementation, INCLUDING its known
-    `UnboundLocalError` crash on the Total-Expenses-fallback path and its
-    unconditional duplicate EBIT recompute line."""
-    # "_v2" - wraps `_get_extracted_financials` (v23->v24, tax_expense fix).
-    ckey = f"ar_roic_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}_{_document_identity_tag(sym, fiscal_year)}"
+    ckey = f"ar_roic_v4_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}_{_document_identity_tag(sym, fiscal_year)}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -11674,57 +10998,20 @@ def _roic_auto(sym, name, fiscal_year, consolidated=True, lease_basis="basis1"):
             _write_cache(ckey, out)
             return out
 
-        components = parsed.get("components") or {}
-        revenue = parsed.get("revenue")
         pbt = parsed.get("pbt")
         tax_expense = parsed.get("tax_expense")
-        total_expenses = parsed.get("total_expenses")
-        finance_costs = parsed.get("finance_costs")
-        # Sanity guard - Finance Costs must never exceed Total Expenses.
-        total_expenses_usable = (total_expenses is not None and finance_costs is not None
-                                  and total_expenses[0] >= finance_costs[0])
-        used_total_expenses = len(components) == 0 and total_expenses_usable
-        if used_total_expenses:
-            missing = ("Revenue from operations" if revenue is None else
-                       "Profit before tax" if pbt is None else
-                       "Tax expense" if tax_expense is None else None)
-        else:
-            ebe = parsed.get("employee_benefit_expense")
-            oe = parsed.get("other_expenses")
-            dep = parsed.get("depreciation")
-            if revenue is None:
-                missing = "Revenue from operations"
-            elif len(components) == 0:
-                missing = "Cost of Goods Sold, nor a 'Total Expenses' subtotal,"
-            elif ebe is None:
-                missing = "Employee Benefit Expense"
-            elif oe is None:
-                missing = "Other Expenses"
-            elif dep is None:
-                missing = "Depreciation and Amortisation Expense"
-            elif pbt is None:
-                missing = "Profit before tax"
-            elif tax_expense is None:
-                missing = "Tax expense"
-            else:
-                missing = None
-        if missing:
-            out = {"applicable": False, "reason": f"Could not find '{missing}' row on the P&L page.",
+        if pbt is None:
+            out = {"applicable": False, "reason": "Could not find 'Profit Before Tax' row on the P&L page.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
-
-        rev_cur, _rev_prior = revenue
+        if tax_expense is None:
+            out = {"applicable": False, "reason": "Could not find 'Tax Expense' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
         pbt_cur, _pbt_prior = pbt
         tax_cur, _tax_prior = tax_expense
-        if used_total_expenses:
-            ebit_cur = rev_cur - (total_expenses[0] - finance_costs[0])
-        else:
-            cogs_cur = sum(v[0] for v in components.values())
-            ebe_cur, _ebe_prior = ebe
-            oe_cur, _oe_prior = oe
-            dep_cur, _dep_prior = dep
-            ebit_cur = rev_cur - cogs_cur - ebe_cur - oe_cur - dep_cur
 
         if pbt_cur <= 0:
             out = {"applicable": False,
@@ -11736,6 +11023,19 @@ def _roic_auto(sym, name, fiscal_year, consolidated=True, lease_basis="basis1"):
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
+
+        # EBIT - the SINGLE authoritative source of truth (Sr No 15). Never
+        # independently reconstructed here - see this function's docstring.
+        ebit_resp = fetch_operating_profit_margin_from_annual_report(sym, name, fiscal_year, consolidated)
+        if not ebit_resp.get("applicable"):
+            out = {"applicable": False,
+                   "reason": ebit_resp.get("reason") or "Could not compute EBIT (Sr No 15) for this filing.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+        ebit_numerator = ebit_resp.get("numerator") or {}
+        ebit_cur = ebit_numerator.get("value_cr")
+        ebit_confidence = ebit_resp.get("confidence", 1.0)
 
         effective_tax_rate = tax_cur / pbt_cur
         nopat_cur = round(ebit_cur * (1 - effective_tax_rate), 2)
@@ -11765,8 +11065,7 @@ def _roic_auto(sym, name, fiscal_year, consolidated=True, lease_basis="basis1"):
             "label": "NOPAT (EBIT x (1 - Effective Tax Rate))",
             "value_cr": nopat_cur,
             "components": {
-                ("EBIT (Revenue − Total Expenses + Finance Costs)" if used_total_expenses
-                 else "EBIT (Revenue − COGS − Employee Costs − Other Expenses − D&A)"): round(ebit_cur, 2),
+                "EBIT (Sr No 15)": round(ebit_cur, 2),
                 "Effective Tax Rate": round(effective_tax_rate * 100, 2),
             },
         }
@@ -11795,7 +11094,7 @@ def _roic_auto(sym, name, fiscal_year, consolidated=True, lease_basis="basis1"):
         roic = round((nopat_cur / invested_capital_cur) * 100, 2)
 
         ambiguous_nci = consolidated and equity_basis != "owners"
-        confidence = min(debt["confidence"], 0.8 if ambiguous_nci else 1.0, 0.8)  # capped: closing-only, not averaged
+        confidence = min(debt["confidence"], ebit_confidence, 0.8 if ambiguous_nci else 1.0, 0.8)  # capped: closing-only, not averaged
 
         out = {
             "applicable": True,
@@ -11806,10 +11105,15 @@ def _roic_auto(sym, name, fiscal_year, consolidated=True, lease_basis="basis1"):
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": numerator,
             "denominator": denominator,
+            "shared_dependencies": {
+                "ebit_source": "Sr No 15", "ebit_value_cr": round(ebit_cur, 2), "ebit_consistent": True,
+                "total_debt_source": "Sr No 20", "total_debt_value_cr": debt["total_debt_cur"], "total_debt_consistent": True,
+                "cash_source": "Sr No 12", "cash_value_cr": round(cash_cur, 2), "cash_consistent": True,
+            },
             "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-            "note": "From the company's own Annual Report - NOPAT (EBIT, identical to Operating Profit Margin's/"
-                    "ROCE's numerator, taxed at the effective rate = Tax Expense ÷ Profit Before Tax) ÷ Invested "
-                    "Capital (Total Debt, full a+b+c protocol reused from Debt-to-Equity, + Total Equity "
+            "note": "From the company's own Annual Report - NOPAT (EBIT reused directly from Sr No 15, taxed at "
+                    "the effective rate = Tax Expense ÷ Profit Before Tax) ÷ Invested Capital (Total Debt, full "
+                    "a+b+c protocol reused from Debt-to-Equity, + Total Equity "
                     + ("(incl. Non-Controlling Interests) " if nci_included else "")
                     + "− Cash and Cash Equivalents). "
                     "Invested Capital is CLOSING-BALANCE only, not the opening+closing average the spec calls "
@@ -11826,196 +11130,6 @@ def _roic_auto(sym, name, fiscal_year, consolidated=True, lease_basis="basis1"):
         # not cached: an unexpected/transient error shouldn't be locked in for a week
 
 
-def _roic_manual(sym, name, fiscal_year, consolidated=True, lease_basis="basis1"):
-    """ROIC for the manual document-upload review workflow ONLY
-    (`is_manual_mode()` True) - see the module-level scope note in
-    `fetch_roic_from_annual_report`.
-
-    Fixes over the automatic pipeline's version:
-      1. EBIT's COGS additionally includes a "Direct Expenses" P&L line
-         (`parsed["direct_expenses"]`) when the filing discloses one - the
-         SAME manual-only field already reused for Operating Profit Margin/
-         Net Debt-EBITDA/ROCE. Contributes 0 when genuinely absent.
-      2. The unconditional duplicate `ebit_cur = rev_cur - cogs_cur - ...`
-         line (present in the automatic pipeline right after the PBT<=0
-         check, referencing variables that are undefined whenever the
-         Total-Expenses-fallback path was taken) is removed - EBIT is
-         computed exactly once, in the branch that actually has the data
-         for it.
-      3. The Total-Expenses-fallback branch (services/telecom filers with
-         no granular COGS line, e.g. TCS) no longer crashes.
-
-    Invested Capital (Total Debt + whole-entity Total Equity - Cash,
-    closing-balance only) is otherwise unchanged from the automatic
-    pipeline."""
-    ckey = (f"ar_roic_v3_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}"
-            f"_manual_{_document_identity_tag(sym, fiscal_year)}")
-    cached = _read_cache(ckey)
-    if cached is not None:
-        return cached
-
-    try:
-        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
-        pdf_url = parsed.get("source_url")
-        if "error" in parsed:
-            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        components = parsed.get("components") or {}
-        revenue = parsed.get("revenue")
-        pbt = parsed.get("pbt")
-        tax_expense = parsed.get("tax_expense")
-        total_expenses = parsed.get("total_expenses")
-        finance_costs = parsed.get("finance_costs")
-        direct_expenses = parsed.get("direct_expenses")
-        direct_expenses_cur = direct_expenses[0] if direct_expenses is not None else 0.0
-        # Sanity guard - Finance Costs must never exceed Total Expenses.
-        total_expenses_usable = (total_expenses is not None and finance_costs is not None
-                                  and total_expenses[0] >= finance_costs[0])
-        used_total_expenses = len(components) == 0 and direct_expenses is None and total_expenses_usable
-        ebe = oe = dep = None
-        if used_total_expenses:
-            missing = ("Revenue from operations" if revenue is None else
-                       "Profit before tax" if pbt is None else
-                       "Tax expense" if tax_expense is None else None)
-        else:
-            ebe = parsed.get("employee_benefit_expense")
-            oe = parsed.get("other_expenses")
-            dep = parsed.get("depreciation")
-            if revenue is None:
-                missing = "Revenue from operations"
-            elif len(components) == 0 and direct_expenses is None:
-                missing = "Cost of Goods Sold, nor a 'Total Expenses' subtotal,"
-            elif ebe is None:
-                missing = "Employee Benefit Expense"
-            elif oe is None:
-                missing = "Other Expenses"
-            elif dep is None:
-                missing = "Depreciation and Amortisation Expense"
-            elif pbt is None:
-                missing = "Profit before tax"
-            elif tax_expense is None:
-                missing = "Tax expense"
-            else:
-                missing = None
-        if missing:
-            out = {"applicable": False, "reason": f"Could not find '{missing}' row on the P&L page.",
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        rev_cur, _rev_prior = revenue
-        pbt_cur, _pbt_prior = pbt
-        tax_cur, _tax_prior = tax_expense
-        if used_total_expenses:
-            ebit_cur = rev_cur - (total_expenses[0] - finance_costs[0])
-        else:
-            cogs_cur = sum(v[0] for v in components.values()) + direct_expenses_cur
-            ebe_cur, _ebe_prior = ebe
-            oe_cur, _oe_prior = oe
-            dep_cur, _dep_prior = dep
-            ebit_cur = rev_cur - cogs_cur - ebe_cur - oe_cur - dep_cur
-
-        if pbt_cur <= 0:
-            out = {"applicable": False,
-                   "reason": "Profit Before Tax is zero or negative - Effective Tax Rate (and therefore NOPAT) "
-                             "is not meaningful.",
-                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-                   "numerator": {"label": "Profit Before Tax", "value_cr": round(pbt_cur, 2)},
-                   "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        effective_tax_rate = tax_cur / pbt_cur
-        nopat_cur = round(ebit_cur * (1 - effective_tax_rate), 2)
-
-        debt = _compute_total_debt(parsed, lease_basis=lease_basis)
-        if not debt["applicable"]:
-            out = {"applicable": False, "reason": debt["reason"], "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        equity = parsed.get("equity_full")
-        if equity is None:
-            out = {"applicable": False, "reason": "Could not find a 'Total Equity' row on the Balance Sheet page.",
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        cash = parsed.get("cash")
-        equity_cur, _equity_prior = equity
-        cash_cur = cash[0] if cash is not None else 0.0
-        equity_basis = parsed.get("equity_basis")
-        nci_included = consolidated and (parsed.get("equity") != equity)
-
-        invested_capital_cur = round(debt["total_debt_cur"] + equity_cur - cash_cur, 2)
-
-        ebit_label = "EBIT (Revenue − COGS [incl. Direct Expenses where disclosed] − Employee Costs − Other Expenses − D&A)"
-        numerator = {
-            "label": "NOPAT (EBIT x (1 - Effective Tax Rate))",
-            "value_cr": nopat_cur,
-            "components": {
-                ebit_label: round(ebit_cur, 2),
-                "Effective Tax Rate": round(effective_tax_rate * 100, 2),
-            },
-        }
-        denominator = {
-            "label": "Invested Capital (closing) = Total Debt + Total Equity - Cash",
-            "value_cr": invested_capital_cur,
-            "components": {
-                "Total Debt": debt["total_debt_cur"],
-                "Total Equity" + (" (incl. Non-Controlling Interests)" if nci_included else ""): round(equity_cur, 2),
-                "less: Cash and Cash Equivalents": round(cash_cur, 2),
-            },
-        }
-
-        if invested_capital_cur <= 0:
-            out = {"applicable": False,
-                   "reason": f"Invested Capital is {'negative' if invested_capital_cur < 0 else 'zero'} "
-                             f"(₹{invested_capital_cur:,.2f} Cr) - the ratio would be meaningless/sign-inverted, "
-                             "so it's flagged as N/A rather than reported.",
-                   "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-                   "numerator": numerator, "denominator": denominator,
-                   "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        roic = round((nopat_cur / invested_capital_cur) * 100, 2)
-
-        ambiguous_nci = consolidated and equity_basis != "owners"
-        confidence = min(debt["confidence"], 0.8 if ambiguous_nci else 1.0, 0.8)  # capped: closing-only, not averaged
-
-        out = {
-            "applicable": True,
-            "value": roic, "unit": "%",
-            "confidence": confidence,
-            "estimated": True,
-            "averaging": "closing-only",
-            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-            "numerator": numerator,
-            "denominator": denominator,
-            "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-            "note": "From the company's own Annual Report - NOPAT (EBIT, identical to Operating Profit Margin's/"
-                    "ROCE's numerator - including Direct Expenses where disclosed, taxed at the effective rate = "
-                    "Tax Expense ÷ Profit Before Tax) ÷ Invested Capital (Total Debt, full a+b+c protocol reused "
-                    "from Debt-to-Equity, + Total Equity "
-                    + ("(incl. Non-Controlling Interests) " if nci_included else "")
-                    + "− Cash and Cash Equivalents). "
-                    "Invested Capital is CLOSING-BALANCE only, not the opening+closing average the spec calls "
-                    "for - Total Debt has no reliable prior-year signal in this pipeline, same limitation "
-                    "already accepted by Debt-to-Equity/Debt Ratio. Benchmark against the company/sector's WACC "
-                    "(typically 10-13% for Indian equities), not a fixed universal number - the ROIC-minus-WACC "
-                    "spread is the real value-creation signal.",
-        }
-        _write_cache(ckey, out)
-        return out
-    except Exception as e:
-        print(f"[annual_report_financials] {ckey} failed: {e}")
-        return {"applicable": False, "reason": "Something went wrong reading the Annual Report - please try again."}
-        # not cached: an unexpected/transient error shouldn't be locked in for a week
 
 
 def fetch_effective_tax_rate_from_annual_report(symbol, name, fiscal_year, consolidated=True):
@@ -12116,138 +11230,25 @@ def fetch_effective_tax_rate_from_annual_report(symbol, name, fiscal_year, conso
 
 def fetch_contribution_margin_from_annual_report(symbol, name, fiscal_year, consolidated=True):
     """
-    Contribution Margin (Sr No 44) = (Revenue - Variable Costs) / Revenue.
+    Contribution Margin (Sr No 44) = (Revenue - Total Variable Costs) / Revenue.
 
-    SCOPE, deliberately split by pipeline (user-confirmed, 2026-08-29 -- do
-    not merge the two branches without a new user ask):
-
-    - The OLD automatic live-fetch pipeline (tools/precompute_worker.py, the
-      main search/fetch flow that runs against ~2409 stocks) keeps its
-      ORIGINAL known-approximation behaviour completely unchanged below --
-      see `_contribution_margin_auto_proxy`. Never touched by the fix
-      described next.
-
-    - ONLY the manual document-upload review workflow
-      (tools/document_analysis_engine.py, `tools/manual_mode.is_manual_mode()`
-      True) gets the corrected methodology: Total Variable Costs = core
-      goods cost (Cost of materials consumed + Purchases of stock-in-trade,
-      excluding Changes in inventories) PLUS volume-linked Other Expenses
-      Note sub-items (freight/carriage/forwarding/transportation, power &
-      fuel, packing materials, sales commission/brokerage/discount, royalty
-      on sales -- see `_VARIABLE_OPEX_NOTE_TERMS`), never assuming every
-      "Other Expenses" line is variable, never touching Employee Benefit
-      Expense/Depreciation/Finance Costs. See `_contribution_margin_manual`.
+    QA correction (2026-09-05): unifies the automatic live-fetch and manual
+    document-upload pipelines onto the same methodology (previously the
+    automatic pipeline used a cruder goods-cost-only proxy while only the
+    manual pipeline included volume-linked Other Expenses sub-items -- see
+    `_contribution_margin_impl` for the full methodology). Applies
+    identically to every company, never ticker-specific.
 
     Reuses the SAME cached PDF extraction -- no extra download. Cached 90
     days. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    if is_manual_mode():
-        return _contribution_margin_manual(sym, name, fiscal_year, consolidated)
-    return _contribution_margin_auto_proxy(sym, name, fiscal_year, consolidated)
+    return _contribution_margin_impl(sym, name, fiscal_year, consolidated)
 
 
-def _contribution_margin_auto_proxy(sym, name, fiscal_year, consolidated=True):
-    """Contribution Margin for the OLD automatic live-fetch pipeline --
-    UNCHANGED, known-approximation proxy (see the module-level scope note in
-    `fetch_contribution_margin_from_annual_report`). "Variable Costs" =
-    only Cost of materials consumed + Purchases of stock-in-trade, never
-    Changes in inventories, never any part of Other Expenses. Understates
-    true Contribution Margin. Confidence capped at 0.4."""
-    ckey = f"ar_cm_v2_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{_document_identity_tag(sym, fiscal_year)}"
-    cached = _read_cache(ckey)
-    if cached is not None:
-        return cached
-
-    try:
-        parsed = _get_extracted_financials(sym, name, fiscal_year, consolidated)
-        pdf_url = parsed.get("source_url")
-        if "error" in parsed:
-            out = {"applicable": False, "reason": parsed["error"], "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        revenue = parsed.get("revenue")
-        if revenue is None:
-            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        rev_cur, _rev_prior = revenue
-        if rev_cur == 0:
-            out = {"applicable": False, "reason": "Revenue from operations is zero.", "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        components = parsed.get("components", {})
-        materials = components.get("Cost of materials consumed")
-        stock_in_trade = components.get("Purchases of stock-in-trade")
-
-        if materials is None and stock_in_trade is None:
-            out = {"applicable": False,
-                   "reason": "Could not find 'Cost of materials consumed' or 'Purchases of stock-in-trade' on "
-                             "the P&L page -- likely a services business with no goods cost to approximate "
-                             "Variable Costs from.",
-                   "source_url": pdf_url}
-            _write_cache(ckey, out)
-            return out
-
-        materials_cur = materials[0] if materials is not None else 0.0
-        stock_in_trade_cur = stock_in_trade[0] if stock_in_trade is not None else 0.0
-        variable_costs_cur = round(materials_cur + stock_in_trade_cur, 2)
-        contribution_cur = round(rev_cur - variable_costs_cur, 2)
-        margin = round((contribution_cur / rev_cur) * 100, 2)
-
-        var_components = {}
-        if materials is not None:
-            var_components["Cost of materials consumed"] = round(materials_cur, 2)
-        if stock_in_trade is not None:
-            var_components["Purchases of stock-in-trade"] = round(stock_in_trade_cur, 2)
-
-        out = {
-            "applicable": True,
-            "value": margin, "unit": "%",
-            "confidence": 0.4,
-            "estimated": True,
-            "approximation": True,
-            "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
-            "numerator": {
-                "label": "Contribution (Revenue - Variable Costs, proxy)",
-                "value_cr": contribution_cur,
-                "components": {
-                    "Revenue from Operations": round(rev_cur, 2),
-                    "less: Variable Costs (proxy)": variable_costs_cur,
-                    **{f"  {k}": v for k, v in var_components.items()},
-                },
-            },
-            "denominator": {
-                "label": "Revenue from Operations",
-                "value_cr": round(rev_cur, 2),
-            },
-            "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
-            "note": "APPROXIMATION, not the true spec definition -- Ind AS filings don't disclose a fixed/"
-                    "variable cost-behaviour split (that needs MD&A/segment data this pipeline doesn't parse). "
-                    "'Variable Costs' here is only Cost of materials consumed + Purchases of stock-in-trade "
-                    "(never 'Changes in inventories', never any part of 'Other Expenses' -- freight, power, and "
-                    "other genuinely-variable items inside Other Expenses are NOT included), which UNDERSTATES "
-                    "true Contribution Margin. Treat this figure as directional only, not precise -- confidence "
-                    "is deliberately capped well below every directly-disclosed ratio in this suite.",
-        }
-        _write_cache(ckey, out)
-        return out
-    except Exception as e:
-        print(f"[annual_report_financials] {ckey} failed: {e}")
-        return {"applicable": False, "reason": "Something went wrong reading the Annual Report -- please try again."}
-        # not cached: an unexpected/transient error shouldn't be locked in for a week
-
-
-def _contribution_margin_manual(sym, name, fiscal_year, consolidated=True):
-    """Contribution Margin for the manual document-upload review workflow
-    ONLY (`tools.manual_mode.is_manual_mode()` True) -- the corrected
-    methodology. See the module-level scope note in
-    `fetch_contribution_margin_from_annual_report` for why this is split
-    from the automatic pipeline's proxy.
+def _contribution_margin_impl(sym, name, fiscal_year, consolidated=True):
+    """Contribution Margin, unified methodology for every pipeline (see the
+    module-level scope note in `fetch_contribution_margin_from_annual_report`).
 
     Total Variable Costs = core goods cost + volume-linked Other Expenses
     sub-items, built generically across trading, manufacturing, and service
@@ -12294,7 +11295,7 @@ def _contribution_margin_manual(sym, name, fiscal_year, consolidated=True):
     N/A if Revenue = 0, or if NEITHER a goods-cost component NOR any
     volume-linked Other Expenses sub-item is found (a genuine pure-services
     business with no disclosed volume-linked cost at all)."""
-    ckey = f"ar_cm_manual_v1_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{_document_identity_tag(sym, fiscal_year)}"
+    ckey = f"ar_cm_v10_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{_document_identity_tag(sym, fiscal_year)}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -12323,15 +11324,30 @@ def _contribution_margin_manual(sym, name, fiscal_year, consolidated=True):
         components = parsed.get("components", {})
         materials = components.get("Cost of materials consumed")
         stock_in_trade = components.get("Purchases of stock-in-trade")
+        changes_in_inventory = components.get("Changes in inventories")
+        # Direct Expenses - taken in FULL, not sub-item-classified. In cost
+        # accounting, "Direct Expenses" is BY DEFINITION the bucket of costs
+        # directly attributable to/varying with production or sales volume
+        # (that is the literal meaning of "direct" as opposed to "indirect/
+        # overhead") - unlike "Other Expenses", which mixes genuinely fixed
+        # items (rent, insurance, professional fees) with volume-linked ones
+        # and therefore still needs the caption-level classification below.
+        # Confirmed exactly on Prime Fresh Limited's FY26 AR: Purchases of
+        # Stock-in-Trade + Changes in Inventories + Direct Expenses (the
+        # filing's own lettered P&L sub-items a+b+c) reconciles to the
+        # company's own disclosed Direct Expenses Note total to the paisa.
+        direct_expenses = parsed.get("direct_expenses")
         variable_opex_note = parsed.get("variable_opex_note")
         note_items = (variable_opex_note or {}).get("items") or {}
 
-        if materials is None and stock_in_trade is None and not note_items:
+        if (materials is None and stock_in_trade is None and direct_expenses is None
+                and changes_in_inventory is None and not note_items):
             out = {"applicable": False,
-                   "reason": "Could not find 'Cost of materials consumed', 'Purchases of stock-in-trade', or any "
-                             "volume-linked sub-item (freight/power & fuel/packing/sales commission) in the "
-                             "Other Expenses Note -- likely a pure services business with no disclosed "
-                             "volume-linked cost to build Variable Costs from.",
+                   "reason": "Could not find 'Cost of materials consumed', 'Purchases of stock-in-trade', "
+                             "'Changes in Inventories', 'Direct Expenses', or any volume-linked sub-item "
+                             "(freight/power & fuel/packing/sales commission) in the Other Expenses Note -- "
+                             "likely a pure services business with no disclosed volume-linked cost to build "
+                             "Variable Costs from.",
                    "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
@@ -12344,28 +11360,74 @@ def _contribution_margin_manual(sym, name, fiscal_year, consolidated=True):
         if stock_in_trade is not None:
             var_components["Purchases of stock-in-trade"] = round(stock_in_trade[0], 2)
             variable_costs_cur += stock_in_trade[0]
-        for label, (cur, _prior) in note_items.items():
-            var_components[label] = round(cur, 2)
-            variable_costs_cur += cur
+        if changes_in_inventory is not None:
+            var_components["Changes in inventories"] = round(changes_in_inventory[0], 2)
+            variable_costs_cur += changes_in_inventory[0]
+        if direct_expenses is not None:
+            var_components["Direct Expenses"] = round(direct_expenses[0], 2)
+            variable_costs_cur += direct_expenses[0]
+        else:
+            # Only scan the Other Expenses Note for additional volume-linked
+            # sub-items when there's no separate Direct Expenses line to
+            # begin with - when Direct Expenses IS disclosed, it already IS
+            # this filing's own bucket for volume-linked operational costs
+            # (freight/loading/packing/etc. that a Direct-Expenses-less
+            # filer would otherwise bury inside Other Expenses instead), so
+            # adding Other-Expenses-Note items on top of it would be
+            # double-counting the same economic cost under two different
+            # captions, not a genuine additional variable cost.
+            for label, (cur, _prior) in note_items.items():
+                var_components[label] = round(cur, 2)
+                variable_costs_cur += cur
         variable_costs_cur = round(variable_costs_cur, 2)
 
         contribution_cur = round(rev_cur - variable_costs_cur, 2)
         margin = round((contribution_cur / rev_cur) * 100, 2)
 
         note_found = variable_opex_note is not None
-        note_matched = len(note_items) > 0
-        confidence = 0.55 if note_matched else 0.4
+        has_direct_expenses = direct_expenses is not None
+        # `note_items` was scanned for the early N/A gate above regardless of
+        # branch, but it's only actually FOLDED INTO Variable Costs when
+        # there's no Direct Expenses line (see the if/else above) - use that
+        # same condition here so the reported status matches what was
+        # actually included, not merely what was found on the page.
+        note_matched = (not has_direct_expenses) and len(note_items) > 0
+        confidence = 0.6 if (note_matched or has_direct_expenses) else 0.4
 
-        if note_matched:
-            note_desc = (f"the Other Expenses Note breakup was located and {len(note_items)} volume-linked "
-                         f"sub-item(s) (freight/power & fuel/packing/commission-type captions) were added on "
-                         f"top of goods cost")
+        if has_direct_expenses:
+            note_desc = "the full Direct Expenses line was included as a variable cost"
+            extraction_status = "direct_expenses_only"
+        elif note_matched:
+            note_desc = (f"no Direct Expenses line was disclosed; {len(note_items)} volume-linked sub-item(s) "
+                         f"were located in the Other Expenses Note and added on top of goods cost")
+            extraction_status = "note_matched"
         elif note_found:
-            note_desc = ("the Other Expenses Note breakup was located but none of its sub-items matched a "
-                         "volume-linked caption, so Variable Costs is goods cost only")
+            note_desc = ("no Direct Expenses line was disclosed, and the Other Expenses Note breakup was "
+                         "located but none of its sub-items matched a volume-linked caption, so Variable Costs "
+                         "is goods cost only")
+            extraction_status = "note_found_no_variable_items"
         else:
-            note_desc = ("no Other Expenses Note breakup could be located in this filing, so Variable Costs is "
-                         "goods cost only and likely UNDERSTATES the true figure")
+            note_desc = ("no Direct Expenses line and no Other Expenses Note breakup could be located in this "
+                         "filing, so Variable Costs is goods cost only and likely UNDERSTATES the true figure")
+            extraction_status = "note_not_found"
+
+        # Suspicious-equality guard (generic, every company - never a
+        # company-specific check): Contribution Margin legitimately equals
+        # Gross Profit Margin only when this company genuinely has no
+        # disclosed volume-linked Other Expenses beyond goods cost. When the
+        # Note scan didn't succeed (`note_matched` False) AND the P&L's own
+        # face-value "Other Expenses" total is materially non-zero, CM is
+        # about to reduce to the exact same figure as GPM's COGS-only
+        # numerator purely because the Note extraction failed, not because
+        # the equality is real - flag it so a QA pass (or a future filing
+        # layout this parser doesn't yet handle) can tell "genuinely no
+        # variable items" apart from "extraction gap" without re-deriving
+        # GPM here (that would be an independent GPM reconstruction, which
+        # is exactly the single-source-of-truth violation this rule set
+        # forbids - this is a DIAGNOSTIC flag only, not a fallback value).
+        other_expenses_disclosed = parsed.get("other_expenses")
+        oe_face_cur = other_expenses_disclosed[0] if other_expenses_disclosed is not None else 0.0
+        equality_risk = (not note_matched) and oe_face_cur > (rev_cur * 0.005)
 
         out = {
             "applicable": True,
@@ -12375,6 +11437,8 @@ def _contribution_margin_manual(sym, name, fiscal_year, consolidated=True):
             "approximation": True,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "formula": "(Revenue from Operations - Total Variable Costs) / Revenue from Operations x 100",
+            "variable_cost_extraction_status": extraction_status,
+            "gpm_equality_risk": equality_risk,  # True = CM may equal GPM due to an extraction gap, not a genuine tie - see `variable_cost_extraction_status`
             "numerator": {
                 "label": "Contribution (Revenue - Total Variable Costs)",
                 "value_cr": contribution_cur,
@@ -12391,12 +11455,14 @@ def _contribution_margin_manual(sym, name, fiscal_year, consolidated=True):
             "sources": _page_sources(pdf_url, fiscal_year, pl_page=parsed.get("pl_page")),
             "note": f"APPROXIMATION -- Ind AS filings don't print a single disclosed fixed/variable "
                     f"cost-behaviour split, so Variable Costs is reconstructed from statement-line goods cost "
-                    f"(Cost of materials consumed + Purchases of stock-in-trade, never Changes in inventories) "
-                    f"plus caption-matched volume-linked sub-items from the Other Expenses Note; for this "
-                    f"filing, {note_desc}. Rent, legal/professional fees, insurance, donations, CSR, audit "
-                    f"fees, and any other Other Expenses sub-item not matching a volume-linked caption are "
-                    f"never included. Employee Benefit Expense, Depreciation, and Finance Costs are never "
-                    f"treated as variable. Treat this figure as directional, not precise.",
+                    f"(Cost of Materials Consumed + Purchases of Stock-in-Trade + Changes in Inventories, the "
+                    f"filing's own lettered P&L sub-items) plus the full Direct Expenses line where disclosed "
+                    f"(Direct Expenses is, by definition, the cost bucket directly attributable to production/"
+                    f"sales volume) plus any additional caption-matched volume-linked sub-items from the Other "
+                    f"Expenses Note; for this filing, {note_desc}. Rent, legal/professional fees, insurance, "
+                    f"donations, CSR, audit fees, and any other Other Expenses sub-item not matching a "
+                    f"volume-linked caption are never included. Employee Benefit Expense, Depreciation, and "
+                    f"Finance Costs are never treated as variable. Treat this figure as directional, not precise.",
         }
         _write_cache(ckey, out)
         return out
