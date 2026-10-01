@@ -83,14 +83,36 @@ def get_candles(symbol: str, interval: str = "5m", period: str | None = None):
         return None
 
 
-def get_candles_for_date(symbol: str, date_str: str, interval: str = "5m"):
-    """Returns the full trading day's (9:15-3:30 IST) candles for one
-    calendar date - the "History" view's data source, distinct from the
-    rolling-window get_candles used by the live chart. `date_str` is
-    'YYYY-MM-DD'. Returns None if the date is outside what yfinance's
-    intraday retention actually has for this interval, or if there's no
-    trading data for that date (weekend/holiday) - never a fabricated or
-    nearest-available substitute.
+_IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+_WARMUP_LOOKBACK_DAYS = 10   # calendar days; enough for several prior sessions
+_WARMUP_MAX_BARS = 300       # prior-session bars handed to the detectors
+
+
+def _row_to_candle(ts, row):
+    o, h, l, c = row.get("Open"), row.get("High"), row.get("Low"), row.get("Close")
+    if o is None or h is None or l is None or c is None:
+        return None
+    return {
+        "time": int(ts.timestamp()),
+        "open": float(o),
+        "high": float(h),
+        "low": float(l),
+        "close": float(c),
+        "volume": float(row.get("Volume") or 0),
+    }
+
+
+def get_session_with_warmup(symbol: str, date_str: str, interval: str = "5m"):
+    """Returns (session, warmup) for one trading date, or None.
+
+    session = that date's regular-session (9:15-3:30 IST) candles - the
+    display window. warmup = up to _WARMUP_MAX_BARS regular-session candles
+    from the sessions BEFORE it - the detector calculation window only, so
+    indicators (RSI/BB/swings need ~30 bars) are already warm at 9:15 instead
+    of the replay silently skipping the first ~2.5 hours. Warmup bars are
+    never part of the displayed session. Dates are matched on the IST
+    calendar date, not UTC. None if the date is outside yfinance's intraday
+    retention or has no data (weekend/holiday) - never a substituted day.
     """
     if not _HAVE_YF:
         return None
@@ -103,30 +125,34 @@ def get_candles_for_date(symbol: str, date_str: str, interval: str = "5m"):
         return None
     try:
         sym = _to_symbol(symbol)
-        start = datetime.datetime.combine(day, datetime.time.min)
-        end = start + datetime.timedelta(days=1)
+        start = datetime.datetime.combine(day - datetime.timedelta(days=_WARMUP_LOOKBACK_DAYS), datetime.time.min)
+        end = datetime.datetime.combine(day, datetime.time.min) + datetime.timedelta(days=1)
         hist = yf.Ticker(sym).history(start=start, end=end, interval=interval)
         if hist is None or hist.empty:
             return None
-        candles = []
+        session, warmup = [], []
         for ts, row in hist.iterrows():
-            local_ts = ts.tz_convert("Asia/Kolkata") if ts.tzinfo is not None else ts
+            local_ts = ts.tz_convert("Asia/Kolkata") if ts.tzinfo is not None else ts.replace(tzinfo=_IST)
             if not (_MARKET_OPEN <= local_ts.time() <= _MARKET_CLOSE):
                 continue
-            o, h, l, c = row.get("Open"), row.get("High"), row.get("Low"), row.get("Close")
-            if o is None or h is None or l is None or c is None:
+            candle = _row_to_candle(ts, row)
+            if candle is None:
                 continue
-            candles.append({
-                "time": int(ts.timestamp()),
-                "open": float(o),
-                "high": float(h),
-                "low": float(l),
-                "close": float(c),
-                "volume": float(row.get("Volume") or 0),
-            })
-        return candles or None
+            if local_ts.date() == day:
+                session.append(candle)
+            elif local_ts.date() < day:
+                warmup.append(candle)
+        if not session:
+            return None
+        return session, warmup[-_WARMUP_MAX_BARS:]
     except Exception:
         return None
+
+
+def get_candles_for_date(symbol: str, date_str: str, interval: str = "5m"):
+    """Session-only candles for one date (see get_session_with_warmup)."""
+    res = get_session_with_warmup(symbol, date_str, interval)
+    return res[0] if res else None
 
 
 def get_latest(symbol: str):

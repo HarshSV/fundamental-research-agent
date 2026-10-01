@@ -9,13 +9,24 @@ import { detectChartPatterns } from './chartPatterns.js';
 
 const MIN_CANDLES = 30; // same floor analyzeCandles/detectChartPatterns use
 
-export function replayDayEvents(candles) {
+// patternsOnly skips the indicator pass (used for the live rolling window,
+// where only chart-pattern occurrences are needed for the selector).
+//
+// sessionStart: index of the first DISPLAYED bar when `candles` begins with
+// prior-session warm-up bars (the detectors' calculation window). Replay
+// starts at the session's first bar, only events at/after it are kept, and
+// bar indexes are re-based so they index the session candles alone. Indicator
+// warm-up and session start are different things: without warm-up, nothing
+// can be detected until MIN_CANDLES bars (~2.5h of 5m) into the session.
+export function replayDayEvents(candles, { patternsOnly = false, sessionStart = 0 } = {}) {
   if (!candles || candles.length < MIN_CANDLES) return [];
   const seen = new Set();
   const timeline = [];
-  for (let i = MIN_CANDLES; i <= candles.length; i++) {
+  for (let i = Math.max(MIN_CANDLES, sessionStart + 1); i <= candles.length; i++) {
     const window = candles.slice(0, i);
-    const found = [...analyzeCandles(window), ...detectChartPatterns(window)];
+    const found = patternsOnly
+      ? detectChartPatterns(window)
+      : [...analyzeCandles(window), ...detectChartPatterns(window)];
     for (const e of found) {
       const key = `${e.time}|${e.text}`;
       if (seen.has(key)) continue;
@@ -23,5 +34,9 @@ export function replayDayEvents(candles) {
       timeline.push(e);
     }
   }
-  return timeline.sort((a, b) => a.time - b.time);
+  const t0 = sessionStart > 0 ? candles[sessionStart].time : -Infinity;
+  const rebase = (e) => (sessionStart > 0 && e.barIndex != null
+    ? { ...e, barIndex: e.barIndex - sessionStart, startIndex: e.startIndex - sessionStart, endIndex: e.endIndex - sessionStart }
+    : e);
+  return timeline.filter((e) => e.time >= t0).map(rebase).sort((a, b) => a.time - b.time);
 }

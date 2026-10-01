@@ -23,8 +23,29 @@ function tierFromScore(score) {
   return 'Low';
 }
 
-function mk(name, time, tone, score, note) {
-  return { time, kind: 'pattern', pattern: name, tone, confidence: tierFromScore(score), text: `${name}${note ? ` - ${note}` : ''}` };
+// `loc` carries the detector's real location data so the chart can mark the
+// exact occurrence: { barIndex, startIndex, endIndex, price, rangeLow, rangeHigh }.
+// Indexes refer to the candle array handed to detectChartPatterns (replay
+// windows are prefixes of the full array, so they stay valid). `confidence`
+// is kept on the event but is deliberately not shown in the UI.
+export function patternType(name) {
+  return name.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function mk(name, time, tone, score, note, loc) {
+  return {
+    time, kind: 'pattern', pattern: name, patternType: patternType(name), tone,
+    confidence: tierFromScore(score), text: `${name}${note ? ` - ${note}` : ''}`,
+    ...(loc || {}),
+  };
+}
+
+function rangeOf(candles, a, b) {
+  const w = candles.slice(a, b + 1);
+  return { rangeLow: Math.min(...w.map((c) => c.low)), rangeHigh: Math.max(...w.map((c) => c.high)) };
+}
+function locOf(candles, startIndex, endIndex, barIndex, price) {
+  return { barIndex, startIndex, endIndex, price, ...rangeOf(candles, startIndex, endIndex) };
 }
 
 // --- Double Top / Double Bottom --------------------------------------------
@@ -40,7 +61,7 @@ function doubleTopBottom(candles, highs, lows) {
         const troughBetween = Math.min(...candles.slice(h1.index, h2.index + 1).map((c) => c.low));
         const depth = pct(troughBetween, (h1.price + h2.price) / 2);
         const score = Math.min(1, similarity * 0.6 + Math.min(depth / 0.05, 1) * 0.4);
-        out.push(mk('Double Top', candles[h2.index].time, 'neg', score, `peaks ${h1.price.toFixed(2)} / ${h2.price.toFixed(2)}`));
+        out.push(mk('Double Top', candles[h2.index].time, 'neg', score, `peaks ${h1.price.toFixed(2)} / ${h2.price.toFixed(2)}`, locOf(candles, h1.index, h2.index, h2.index, h2.price)));
       }
     }
   }
@@ -53,7 +74,7 @@ function doubleTopBottom(candles, highs, lows) {
         const peakBetween = Math.max(...candles.slice(l1.index, l2.index + 1).map((c) => c.high));
         const height = pct(peakBetween, (l1.price + l2.price) / 2);
         const score = Math.min(1, similarity * 0.6 + Math.min(height / 0.05, 1) * 0.4);
-        out.push(mk('Double Bottom', candles[l2.index].time, 'pos', score, `troughs ${l1.price.toFixed(2)} / ${l2.price.toFixed(2)}`));
+        out.push(mk('Double Bottom', candles[l2.index].time, 'pos', score, `troughs ${l1.price.toFixed(2)} / ${l2.price.toFixed(2)}`, locOf(candles, l1.index, l2.index, l2.index, l2.price)));
       }
     }
   }
@@ -72,7 +93,7 @@ function headAndShoulders(candles, highs, lows) {
       if (headTaller && shoulderSim > 0.9) {
         const headDominance = (head.price - Math.max(ls.price, rs.price)) / head.price;
         const score = Math.min(1, shoulderSim * 0.5 + Math.min(headDominance / 0.02, 1) * 0.5);
-        out.push(mk('Head & Shoulders', candles[rs.index].time, 'neg', score, `shoulders ${ls.price.toFixed(2)}/${rs.price.toFixed(2)}, head ${head.price.toFixed(2)}`));
+        out.push(mk('Head & Shoulders', candles[rs.index].time, 'neg', score, `shoulders ${ls.price.toFixed(2)}/${rs.price.toFixed(2)}, head ${head.price.toFixed(2)}`, locOf(candles, ls.index, rs.index, rs.index, rs.price)));
       }
     }
   }
@@ -84,7 +105,7 @@ function headAndShoulders(candles, highs, lows) {
       if (headDeeper && shoulderSim > 0.9) {
         const headDominance = (Math.min(ls.price, rs.price) - head.price) / head.price;
         const score = Math.min(1, shoulderSim * 0.5 + Math.min(headDominance / 0.02, 1) * 0.5);
-        out.push(mk('Inverse Head & Shoulders', candles[rs.index].time, 'pos', score, `shoulders ${ls.price.toFixed(2)}/${rs.price.toFixed(2)}, head ${head.price.toFixed(2)}`));
+        out.push(mk('Inverse Head & Shoulders', candles[rs.index].time, 'pos', score, `shoulders ${ls.price.toFixed(2)}/${rs.price.toFixed(2)}, head ${head.price.toFixed(2)}`, locOf(candles, ls.index, rs.index, rs.index, rs.price)));
       }
     }
   }
@@ -118,6 +139,8 @@ function trianglesAndWedges(candles, highs, lows) {
   const lowSlope = linRegSlope(recentLows) / avgPrice;
   const flatTol = 0.0008; // near-zero slope, normalised by price
   const t = candles[last].time;
+  const startIndex = Math.min(recentHighs[0].index, recentLows[0].index);
+  const loc = locOf(candles, startIndex, last, last, candles[last].close);
 
   const highFlat = Math.abs(highSlope) < flatTol;
   const lowFlat = Math.abs(lowSlope) < flatTol;
@@ -126,17 +149,17 @@ function trianglesAndWedges(candles, highs, lows) {
   const bothFalling = highSlope < -flatTol && lowSlope < -flatTol;
 
   if (highFlat && lowSlope > flatTol) {
-    out.push(mk('Ascending Triangle', t, 'pos', 0.65, 'flat resistance, rising support'));
+    out.push(mk('Ascending Triangle', t, 'pos', 0.65, 'flat resistance, rising support', loc));
   } else if (lowFlat && highSlope < -flatTol) {
-    // Not on the requested list by name, but the same detector - fold into Symmetrical/Descending isn't requested, skip.
+    out.push(mk('Descending Triangle', t, 'neg', 0.65, 'flat support, falling resistance', loc));
   } else if (converging) {
-    out.push(mk('Symmetrical Triangle', t, 'neutral', 0.6, 'converging highs and lows'));
+    out.push(mk('Symmetrical Triangle', t, 'neutral', 0.6, 'converging highs and lows', loc));
   } else if (bothRising && highSlope < lowSlope) {
-    out.push(mk('Rising Wedge', t, 'neg', 0.55, 'both bounds rising, narrowing - bearish continuation risk'));
+    out.push(mk('Rising Wedge', t, 'neg', 0.55, 'both bounds rising, narrowing - bearish continuation risk', loc));
   } else if (bothFalling && lowSlope < highSlope) {
-    out.push(mk('Falling Wedge', t, 'pos', 0.55, 'both bounds falling, narrowing - bullish reversal risk'));
+    out.push(mk('Falling Wedge', t, 'pos', 0.55, 'both bounds falling, narrowing - bullish reversal risk', loc));
   } else if (highFlat && lowFlat) {
-    out.push(mk('Rectangle', t, 'neutral', 0.6, 'trading in a horizontal range'));
+    out.push(mk('Rectangle', t, 'neutral', 0.6, 'trading in a horizontal range', loc));
   }
   return out;
 }
@@ -166,10 +189,10 @@ function flags(candles) {
   if (poleMove > 0.08 && flagDrift <= 0.01) {
     const score = Math.min(1, (poleMove / 0.15) * 0.5 + (1 - flagRange / (Math.abs(poleMove) * 0.5)) * 0.5);
     const label = poleMove > 0.9 ? 'High Tight Flag' : 'Flag';
-    out.push(mk(label, candles[last].time, 'pos', score, `${(poleMove * 100).toFixed(0)}% pole, tight ${(flagRange * 100).toFixed(1)}% consolidation`));
+    out.push(mk(label, candles[last].time, 'pos', score, `${(poleMove * 100).toFixed(0)}% pole, tight ${(flagRange * 100).toFixed(1)}% consolidation`, locOf(candles, last - flagLen - poleLen, last, last, candles[last].close)));
   } else if (poleMove < -0.08 && flagDrift >= -0.01) {
     const score = Math.min(1, (Math.abs(poleMove) / 0.15) * 0.5 + (1 - flagRange / (Math.abs(poleMove) * 0.5)) * 0.5);
-    out.push(mk('Flag', candles[last].time, 'neg', score, `${(poleMove * 100).toFixed(0)}% pole, tight ${(flagRange * 100).toFixed(1)}% consolidation`));
+    out.push(mk('Flag', candles[last].time, 'neg', score, `${(poleMove * 100).toFixed(0)}% pole, tight ${(flagRange * 100).toFixed(1)}% consolidation`, locOf(candles, last - flagLen - poleLen, last, last, candles[last].close)));
   }
   return out;
 }
@@ -187,7 +210,7 @@ function flatBase(candles) {
     const range = (hi - lo) / hi;
     if (range < 0.08) {
       const score = Math.min(1, (0.08 - range) / 0.08 + 0.3);
-      out.push(mk('Flat Base', candles[last].time, 'neutral', score, `${(range * 100).toFixed(1)}% range over ${len} bars`));
+      out.push(mk('Flat Base', candles[last].time, 'neutral', score, `${(range * 100).toFixed(1)}% range over ${len} bars`, locOf(candles, last - len + 1, last, last, candles[last].close)));
       break; // one Flat Base call per refresh, tightest window wins
     }
   }
@@ -216,7 +239,7 @@ function cupAndHandle(candles, highs) {
   const handleDepth = (rimRight.price - handleLow) / rimRight.price;
   if (handleDepth > depth * 0.5 || handleDepth < 0.01) return out;
   const score = Math.min(1, rimSim * 0.5 + (1 - handleDepth / (depth * 0.5)) * 0.5);
-  out.push(mk('Cup & Handle', candles[last].time, 'pos', score, `${(depth * 100).toFixed(0)}% cup, ${(handleDepth * 100).toFixed(1)}% handle`));
+  out.push(mk('Cup & Handle', candles[last].time, 'pos', score, `${(depth * 100).toFixed(0)}% cup, ${(handleDepth * 100).toFixed(1)}% handle`, locOf(candles, rimLeft.index, last, last, candles[last].close)));
   return out;
 }
 
@@ -236,7 +259,7 @@ function threeWeeksTight(candles) {
   const c3 = closesOf(last - chunk + 1);
   const spread = (Math.max(c1, c2, c3) - Math.min(c1, c2, c3)) / c3;
   if (spread < 0.015) {
-    out.push({ ...mk('Three Weeks Tight', candles[last].time, 'pos', 0.4, `proxy on ${chunk}-bar chunks, ${(spread * 100).toFixed(2)}% spread (needs weekly bars for a real read)`) });
+    out.push({ ...mk('Three Weeks Tight', candles[last].time, 'pos', 0.4, `proxy on ${chunk}-bar chunks, ${(spread * 100).toFixed(2)}% spread (needs weekly bars for a real read)`, locOf(candles, last - chunk * 3 + 1, last, last, candles[last].close)) });
   }
   return out;
 }
@@ -253,7 +276,7 @@ function pocketPivot(candles) {
   if (maxDownVol > 0 && (c.volume || 0) > maxDownVol) {
     const ratio = (c.volume || 0) / maxDownVol;
     const score = Math.min(1, 0.4 + Math.min(ratio - 1, 1) * 0.4);
-    out.push(mk('Pocket Pivot', c.time, 'pos', score, `volume ${ratio.toFixed(1)}x the largest down-day in the last 10 bars`));
+    out.push(mk('Pocket Pivot', c.time, 'pos', score, `volume ${ratio.toFixed(1)}x the largest down-day in the last 10 bars`, locOf(candles, last - 10, last, last, c.close)));
   }
   return out;
 }
@@ -270,7 +293,7 @@ function undercutRally(candles, lows) {
   if (!undercutBar) return out;
   const c = candles[last];
   if (c.close > priorLow.price && c.low < priorLow.price) {
-    out.push(mk('Undercut & Rally', c.time, 'pos', 0.55, `undercut ${priorLow.price.toFixed(2)} then closed back above it`));
+    out.push(mk('Undercut & Rally', c.time, 'pos', 0.55, `undercut ${priorLow.price.toFixed(2)} then closed back above it`, locOf(candles, priorLow.index, last, last, c.close)));
   }
   return out;
 }
@@ -286,13 +309,13 @@ function wyckoffSpringUpthrust(candles, highs, lows) {
   if (lows.length >= 1) {
     const range = lows[lows.length - 1];
     if (c.low < range.price && c.close > range.price && c.close > c.open) {
-      out.push(mk('Wyckoff Spring', c.time, 'pos', 0.3, 'false breakdown below support, closed back above - unconfirmed intent'));
+      out.push(mk('Wyckoff Spring', c.time, 'pos', 0.3, 'false breakdown below support, closed back above - unconfirmed intent', locOf(candles, range.index, last, last, c.close)));
     }
   }
   if (highs.length >= 1) {
     const range = highs[highs.length - 1];
     if (c.high > range.price && c.close < range.price && c.close < c.open) {
-      out.push(mk('Wyckoff Upthrust', c.time, 'neg', 0.3, 'false breakout above resistance, closed back below - unconfirmed intent'));
+      out.push(mk('Wyckoff Upthrust', c.time, 'neg', 0.3, 'false breakout above resistance, closed back below - unconfirmed intent', locOf(candles, range.index, last, last, c.close)));
     }
   }
   return out;
@@ -314,7 +337,7 @@ function harmonics(candles, highs, lows) {
   const bcAb = bc / ab;
   // Gartley-ish tolerance band only, not a precise XABCD label.
   if (abXa > 0.55 && abXa < 0.68 && bcAb > 0.35 && bcAb < 0.9) {
-    out.push(mk('Harmonic pattern (Gartley-like)', candles[last].time, 'neutral', 0.25, 'approximate Fibonacci ratio fit on last 4 swings - low reliability from OHLCV alone'));
+    out.push(mk('Harmonic pattern (Gartley-like)', candles[last].time, 'neutral', 0.25, 'approximate Fibonacci ratio fit on last 4 swings - low reliability from OHLCV alone', locOf(candles, x.index, c.index, last, candles[last].close)));
   }
   return out;
 }

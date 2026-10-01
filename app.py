@@ -504,11 +504,14 @@ def live_chart_day_candles(symbol: str, date: str, interval: str = "5m", _: dict
     sym = resolve_symbol_from_registry(symbol)
     if not sym:
         raise HTTPException(status_code=400, detail="Symbol required.")
-    from tools.live_chart_yf import get_candles_for_date
-    candles = get_candles_for_date(sym, date, interval=interval)
-    if candles is None:
-        return {"symbol": sym, "date": date, "candles": [], "source": "unavailable"}
-    return {"symbol": sym, "date": date, "candles": candles, "source": "yfinance"}
+    from tools.live_chart_yf import get_session_with_warmup
+    res = get_session_with_warmup(sym, date, interval=interval)
+    if res is None:
+        return {"symbol": sym, "date": date, "candles": [], "warmup": [], "source": "unavailable"}
+    session, warmup = res
+    # `candles` = the display session; `warmup` = prior-session bars for the
+    # detectors' calculation window only (never drawn).
+    return {"symbol": sym, "date": date, "session_date": date, "candles": session, "warmup": warmup, "source": "yfinance"}
 
 @app.get("/api/live-chart/{symbol}/latest")
 def live_chart_latest(symbol: str, _: dict = Depends(auth.require_session)):
