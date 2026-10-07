@@ -121,7 +121,7 @@ _SIMPLE_RATIOS = {
     "financial_leverage_ratio": ("total_assets", "equity_full", True, True, "x", 1),
     "fixed_asset_turnover": ("revenue", "net_fixed_assets", False, True, "x", 1),
     "asset_turnover": ("revenue", "total_assets", False, True, "x", 1),
-    "working_capital_turnover": ("revenue", "working_capital", False, True, "x", 1),
+    "working_capital_turnover": ("revenue", "working_capital", False, False, "x", 1),   # AR "Net Capital Turnover": Net Sales / closing WC
     "receivables_turnover": ("revenue", "receivables", False, True, "x", 1),
     "receivables_to_payables": ("receivables", "payables", False, False, "x", 1),
     "net_debt_to_ebitda": ("net_debt", "ebitda", False, False, "x", 1),
@@ -132,8 +132,8 @@ _SIMPLE_RATIOS = {
     "effective_tax_rate": ("tax_expense", "pbt", False, False, "%", 100),
     "fcf_margin": ("fcf", "revenue", False, False, "%", 100),
     "roic": ("nopat", "invested_capital", False, False, "%", 100),
-    "days_working_capital": ("working_capital", "revenue", True, False, "days", 365),
-    "inventory_turnover": ("cogs", "inventory", False, True, "x", 1),
+    "days_working_capital": ("working_capital", "revenue", False, False, "days", 365),   # closing WC, reciprocal of the above
+    "inventory_turnover": ("revenue", "inventory", False, True, "x", 1),   # AR definition: Net Sales / Average Inventory
     "payables_turnover": ("purchases", "payables", False, True, "x", 1),
     "gross_profit_margin": ("gross_profit", "revenue", False, False, "%", 100),
 }

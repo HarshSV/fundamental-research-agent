@@ -662,6 +662,13 @@ def _compute_pair(cur, prev, sym=None, name=None):
             have_any = True
     if not have_any or cogs == 0:
         return None, "No Cost-of-materials / Purchases lines in the filing - not a goods business."
+    # Numerator is Net Sales (Revenue from Operations) - the Annual Report's own
+    # Inventory Turnover definition. COGS above is kept only as the goods-
+    # business gate and a reference figure.
+    rev_v = _fact_in_context(facts_c, "RevenueFromOperations", acid) if acid else None
+    sales_cr = _to_cr(rev_v) if rev_v is not None else None
+    if not sales_cr or sales_cr <= 0:
+        return None, "Revenue from Operations not found in the annual XBRL filing - Net Sales is the Inventory Turnover numerator."
 
     # Denominator: average of the two consecutive year-end Inventories.
     inv_cur = _latest_instant_value(ctx_c, facts_c, "Inventories")
@@ -692,7 +699,8 @@ def _compute_pair(cur, prev, sym=None, name=None):
             print(f"[nse_xbrl] restated-inventory lookup skipped: {e}")
 
     avg_inv = round((inv_cur_cr + inv_prev_cr) / 2, 2)
-    ratio = round(cogs / avg_inv, 2) if avg_inv else None
+    ratio_raw = (sales_cr / avg_inv) if avg_inv else None
+    ratio = round(ratio_raw, 2) if ratio_raw is not None else None
 
     note = ("Consolidated, audited - Cost of Goods Sold from NSE XBRL; prior-year "
             "Inventory is the company's own RESTATED comparative (verified against "
@@ -712,12 +720,12 @@ def _compute_pair(cur, prev, sym=None, name=None):
     confidence = 1.0 if restated_note else 0.95
 
     return {
-        "value": ratio, "unit": "x",
+        "value": ratio, "value_raw": ratio_raw, "unit": "x",
         "confidence": confidence,
         "estimated": False,
         "period": f"{_fy_label(cur['to_date'])} (consolidated)",
-        "numerator": {"label": "Cost of Goods Sold (a + b + c)", "value_cr": round(cogs, 2),
-                      "components": components},
+        "numerator": {"label": "Net Sales (Revenue from Operations)", "value_cr": round(sales_cr, 2),
+                      "reference_cogs_cr": round(cogs, 2), "components": components},
         "denominator": {"label": "Average Inventory (opening + closing) ÷ 2", "value_cr": avg_inv,
                         "inventory_by_year": {inv_cur[0]: inv_cur_cr, inv_prev[0]: inv_prev_cr}},
         "sources": sources,
@@ -778,7 +786,7 @@ def _try_year(sym, name, ar_years, annuals, target_year):
 
 def fetch_inventory_turnover(symbol, name=None, to_date=None):
     """
-    Inventory Turnover = COGS (a+b+c) / Average Inventory. PRIMARY source is the
+    Inventory Turnover = Net Sales / Average Inventory (the Annual Report's own definition). PRIMARY source is the
     company's own Annual Report (per the Source Hierarchy - ranks above the
     quarterly/annual Reg-33 result filing): both years' figures sit in the SAME
     document, on the same reporting basis, and the statements extract cleanly

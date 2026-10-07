@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { authFetch } from '../lib/api.js';
+import { groupFundamentalRatios } from '../lib/ratioCategories.js';
 import ManualUpload from '../components/ManualUpload.jsx';
 import { QualChart } from '../components/QualCharts.jsx';
 import navristLogo from '../assets/navrist-logo.svg';
@@ -33,7 +34,6 @@ const FUND_STATUS_LABEL = {
   not_applicable: 'Not Applicable', insufficient_data: 'Insufficient Data',
 };
 
-const FUND_CATEGORY_ORDER = ['Profitability', 'Liquidity', 'Leverage', 'Efficiency', 'Returns', 'Cash Flow', 'Tax', 'Valuation', 'Growth', 'Other'];
 
 function fmtRatioValue(r) {
   if (r.value == null) return '-';
@@ -120,6 +120,7 @@ function FundamentalCard({ r, defaultOpen = false }) {
 
 function FundamentalTab({ symbol, query }) {
   const [results, setResults] = useState(null);
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     let cancelled = false;
     authFetch(`/api/v1/document-analysis/${encodeURIComponent(symbol)}`)
@@ -149,9 +150,22 @@ function FundamentalTab({ symbol, query }) {
     return <p className="text-[13px] text-slate-600 text-center py-10">No ratio matches "{query}".</p>;
   }
 
-  const byCategory = {};
-  for (const r of filtered) (byCategory[r.category] = byCategory[r.category] || []).push(r);
-  const categories = [...FUND_CATEGORY_ORDER.filter((c) => byCategory[c]), ...Object.keys(byCategory).filter((c) => !FUND_CATEGORY_ORDER.includes(c))];
+  const { primary, more } = groupFundamentalRatios(filtered);
+  // A search must be able to land on any ratio, so it opens the extra
+  // categories on its own; otherwise they sit behind "Show More Ratios".
+  const showMore = expanded || !!q;
+  const moreCount = more.reduce((n, g) => n + g.items.length, 0);
+  const renderGroup = (g) => (
+    <div key={g.category} data-category={g.category}>
+      <div className="flex items-baseline gap-2 mb-2.5 pb-1.5 border-b border-slate-800">
+        <h3 className="text-[13px] font-bold text-blue-300 uppercase tracking-wide border-l-4 border-blue-500 pl-2.5">{g.category}</h3>
+        <span className="text-[11px] text-slate-500">{g.items.length} ratio{g.items.length === 1 ? '' : 's'}</span>
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+        {g.items.map((r) => <FundamentalCard key={r.ratio_key} r={r} defaultOpen={!!q} />)}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -160,14 +174,14 @@ function FundamentalTab({ symbol, query }) {
           {hiddenCount} ratio{hiddenCount === 1 ? '' : 's'} not disclosed for this company - hidden from view.
         </p>
       )}
-      {categories.map((cat) => (
-        <div key={cat}>
-          <h3 className="text-[13px] font-bold text-slate-300 uppercase tracking-wide mb-2.5">{cat}</h3>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-            {byCategory[cat].map((r) => <FundamentalCard key={r.ratio_key} r={r} defaultOpen={!!q} />)}
-          </div>
-        </div>
-      ))}
+      {primary.map(renderGroup)}
+      {moreCount > 0 && !q && (
+        <button type="button" onClick={() => setExpanded((e) => !e)} aria-expanded={expanded}
+          className="w-full sm:w-auto px-5 py-2.5 rounded-lg border border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-200 text-[13px] font-bold transition">
+          {expanded ? 'Show Fewer Ratios' : `Show More Ratios (${moreCount})`}
+        </button>
+      )}
+      {showMore && more.map(renderGroup)}
     </div>
   );
 }

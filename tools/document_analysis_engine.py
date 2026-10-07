@@ -154,6 +154,12 @@ _LINE_ITEM_ALIASES = {
     "payables": ["trade payables", "payables", "sundry creditors", "creditors"],
     "cash": ["cash and cash equivalents", "cash & cash equivalents", "cash and bank balances",
              "cash & bank balances", "cash balances"],
+    # Bank balances OTHER than cash equivalents (fixed deposits, margin money,
+    # unpaid-dividend accounts...) - a separate Balance Sheet line Cash Ratio
+    # must surface even when it can't classify restricted vs unrestricted
+    # (singular and plural captions both occur, e.g. "Other Bank Balance").
+    "other_bank_balances": ["other bank balances", "other bank balance",
+                             "bank balances other than cash and cash equivalents"],
     "total_debt": ["total borrowings", "long-term borrowings", "total debt", "total loans"],
     "equity": ["total equity", "shareholders funds", "shareholders' funds", "net worth",
                "equity attributable to owners", "total shareholders equity"],
@@ -420,7 +426,7 @@ def _extract_best_number(window):
 # highlights graphic, a subsidiary note, or a ratio-analysis table nearby
 # all mention the same words without being the actual statement line).
 _BALANCE_SHEET_ITEMS = {"total_assets", "current_assets", "current_liabilities", "inventory",
-                        "receivables", "payables", "cash", "total_debt", "equity",
+                        "receivables", "payables", "cash", "other_bank_balances", "total_debt", "equity",
                         "deposits", "advances", "gross_npa", "total_provisions",
                         "net_fixed_assets", "reserves_and_surplus", "non_controlling_interest",
                         "equity_share_capital"}
@@ -1629,16 +1635,24 @@ def _derived(sr_no, computed):
         c = computed.get(sr)
         return c["value"] if c and c.get("value") is not None else None
 
+    def val_precise(sr):
+        """Unrounded parent value when the fetcher supplied one, else the
+        displayed value (never invents precision that isn't there)."""
+        c = computed.get(sr)
+        if not c:
+            return None
+        return c["raw"] if c.get("raw") is not None else c.get("value")
+
     if sr_no == 2:  # DOH = 365 / Inventory Turnover
-        it = val(1)
+        it = val_precise(1)
         return (365 / it, "days") if it else (None, None)
     if sr_no == 4:  # DSO = 365 / Receivables Turnover
-        rt = val(3)
+        rt = val_precise(3)
         return (365 / rt, "days") if rt else (None, None)
     if sr_no == 6:  # DPO = 365 / Payables Turnover
-        pt = val(5)
+        pt = val_precise(5)
         return (365 / pt, "days") if pt else (None, None)
-    if sr_no == 9:  # CCC = DSO + DOH - DPO
+    if sr_no == 9:  # CCC = DSO + DOH - DPO (from the same unrounded turnovers)
         dso, doh, dpo = val(4), val(2), val(6)
         if None in (dso, doh, dpo):
             return None, None
@@ -1974,7 +1988,12 @@ def run_fundamental_analysis(symbol, name=None):
                     if ratio_def["strategy"] == "A":
                         out = _call_nse_xbrl(ratio_def["nse_xbrl_fn"], sym, name)
                         row = _row_from_nse_xbrl_out(ratio_def, out)
-                        return sr_no, row, {"value": row["value"], "unit": row["unit"], "extra": {}}
+                        # `raw`: the fetcher's UNROUNDED ratio (when it emits one) - Strategy-B
+                        # derivations (DOH/DSO/DPO/CCC...) must divide by this, never by the
+                        # 2-decimal display value, or the rounding error is amplified
+                        # (365 / 0.82 vs 365 / 0.8203 is 0.16 days; 365 / 1.90 vs 1.895 is 0.5).
+                        return sr_no, row, {"value": row["value"], "unit": row["unit"], "extra": {},
+                                            "raw": out.get("value_raw")}
                     else:  # "C"
                         value, unit, status, inputs, extra = _local_group_c(sr_no, items, sector, price, sym=sym)
                         row = _row_shell(ratio_def, value, unit, status, inputs)
@@ -2076,7 +2095,23 @@ def get_fundamental_results(symbol):
     sym = symbol.strip().upper().replace(".NS", "")
     from tools.supabase_client import get_client
     sb = get_client()
-    return sb.table("fundamental_analysis_results").select("*").eq("symbol", sym).order("category").execute().data
+    rows = sb.table("fundamental_analysis_results").select("*").eq("symbol", sym).execute().data or []
+    return regroup_fundamental_rows(rows)
+
+
+def regroup_fundamental_rows(rows):
+    """Presentation only: re-labels each stored row's `category` from the
+    registry's current classification (rows persisted before the 8-category
+    regrouping still carry the old text) and orders them category-then-Sr No.
+    Values, statuses and inputs are never touched."""
+    from tools.fundamental_ratio_registry import BY_RATIO_KEY, CATEGORY_ORDER
+    out = []
+    for r in rows:
+        spec = BY_RATIO_KEY.get(r.get("ratio_key"))
+        out.append({**r, "category": spec["category"], "sr_no": spec["sr_no"]} if spec else dict(r))
+    rank = {c: i for i, c in enumerate(CATEGORY_ORDER)}
+    out.sort(key=lambda r: (rank.get(r.get("category"), len(rank)), r.get("sr_no") or 10**6))
+    return out
 
 
 # ---------------------------------------------------------------------------

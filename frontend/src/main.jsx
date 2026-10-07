@@ -4308,7 +4308,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
         // Inventory Turnover (async, after core report): the REAL standalone figure,
         // computed from the company's OWN audited NSE XBRL filings. Shows the ratio +
-        // every number behind it (COGS a+b+c, the two year-end inventories) + source.
+        // every number behind it (Net Sales, the two year-end inventories) + source.
         // Lenders (no inventory) render a clean N/A, never a fabricated number.
         // Small "ⓘ" info button - click to reveal a plain-English explainer, so the
         // main view can stay just the number without losing the definition.
@@ -4640,7 +4640,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Inventory Turnover</span>
-                            <InfoTip text="Measures how efficiently inventory is converted into sales - a key working-capital signal. Formula: Cost of Goods Sold ÷ Average Inventory. Can be distorted by understating COGS or by stale/obsolete stock inflating average inventory. Indicative benchmark: Manufacturing/FMCG 6-12x is healthy, below 3x suggests slow-moving stock (varies by industry)." />
+                            <InfoTip text="Measures how efficiently inventory is converted into sales - a key working-capital signal. Formula: Net Sales ÷ Average Inventory (the Annual Report's own definition). Can be distorted by stale/obsolete stock inflating average inventory. Indicative benchmark: Manufacturing/FMCG 6-12x is healthy, below 3x suggests slow-moving stock (varies by industry)." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -4664,7 +4664,10 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
                     {showCalc && (<>
                         <div className="pt-2 border-t border-slate-800/70 space-y-1">
-                            <Row label={num.label || 'Cost of Goods Sold (a + b + c)'} val={cr(num.value_cr)} strong />
+                            <Row label={num.label || 'Net Sales (Revenue from Operations)'} val={cr(num.value_cr)} strong />
+                            {num.reference_cogs_cr != null && (
+                                <Row label="Reference only - Cost of Goods Sold (a + b + c), not used in this ratio" val={cr(num.reference_cogs_cr)} />
+                            )}
                             {Object.entries(comps).map(([k, v], i) => (
                                 <Row key={i} label={`${String.fromCharCode(97 + i)}) ${k}`} val={cr(v)} indent />
                             ))}
@@ -5175,7 +5178,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             }, [symbol, toDate]);
 
             const d = state.data || {};
-            const doh = (d.value != null && d.value > 0) ? (365 / d.value).toFixed(2) : null;
+            const dohBase = d.value_raw ?? d.value; // unrounded parent when the backend sends it
+            const doh = (dohBase != null && dohBase > 0) ? (365 / dohBase).toFixed(2) : null;
 
             return (
                 <div className="px-4 py-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3">
@@ -5230,7 +5234,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             }, [symbol, toDate]);
 
             const d = state.data || {};
-            const dso = (d.value != null && d.value > 0) ? (365 / d.value).toFixed(2) : null;
+            const dsoBase = d.value_raw ?? d.value;
+            const dso = (dsoBase != null && dsoBase > 0) ? (365 / dsoBase).toFixed(2) : null;
 
             return (
                 <div className="px-4 py-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3">
@@ -5284,7 +5289,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             }, [symbol, toDate]);
 
             const d = state.data || {};
-            const dpo = (d.value != null && d.value > 0) ? (365 / d.value).toFixed(2) : null;
+            const dpoBase = d.value_raw ?? d.value;
+            const dpo = (dpoBase != null && dpoBase > 0) ? (365 / dpoBase).toFixed(2) : null;
 
             return (
                 <div className="px-4 py-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3">
@@ -5340,9 +5346,12 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 return () => { cancelled = true; };
             }, [symbol]);
 
-            const dso = (state.recv?.value != null && state.recv.value > 0) ? 365 / state.recv.value : null;
-            const doh = (state.inv?.value != null && state.inv.value > 0) ? 365 / state.inv.value : null;
-            const dpo = (state.pay?.value != null && state.pay.value > 0) ? 365 / state.pay.value : null;
+            const _recv = state.recv?.value_raw ?? state.recv?.value;
+            const _inv = state.inv?.value_raw ?? state.inv?.value;
+            const _pay = state.pay?.value_raw ?? state.pay?.value;
+            const dso = (_recv != null && _recv > 0) ? 365 / _recv : null;
+            const doh = (_inv != null && _inv > 0) ? 365 / _inv : null;
+            const dpo = (_pay != null && _pay > 0) ? 365 / _pay : null;
             const applicable = dso != null && doh != null && dpo != null;
             const ccc = applicable ? (dso + doh - dpo) : null;
 
@@ -5623,7 +5632,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         <ToneValue value={d.value} unit={d.unit || 'x'} tone={toneOf(d.value, { good: [6, 10], bad: 15, higherIsBetter: false })} />
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: 1.0 = Purchases from a+b (2 disclosed line items) with a complete opening+closing Trade Payables average; 0.8 = either the COGS/inventory fallback numerator or a closing-only denominator; 0.4 = both.">
+                                title="Confidence: 1.0 = Net Purchases read from the Cost of Materials Consumed note (+ Purchases of stock-in-trade) with a complete opening+closing Trade Payables average; 0.8 = Cost of Materials Consumed used as a proxy for purchases, the COGS/inventory fallback, or a closing-only denominator; 0.4 = fallback numerator and closing-only denominator.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -5996,7 +6005,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         {showCalc && (
                             <div className="pt-2 border-t border-slate-800/70 space-y-1">
                                 {num.value_cr != null && <Row label={num.label || 'Revenue from Operations'} val={cr(num.value_cr)} strong />}
-                                {den.value_cr != null && <Row label={den.label || 'Average Working Capital'} val={cr(den.value_cr)} strong />}
+                                {den.value_cr != null && <Row label={den.label || 'Working Capital (closing)'} val={cr(den.value_cr)} strong />}
                                 {Object.entries(wcByYr).map(([yr, v], i) => (
                                     <Row key={i} label={`Working Capital ${yr}`} val={cr(v)} indent />
                                 ))}
@@ -6016,7 +6025,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Working Capital Turnover</span>
-                            <InfoTip text="Shows how efficiently working capital is used to generate sales. Formula: Revenue from Operations ÷ Average Working Capital (Total Current Assets − Total Current Liabilities). Very high values can indicate a lean/efficient operation OR dangerously low (even negative) working capital - read alongside Current Ratio. A negative/zero Average Working Capital is flagged N/A rather than reported, since it would invert the sign and mislead." />
+                            <InfoTip text="Shows how efficiently working capital is used to generate sales. Formula: Revenue from Operations ÷ closing Working Capital (Total Current Assets − Total Current Liabilities) - the Annual Report's Net Capital Turnover definition. Very high values can indicate a lean/efficient operation OR dangerously low (even negative) working capital - read alongside Current Ratio. A negative/zero Working Capital is flagged N/A rather than reported, since it would invert the sign and mislead." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -6044,7 +6053,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             <Row label={num.label || 'Revenue from Operations'} val={cr(num.value_cr)} strong />
                         </div>
                         <div className="pt-2 border-t border-slate-800/70 space-y-1">
-                            <Row label={den.label || 'Average Working Capital'} val={cr(den.value_cr)} strong />
+                            <Row label={den.label || 'Working Capital (closing)'} val={cr(den.value_cr)} strong />
                             {Object.entries(wcByYr).map(([yr, v], i) => (
                                 <Row key={i} label={`Working Capital ${yr}`} val={cr(v)} indent />
                             ))}
@@ -6149,7 +6158,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Days Working Capital</span>
-                            <InfoTip text="Days-based expression of Working Capital Turnover - shows how many days of sales are effectively tied up in (or funded by) working capital. Formula: (Average Working Capital ÷ Revenue from Operations) × 365. Manufacturing/Trading typically 30-90 days; a NEGATIVE value (common in retail/e-commerce/QSR) means suppliers are funding operations - a favourable, not erroneous, signal. Lower (or more negative) is generally more efficient." />
+                            <InfoTip text="Days-based expression of Working Capital Turnover - shows how many days of sales are effectively tied up in (or funded by) working capital. Formula: (closing Working Capital ÷ Revenue from Operations) × 365. Manufacturing/Trading typically 30-90 days; a NEGATIVE value (common in retail/e-commerce/QSR) means suppliers are funding operations - a favourable, not erroneous, signal. Lower (or more negative) is generally more efficient." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -6174,7 +6183,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
                     {showCalc && (<>
                         <div className="pt-2 border-t border-slate-800/70 space-y-1">
-                            <Row label={num.label || 'Average Working Capital'} val={cr(num.value_cr)} strong />
+                            <Row label={num.label || 'Working Capital (closing)'} val={cr(num.value_cr)} strong />
                             {Object.entries(wcByYr).map(([yr, v], i) => (
                                 <Row key={i} label={`Working Capital ${yr}`} val={cr(v)} indent />
                             ))}

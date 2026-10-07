@@ -1774,7 +1774,7 @@ _CASH_LABELS = [
 # breakup is printed at all, the split can't be determined and the figure
 # stays informational-only rather than guessed.
 _OTHER_BANK_BALANCES_LABELS = [
-    "other bank balances", "bank balances other than cash and cash equivalents",
+    "other bank balances", "other bank balance", "bank balances other than cash and cash equivalents",
 ]
 # Deterministic "exclude" test for Other Bank Balances sub-items - reuses
 # `_RESTRICTED_CASH_TERMS` (unpaid/unclaimed dividend, earmarked, margin
@@ -5932,6 +5932,16 @@ def _broad_extraction_to_parsed_shape(sym, fiscal_year, consolidated):
     # to the same value as `equity` (the prior, safe behavior) whenever
     # either condition isn't met, never fabricating a whole-entity figure
     # from an unconfirmed base.
+    # PAT basis: the "pat" alias list tries owners-attributable phrasing
+    # first, so when the matched evidence text itself reads "...attributable
+    # to Owners/equity holders...", the figure IS the owners-only profit -
+    # report that explicitly (consumers test `pat_basis == "owners"` for the
+    # label and confidence) instead of the statement-basis word, which could
+    # never satisfy that check.
+    _pat_ev = ((items.get("pat") or {}).get("evidence") or "").lower()[:120]
+    pat_owners_confirmed = pat is not None and re.search(
+        r"attributable\s+to\s+(?:the\s+)?(?:owners|equity\s+holders|shareholders)", _pat_ev) is not None
+    pat_basis_label = "owners" if pat_owners_confirmed else ("consolidated" if consolidated else "standalone")
     nci_pair = pair("non_controlling_interest")
     if equity_owners_confirmed and nci_pair is not None:
         equity_full = (round(equity[0] + nci_pair[0], 2),
@@ -5973,7 +5983,7 @@ def _broad_extraction_to_parsed_shape(sym, fiscal_year, consolidated):
     out = {
         "revenue": revenue,
         "components": components,
-        "pat": pat, "pat_basis": "consolidated" if consolidated else "standalone",
+        "pat": pat, "pat_basis": pat_basis_label,
         "pbt": pbt_pair,
         "tax_expense": tax_expense,
         "interest_expense": pair("interest_expense"),
@@ -5986,6 +5996,11 @@ def _broad_extraction_to_parsed_shape(sym, fiscal_year, consolidated):
         "receivables": pair("receivables"),
         "payables": pair("payables"),
         "cash": pair("cash"),
+        # Informational line total only - the broad extractor has no Notes
+        # breakup to classify restricted vs unrestricted, so Cash Ratio keeps
+        # it OUT of the numerator but now sees it exists (drops confidence to
+        # 0.8 instead of silently reporting a confirmed 1.0).
+        "other_bank_balances": pair("other_bank_balances"),
         "equity": equity, "equity_full": equity_full, "equity_basis": equity_basis_label,
         "operating_cash_flow": pair("operating_cash_flow"),
         "capex_ppe_purchase": pair("capex"),
@@ -6037,6 +6052,95 @@ def _broad_extraction_to_parsed_shape(sym, fiscal_year, consolidated):
     return out
 
 
+_NOTE_NUM = r"\(?-?[\d,]+(?:\.\d+)?\)?"
+# Schedule III's "Cost of Materials Consumed" note:
+#   Opening stock ... / Add: Purchases during the year  P_cur P_prior [S_cur S_prior]
+#   Less: Closing stock  C_cur C_prior / Total [note-ref]  T_cur T_prior
+_PURCHASES_NOTE_RE = re.compile(
+    r"add\s*:?\s*purchases?(?:\s+of\s+(?:raw\s+)?materials?)?(?:\s+during\s+the\s+(?:year|period))?"
+    rf"[\s\-–—]*(?P<p1>{_NOTE_NUM})\s+(?P<p2>{_NOTE_NUM})"
+    rf"(?:\s+(?P<s1>{_NOTE_NUM})\s+(?P<s2>{_NOTE_NUM}))?"
+    r".{0,80}?less\s*:?\s*closing\s+(?:stock|inventor\w*)[^\d(]{0,60}?"
+    rf"[\s\-–—]*(?P<c1>{_NOTE_NUM})\s+(?P<c2>{_NOTE_NUM})"
+    r".{0,60}?total[^\d(]{0,25}?(?:\d+\s*\([a-z]\)\s*)?"
+    rf"(?P<t1>{_NOTE_NUM})\s+(?P<t2>{_NOTE_NUM})",
+    re.I | re.S)
+# crore, million, lakh, thousand, rupee -> multiplier to ₹ Cr
+_UNIT_TO_CRORE = (1.0, 0.1, 0.01, 1e-4, 1e-7)
+
+
+def _note_num(tok):
+    if tok is None:
+        return None
+    t = tok.strip()
+    neg = t.startswith("(") or t.startswith("-")
+    t = t.strip("()-").replace(",", "")
+    try:
+        v = float(t)
+    except ValueError:
+        return None
+    return -v if neg else v
+
+
+def _find_disclosed_raw_material_purchases(page_texts, consumed_cr, first_page=1):
+    """The Annual Report's own "Add: Purchases during the year" line from the
+    Cost of Materials Consumed note, as (cur, prior, page) in ₹ Cr - or None
+    when no note validates. Cost of Materials Consumed (the P&L line) is
+    opening RM stock + purchases - closing RM stock, NOT purchases, so using
+    it as a Payables-Turnover numerator misstates it whenever raw-material
+    stock moves.
+
+    Self-validating, never guesses: a candidate is accepted only if its note
+    "Total" equals the already-extracted P&L Cost of Materials Consumed
+    (`consumed_cr`) at one of the standard reporting units (so the right
+    statement - standalone vs consolidated - and the unit are both proven),
+    and, when the note prints a subtotal, subtotal - closing stock == total.
+    The unit is derived from that match, not assumed."""
+    if not page_texts or not consumed_cr or consumed_cr <= 0:
+        return None
+    for offset, text in enumerate(page_texts):
+        if not text or "purchase" not in text.lower():
+            continue
+        for m in _PURCHASES_NOTE_RE.finditer(text):
+            p1, p2, c1, t1 = (_note_num(m.group(g)) for g in ("p1", "p2", "c1", "t1"))
+            if p1 is None or t1 is None or t1 <= 0 or p1 <= 0:
+                continue
+            scale = consumed_cr / t1
+            unit = next((u for u in _UNIT_TO_CRORE if abs(scale / u - 1.0) <= 0.005), None)
+            if unit is None:
+                continue
+            s1 = _note_num(m.group("s1"))
+            if s1 is not None and c1 is not None and abs((s1 - c1) - t1) > 0.005 * t1:
+                continue
+            return (round(p1 * unit, 2),
+                    round(p2 * unit, 2) if p2 is not None else None,
+                    first_page + offset)
+    return None
+
+
+def _attach_disclosed_purchases(parsed, content):
+    """Adds `parsed["purchases_disclosed"]` = {"cur", "prior", "page"} (₹ Cr)
+    when the Cost of Materials Consumed note validates against the P&L, else
+    leaves it None. Scans only the pages after the P&L (notes follow the
+    statements), so it adds no download and little parse time. Never raises."""
+    try:
+        parsed["purchases_disclosed"] = None
+        consumed = (parsed.get("components") or {}).get("Cost of materials consumed")
+        if not consumed or consumed[0] is None or consumed[0] <= 0:
+            return parsed
+        import fitz
+        doc = fitz.open(stream=content, filetype="pdf")
+        start = max((parsed.get("pl_page") or 1) - 1, 0)
+        end = min(start + 150, len(doc))
+        texts = [re.sub(r"\s+", " ", doc[i].get_text()) for i in range(start, end)]
+        hit = _find_disclosed_raw_material_purchases(texts, consumed[0], first_page=start + 1)
+        if hit:
+            parsed["purchases_disclosed"] = {"cur": hit[0], "prior": hit[1], "page": hit[2]}
+    except Exception as e:
+        print(f"[annual_report_financials] disclosed-purchases scan skipped: {e}")
+    return parsed
+
+
 # Bump this alongside `_get_extracted_financials_impl`'s own cache-key
 # "_vNN" suffix (see that function's version-history comment) whenever its
 # extraction LOGIC changes - not for document-identity changes, which
@@ -6045,7 +6149,11 @@ def _broad_extraction_to_parsed_shape(sym, fiscal_year, consolidated):
 # `_document_identity_tag`, is what makes a shared-extractor logic fix
 # automatically invalidate all ~50 downstream wrapper caches at once - see
 # `_document_identity_tag`'s docstring for the bug this closes.
-_EXTRACTION_LOGIC_VERSION = "60"
+# "61" - Payables Turnover uses the disclosed "Purchases during the year";
+# Inventory Turnover numerator is Net Sales; WC Turnover/Days WC use closing
+# working capital; broad extraction now captures Other Bank Balance(s) and
+# the owners-attributable PAT basis.
+_EXTRACTION_LOGIC_VERSION = "61"
 
 
 def _document_identity_tag(symbol, fiscal_year):
@@ -6140,7 +6248,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     # freshness. Falls back to "" when the file doesn't exist yet (nothing
     # to distinguish from) - never blocks a first-time fetch.
     doc_tag = _document_identity_tag(sym, fiscal_year)
-    ckey = f"ar_extract_v27_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
+    ckey = f"ar_extract_v28_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -6289,7 +6397,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # acquiring the lock would look up a different key than the one this
     # function is about to write).
     doc_tag = _document_identity_tag(sym, fiscal_year)
-    ckey = f"ar_extract_v27_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
+    ckey = f"ar_extract_v28_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -6373,6 +6481,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
             if "error" not in standalone:
                 standalone["source_url"] = pdf_url
                 standalone["basis_used"] = "standalone"
+                _attach_disclosed_purchases(standalone, content)
                 _write_cache(ckey, standalone)
                 return standalone
         # Symmetric fallback for the reverse case - EPS/EPS-Growth
@@ -6393,6 +6502,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
             if "error" not in consol:
                 consol["source_url"] = pdf_url
                 consol["basis_used"] = "consolidated"
+                _attach_disclosed_purchases(consol, content)
                 _write_cache(ckey, consol)
                 return consol
         if "error" in parsed:
@@ -6410,6 +6520,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
                 fallback = _broad_extraction_to_parsed_shape(sym, fiscal_year, consolidated)
                 fallback["source_url"] = pdf_url
                 fallback["narrow_parser_error"] = parsed["error"]
+                _attach_disclosed_purchases(fallback, content)
                 _write_cache(ckey, fallback)
                 return fallback
             out = {"error": parsed["error"], "source_url": pdf_url}
@@ -6437,6 +6548,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
         except Exception as e:
             print(f"[annual_report_financials] segment revenue scan skipped: {e}")
             parsed["segments"] = None
+        _attach_disclosed_purchases(parsed, content)
         _write_cache(ckey, parsed)
         return parsed
     except Exception as e:
@@ -6500,6 +6612,18 @@ def fetch_inventory_turnover_from_annual_report(symbol, name, fiscal_year, conso
             out = {"applicable": False, "reason": "Inventory value is zero or missing.", "source_url": pdf_url}
             _write_cache(ckey, out)
             return out
+        # Numerator = Net Sales (Revenue from Operations), the definition the
+        # Annual Report's own "Analytical Ratios" disclosure uses for
+        # "Inventory Turnover Ratio" (Sales / Average Inventory). COGS stays
+        # above only as the "is this a goods business" gate + a reference
+        # figure - never silently substituted for a missing Sales figure.
+        revenue_pair = parsed.get("revenue")
+        if revenue_pair is None or revenue_pair[0] is None or revenue_pair[0] <= 0:
+            out = {"applicable": False, "reason": "Could not find 'Revenue from operations' row on the P&L page.",
+                   "source_url": pdf_url}
+            _write_cache(ckey, out)
+            return out
+        sales_cur = revenue_pair[0]
 
         # Denominator per spec: (Opening + Closing) / 2 when both are present
         # (confidence 1.0); else Closing only, flagged Estimated (confidence 0.8).
@@ -6522,17 +6646,19 @@ def fetch_inventory_turnover_from_annual_report(symbol, name, fiscal_year, conso
         if len(components) < len(_COGS_LABELS):
             confidence = min(confidence, 0.95)
 
-        ratio = round(cogs_cur / avg_inv, 2) if avg_inv else None
+        ratio_raw = (sales_cur / avg_inv) if avg_inv else None
+        ratio = round(ratio_raw, 2) if ratio_raw is not None else None
 
         out = {
             "applicable": True,
-            "value": ratio, "unit": "x",
+            "value": ratio, "value_raw": ratio_raw, "unit": "x",
             "confidence": confidence,
             "estimated": estimated,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
             "numerator": {
-                "label": "Cost of Goods Sold (a + b + c)",
-                "value_cr": round(cogs_cur, 2),
+                "label": "Net Sales (Revenue from Operations)",
+                "value_cr": round(sales_cur, 2),
+                "reference_cogs_cr": round(cogs_cur, 2),
                 "components": {k: round(v[0], 2) for k, v in parsed["components"].items()},
             },
             "denominator": {
@@ -8850,11 +8976,12 @@ def fetch_receivables_turnover_from_annual_report(symbol, name, fiscal_year, con
             confidence = 0.4
         estimated = True  # numerator is always the Revenue proxy, never actual Net Credit Sales
 
-        ratio = round(rev_cur / avg_recv, 2) if avg_recv else None
+        ratio_raw = (rev_cur / avg_recv) if avg_recv else None
+        ratio = round(ratio_raw, 2) if ratio_raw is not None else None
 
         out = {
             "applicable": True,
-            "value": ratio, "unit": "x",
+            "value": ratio, "value_raw": ratio_raw, "unit": "x",
             "confidence": confidence,
             "estimated": estimated,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
@@ -8920,6 +9047,7 @@ def fetch_payables_turnover_from_annual_report(symbol, name, fiscal_year, consol
         cogs_a = components.get("Cost of materials consumed")
         cogs_b = components.get("Purchases of stock-in-trade")
         purchases_fallback = False
+        purchases_proxy = False
         both_ab_present = cogs_a is not None and cogs_b is not None
         if cogs_a is not None or cogs_b is not None:
             # Per spec, Purchases = a + b - but a pure trading/retail business
@@ -8929,15 +9057,33 @@ def fetch_payables_turnover_from_annual_report(symbol, name, fiscal_year, consol
             # That's a real ₹0 for (a), not missing data, so summing whichever
             # of a/b IS present (rather than requiring both) is correct - only
             # the fallback path below is needed when NEITHER is disclosed.
-            a_val = cogs_a[0] if cogs_a is not None else 0.0
+            # (a) is only a PROXY for purchases: the P&L's Cost of Materials
+            # Consumed = opening RM stock + purchases - closing RM stock. The
+            # Annual Report's own Net Purchases is the note's "Add: Purchases
+            # during the year" line (`purchases_disclosed`, self-validated
+            # against the P&L figure) - used whenever it was found.
+            disclosed = parsed.get("purchases_disclosed")
+            a_is_proxy = False
+            if cogs_a is None:
+                a_val = 0.0
+            elif disclosed and disclosed.get("cur") is not None:
+                a_val = disclosed["cur"]
+            else:
+                a_val = cogs_a[0]
+                a_is_proxy = True
             b_val = cogs_b[0] if cogs_b is not None else 0.0
             purchases_cur = a_val + b_val
+            a_src = ("a: Purchases during the year (Cost of Materials Consumed note)"
+                     if cogs_a is not None and not a_is_proxy else
+                     "a: Cost of materials consumed - PROXY, the note's purchases line was not found"
+                     if cogs_a is not None else None)
             if both_ab_present:
-                num_label = "Purchases (a: Cost of materials consumed + b: Purchases of stock-in-trade)"
+                num_label = f"Purchases ({a_src} + b: Purchases of stock-in-trade)"
             elif cogs_b is not None:
                 num_label = "Purchases (b: Purchases of stock-in-trade - a pure trading business, no Cost of materials consumed)"
             else:
-                num_label = "Purchases (a: Cost of materials consumed - no Purchases of stock-in-trade disclosed)"
+                num_label = f"Purchases ({a_src}; no Purchases of stock-in-trade disclosed)"
+            purchases_proxy = a_is_proxy
         else:
             # Fallback: COGS(a+b+c) - (Opening Inventories - Closing Inventories)
             inv = parsed.get("inventory")
@@ -8985,20 +9131,29 @@ def fetch_payables_turnover_from_annual_report(symbol, name, fiscal_year, consol
             confidence = 0.8 if den_complete else 0.4
         else:
             confidence = 1.0 if den_complete else 0.8
+            if purchases_proxy:
+                # Cost of Materials Consumed standing in for purchases is an
+                # approximation (see the numerator comment) - never "verified".
+                confidence = min(confidence, 0.8)
             # A single-component Purchases figure (only a OR b disclosed, not
             # both) is "1 clearly-disclosed line item" rather than the full
             # a+b split - cap at 0.95 regardless of denominator quality, same
             # tier Gross/Operating Profit Margin use for a partial COGS.
             if not both_ab_present:
                 confidence = min(confidence, 0.95)
-        estimated = purchases_fallback or not den_complete
+        estimated = purchases_fallback or purchases_proxy or not den_complete
 
-        ratio = round(purchases_cur / avg_pay, 2) if avg_pay else None
+        ratio_raw = (purchases_cur / avg_pay) if avg_pay else None
+        ratio = round(ratio_raw, 2) if ratio_raw is not None else None
 
         note_parts = []
         if purchases_fallback:
             note_parts.append("A direct Purchases split (a+b) wasn't available, so Purchases was derived from "
                                "COGS minus the inventory movement - an approximation per the spec's fallback rule.")
+        if purchases_proxy:
+            note_parts.append("The Cost of Materials Consumed note's 'Purchases during the year' line could not be "
+                               "found/validated, so Cost of Materials Consumed (opening stock + purchases - closing "
+                               "stock) stands in for purchases - an approximation, flagged as an estimate.")
         if not den_complete:
             note_parts.append("Prior-year (opening) Trade Payables wasn't disclosed, so Average Trade Payables "
                                "uses the closing figure only.")
@@ -9009,7 +9164,7 @@ def fetch_payables_turnover_from_annual_report(symbol, name, fiscal_year, consol
 
         out = {
             "applicable": True,
-            "value": ratio, "unit": "x",
+            "value": ratio, "value_raw": ratio_raw, "unit": "x",
             "confidence": confidence,
             "estimated": estimated,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
@@ -9091,11 +9246,12 @@ def fetch_asset_turnover_from_annual_report(symbol, name, fiscal_year, consolida
             assets_by_year = {f"FY{fiscal_year}": round(assets_cur, 2)}
             confidence, estimated = 0.8, True
 
-        ratio = round(rev_cur / avg_assets, 2) if avg_assets else None
+        ratio_raw = (rev_cur / avg_assets) if avg_assets else None
+        ratio = round(ratio_raw, 2) if ratio_raw is not None else None
 
         out = {
             "applicable": True,
-            "value": ratio, "unit": "x",
+            "value": ratio, "value_raw": ratio_raw, "unit": "x",
             "confidence": confidence,
             "estimated": estimated,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
@@ -9551,8 +9707,8 @@ def fetch_cash_ratio_from_annual_report(symbol, name, fiscal_year, consolidated=
 
 def fetch_days_working_capital_from_annual_report(symbol, name, fiscal_year, consolidated=True):
     """
-    Days Working Capital (Sr No 31) = (Average Working Capital ÷ Revenue from
-    Operations) × 365 - the days-based expression of Working Capital
+    Days Working Capital (Sr No 31) = (Working Capital ÷ Revenue from
+    Operations) × 365, closing Working Capital - the days-based expression of Working Capital
     Turnover (Sr No 8/26). Pure arithmetic on the SAME two figures (no new
     extraction): Average Working Capital = Total Current Assets − Total
     Current Liabilities, averaged (opening + closing) ÷ 2 when the prior
@@ -9609,22 +9765,24 @@ def fetch_days_working_capital_from_annual_report(symbol, name, fiscal_year, con
         wc_cur = tca[0] - tcl[0]
         wc_prior = tca[1] - tcl[1] if tca[1] is not None and tcl[1] is not None else None
 
+        # Days Working Capital = Working Capital ÷ Net Sales × 365 - the
+        # reciprocal expression of Working Capital Turnover, so it uses the
+        # SAME closing Working Capital (Current Assets - Current Liabilities)
+        # as the Annual Report's Net Capital Turnover Ratio; the opening
+        # figure is shown for reference only.
+        avg_wc = round(wc_cur, 2)
+        den_label = "Net Working Capital (closing) = Current Assets − Current Liabilities"
+        wc_by_year = {f"FY{fiscal_year}": round(wc_cur, 2)}
         if wc_prior is not None:
-            avg_wc = round((wc_cur + wc_prior) / 2, 2)
-            den_label = "Average Working Capital (opening + closing) ÷ 2"
-            wc_by_year = {f"FY{fiscal_year}": round(wc_cur, 2), f"FY{fiscal_year - 1}": round(wc_prior, 2)}
-            confidence, estimated = 1.0, False
-        else:
-            avg_wc = round(wc_cur, 2)
-            den_label = "Closing Working Capital (opening/prior-year unavailable)"
-            wc_by_year = {f"FY{fiscal_year}": round(wc_cur, 2)}
-            confidence, estimated = 0.8, True
+            wc_by_year[f"FY{fiscal_year - 1}"] = round(wc_prior, 2)
+        confidence, estimated = 1.0, False
 
-        days = round((avg_wc / rev_cur) * 365, 2)
+        days_raw = (avg_wc / rev_cur) * 365
+        days = round(days_raw, 2)
 
         out = {
             "applicable": True,
-            "value": days, "unit": "days",
+            "value": days, "value_raw": days_raw, "unit": "days",
             "confidence": confidence,
             "estimated": estimated,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
@@ -9637,7 +9795,7 @@ def fetch_days_working_capital_from_annual_report(symbol, name, fiscal_year, con
                 "value_cr": round(rev_cur, 2),
             },
             "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-            "note": ("From the company's own Annual Report - (Average Working Capital ÷ Revenue from Operations) "
+            "note": ("From the company's own Annual Report - (closing Working Capital ÷ Revenue from Operations) "
                      "× 365, reusing the SAME figures as Working Capital Turnover (Sr No 8/26). A negative value "
                      "means Current Liabilities exceed Current Assets - genuinely supplier-funded working "
                      "capital, common in retail/e-commerce/QSR, and NOT treated as an error here."
@@ -10705,10 +10863,10 @@ def fetch_capex_intensity_from_annual_report(symbol, name, fiscal_year, consolid
 
 def fetch_working_capital_turnover_from_annual_report(symbol, name, fiscal_year, consolidated=True):
     """
-    Working Capital Turnover = Revenue from Operations ÷ Average Working
-    Capital, where Working Capital (Sr No 13/26) = Total Current Assets −
-    Total Current Liabilities for each year end. Per spec, a zero/negative
-    Average Working Capital must be flagged, never silently divided (a
+    Working Capital Turnover (the Annual Report's "Net Capital Turnover Ratio")
+    = Revenue from Operations ÷ closing Working Capital, where Working Capital
+    (Sr No 13/26) = Total Current Assets − Total Current Liabilities. Per
+    spec, a zero/negative Working Capital must be flagged, never silently divided (a
     negative denominator would invert the sign and mislead). Reuses the SAME
     cached PDF extraction as the other turnover ratios
     (`_get_extracted_financials`) - no extra download. Cached 90 days. Never
@@ -10752,16 +10910,17 @@ def fetch_working_capital_turnover_from_annual_report(symbol, name, fiscal_year,
         wc_cur = tca[0] - tcl[0]
         wc_prior = tca[1] - tcl[1] if tca[1] is not None and tcl[1] is not None else None
 
+        # Net Capital Turnover per the Annual Report's own "Analytical Ratios"
+        # disclosure (Schedule III): Net Sales ÷ Working Capital, Working
+        # Capital = Current Assets - Current Liabilities at the CLOSING
+        # balance sheet date - not averaged (the opening figure is shown for
+        # reference only).
+        avg_wc = round(wc_cur, 2)
+        den_label = "Net Working Capital (closing) = Current Assets − Current Liabilities"
+        wc_by_year = {f"FY{fiscal_year}": round(wc_cur, 2)}
         if wc_prior is not None:
-            avg_wc = round((wc_cur + wc_prior) / 2, 2)
-            den_label = "Average Working Capital (opening + closing) ÷ 2"
-            wc_by_year = {f"FY{fiscal_year}": round(wc_cur, 2), f"FY{fiscal_year - 1}": round(wc_prior, 2)}
-            confidence, estimated = 1.0, False
-        else:
-            avg_wc = round(wc_cur, 2)
-            den_label = "Closing Working Capital (opening/prior-year unavailable)"
-            wc_by_year = {f"FY{fiscal_year}": round(wc_cur, 2)}
-            confidence, estimated = 0.8, True
+            wc_by_year[f"FY{fiscal_year - 1}"] = round(wc_prior, 2)
+        confidence, estimated = 1.0, False
 
         # Per spec: DO NOT report this ratio if Average Working Capital <= 0 -
         # a negative/zero denominator inverts the sign and misleads, so the
@@ -10772,7 +10931,7 @@ def fetch_working_capital_turnover_from_annual_report(symbol, name, fiscal_year,
         # "How we calculated this" still shows the real numerator/denominator.
         if avg_wc <= 0:
             out = {"applicable": False,
-                   "reason": f"Average Working Capital is {'negative' if avg_wc < 0 else 'zero'} "
+                   "reason": f"Working Capital is {'negative' if avg_wc < 0 else 'zero'} "
                              f"(₹{avg_wc:,.2f} Cr) - the ratio would be meaningless/sign-inverted, so it's "
                              "flagged as N/A rather than reported.",
                    "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
@@ -10783,11 +10942,12 @@ def fetch_working_capital_turnover_from_annual_report(symbol, name, fiscal_year,
             _write_cache(ckey, out)
             return out
 
-        ratio = round(rev_cur / avg_wc, 2)
+        ratio_raw = rev_cur / avg_wc
+        ratio = round(ratio_raw, 2)
 
         out = {
             "applicable": True,
-            "value": ratio, "unit": "x",
+            "value": ratio, "value_raw": ratio_raw, "unit": "x",
             "confidence": confidence,
             "estimated": estimated,
             "period": f"FY{str(fiscal_year)[-2:]} ({'consolidated' if consolidated else 'standalone'})",
@@ -10800,8 +10960,8 @@ def fetch_working_capital_turnover_from_annual_report(symbol, name, fiscal_year,
                 "working_capital_by_year": wc_by_year,
             },
             "sources": _page_sources(pdf_url, fiscal_year, parsed.get("pl_page"), parsed.get("bs_page")),
-            "note": ("From the company's own Annual Report - Working Capital = Total Current Assets − Total "
-                     "Current Liabilities, both years read from the same statement."
+            "note": ("From the company's own Annual Report - Net Sales ÷ closing Working Capital (Total Current Assets − "
+                     "Total Current Liabilities), the same definition the Annual Report's Net Capital Turnover Ratio uses."
                      if not estimated else
                      "From the company's own Annual Report. Prior-year (opening) Working Capital was not "
                      "disclosed, so Average Working Capital uses the closing figure only - flagged as an estimate."),

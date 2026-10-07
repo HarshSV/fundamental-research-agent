@@ -47,7 +47,7 @@ from tools.statement_selector import select_statement_basis, StatementSelection
 # the other_equity_proxy fallback) and derived cogs/gross_profit/purchases/
 # total_liabilities.
 # v4 - added lt_borrowings direct fact (Piotroski/Beneish leverage tests).
-EXTRACTION_VERSION = 4
+EXTRACTION_VERSION = 5   # v5 - inventory_turnover numerator is Net Sales; purchases prefer the disclosed note line; WC turnover/days use closing WC
 
 
 @dataclass(frozen=True)
@@ -336,8 +336,19 @@ def get_canonical_facts(symbol, name, fiscal_year, lease_basis="basis1") -> Fact
         purchases_cur = None
         purchases_tag = None
         if cogs_a is not None or cogs_b is not None:
-            purchases_cur = (cogs_a[0] if cogs_a is not None else 0.0) + (cogs_b[0] if cogs_b is not None else 0.0)
-            purchases_tag = "cost_of_materials+purchases_of_stock_in_trade"
+            # (a) Cost of Materials Consumed is only a proxy for purchases
+            # (= opening RM stock + purchases - closing RM stock); the note's
+            # "Add: Purchases during the year" (parsed["purchases_disclosed"],
+            # self-validated against the P&L) is the real figure.
+            disclosed = parsed.get("purchases_disclosed")
+            if cogs_a is None:
+                a_val, a_tag = 0.0, ""
+            elif disclosed and disclosed.get("cur") is not None:
+                a_val, a_tag = disclosed["cur"], "purchases_during_the_year"
+            else:
+                a_val, a_tag = cogs_a[0], "cost_of_materials_consumed(proxy)"
+            purchases_cur = a_val + (cogs_b[0] if cogs_b is not None else 0.0)
+            purchases_tag = "+".join(t for t in (a_tag, "purchases_of_stock_in_trade" if cogs_b is not None else "") if t)
         elif inv_fact is not None and inv_fact.value is not None and inv_fact.prior_value is not None:
             purchases_cur = cogs_cur - (inv_fact.prior_value - inv_fact.value)
             purchases_tag = "cogs-(opening_inventory-closing_inventory)"
