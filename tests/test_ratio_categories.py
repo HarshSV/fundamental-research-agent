@@ -37,8 +37,9 @@ class TestRatioCategories(unittest.TestCase):
         stale = [{"ratio_key": r["ratio_key"], "category": "Liquidity", "value": i, "status": "verified"}
                  for i, r in enumerate(reversed(RATIOS))]
         out = regroup_fundamental_rows(stale)
+        first13 = [2, 4, 6, 9, 15, 18, 19, 24, 27, 31, 36, 43, 47]
         self.assertEqual([r["sr_no"] for r in out],
-                         [n for c in CATEGORY_ORDER for n in SPEC[c]])           # category order, then Sr No
+                         first13 + [n for c in CATEGORY_ORDER for n in SPEC[c] if n not in first13])   # 13 first, then category order, Sr No
         by_key = {r["ratio_key"]: r for r in out}
         for s in stale:
             self.assertEqual((by_key[s["ratio_key"]]["value"], by_key[s["ratio_key"]]["status"]),

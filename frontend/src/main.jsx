@@ -4847,7 +4847,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
-                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Operating Profit Margin (EBIT Basis)</div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">OPM %</div>
                     <div className="text-slate-600 text-xs mt-2">Reading audited filings…</div>
                 </div>
             );
@@ -4902,7 +4902,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Operating Profit Margin (EBIT Basis)</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">OPM %</span>
                             <InfoTip text="Shows core operating efficiency, stripping out financing, tax, and one-off items - this is EBIT-basis: excludes Finance Costs, Other Income and Exceptional Items, but DEDUCTS Depreciation & Amortisation as a real operating cost (unlike EBITDA). Formula: (Revenue from Operations − COGS − Employee Benefit Expense − Other Expenses − Depreciation and Amortisation) ÷ Revenue from Operations. Can be manipulated by reclassifying recurring costs as 'Exceptional Items'. Indicative benchmark (highly industry-dependent): IT/Services 20-30%, Manufacturing 10-20%, Trading 3-8% - always compare within sector, not against a single number." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -5184,8 +5184,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             return (
                 <div className="px-4 py-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3">
                     <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Days Inventory Outstanding (DOH)</span>
-                        <InfoTip text="Days Inventory Outstanding - the average number of days inventory sits before being sold. Formula: 365 ÷ Inventory Turnover. Lower is generally more efficient. Derived directly from Inventory Turnover (same source, confidence and period) - never recomputed independently. Benchmark: Manufacturing/FMCG 30-60 days is healthy, over 120 days suggests slow-moving stock (varies by industry)." />
+                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Inventory Days</span>
+                        <InfoTip text="Inventory Days - the average number of days inventory sits before being sold. Formula: 365 ÷ Inventory Turnover. Lower is generally more efficient. Derived directly from Inventory Turnover (same source, confidence and period) - never recomputed independently. Benchmark: Manufacturing/FMCG 30-60 days is healthy, over 120 days suggests slow-moving stock (varies by industry)." />
                     </div>
                     {state.loading && !state.data ? (
                         <div className="text-slate-600 text-xs animate-pulse flex-shrink-0">Loading…</div>
@@ -5240,8 +5240,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             return (
                 <div className="px-4 py-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3">
                     <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Days Sales Outstanding (DSO)</span>
-                        <InfoTip text="Days Sales Outstanding - the average collection period in days. Formula: 365 ÷ Receivables Turnover. Lower generally indicates stronger cash conversion. Derived directly from Receivables Turnover (same source, confidence and period) - never recomputed independently. Inherits its proxy-based confidence cap. Benchmark: Manufacturing/Trading 30-60 days is healthy, over 90 days suggests collection risk." />
+                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Debtor Days</span>
+                        <InfoTip text="Debtor Days - the average collection period in days. Formula: 365 ÷ Receivables Turnover. Lower generally indicates stronger cash conversion. Derived directly from Receivables Turnover (same source, confidence and period) - never recomputed independently. Inherits its proxy-based confidence cap. Benchmark: Manufacturing/Trading 30-60 days is healthy, over 90 days suggests collection risk." />
                     </div>
                     {state.loading && !state.data ? (
                         <div className="text-slate-600 text-xs animate-pulse flex-shrink-0">Loading…</div>
@@ -5295,8 +5295,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
             return (
                 <div className="px-4 py-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3">
                     <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Days Payables Outstanding (DPO)</span>
-                        <InfoTip text="Days Payables Outstanding - the average number of days taken to pay suppliers; a component of the Cash Conversion Cycle. Formula: 365 ÷ Payables Turnover. Derived directly from Payables Turnover (same source, confidence and period) - never recomputed independently. Lengthening generally favours cash; shortening may mean suppliers have tightened credit terms. Benchmark: Manufacturing/Trading 30-60 days is typical." />
+                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Days Payable</span>
+                        <InfoTip text="Days Payable - the average number of days taken to pay suppliers; a component of the Cash Conversion Cycle. Formula: 365 ÷ Payables Turnover. Derived directly from Payables Turnover (same source, confidence and period) - never recomputed independently. Lengthening generally favours cash; shortening may mean suppliers have tightened credit terms. Benchmark: Manufacturing/Trading 30-60 days is typical." />
                     </div>
                     {state.loading && !state.data ? (
                         <div className="text-slate-600 text-xs animate-pulse flex-shrink-0">Loading…</div>
@@ -5359,7 +5359,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Cash Conversion Cycle (CCC)</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider whitespace-nowrap">Cash Conversion Cycle</span>
                             <InfoTip text="Cash Conversion Cycle - the number of days cash is tied up in the operating cycle. Formula: DSO + DOH − DPO. Lower (or negative, e.g. for retailers who collect before paying suppliers) is generally more efficient. Derived directly from Days Sales/Inventory/Payables Outstanding above - never recomputed independently. Benchmark: Manufacturing 30-90 days typical; negative CCC is a strong efficiency signal, not an error." />
                         </div>
                     </div>
@@ -5380,15 +5380,15 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             <ToneValue value={ccc.toFixed(2)} unit=" days" tone={toneOf(ccc, { good: 90, bad: 150, higherIsBetter: false })} />
                             <div className="pt-2 border-t border-slate-800/70 space-y-1">
                                 <div className="flex items-baseline justify-between gap-3">
-                                    <span className="text-[11px] text-slate-400">Days Sales Outstanding (DSO)</span>
+                                    <span className="text-[11px] text-slate-400">Debtor Days</span>
                                     <span className="text-[11px] font-mono text-slate-300">{dso.toFixed(2)} days</span>
                                 </div>
                                 <div className="flex items-baseline justify-between gap-3">
-                                    <span className="text-[11px] text-slate-400">Days Inventory Outstanding (DOH)</span>
+                                    <span className="text-[11px] text-slate-400">Inventory Days</span>
                                     <span className="text-[11px] font-mono text-slate-300">{doh.toFixed(2)} days</span>
                                 </div>
                                 <div className="flex items-baseline justify-between gap-3">
-                                    <span className="text-[11px] text-slate-400">− Days Payables Outstanding (DPO)</span>
+                                    <span className="text-[11px] text-slate-400">− Days Payable</span>
                                     <span className="text-[11px] font-mono text-slate-300">{dpo.toFixed(2)} days</span>
                                 </div>
                             </div>
@@ -6099,7 +6099,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
-                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Days Working Capital</div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Working Capital Days</div>
                     <div className="text-slate-600 text-xs mt-2">Reading audited filings…</div>
                 </div>
             );
@@ -6157,7 +6157,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Days Working Capital</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Working Capital Days</span>
                             <InfoTip text="Days-based expression of Working Capital Turnover - shows how many days of sales are effectively tied up in (or funded by) working capital. Formula: (closing Working Capital ÷ Revenue from Operations) × 365. Manufacturing/Trading typically 30-90 days; a NEGATIVE value (common in retail/e-commerce/QSR) means suppliers are funding operations - a favourable, not erroneous, signal. Lower (or more negative) is generally more efficient." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -6231,7 +6231,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
-                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Return on Equity</div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ROE %</div>
                     <div className="text-slate-600 text-xs mt-2">Reading audited filings…</div>
                 </div>
             );
@@ -6306,7 +6306,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Return on Equity</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ROE %</span>
                             <InfoTip text="Core measure of return generated for shareholders. Formula: Profit After Tax (owners-attributable) ÷ Average Total Equity (owners-attributable, excluding Non-Controlling Interest). Highly sensitive to leverage - a company can boost ROE simply by taking on more debt, which does not necessarily mean better performance (see Financial Leverage). Never calculated when equity is negative - a negative ÷ negative would produce a misleading positive ratio. Indicative benchmark: 15%+ generally considered strong; below 10% may indicate weak capital efficiency (context-dependent by sector and leverage)." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -6379,7 +6379,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
-                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Return on Capital Employed</div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ROCE %</div>
                     <div className="text-slate-600 text-xs mt-2">Reading audited filings…</div>
                 </div>
             );
@@ -6457,7 +6457,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Return on Capital Employed</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ROCE %</span>
                             <InfoTip text="Widely used to judge overall capital efficiency regardless of financing structure - considered harder to manipulate than ROE since it isn't distorted by leverage alone. Formula: EBIT (Profit Before Tax + Finance Costs) ÷ Average Capital Employed (Total Assets − Total Current Liabilities). Never adds back Depreciation (that would compute EBITDA and inflate ROCE). Indicative benchmark: 15%+ generally considered strong (above typical cost of capital); below 10% may indicate weak capital efficiency." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -7142,7 +7142,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             if (state.loading) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
-                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Price-to-Earnings Ratio</div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Stock P/E</div>
                     <div className="text-slate-600 text-xs mt-2">Reading audited filings…</div>
                 </div>
             );
@@ -7176,7 +7176,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Price-to-Earnings Ratio</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Stock P/E</span>
                             <InfoTip text="Widely used valuation multiple - how much investors pay per rupee of earnings. Formula: Market Price per Share ÷ Basic Earnings per Share. Distorted by one-off/exceptional items in earnings and not meaningful for loss-making companies. Highly sector- and growth-dependent - always compare against sector peers and historical average, no universal 'good' range." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
@@ -7607,7 +7607,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             if (state.loading) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
-                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Dividend Yield</div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Dividend Yield %</div>
                     <div className="text-slate-600 text-xs mt-2">Reading audited filings…</div>
                 </div>
             );
@@ -7628,7 +7628,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Dividend Yield</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Dividend Yield %</span>
                             <InfoTip text="Shows cash return to shareholders relative to price paid. Formula: Dividend per Share (declared, standalone) ÷ Market Price per Share. A very high yield can signal an unsustainably high payout or a falling/distressed share price rather than genuine strength. Indicative benchmark: 1-4% typical for stable dividend payers; above 8% warrants scrutiny of payout sustainability." />
                         </div>
                         <span className={`text-[8px] uppercase tracking-wider rounded px-1 py-0.5 border whitespace-nowrap ${isLive ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700'}`}>
@@ -9141,7 +9141,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
-                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Effective Tax Rate</div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Tax %</div>
                     <div className="text-slate-600 text-xs mt-2">Reading audited filings…</div>
                 </div>
             );
@@ -9195,7 +9195,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Effective Tax Rate</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Tax %</span>
                             <InfoTip text="Flags one-off tax benefits/credits (e.g. MAT credit recognition, tax holiday expiry, one-time settlement) that can flatter Net Profit Margin and ROE in a single year without reflecting a sustainable improvement. Formula: Total Tax Expense (Current + Deferred Tax) ÷ Profit Before Tax. A sudden drop should be investigated - cross-check against the Annual Report's Tax Reconciliation Note (a mandatory Ind AS disclosure) - before extrapolating profit growth. Indicative benchmark: ~25-26% typical for domestic companies on the post-2019 concessional regime; ~30-35% under the older regime; deviations often reflect one-off items, tax holidays, or carried-forward losses." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -9671,7 +9671,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
-                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Dividend Payout Ratio</div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Dividend Payout %</div>
                     <div className="text-slate-600 text-xs mt-2">Reading audited filings…</div>
                 </div>
             );
@@ -9726,7 +9726,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Dividend Payout Ratio</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Dividend Payout %</span>
                             <InfoTip text="Shows what proportion of profit is being returned to shareholders vs. retained for reinvestment/growth. Directly feeds the Retention Ratio and Sustainable Growth Rate. Formula: Total Dividends Declared ÷ Net Profit. A payout ratio persistently above 100% (paying more in dividends than earned) is a sustainability red flag, especially if funded by debt or cash reserves rather than current earnings. Indicative benchmark: mature/stable-cash-flow businesses (utilities, FMCG) 40-70%; growth companies reinvesting heavily 0-20%; sustained >100% is a red flag unless clearly a one-off special dividend." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -9976,7 +9976,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                             </div>
                             <div className="pt-2 border-t border-slate-800/70 space-y-1">
                                 <div className="flex items-baseline justify-between gap-3">
-                                    <span className="text-[11px] text-slate-400">Return on Equity</span>
+                                    <span className="text-[11px] text-slate-400">ROE %</span>
                                     <span className="text-[11px] font-mono text-slate-300">{roeVal.toFixed(2)}%</span>
                                 </div>
                                 <div className="flex items-baseline justify-between gap-3">
@@ -10097,7 +10097,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     </div>
                     <div className="pt-2 border-t border-slate-800/70 space-y-1">
                         <div className="flex items-baseline justify-between gap-3">
-                            <span className="text-[11px] text-slate-400">Price-to-Earnings Ratio</span>
+                            <span className="text-[11px] text-slate-400">Stock P/E</span>
                             <span className="text-[11px] font-mono text-slate-300">{pe.toFixed(2)}x</span>
                         </div>
                         <div className="flex items-baseline justify-between gap-3">
@@ -15224,20 +15224,20 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                 { ratio_no: 30, title: 'Fixed Asset Turnover', node: <FixedAssetTurnover {...rp} /> },
                                                                 { ratio_no: 8, title: 'Working Capital Turnover', node: <><WorkingCapitalTurnover {...rp} /><DaysWorkingCapital {...rp} /><ReceivablesToPayablesRatio {...rp} /></> },
                                                                 { ratio_no: 14, title: 'Gross Profit Margin', node: <GrossProfitMargin {...rp} /> },
-                                                                { ratio_no: 15, title: 'Operating Profit Margin (EBIT Basis)', node: <OperatingProfitMargin {...rp} /> },
+                                                                { ratio_no: 15, title: 'OPM %', node: <OperatingProfitMargin {...rp} /> },
                                                                 { ratio_no: 16, title: 'Net Profit Margin', node: <NetProfitMargin {...rp} /> },
                                                                 { ratio_no: 17, title: 'Return on Assets', node: <ReturnOnAssets {...rp} /> },
-                                                                { ratio_no: 18, title: 'Return on Equity', node: <ReturnOnEquity {...rp} /> },
-                                                                { ratio_no: 19, title: 'Return on Capital Employed', node: <ReturnOnCapitalEmployed {...rp} /> },
+                                                                { ratio_no: 18, title: 'ROE %', node: <ReturnOnEquity {...rp} /> },
+                                                                { ratio_no: 19, title: 'ROCE %', node: <ReturnOnCapitalEmployed {...rp} /> },
                                                                 { ratio_no: 20, title: 'Debt-to-Equity', node: <DebtToEquity {...rp} /> },
                                                                 { ratio_no: 21, title: 'Debt Ratio', node: <DebtRatio {...rp} /> },
                                                                 { ratio_no: 22, title: 'Interest Coverage Ratio', node: <InterestCoverageRatio {...rp} /> },
                                                                 { ratio_no: 23, title: 'Financial Leverage Ratio', node: <FinancialLeverageRatio {...rp} /> },
-                                                                { ratio_no: 24, title: 'Price-to-Earnings Ratio', node: <PriceToEarningsRatio {...rp} /> },
+                                                                { ratio_no: 24, title: 'Stock P/E', node: <PriceToEarningsRatio {...rp} /> },
                                                                 { ratio_no: 25, title: 'Price-to-Book Ratio', node: <PriceToBookRatio {...rp} /> },
                                                                 { ratio_no: 26, title: 'Price-to-Sales Ratio', node: <PriceToSalesRatio {...rp} /> },
                                                                 { ratio_no: 37, title: 'FCF Yield', node: <FCFYield {...rp} /> },
-                                                                { ratio_no: 27, title: 'Dividend Yield', node: <DividendYield {...rp} /> },
+                                                                { ratio_no: 27, title: 'Dividend Yield %', node: <DividendYield {...rp} /> },
                                                                 { ratio_no: 28, title: 'Earnings Yield', node: <EarningsYield {...rp} /> },
                                                                 { ratio_no: 29, title: 'Enterprise Value / EBITDA', node: <EnterpriseValueToEBITDA {...rp} /> },
                                                                 { ratio_no: 33, title: 'Net Debt/EBITDA', node: <NetDebtToEBITDA {...rp} /> },
@@ -15248,11 +15248,11 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                 { ratio_no: 40, title: 'Capex Intensity', node: <CapexIntensity {...rp} /> },
                                                                 { ratio_no: 41, title: 'OCF/Net Profit', node: <OCFToNetProfit {...rp} /> },
                                                                 { ratio_no: 42, title: 'Return on Invested Capital', node: <ReturnOnInvestedCapital {...rp} /> },
-                                                                { ratio_no: 43, title: 'Effective Tax Rate', node: <EffectiveTaxRate {...rp} /> },
+                                                                { ratio_no: 43, title: 'Tax %', node: <EffectiveTaxRate {...rp} /> },
                                                                 { ratio_no: 44, title: 'Contribution Margin', node: <ContributionMargin {...rp} /> },
                                                                 { ratio_no: 45, title: 'EPS Growth Rate', node: <EPSGrowthRate {...rp} /> },
                                                                 { ratio_no: 46, title: 'Book Value per Share', node: <BookValuePerShareCard {...rp} /> },
-                                                                { ratio_no: 47, title: 'Dividend Payout Ratio', node: <DividendPayoutRatio {...rp} /> },
+                                                                { ratio_no: 47, title: 'Dividend Payout %', node: <DividendPayoutRatio {...rp} /> },
                                                                 { ratio_no: 48, title: 'Retention Ratio', node: <RetentionRatio {...rp} /> },
                                                                 { ratio_no: 49, title: 'Sustainable Growth Rate', node: <SustainableGrowthRate {...rp} /> },
                                                                 { ratio_no: 50, title: 'PEG Ratio', node: <PEGRatio {...rp} /> },

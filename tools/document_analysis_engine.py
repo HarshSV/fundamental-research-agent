@@ -2102,15 +2102,21 @@ def get_fundamental_results(symbol):
 def regroup_fundamental_rows(rows):
     """Presentation only: re-labels each stored row's `category` from the
     registry's current classification (rows persisted before the 8-category
-    regrouping still carry the old text) and orders them category-then-Sr No.
+    regrouping still carry the old text), applies the current display `label` and
+    `display_priority`, and orders them: the 13 display-priority ratios first, then
+    category-then-Sr No.
     Values, statuses and inputs are never touched."""
     from tools.fundamental_ratio_registry import BY_RATIO_KEY, CATEGORY_ORDER
     out = []
     for r in rows:
         spec = BY_RATIO_KEY.get(r.get("ratio_key"))
         out.append({**r, "category": spec["category"], "sr_no": spec["sr_no"]} if spec else dict(r))
+    from tools.ratio_display import apply_display_names
+    out = [apply_display_names(r) for r in out]            # user-facing label + display_priority (presentation only)
     rank = {c: i for i, c in enumerate(CATEGORY_ORDER)}
-    out.sort(key=lambda r: (rank.get(r.get("category"), len(rank)), r.get("sr_no") or 10**6))
+    # the 13 display-priority ratios first (in their defined order), then the other 55 exactly as before
+    out.sort(key=lambda r: (0, r["display_priority"], 0) if r.get("display_priority")
+            else (1, rank.get(r.get("category"), len(rank)), r.get("sr_no") or 10**6))
     return out
 
 

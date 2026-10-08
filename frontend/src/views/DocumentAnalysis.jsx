@@ -150,11 +150,17 @@ function FundamentalTab({ symbol, query }) {
     return <p className="text-[13px] text-slate-600 text-center py-10">No ratio matches "{query}".</p>;
   }
 
-  const { primary, more } = groupFundamentalRatios(filtered);
+  const { priority, primary, more } = groupFundamentalRatios(filtered);
   // A search must be able to land on any ratio, so it opens the extra
   // categories on its own; otherwise they sit behind "Show More Ratios".
   const showMore = expanded || !!q;
   const moreCount = more.reduce((n, g) => n + g.items.length, 0);
+  // the first 13 (backend `display_priority`) are plain cards of the same list - no heading of their own
+  const renderPriority = () => (
+    <div data-priority-ratios className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+      {priority.map((r) => <FundamentalCard key={r.ratio_key} r={r} defaultOpen={!!q} />)}
+    </div>
+  );
   const renderGroup = (g) => (
     <div key={g.category} data-category={g.category}>
       <div className="flex items-baseline gap-2 mb-2.5 pb-1.5 border-b border-slate-800">
@@ -174,6 +180,7 @@ function FundamentalTab({ symbol, query }) {
           {hiddenCount} ratio{hiddenCount === 1 ? '' : 's'} not disclosed for this company - hidden from view.
         </p>
       )}
+      {priority.length > 0 && renderPriority()}
       {primary.map(renderGroup)}
       {moreCount > 0 && !q && (
         <button type="button" onClick={() => setExpanded((e) => !e)} aria-expanded={expanded}
