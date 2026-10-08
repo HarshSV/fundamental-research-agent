@@ -22,18 +22,6 @@ const IconChevron = ({ open }) => (
   </svg>
 );
 
-const FUND_STATUS_STYLE = {
-  verified: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-  needs_review: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-  not_disclosed: 'text-slate-500 bg-slate-850 border-slate-800',
-  not_applicable: 'text-slate-500 bg-slate-850 border-slate-800',
-  insufficient_data: 'text-slate-500 bg-slate-850 border-slate-800',
-};
-const FUND_STATUS_LABEL = {
-  verified: 'Verified', needs_review: 'Needs Review', not_disclosed: 'Not Disclosed',
-  not_applicable: 'Not Applicable', insufficient_data: 'Insufficient Data',
-};
-
 
 function fmtRatioValue(r) {
   if (r.value == null) return '-';
@@ -56,7 +44,6 @@ function FundamentalCard({ r, defaultOpen = false }) {
   const allInputs = r.inputs || [];
   const metaEntry = allInputs.find((inp) => inp.name === '_metadata');
   const visibleInputs = allInputs.filter((inp) => !inp.name?.startsWith('_'));
-  const calcType = metaEntry?.calculation_type;
   const derivedFrom = metaEntry?.derived_from;
   const reason = metaEntry?.reason;
 
@@ -67,21 +54,11 @@ function FundamentalCard({ r, defaultOpen = false }) {
         <span className="text-[12.5px] font-semibold text-slate-300 flex-1 truncate">{r.label}</span>
         <span className="text-[15px] font-bold text-slate-100 nv-num">{fmtRatioValue(r)}</span>
       </button>
-      <div className="px-3.5 pb-2.5 -mt-1.5 flex items-center gap-1.5">
-        <span className={`text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 border ${FUND_STATUS_STYLE[r.status]}`}>
-          {FUND_STATUS_LABEL[r.status]}
-        </span>
-        {calcType && (
-          <span className="text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 border text-sky-400 bg-sky-500/10 border-sky-500/20">
-            {calcType}
-          </span>
-        )}
-      </div>
       {open && (
         <div className="px-3.5 pb-3.5 pt-1 text-[12px] text-slate-400 space-y-1.5 border-t border-slate-800/60">
           <p className="pt-2.5"><span className="text-slate-500">Formula:</span> {r.formula}</p>
-          {reason && r.status !== 'verified' && (
-            <p className="text-amber-300/90 bg-amber-500/5 border border-amber-500/15 rounded px-2 py-1.5">
+          {reason && r.value == null && (
+            <p className="text-slate-500">
               {reason}
             </p>
           )}
