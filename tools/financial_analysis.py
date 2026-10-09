@@ -42,6 +42,7 @@ _ASSETS = ['totalassets']
 _EQUITY = ['stockholdersequity', 'commonstockequity', 'totalequitygrossminorinterest']
 _DEBT = ['totaldebt', 'longtermdebt']
 _CURL = ['currentliabilities', 'totalcurrentliabilities']
+_CURA = ['totalcurrentassets', 'currentassets']
 _CFO = ['operatingcashflow', 'cashflowfromcontinuingoperatingactivities',
         'netcashprovidedbyoperatingactivities']
 _EPS = ['dilutedeps', 'basiceps']
@@ -68,6 +69,7 @@ def _series(metrics):
             'equity': _pick(brow, _EQUITY),
             'debt': _pick(brow, _DEBT),
             'curr_liab': _pick(brow, _CURL),
+            'curr_assets': _pick(brow, _CURA),
             'cfo': _pick(crow, _CFO),
             'eps': eps,
             # implied share count (net income / EPS) - lets us detect dilution
@@ -124,10 +126,13 @@ def compute_piotroski(series, is_financial=False):
     lev_p = (prev['debt'] / prev['assets']) if (prev['debt'] is not None and prev['assets']) else None
     add('Falling leverage', (lev_c < lev_p) if (lev_c is not None and lev_p is not None) else None,
         f"Debt/assets {_pct(lev_c)} vs {_pct(lev_p)}", na=is_financial)
-    cr_c = (cur['assets'] / cur['curr_liab']) if (cur['assets'] and cur['curr_liab']) else None
-    cr_p = (prev['assets'] / prev['curr_liab']) if (prev['assets'] and prev['curr_liab']) else None
+    # Current ratio = CURRENT assets / current liabilities. (It used TOTAL assets / current liabilities - a different, much larger
+    # number - so the test could pass for a company whose real liquidity was falling.) Unavailable inputs => test not scored.
+    cr_c = (cur.get('curr_assets') / cur['curr_liab']) if (cur.get('curr_assets') and cur['curr_liab']) else None
+    cr_p = (prev.get('curr_assets') / prev['curr_liab']) if (prev.get('curr_assets') and prev['curr_liab']) else None
     add('Improving liquidity', (cr_c > cr_p) if (cr_c is not None and cr_p is not None) else None,
-        "Current-ratio proxy improved" if (cr_c and cr_p and cr_c > cr_p) else "Flat/weaker", na=is_financial)
+        f"Current ratio {_num(cr_c)} vs {_num(cr_p)}" if (cr_c is not None and cr_p is not None) else "Current assets not available",
+        na=is_financial)
     add('No share dilution',
         (cur['shares'] <= prev['shares'] * 1.02) if (cur['shares'] and prev['shares']) else None,
         "Share count stable" if (cur['shares'] and prev['shares'] and cur['shares'] <= prev['shares'] * 1.02)

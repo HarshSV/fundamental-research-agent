@@ -208,10 +208,28 @@ def _forms(v, key):
         indian = ",".join(groups + [tail]) if groups else tail
         out |= {f"{n:,}", indian}
     else:
-        for m in (10.0, 1.0):
+        for m in (10.0, 1.0, 100.0):                                  # INR million / crore / lakh pages
             x = abs(v) * m
-            out |= {f"{x:,.2f}", f"{x:.2f}", f"{x:,.1f}", f"{x:,.0f}"}
+            for dp in (2, 1, 0):
+                western = f"{x:,.{dp}f}"
+                plain = f"{x:.{dp}f}"
+                out |= {western, plain, _indian_group(plain)}
     return {s for s in out if len(s) >= 4}
+
+
+def _indian_group(plain):
+    """'1234567.89' -> '12,34,567.89' (lakh/crore grouping)."""
+    ip, _, fp = plain.partition(".")
+    if len(ip) <= 3:
+        return plain
+    head, tail = ip[:-3], ip[-3:]
+    groups = []
+    while len(head) > 2:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    if head:
+        groups.insert(0, head)
+    return ",".join(groups + [tail]) + (("." + fp) if fp else "")
 
 
 def lineage(fs, pages):
@@ -427,6 +445,7 @@ def main():
         c = res.get(key)
         o = orch.get(key)
         if c is not None:
+            out["unit"] = c.get("unit")
             out["anuras_value"] = c.get("value_raw")
             out["anuras_status"] = c.get("status")
             bd = c.get("breakdown") or {}

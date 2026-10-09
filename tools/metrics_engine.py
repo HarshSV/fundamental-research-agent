@@ -373,11 +373,12 @@ class FundamentalMetricsEngine:
         net_debt_to_ebitda = None
         interest_coverage = None
         
-        if latest_equity and latest_equity > 0:
-            debt_to_equity = (latest_debt or 0.0) / latest_equity
+        # An unavailable debt / cash figure is UNKNOWN, never zero: the ratio is withheld (None) instead of being computed on 0.
+        if latest_equity and latest_equity > 0 and latest_debt is not None:
+            debt_to_equity = latest_debt / latest_equity
             
-        if latest_ebitda and latest_ebitda > 0:
-            net_debt = (latest_debt or 0.0) - (latest_cash or 0.0)
+        if latest_ebitda and latest_ebitda > 0 and latest_debt is not None and latest_cash is not None:
+            net_debt = latest_debt - latest_cash
             net_debt_to_ebitda = net_debt / latest_ebitda
             
         interest_exp = get_latest_value(inc_df, ['Interest Expense', 'Interest Expense Value'])
@@ -692,6 +693,11 @@ class FundamentalMetricsEngine:
         # -------------------------------------------------------------
         return {
             'symbol': symbol,
+            # PROVENANCE: this payload is the legacy research-report engine computed from third-party statement data
+            # (yfinance / Angel / Screener scrape), NOT from the filed Annual Report. Its definitions (closing balances,
+            # provider 'EBIT'/'Total Debt' fields) intentionally differ from the audited 68-ratio engine (tools/ratio_contract.py).
+            '_engine': {'name': 'legacy_research_report', 'data_source': 'third_party_statements',
+                        'audited_ratio_engine': 'tools/ratio_contract.py (Quantitative Analysis, 68 ratios)'},
             'F-01_Financial_Statements': {
                 'annual': statements_5y,
                 'quarterly': statements_12q

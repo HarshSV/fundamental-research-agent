@@ -111,7 +111,7 @@ def run_company(sym, fy, sector, offline=False):
     ns.get_nse_sector = lambda s: sector
     dae.get_nse_sector = ns.get_nse_sector
     orig = adc.get_ar_pages
-    adc.get_ar_pages = lambda s, n, y=None: orig(s, n, y or fy)
+    adc.get_ar_pages = lambda s, n, fiscal_year=None, y=None: orig(s, n, fiscal_year or y or fy)
     # the pipeline walks "the newest cached year"; pin it to the filing under test so every ratio uses the SAME document
     adc.manual_cached_years = lambda symbol: [fy]
     if offline:

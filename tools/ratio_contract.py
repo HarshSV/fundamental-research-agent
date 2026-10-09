@@ -38,7 +38,7 @@ silently served as current.
 
 import math
 
-FORMULA_VERSION = "2026.10.14"
+FORMULA_VERSION = "2026.10.15"
 
 # --------------------------------------------------------------------------------------------
 # Policy switches (each one a documented Navrist methodology decision)
@@ -1659,12 +1659,17 @@ def compute_ratio(key, fs, market=None, deps=None):
     """The ONLY place a ratio's arithmetic lives. `deps` = already-computed
     parent results (see PARENTS) for derived ratios."""
     deps = deps or {}
-    if key in _DERIVED:
-        res = _DERIVED[key](fs, market, deps)
-    elif key in _DIRECT:
-        res = _DIRECT[key](fs, market, deps)
-    else:
+    fn = _DERIVED.get(key) or _DIRECT.get(key)
+    if fn is None:
         raise KeyError(f"'{key}' has no contract formula (banking/shareholding/beta delegate to their providers).")
+    try:
+        res = fn(fs, market, deps)
+    except (TypeError, AttributeError, ZeroDivisionError, ValueError, OverflowError) as e:
+        # an input the formula needs is absent / inconsistent in a way no earlier guard anticipated: the ratio is WITHHELD with a reason
+        # (never a crash, never a guessed number); the cause is logged so the gap can be closed properly.
+        print(f"[ratio_contract] {key}: formula could not be evaluated ({type(e).__name__}: {e}) - withheld")
+        res = _res(key, status="insufficient_data", confidence=0.0,
+                   reason="A required input is missing or inconsistent, so the ratio cannot be evaluated.")
     res = _acq_guard(key, fs, res)
     if key in EQUITY_BASIS:
         res["equity_basis"] = EQUITY_BASIS[key]

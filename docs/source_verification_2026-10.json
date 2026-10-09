@@ -1,0 +1,959 @@
+{
+ "TCS:2025": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 24,
+  "lineage_missed": [
+   "finance_costs",
+   "nci",
+   "intangibles"
+  ],
+  "lineage_not_extracted": [
+   "other_bank_balances"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": false,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": null,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": true,
+   "nci": false,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": true,
+   "intangibles": false,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 255324.0,
+    "screener": 255324,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 48797.0,
+    "screener": 48797,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 25.30804671595414,
+    "screener": 25,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 9392.0,
+    "screener": 9392,
+    "agrees": true
+   }
+  },
+  "explained_gap": null
+ },
+ "TCS:2026": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 25,
+  "lineage_missed": [
+   "finance_costs",
+   "intangibles"
+  ],
+  "lineage_not_extracted": [
+   "other_bank_balances"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": false,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": null,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": true,
+   "nci": true,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": true,
+   "intangibles": false,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 267021.0,
+    "screener": 267021,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 49454.0,
+    "screener": 49454,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 24.482721761571,
+    "screener": 24,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 11283.0,
+    "screener": 11283,
+    "agrees": true
+   }
+  },
+  "explained_gap": null
+ },
+ "MARUTI:2025": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 26,
+  "lineage_missed": [],
+  "lineage_not_extracted": [
+   "operating_cash_flow",
+   "capex_ppe_purchase"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": true,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": true,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": true,
+   "nci": true,
+   "operating_cash_flow": null,
+   "capex_ppe_purchase": null,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": true,
+   "intangibles": true,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 152913.0,
+    "screener": 152913,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 14500.2,
+    "screener": 14500,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 26.094801223241593,
+    "screener": 26,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 87.0,
+    "screener": 87,
+    "agrees": true
+   }
+  },
+  "explained_gap": null
+ },
+ "ITC:2025": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 26,
+  "lineage_missed": [],
+  "lineage_not_extracted": [
+   "pat_total",
+   "other_bank_balances"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": null,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": true,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": null,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": true,
+   "nci": true,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": true,
+   "intangibles": true,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 81612.78,
+    "screener": 75323,
+    "agrees": false
+   },
+   "net_profit_whole_entity": {
+    "navrist": 20036.47,
+    "screener": 35052,
+    "agrees": false
+   },
+   "tax_pct": {
+    "navrist": 25.589502557661582,
+    "screener": 16,
+    "agrees": false
+   },
+   "debt_vs_borrowings": {
+    "navrist": 284.54,
+    "screener": 285,
+    "agrees": true
+   }
+  },
+  "explained_gap": "Screener's net profit 35,052 includes the one-off gain on the hotels demerger (discontinued operations); Navrist uses continuing operations (policy M)."
+ },
+ "BHARTIARTL:2025": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 27,
+  "lineage_missed": [],
+  "lineage_not_extracted": [
+   "total_current_liabilities"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": true,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": true,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": null,
+   "equity": true,
+   "nci": true,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": true,
+   "intangibles": true,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 172985.2,
+    "screener": 172985,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 37481.3,
+    "screener": 37481,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 10.709012070784016,
+    "screener": 2,
+    "agrees": false
+   },
+   "debt_vs_borrowings": {
+    "navrist": 213642.09999999998,
+    "screener": 213642,
+    "agrees": true
+   }
+  },
+  "explained_gap": "Screener tax 2% reflects a one-off deferred-tax credit in its own tax % row."
+ },
+ "BHARTIARTL:2026": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 27,
+  "lineage_missed": [],
+  "lineage_not_extracted": [
+   "total_current_liabilities"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": true,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": true,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": null,
+   "equity": true,
+   "nci": true,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": true,
+   "intangibles": true,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 210972.8,
+    "screener": 210973,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 33822.8,
+    "screener": 33823,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 17.44682075678452,
+    "screener": 25,
+    "agrees": false
+   },
+   "debt_vs_borrowings": {
+    "navrist": 195411.7,
+    "screener": 195412,
+    "agrees": true
+   }
+  },
+  "explained_gap": null
+ },
+ "HINDUNILVR:2025": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 23,
+  "lineage_missed": [
+   "finance_costs",
+   "cash",
+   "equity",
+   "nci"
+  ],
+  "lineage_not_extracted": [
+   "rou_assets"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": false,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": false,
+   "other_bank_balances": true,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": false,
+   "nci": false,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": null,
+   "cwip": true,
+   "intangibles": true,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 63121.0,
+    "screener": 61328,
+    "agrees": false
+   },
+   "net_profit_whole_entity": {
+    "navrist": 10671.0,
+    "screener": 10671,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 25.972944849115503,
+    "screener": 26,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 1648.0,
+    "screener": 1648,
+    "agrees": true
+   }
+  },
+  "explained_gap": null
+ },
+ "TITAN:2025": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 19,
+  "lineage_missed": [
+   "finance_costs",
+   "depreciation",
+   "cash",
+   "operating_cash_flow",
+   "capex_ppe_purchase",
+   "cwip",
+   "intangibles"
+  ],
+  "lineage_not_extracted": [
+   "other_bank_balances",
+   "shares_outstanding"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": false,
+   "depreciation": false,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": false,
+   "other_bank_balances": null,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": true,
+   "nci": true,
+   "operating_cash_flow": false,
+   "capex_ppe_purchase": false,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": false,
+   "intangibles": false,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": null,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 60456.0,
+    "screener": 60456,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 3337.0,
+    "screener": 3337,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 26.4167585446527,
+    "screener": 26,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 12967.0,
+    "screener": 20777,
+    "agrees": false
+   }
+  },
+  "explained_gap": null
+ },
+ "BATAINDIA:2025": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 25,
+  "lineage_missed": [
+   "equity",
+   "capex_ppe_purchase"
+  ],
+  "lineage_not_extracted": [
+   "other_bank_balances"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": true,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": null,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": false,
+   "nci": true,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": false,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": true,
+   "intangibles": true,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 3488.786,
+    "screener": 3489,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 330.656,
+    "screener": 331,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 22.449850718964672,
+    "screener": 22,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 1446.451,
+    "screener": 1446,
+    "agrees": true
+   }
+  },
+  "explained_gap": null
+ },
+ "INFY:2025": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 20,
+  "lineage_missed": [
+   "finance_costs",
+   "depreciation",
+   "cwip",
+   "intangibles",
+   "shares_outstanding"
+  ],
+  "lineage_not_extracted": [
+   "inventory",
+   "other_bank_balances",
+   "nci"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": false,
+   "depreciation": false,
+   "inventory": null,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": null,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": true,
+   "nci": null,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": false,
+   "intangibles": false,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": false,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 162990.0,
+    "screener": 162990,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 26750.0,
+    "screener": 26750,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 28.871516698574773,
+    "screener": 29,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 8227.0,
+    "screener": 8227,
+    "agrees": true
+   }
+  },
+  "explained_gap": null
+ },
+ "INFY:2026": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 20,
+  "lineage_missed": [
+   "finance_costs",
+   "depreciation",
+   "cwip",
+   "intangibles",
+   "shares_outstanding"
+  ],
+  "lineage_not_extracted": [
+   "inventory",
+   "other_bank_balances",
+   "nci"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": false,
+   "depreciation": false,
+   "inventory": null,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": null,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": true,
+   "nci": null,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": false,
+   "intangibles": false,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": false,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 178650.0,
+    "screener": 178650,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 29474.0,
+    "screener": 29474,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 26.305788223527944,
+    "screener": 26,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 9176.0,
+    "screener": 9176,
+    "agrees": true
+   }
+  },
+  "explained_gap": null
+ },
+ "RELIANCE:2025": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 26,
+  "lineage_missed": [],
+  "lineage_not_extracted": [
+   "other_bank_balances",
+   "rou_assets"
+  ],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": true,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": null,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": true,
+   "nci": true,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": null,
+   "cwip": true,
+   "intangibles": true,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 980136.0,
+    "screener": 962820,
+    "agrees": false
+   },
+   "net_profit_whole_entity": {
+    "navrist": 81309.0,
+    "screener": 81309,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 23.798070120829678,
+    "screener": 24,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 456843.0,
+    "screener": 374313,
+    "agrees": false
+   }
+  },
+  "explained_gap": null
+ },
+ "LT:2025": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 28,
+  "lineage_missed": [],
+  "lineage_not_extracted": [],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": true,
+   "finance_costs": true,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": true,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": true,
+   "nci": true,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": true,
+   "intangibles": true,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 255734.45,
+    "screener": 255734,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 17673.33,
+    "screener": 17673,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 24.98601497362672,
+    "screener": 25,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 96214.22,
+    "screener": 132409,
+    "agrees": false
+   }
+  },
+  "explained_gap": null
+ },
+ "ANURAS:2025": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 26,
+  "lineage_missed": [
+   "tax_expense",
+   "payables"
+  ],
+  "lineage_not_extracted": [],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": false,
+   "finance_costs": true,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": false,
+   "cash": true,
+   "other_bank_balances": true,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": true,
+   "nci": true,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": true,
+   "intangibles": true,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 1436.974,
+    "screener": 1437,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 159.972,
+    "screener": 160,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 19.145720769670106,
+    "screener": 19,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 1373.3839999999998,
+    "screener": 1373,
+    "agrees": true
+   }
+  },
+  "explained_gap": null
+ },
+ "ANURAS:2026": {
+  "basis": "CONSOLIDATED",
+  "lineage_found": 27,
+  "lineage_missed": [
+   "tax_expense"
+  ],
+  "lineage_not_extracted": [],
+  "lineage_by_fact": {
+   "revenue": true,
+   "pat": true,
+   "pat_total": true,
+   "pbt": true,
+   "tax_expense": false,
+   "finance_costs": true,
+   "depreciation": true,
+   "inventory": true,
+   "receivables": true,
+   "payables": true,
+   "cash": true,
+   "other_bank_balances": true,
+   "total_assets": true,
+   "total_current_assets": true,
+   "total_current_liabilities": true,
+   "equity": true,
+   "nci": true,
+   "operating_cash_flow": true,
+   "capex_ppe_purchase": true,
+   "ppe": true,
+   "rou_assets": true,
+   "cwip": true,
+   "intangibles": true,
+   "other_expenses": true,
+   "employee_benefit_expense": true,
+   "eps": true,
+   "shares_outstanding": true,
+   "retained_earnings": true
+  },
+  "publisher": {
+   "revenue": {
+    "navrist": 2365.455,
+    "screener": 2365,
+    "agrees": true
+   },
+   "net_profit_whole_entity": {
+    "navrist": 222.199,
+    "screener": 222,
+    "agrees": true
+   },
+   "tax_pct": {
+    "navrist": 12.657033694438768,
+    "screener": 13,
+    "agrees": true
+   },
+   "debt_vs_borrowings": {
+    "navrist": 1867.487,
+    "screener": 1867,
+    "agrees": true
+   }
+  },
+  "explained_gap": null
+ }
+}

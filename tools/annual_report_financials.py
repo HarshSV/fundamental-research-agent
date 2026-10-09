@@ -462,6 +462,8 @@ _EQUITY_SHARE_CAPITAL_LABELS = [
 _PBT_LABELS = [
     "profit before share of profit / (loss) of associates / joint ventures and tax", "profit before share of profit of associates and joint ventures and tax",
     "profit before share of profit/(loss) of associates and joint ventures and tax", "profit before share of associates and tax",
+    # the same caption once the "Profit / (Loss)" qualifier is normalised to "Profit" (Reliance: "... of Associates / Joint Ventures and Tax")
+    "profit before share of profit of associates / joint ventures and tax", "profit before share of profit of associates/joint ventures and tax",
     # The plain "profit before tax" (the TRUE final PBT - after Exceptional
     # Items, immediately before Tax Expense) is tried FIRST, ahead of the
     # "before exceptional items and tax" subtotals. Those are a DIFFERENT,
@@ -592,6 +594,11 @@ _PROFIT_TOTAL_RE = re.compile(
     r"(?P<a>\(?-?[\d,]+(?:\.\d+)?\)?)\s*[\s|]+(?P<b>\(?-?[\d,]+(?:\.\d+)?\)?)", re.I)
 
 
+_CONT_OPS_PROFIT_RE = re.compile(
+    r"profit(?:\s*/\s*\(loss\))?\s+for\s+the\s+(?:year|period)\s+from\s+continuing\s+operations[^\d(\-]{0,30}"
+    r"(?:\([^)]*\)\s*)?(?P<a>\(?-?[\d,]+(?:\.\d{1,2})?\)?)\s+(?P<b>\(?-?[\d,]+(?:\.\d{1,2})?\)?)", re.I)
+
+
 def _repair_owners_pat(pat, pat_basis, pl_text, pl_factor, eps, shares):
     """Self-validating repair of the owners' PAT read from the P&L page.
 
@@ -631,6 +638,17 @@ def _repair_owners_pat(pat, pat_basis, pl_text, pl_factor, eps, shares):
     for cand in cands:
         if (total is not None or implied is not None) and ok(cand):
             return cand, "owners", True, (total if total is not None and consistent(cand[0], total[0]) else None)
+    # Policy M (continuing operations): when the printed Basic EPS is the CONTINUING-operations figure (ITC: 15.78 beside a total
+    # profit of 35,052 that includes a 15,016 discontinued-operations gain) the profit that shares its perimeter is the
+    # 'Profit for the year from continuing operations' row; PAT and EPS must describe the same operations.
+    if implied is not None:
+        cm = _CONT_OPS_PROFIT_RE.search(pl_text)
+        if cm:
+            a, b = num(cm.group("a")), num(cm.group("b"))
+            if a is not None and b is not None:
+                cand = _scale((a, b), pl_factor)
+                if abs(cand[0] - implied) <= 0.12 * abs(implied) and not consistent(pat[0] if pat else 0.0, implied):
+                    return cand, "owners", True, None
     return pat, pat_basis, False, None
 
 
@@ -769,8 +787,12 @@ def _find_shares_outstanding(doc, start_idx, want_section, max_pages=250):
         # accepting the version without "Fully" ("issued, subscribed and
         # paid" with no "up"/"fully" qualifier at all).
         if st["static"] is None:
-            m = re.search(r"issued,?\s*subscribed and fully paid|issued,?\s*subscribed and paid"
-                           r"|subscribed and (?:fully )?paid[\s-]?up", tl)
+            _static_re = re.compile(r"issued,?\s*subscribed and fully paid|issued,?\s*subscribed and paid"
+                                    r"|subscribed and (?:fully )?paid[\s-]?up")
+            # the sentence "The AUTHORISED, issued, subscribed and fully paid up share capital consist of the following:" introduces the
+            # whole table; its window starts at the authorised classes (TCS read 105,02,50,000 AUTHORISED PREFERENCE shares as the issued
+            # equity count). The marker that counts is the "Issued, Subscribed and Fully paid up" LINE that follows them.
+            m = next((mm for mm in _static_re.finditer(tl) if "authoris" not in tl[max(0, mm.start() - 16):mm.start()]), None)
             if m:
                 window = t[m.end():m.end() + 300]
                 # The current-year share count isn't always immediately
@@ -2219,7 +2241,9 @@ def _scale(pair, factor):
     through None/untouched when factor is already 1.0."""
     if pair is None or factor == 1.0:
         return pair
-    return (round(pair[0] * factor, 2), round(pair[1] * factor, 2) if pair[1] is not None else None)
+    # unit conversion only (INR million -> crore etc.): 6 dp removes float noise; the third decimal of a figure printed in millions
+    # (34,880.26 million = 3,488.026 crore) must survive - rounding to 2 dp changed every converted figure
+    return (round(pair[0] * factor, 6), round(pair[1] * factor, 6) if pair[1] is not None else None)
 
 
 def _parse_num(tok):
@@ -5659,7 +5683,11 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
                 if total is not None:
                     return total
 
-            m = re.search(r"tax\s*expenses?\b", text, re.I)
+            # The P&L may carry a SECOND, narrower block "Tax expense on exceptional items: Current tax - 20.83" ahead of the real
+            # "Tax expense:" block (L&T). The block that counts is the one that is not about exceptional items.
+            _cands = [mm for mm in re.finditer(r"tax\s*expenses?\b", text, re.I)
+                      if "exceptional" not in text[max(0, mm.start() - 30):mm.end() + 40].lower()]
+            m = _cands[0] if _cands else None
             if not m:
                 return None
             window = text[m.end():m.end() + 400]
@@ -6185,6 +6213,20 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         lease_liabilities_cur = _find_bs_row_bounded(
             _LEASE_LIABILITY_CUR_LABELS, r"\nCurrent Liabilities\b", r"\nTotal Equity and Liabilities\b")
 
+    # Row-structured cross-read of borrowings and leases (see `_bs_row_debt_items`): replaces a text-window figure that is missing or
+    # disagrees with the printed row.
+    _rd = _bs_row_debt_items(doc, bs_idx)
+    _ta_cap = None
+    try:
+        _ta_hit = _find_bs_row(_TOTAL_ASSETS_LABELS)
+        _ta_cap = _ta_hit[0] if _ta_hit else None
+    except Exception:
+        _ta_cap = None
+    lease_liabilities_nc = _prefer_row_read(lease_liabilities_nc, _rd.get(("lease", "nc")), _ta_cap)
+    lease_liabilities_cur = _prefer_row_read(lease_liabilities_cur, _rd.get(("lease", "cur")), _ta_cap)
+    lt_borrowings = _prefer_row_read(lt_borrowings, _rd.get(("borrow", "nc")), _ta_cap)
+    st_borrowings = _prefer_row_read(st_borrowings, _rd.get(("borrow", "cur")), _ta_cap)
+
     # Other Financial Liabilities (Total Debt Sr No 20 component c) - Three-
     # Part Test applied separately to the Non-current and Current sections
     # (each may carry a different sub-item breakup).
@@ -6582,6 +6624,106 @@ def _note_num(tok):
     except ValueError:
         return None
     return -v if neg else v
+
+
+def _bs_row_debt_items(doc, bs_idx, factor_of=None):
+    """Borrowings and lease liabilities read from the printed ROWS of the balance sheet (word coordinates, one visual row = one item),
+    split by the section headings ('Non-current liabilities' / 'Current liabilities') in page order.
+
+    The text-window readers above take 'the last two numbers before the next label', which a note-reference printed as a decimal
+    ('Lease liabilities 2.21 6,016 5,772' - Infosys) or a layout with the heading on another line can derail (Infosys total debt
+    came out as 4.42 crore; TCS FY26 lost its non-current leases). A row read cannot take a neighbour's figures.
+
+    A figure whose thousands comma the PDF dropped ('Lease liabilities 9 453 7,838' - TCS: 9,453) is indistinguishable from
+    'note 9, amount 453' by the row alone; it is resolved by the balance-sheet identity - the section's printed rows must add up to
+    its printed subtotal - and kept as the default reading when neither interpretation reconciles.
+    Returns {('lease','nc'|'cur'): (cur, prior), ('borrow','nc'|'cur'): (cur, prior)} in rupee crore."""
+    try:
+        from tools.bank_extractor import parse_row as _parse_row, _norm as _bnorm
+    except Exception:
+        return {}
+
+    def _page_lines(page):
+        # words -> visual rows; when the balance sheet shares the page with the P&L side by side (Bharti Airtel) only its own half is read
+        words = _page_words(page)
+        _pt = (page.get_text() or "").lower()
+        if "balance sheet" in _pt and "statement of profit and loss" in _pt:       # both statements on one page: keep the BS half
+            words = _bs_only_words(words)
+        return [[w[4] for w in row] for row in _cluster_lines(words)]
+    out = {}
+    for pi in (bs_idx, bs_idx + 1):
+        if pi >= doc.page_count:
+            continue
+        try:
+            lines = [_fix_stray_spaced_numbers(" ".join(toks)).split() for toks in _page_lines(doc[pi])]
+            factor = _unit_factor(_page_text(doc[pi]))
+        except Exception:
+            continue
+        section, rows, totals = None, {"nc": [], "cur": []}, {}
+        for toks in lines:
+            lab, nums = _parse_row(toks)
+            n = _bnorm(lab).lstrip("-–— ")           # a list dash ('- Borrowings') is not part of the label
+            if re.fullmatch(r"non[- ]?current liabilities", n):
+                section = "nc"
+                continue
+            if re.fullmatch(r"current liabilities", n):
+                section = "cur"
+                continue
+            m = re.fullmatch(r"total (non[- ]?current|current) liabilities", n)
+            if m and len(nums) >= 2:
+                totals["nc" if m.group(1).startswith("non") else "cur"] = nums[-2:]
+                section = None
+                continue
+            if re.match(r"total (?:equity and )?liabilities|total equity and liabilities", n):
+                section = None
+                continue
+            if section is None or len(nums) < 2:
+                continue
+            # the figures as printed, and - when the row is '<small int> <3-digit int> <amount>' - the dropped-comma reading
+            vals = list(nums[-2:])
+            alt = None
+            fig = [x for x in toks if re.fullmatch(r"\(?-?\d[\d,]*(?:\.\d+)?\)?", x)]
+            if len(fig) == 3 and re.fullmatch(r"\d{1,2}", fig[0]) and re.fullmatch(r"\d{3}", fig[1]):
+                try:
+                    alt = [float(fig[0] + fig[1]), vals[1]]
+                except ValueError:
+                    alt = None
+            rows[section].append((n, vals, alt))
+        for sec in ("nc", "cur"):
+            tot = totals.get(sec)
+            items = rows[sec]
+            base_sum = sum(v[0] for _, v, _a in items)
+            chosen_alt = set()
+            if tot and items and abs(base_sum - tot[0]) > 0.005 * max(abs(tot[0]), 1.0):
+                for k, (n, v, alt) in enumerate(items):
+                    if alt is not None and abs(base_sum - v[0] + alt[0] - tot[0]) <= 0.005 * max(abs(tot[0]), 1.0):
+                        chosen_alt.add(k)
+                        break
+            for k, (n, v, alt) in enumerate(items):
+                use = alt if k in chosen_alt else v
+                if re.fullmatch(r"lease liabilit(?:y|ies)", n):
+                    kind = "lease"
+                elif re.fullmatch(r"borrowings?", n):
+                    kind = "borrow"
+                else:
+                    continue
+                if (kind, sec) not in out:
+                    out[(kind, sec)] = (round(use[0] * factor, 6), round(use[1] * factor, 6))
+    return out
+
+
+def _prefer_row_read(text_pair, row_pair, ceiling=None):
+    """Use the row-structured pair when the text-window pair is missing or disagrees materially (>2%) - the row is the printed item.
+    A row figure larger than `ceiling` (total assets) is impossible and never used."""
+    if row_pair is None:
+        return text_pair
+    if ceiling is not None and row_pair[0] > ceiling * 1.005:
+        return text_pair
+    if text_pair is None:
+        return row_pair
+    if abs(text_pair[0] - row_pair[0]) > 0.02 * max(abs(row_pair[0]), 1e-9):
+        return row_pair
+    return text_pair
 
 
 def _find_disclosed_raw_material_purchases(page_texts, consumed_cr, first_page=1):
@@ -7132,6 +7274,12 @@ _attach_disclosed_purchases = _attach_text_disclosures   # legacy name
 # "75" - lettered note refs ("23A, 23B") and contents (dot-leader) pages are no longer read as figures / statements.
 # "74" - hyphenated page-number ranges ("431-432") in a Notes/Page-No column are no longer read as two values.
 # "73" - page unit declared as a footnote far below the table (Maruti "(in ` million ...)") is now honoured.
+# "93" - the share-capital table heading ("authorised, issued, subscribed ...") is not the issued-shares line.
+# "92" - policy M: owners' PAT follows a continuing-operations EPS.
+# "91" - PBT caption variant "...of Associates / Joint Ventures and Tax".
+# "90" - unit-converted figures keep their full precision (no 2 dp rounding).
+# "89" - tax block: the exceptional-items tax block is skipped.
+# "88" - borrowings / leases cross-read from the printed balance-sheet rows.
 # "87" - disclosed purchases are carried unrounded.
 # "86" - "attributable to: Shareholders of the Company" label (colon) matches; (note, year) token pairs are not amounts.
 # "85" - ONE extraction path for every pipeline: manual-only extraction branches and the broad fallback now apply to all.
@@ -7141,7 +7289,7 @@ _attach_disclosed_purchases = _attach_text_disclosures   # legacy name
 # "81" - dividends paid are split by recipient (owners vs minorities) from the notes.
 # "80" - comma-separated note-number lists ("26, 15") ahead of a figure are blanked.
 # "79" - second reference column in the line-based P&L row reader.
-_EXTRACTION_LOGIC_VERSION = "87"
+_EXTRACTION_LOGIC_VERSION = "93"
 
 
 def _document_identity_tag(symbol, fiscal_year):

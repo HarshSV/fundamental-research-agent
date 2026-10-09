@@ -845,7 +845,7 @@ def _try_year(sym, name, ar_years, annuals, target_year):
 
 def fetch_inventory_turnover(symbol, name=None, to_date=None):
     """
-    Inventory Turnover = Net Sales / Average Inventory (the Annual Report's own definition). PRIMARY source is the
+    Inventory Turnover = Cost of Goods Sold / Average Inventory (authoritative spec; corrected 2026.10.7). PRIMARY source is the
     company's own Annual Report (per the Source Hierarchy - ranks above the
     quarterly/annual Reg-33 result filing): both years' figures sit in the SAME
     document, on the same reporting basis, and the statements extract cleanly
