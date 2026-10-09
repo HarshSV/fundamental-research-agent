@@ -38,7 +38,7 @@ silently served as current.
 
 import math
 
-FORMULA_VERSION = "2026.10.13"
+FORMULA_VERSION = "2026.10.14"
 
 # --------------------------------------------------------------------------------------------
 # Policy switches (each one a documented Navrist methodology decision)
@@ -403,7 +403,10 @@ def live_market(symbol, bse_code=None):
         px = None
     if not px or px.get("ltp") is None:
         return None
-    return {"price": float(px["ltp"]), "source": px.get("source") or "unknown", "as_of": "live quote"}
+    import datetime as _dt
+    return {"price": float(px["ltp"]), "source": px.get("source") or "unknown", "as_of": "live quote",
+            "quoted_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "prev_close": px.get("close")}
 
 
 def _mcap(fs, market):
@@ -415,7 +418,9 @@ def _mcap(fs, market):
 
 def _market_input(market):
     return {"label": "Market price", "value_cr": round(market["price"], 2), "value_raw": market["price"], "unit": "₹",
-            "source": f"Live quote ({market.get('source')})", "kind": "market"}
+            "source": (f"Latest quote ({market.get('source')})" + (f" fetched {market['quoted_at']}" if market.get("quoted_at") else "")
+                       + " - NOT the fiscal-year-end price; EPS / DPS / book value are the fiscal-year figures"),
+            "kind": "market"}
 
 
 def _const(v, text):

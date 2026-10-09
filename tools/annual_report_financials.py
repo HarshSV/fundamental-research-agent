@@ -6614,8 +6614,8 @@ def _find_disclosed_raw_material_purchases(page_texts, consumed_cr, first_page=1
             s1 = _note_num(m.group("s1"))
             if s1 is not None and c1 is not None and abs((s1 - c1) - t1) > 0.005 * t1:
                 continue
-            return (round(p1 * unit, 2),
-                    round(p2 * unit, 2) if p2 is not None else None,
+            return (p1 * unit,                                  # unrounded: rounding is for display only
+                    p2 * unit if p2 is not None else None,
                     first_page + offset)
     return None
 
@@ -7132,6 +7132,7 @@ _attach_disclosed_purchases = _attach_text_disclosures   # legacy name
 # "75" - lettered note refs ("23A, 23B") and contents (dot-leader) pages are no longer read as figures / statements.
 # "74" - hyphenated page-number ranges ("431-432") in a Notes/Page-No column are no longer read as two values.
 # "73" - page unit declared as a footnote far below the table (Maruti "(in ` million ...)") is now honoured.
+# "87" - disclosed purchases are carried unrounded.
 # "86" - "attributable to: Shareholders of the Company" label (colon) matches; (note, year) token pairs are not amounts.
 # "85" - ONE extraction path for every pipeline: manual-only extraction branches and the broad fallback now apply to all.
 # "84" - Total Debt is no longer rounded to 2dp.
@@ -7140,7 +7141,7 @@ _attach_disclosed_purchases = _attach_text_disclosures   # legacy name
 # "81" - dividends paid are split by recipient (owners vs minorities) from the notes.
 # "80" - comma-separated note-number lists ("26, 15") ahead of a figure are blanked.
 # "79" - second reference column in the line-based P&L row reader.
-_EXTRACTION_LOGIC_VERSION = "86"
+_EXTRACTION_LOGIC_VERSION = "87"
 
 
 def _document_identity_tag(symbol, fiscal_year):

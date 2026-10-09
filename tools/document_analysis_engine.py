@@ -1890,7 +1890,9 @@ def run_fundamental_analysis(symbol, name=None):
             pass
         price = get_live_price(sym, bse_code=bse_code)  # market-price layer, kept separate - never used for any facts
         market = {"price": float(price["ltp"]), "source": price.get("source") or "unknown",
-                  "as_of": "live quote"} if price and price.get("ltp") else None
+                  "as_of": "live quote", "prev_close": price.get("close"),
+                  "quoted_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+                  } if price and price.get("ltp") else None
 
         # ONE fact set for the whole run (same document the Strategy-A fetchers read)
         fs, fy = None, None

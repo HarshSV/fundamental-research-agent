@@ -69,11 +69,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 19,
+   "tests_specific": 20,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_inventory_days_are_365_over_cogs_turnover_on_average_inventory",
     "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover",
-    "test_ar_definition_alignment.py::test_inventory_turnover_engine_uses_cogs",
-    "test_ar_definition_alignment.py::test_missing_parent_stays_unavailable"
+    "test_ar_definition_alignment.py::test_inventory_turnover_engine_uses_cogs"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -205,11 +205,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 9,
+   "tests_specific": 11,
    "tests_examples": [
-    "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover",
-    "test_ar_definition_alignment.py::test_missing_parent_stays_unavailable",
-    "test_full_quant_coverage.py::test_l_cogs_dependent_ratios_wired"
+    "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
+    "test_anuras_fy2026_source_audit.py::test_inventory_days_are_365_over_cogs_turnover_on_average_inventory",
+    "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -507,11 +507,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 8,
+   "tests_specific": 10,
    "tests_examples": [
-    "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover",
-    "test_calculation_engine.py::test_case_j_registry_dependency_behaviour",
-    "test_global_audit_2026_10c.py::test_turnover_days_and_ccc_use_cogs"
+    "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
+    "test_anuras_fy2026_source_audit.py::test_debtor_days_use_revenue_proxy_on_average_receivables",
+    "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -613,7 +613,7 @@
    "perimeter": "whole_entity",
    "period_basis": "average payables",
    "equity_basis": null,
-   "anuras_value": 1.9424602718303703,
+   "anuras_value": 1.9424537011180067,
    "anuras_status": "needs_review",
    "breakdown_formula": "Purchases \u00f7 Average Trade Payables",
    "expression": "\u20b91,478.12 Cr \u00f7 \u20b9760.95 Cr",
@@ -622,7 +622,7 @@
     {
      "fact": "purchases",
      "name": "Purchases",
-     "value": 1478.12,
+     "value": 1478.115,
      "period": "FY2026",
      "basis": "consolidated",
      "page": null,
@@ -655,7 +655,7 @@
    ],
    "reason": null,
    "parents": [],
-   "independent_value": 1.9424602718303703,
+   "independent_value": 1.9424537011180067,
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
@@ -777,7 +777,7 @@
    "perimeter": "whole_entity",
    "period_basis": "derived",
    "equity_basis": null,
-   "anuras_value": 187.90603097177498,
+   "anuras_value": 187.90666659901294,
    "anuras_status": "needs_review",
    "breakdown_formula": "365 \u00f7 Payables Turnover",
    "expression": "365 \u00f7 1.9425",
@@ -791,7 +791,7 @@
    "parents": [
     "payables_turnover"
    ],
-   "independent_value": 187.90603097177498,
+   "independent_value": 187.90666659901294,
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
@@ -807,11 +807,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 6,
+   "tests_specific": 8,
    "tests_examples": [
-    "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover",
-    "test_full_quant_coverage.py::test_m_purchases_dependent_ratios_wired",
-    "test_full_quant_coverage.py::test_m_purchases_proxy_is_never_verified"
+    "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
+    "test_anuras_fy2026_source_audit.py::test_days_payable_use_disclosed_purchases_on_average_payables",
+    "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -1261,10 +1261,10 @@
    "perimeter": "whole_entity",
    "period_basis": "derived",
    "equity_basis": null,
-   "anuras_value": 387.68005571937204,
+   "anuras_value": 387.679420092134,
    "anuras_status": "needs_review",
    "breakdown_formula": "Debtor Days + Inventory Days \u2212 Days Payable",
-   "expression": "130.6296 + 444.9565 \u2212 187.9060",
+   "expression": "130.6296 + 444.9565 \u2212 187.9067",
    "reconciles": true,
    "inputs": [],
    "warnings": [
@@ -1278,7 +1278,7 @@
     "days_inventory_outstanding",
     "days_payables_outstanding"
    ],
-   "independent_value": 387.68005571937204,
+   "independent_value": 387.679420092134,
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
@@ -1302,11 +1302,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 7,
+   "tests_specific": 8,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
     "test_full_quant_coverage.py::test_m_purchases_proxy_is_never_verified",
-    "test_global_audit_2026_10c.py::test_turnover_days_and_ccc_use_cogs",
-    "test_ratio_breakdown.py::test_ccc_shows_all_three_unrounded_parents"
+    "test_global_audit_2026_10c.py::test_turnover_days_and_ccc_use_cogs"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -1454,11 +1454,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 16,
+   "tests_specific": 17,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_liquidity_and_leverage_ratios",
     "test_calculation_engine.py::test_case_a_shared_factset_no_re_extraction",
-    "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios",
-    "test_calculation_engine.py::test_case_c_standalone_propagates_consistently"
+    "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -1618,8 +1618,9 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 2,
+   "tests_specific": 3,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_liquidity_and_leverage_ratios",
     "test_ratio_breakdown.py::test_composite_numerators_are_decomposed",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[quick_ratio]"
    ],
@@ -1926,8 +1927,9 @@
    "missing_input_probe": {
     "error": "TypeError: type NoneType doesn't define __round__ method"
    },
-   "tests_specific": 2,
+   "tests_specific": 3,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_liquidity_and_leverage_ratios",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[working_capital]",
     "test_ratio_remediation.py::test_every_computable_key_has_exactly_one_registry_entry_and_spec"
    ],
@@ -2254,11 +2256,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 5,
+   "tests_specific": 6,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
     "test_calculation_engine.py::test_case_g_derived_facts_computed_once_and_reused",
-    "test_global_audit_2026_10c.py::test_sr15_is_labelled_as_what_it_computes",
-    "test_ratio_breakdown.py::test_composite_numerators_are_decomposed"
+    "test_global_audit_2026_10c.py::test_sr15_is_labelled_as_what_it_computes"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -2408,11 +2410,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 7,
+   "tests_specific": 8,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
     "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios",
-    "test_calculation_engine.py::test_case_c_standalone_propagates_consistently",
-    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[net_profit_margin]"
+    "test_calculation_engine.py::test_case_c_standalone_propagates_consistently"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -2735,11 +2737,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 13,
+   "tests_specific": 14,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
     "test_global_audit_2026_10c.py::test_basis_is_stamped_on_the_result",
-    "test_global_audit_2026_10c.py::test_numbers_follow_the_declared_basis_when_nci_is_material",
-    "test_global_audit_2026_10c.py::test_retention_and_sustainable_growth_follow_the_owners_payout"
+    "test_global_audit_2026_10c.py::test_numbers_follow_the_declared_basis_when_nci_is_material"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -2934,11 +2936,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 4,
+   "tests_specific": 5,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
     "test_calculation_engine.py::test_case_g_derived_facts_computed_once_and_reused",
-    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[roce]",
-    "test_ratio_remediation.py::test_opm_roce_interest_coverage_share_the_same_ebit"
+    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[roce]"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -3423,11 +3425,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 3,
+   "tests_specific": 4,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[interest_coverage_ratio]",
-    "test_ratio_remediation.py::test_missing_inputs_never_become_computed_zeros_elsewhere",
-    "test_ratio_remediation.py::test_opm_roce_interest_coverage_share_the_same_ebit"
+    "test_ratio_remediation.py::test_missing_inputs_never_become_computed_zeros_elsewhere"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -3767,11 +3769,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 10,
+   "tests_specific": 11,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_market_ratios_use_the_latest_quote_with_fiscal_year_per_share_figures",
     "test_calculation_engine.py::test_case_h_market_data_only_when_required",
-    "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract",
-    "test_final_validation_regressions.py::test_not_meaningful_without_a_number_is_not_disclosed_never"
+    "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -5006,11 +5008,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 4,
+   "tests_specific": 5,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_working_capital_days_use_average_working_capital",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[days_working_capital]",
-    "test_ratio_remediation.py::test_days_working_capital_falls_back_to_closing_only_flagged",
-    "test_ratio_remediation.py::test_days_working_capital_is_average_wc_over_revenue_times_365"
+    "test_ratio_remediation.py::test_days_working_capital_falls_back_to_closing_only_flagged"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -5158,8 +5160,9 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 1,
+   "tests_specific": 2,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_liquidity_and_leverage_ratios",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[receivables_to_payables]"
    ],
    "tests_generic": 20,
@@ -5798,11 +5801,11 @@
    "missing_input_probe": {
     "error": "TypeError: type NoneType doesn't define __round__ method"
    },
-   "tests_specific": 4,
+   "tests_specific": 5,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_consolidated_free_cash_flow_matches_screener",
     "test_global_audit_2026_10c.py::test_ev_is_the_same_number_in_all_three_multiples",
-    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[free_cash_flow]",
-    "test_ratio_remediation.py::test_missing_inputs_never_become_computed_zeros_elsewhere"
+    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[free_cash_flow]"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -6927,8 +6930,9 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 2,
+   "tests_specific": 3,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[effective_tax_rate]",
     "test_ratio_remediation.py::test_zero_or_negative_denominators_are_not_meaningful"
    ],
@@ -7248,11 +7252,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 5,
+   "tests_specific": 6,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_market_ratios_use_the_latest_quote_with_fiscal_year_per_share_figures",
     "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract",
-    "test_ratio_corrections_2026_10b.py::test_eps_growth_formula_names_both_periods",
-    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[eps_growth_rate]"
+    "test_ratio_corrections_2026_10b.py::test_eps_growth_formula_names_both_periods"
    ],
    "tests_generic": 20,
    "cross_company": [
@@ -7389,11 +7393,11 @@
    "missing_input_probe": {
     "error": "TypeError: type NoneType doesn't define __round__ method"
    },
-   "tests_specific": 8,
+   "tests_specific": 9,
    "tests_examples": [
+    "test_anuras_fy2026_source_audit.py::test_liquidity_and_leverage_ratios",
     "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract",
-    "test_global_audit_2026_10c.py::test_numbers_follow_the_declared_basis_when_nci_is_material",
-    "test_ratio_corrections_2026_10b.py::test_graham_breakdown_names_its_real_inputs"
+    "test_global_audit_2026_10c.py::test_numbers_follow_the_declared_basis_when_nci_is_material"
    ],
    "tests_generic": 20,
    "cross_company": [
