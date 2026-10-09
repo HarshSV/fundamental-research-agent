@@ -1,84 +1,74 @@
 """
-Historical price series - the market-data interface Beta (Sr No 66) needs.
+Historical price series - the ONE Beta (Sr No 66) implementation every engine uses.
+
 Deliberately separate from `tools.market_price` (live tick) and from every
 Annual-Report-sourced canonical fact (spec §16) - this module only ever
 returns price HISTORY, never a financial-statement figure.
 
-Company-agnostic: `get_price_history`/`get_benchmark_history` take a symbol/
-benchmark ticker and a period - no company-specific branching. Reuses the
-yfinance dependency already used elsewhere in this codebase (e.g.
-`tools.angel_scraper.compute_pe_band`) rather than adding a new provider.
+BETA POLICY (single, deterministic - `tools.ratio_contract.BETA_POLICY` documents it):
+    benchmark            Nifty 50 (^NSEI)
+    return frequency     weekly closing-price returns
+    lookback             trailing 2 years
+    minimum observations 52 aligned weekly returns (below that: insufficient_data, never a guess)
+    estimator            sample covariance(stock, market) / sample variance(market), ddof=1,
+                         series inner-joined on date (never positional alignment)
+    price source         Yahoo Finance via `tools.yf_cache` (NSE ticker `<SYM>.NS`)
+    manual mode          Beta needs a multi-year price history that an uploaded document cannot
+                         supply, so the manual workflow reports insufficient_data (callers check
+                         `tools.manual_mode`) - the value is never fabricated.
+Confidence: 1.0 for >= 100 weekly points, 0.8 for 52-99.
 """
 
-try:
-    import yfinance as yf
-    _HAVE_YF = True
-except Exception:  # pragma: no cover
-    _HAVE_YF = False
-
-DEFAULT_BENCHMARK = "^NSEI"  # Nifty 50 - the canonical broad-market benchmark for NSE-listed equities
-DEFAULT_PERIOD = "1y"
-DEFAULT_INTERVAL = "1d"
+BENCHMARK = "^NSEI"
+INTERVAL = "1wk"
+PERIOD = "2y"
+MIN_OBSERVATIONS = 52
+FULL_CONFIDENCE_OBSERVATIONS = 100
 
 
-def _daily_returns(closes):
-    returns = []
-    prev = None
-    for c in closes:
-        if c is None or c <= 0:
-            prev = None
-            continue
-        if prev is not None:
-            returns.append((c / prev) - 1.0)
-        prev = c
-    return returns
-
-
-def get_price_history(symbol, period=DEFAULT_PERIOD, interval=DEFAULT_INTERVAL):
-    """Returns a list of daily returns for `symbol` (NSE-listed), or None if
-    unavailable. Never raises, never fabricates a series."""
-    if not _HAVE_YF:
-        return None
+def beta_from_close_series(stock_close, index_close):
+    """Pure computation from two pandas Series of closing prices (DatetimeIndex).
+    Returns {"beta","cov","var","n","start","end"} or {"reason": ..., "n": ...}. Never raises."""
     try:
-        sym = str(symbol).strip().upper().replace(".NS", "") + ".NS"
-        hist = yf.Ticker(sym).history(period=period, interval=interval)
-        if hist is None or hist.empty or "Close" not in hist.columns:
-            return None
-        return _daily_returns([float(c) for c in hist["Close"].tolist()])
-    except Exception:
-        return None
+        import pandas as pd
+        import numpy as np
+        s = stock_close.copy()
+        m = index_close.copy()
+        try:
+            s.index = s.index.tz_localize(None)
+            m.index = m.index.tz_localize(None)
+        except (TypeError, AttributeError):
+            pass
+        aligned = pd.concat([s, m], axis=1, join="inner")
+        aligned.columns = ["stock", "index"]
+        returns = aligned.pct_change().dropna()
+        n = len(returns)
+        if n < MIN_OBSERVATIONS:
+            return {"reason": f"Only {n} weeks of aligned trading history found - fewer than the {MIN_OBSERVATIONS}-week "
+                              "(~1 year) minimum needed for a reliable Beta (newly-listed or very illiquid stock).", "n": n}
+        sr, mr = returns["stock"].to_numpy(), returns["index"].to_numpy()
+        var = float(np.var(mr, ddof=1))
+        if var == 0:
+            return {"reason": "Benchmark index return variance is zero over this window - Beta is undefined.", "n": n}
+        cov = float(np.cov(sr, mr, ddof=1)[0][1])
+        return {"beta": cov / var, "cov": cov, "var": var, "n": n,
+                "start": returns.index.min().strftime("%d-%b-%Y"), "end": returns.index.max().strftime("%d-%b-%Y")}
+    except Exception as e:
+        return {"reason": f"Beta could not be computed ({e}).", "n": 0}
 
 
-def get_benchmark_history(benchmark=DEFAULT_BENCHMARK, period=DEFAULT_PERIOD, interval=DEFAULT_INTERVAL):
-    """Returns a list of daily returns for the benchmark index. Never raises."""
-    if not _HAVE_YF:
-        return None
+def weekly_beta(symbol):
+    """Fetches the two histories per the policy above and returns `beta_from_close_series`' dict
+    (or {"reason": ...}). Never raises, never fabricates."""
     try:
-        hist = yf.Ticker(benchmark).history(period=period, interval=interval)
-        if hist is None or hist.empty or "Close" not in hist.columns:
-            return None
-        return _daily_returns([float(c) for c in hist["Close"].tolist()])
-    except Exception:
-        return None
-
-
-def compute_beta(stock_returns, market_returns):
-    """Beta = Cov(stock, market) / Var(market), over the OVERLAPPING trailing
-    window (shorter series wins) - both series are daily returns aligned by
-    position (most-recent-last), matching how `get_price_history`/
-    `get_benchmark_history` build them. Returns None (never 1.0, never 0)
-    if either series is missing or too short to be meaningful."""
-    if not stock_returns or not market_returns:
-        return None
-    n = min(len(stock_returns), len(market_returns))
-    if n < 20:  # a handful of days is not a defensible Beta - refuse rather than guess
-        return None
-    s = stock_returns[-n:]
-    m = market_returns[-n:]
-    mean_s = sum(s) / n
-    mean_m = sum(m) / n
-    cov = sum((s[i] - mean_s) * (m[i] - mean_m) for i in range(n)) / n
-    var_m = sum((x - mean_m) ** 2 for x in m) / n
-    if var_m == 0:
-        return None
-    return cov / var_m
+        from tools.yf_cache import cached_history
+        sym = str(symbol).strip().upper().replace(".NS", "")
+        stock_hist = cached_history(f"{sym}.NS", period=PERIOD, interval=INTERVAL)
+        index_hist = cached_history(BENCHMARK, period=PERIOD, interval=INTERVAL)
+    except Exception as e:
+        return {"reason": "Could not fetch historical price data right now - please try again in a moment.", "n": 0,
+                "error": str(e)}
+    if stock_hist is None or stock_hist.empty or index_hist is None or index_hist.empty:
+        return {"reason": "No historical price data available - likely a newly-listed stock with insufficient trading history.",
+                "n": 0}
+    return beta_from_close_series(stock_hist["Close"], index_hist["Close"])

@@ -331,13 +331,25 @@ def _shareholding_from_manual_upload(symbol):
     if total_promoter is None and public_shares is None:
         return None  # nothing usable was tagged in the uploaded filing
 
-    total_shares = (total_promoter or 0) + (public_shares or 0) if (total_promoter or public_shares) else None
+    # Locked-in shares: the taxonomy has no count tag, only Yes/No flags ("Whether the listed entity has any shares in locked-in").
+    # An explicit "false" on the overall flag AND on every category flag IS disclosure that there are none (=> 0.0, exact);
+    # any "true" (count not tagged) or a missing flag leaves it undisclosed (None => Free Float stays a labelled proxy).
+    flags = re.findall(r'<in-bse-shp:WhetherTheListedEntityHasAnySharesInLockedIn\w*\s+contextRef="[^"]*"[^>]*>\s*(true|false)\s*<', xml, re.I)
+    locked_in_pct = 0.0 if flags and all(f.lower() == "false" for f in flags) else None
+    # Whole-company share count: the filing's own grand-total context when present (it also covers non-promoter/non-public holders);
+    # otherwise promoter + public.
+    grand = _shp_fact_for_context(xml, "NumberOfFullyPaidUpEquityShares", ["ShareholdingPattern_ContextI"])
+    total_shares = grand if grand else ((total_promoter or 0) + (public_shares or 0) if (total_promoter or public_shares) else None)
 
     return {
-        "promoter_holding_pct": round(promoter_holding_pct_direct * 100, 2) if promoter_holding_pct_direct is not None
-            else (round(total_promoter / total_shares * 100, 2) if total_promoter and total_shares else None),
-        "promoter_pledge_pct": round(promoter_pledge_pct_direct * 100, 2) if promoter_pledge_pct_direct is not None
-            else (round(pledged / total_promoter * 100, 2) if pledged is not None and total_promoter else (0.0 if total_promoter else None)),
+        # exact percentages from the share COUNTS (the filing's own tagged percentages are rounded to 4 decimals of a fraction);
+        # the tagged figure is only the fallback and the pledge cross-check
+        "promoter_holding_pct": (total_promoter / total_shares * 100 if total_promoter and total_shares
+                                 else (promoter_holding_pct_direct * 100 if promoter_holding_pct_direct is not None else None)),
+        "promoter_pledge_pct": (pledged / total_promoter * 100 if pledged is not None and total_promoter
+                                else (promoter_pledge_pct_direct * 100 if promoter_pledge_pct_direct is not None
+                                      else (0.0 if total_promoter else None))),
+        "promoter_pledge_pct_filing": promoter_pledge_pct_direct * 100 if promoter_pledge_pct_direct is not None else None,
         "num_shares_pledged": pledged,
         "total_promoter_holding": total_promoter,
         "total_shares": total_shares,
@@ -345,10 +357,12 @@ def _shareholding_from_manual_upload(symbol):
         # Free Float % proxy (per existing, already-documented simplification):
         # Public shareholding % stands in for free float - no separate
         # locked-in-shares tag exists in this taxonomy to subtract.
-        "public_holding_pct": round(public_holding_pct_direct * 100, 2) if public_holding_pct_direct is not None
-            else (round(public_shares / total_shares * 100, 2) if public_shares and total_shares else None),
+        "public_holding_pct": (public_shares / total_shares * 100 if public_shares and total_shares
+                               else (public_holding_pct_direct * 100 if public_holding_pct_direct is not None else None)),
         "as_of_quarter": "as per uploaded Shareholding Pattern filing",
         "pledge_status": "ok" if pledged is not None else "zero",
+        "source": "uploaded_filing",
+        "locked_in_pct": locked_in_pct,
     }
 
 
@@ -406,9 +420,36 @@ _NS = "in-bse-fin"  # every NSE Ind-AS / Banking result uses this fact namespace
 
 # Companies whose business model has no inventory - Inventory Turnover is N/A by
 # definition, not by missing data. (Belt-and-suspenders on top of taxonomy check.)
-_NON_INVENTORY = ("bank", "financ", "finance", "nbfc", "insurance", "insurer",
-                  "life ", "assurance", "gic ", "amc", "asset management",
-                  "fintech", "housing finance", "capital", "securities", "broking")
+import contextvars as _contextvars
+_LENDER_CTX = _contextvars.ContextVar("navrist_lender_context", default=False)
+
+
+class _LenderWords(tuple):
+    """The company-name keywords that mark a lender/financial business. Every gate in this module is
+    `any(w in name for w in _NON_INVENTORY)`; when the caller has established from the company's SECTOR (Banks / NBFC) that
+    it is a lender, the empty string is yielded as well, which is a substring of every name - so a lender whose name carries
+    no keyword ("Poonawalla Fincorp", "State Bank of India") is gated exactly like one that does."""
+
+    def __iter__(self):
+        yield from tuple.__iter__(self)
+        if _LENDER_CTX.get():
+            yield ""
+
+
+_NON_INVENTORY = _LenderWords(("bank", "financ", "finance", "nbfc", "insurance", "insurer",
+                               "life ", "assurance", "gic ", "amc", "asset management",
+                               "fintech", "housing finance", "capital", "securities", "broking"))
+
+
+def lender_context(is_lender):
+    """Context manager: treat the ratios computed inside as a lender's (sector-based, not name-based)."""
+    class _Ctx:
+        def __enter__(self_inner):
+            self_inner._t = _LENDER_CTX.set(bool(is_lender))
+
+        def __exit__(self_inner, *a):
+            _LENDER_CTX.reset(self_inner._t)
+    return _Ctx()
 
 
 # --------------------------------------------------------------------------- #
@@ -572,7 +613,8 @@ def _parse_xbrl(xml):
 
 
 def _to_cr(v):
-    return round(v / 1e7, 2) if isinstance(v, (int, float)) else None
+    # UNROUNDED rupees -> crore: a rounded value must never be an input to a later calculation (display rounds)
+    return (v / 1e7) if isinstance(v, (int, float)) else None
 
 
 def _annual_context(contexts, facts, probe_tag="RevenueFromOperations"):
@@ -698,9 +740,23 @@ def _compute_pair(cur, prev, sym=None, name=None):
         except Exception as e:
             print(f"[nse_xbrl] restated-inventory lookup skipped: {e}")
 
-    avg_inv = round((inv_cur_cr + inv_prev_cr) / 2, 2)
-    ratio_raw = (sales_cr / avg_inv) if avg_inv else None
+    # The ONE ratio contract computes the number (no second formula here, and no rounded value feeds the division): the XBRL
+    # figures are handed to it as a FactSet, exactly like Annual-Report figures.
+    from tools import ratio_contract as _rc
+    from tools.fundamental_fact_store import factset_from_values
+    fy_num = _yr_from_to_date(cur["to_date"]) or 0
+    _fs = factset_from_values(
+        (sym or "").upper(), fy_num, "CONSOLIDATED",
+        {"revenue": (sales_cr, None), "inventory": (inv_cur_cr, inv_prev_cr),
+         "cogs": (cogs, None)},
+        source_document=cur["xbrl"], extras={"components": {k: (v, None) for k, v in components.items() if v is not None}},
+        source_label="NSE XBRL Reg-33 annual result filing (consolidated, audited)")
+    _res = _rc.compute_ratio("inventory_turnover", _fs, None, {})
+    ratio_raw = _res.get("value_raw")
     ratio = round(ratio_raw, 2) if ratio_raw is not None else None
+    avg_inv = (_res.get("denominator") or {}).get("value_raw")
+    if ratio_raw is None:
+        return None, _res.get("reason") or "Inventory Turnover could not be computed from the XBRL filing."
 
     note = ("Consolidated, audited - Cost of Goods Sold from NSE XBRL; prior-year "
             "Inventory is the company's own RESTATED comparative (verified against "
@@ -721,13 +777,12 @@ def _compute_pair(cur, prev, sym=None, name=None):
 
     return {
         "value": ratio, "value_raw": ratio_raw, "unit": "x",
-        "confidence": confidence,
-        "estimated": False,
+        "confidence": min(confidence, _res.get("confidence") if _res.get("confidence") is not None else 1.0),
+        "estimated": bool(_res.get("estimated")), "status": _res.get("status"),
         "period": f"{_fy_label(cur['to_date'])} (consolidated)",
-        "numerator": {"label": "Net Sales (Revenue from Operations)", "value_cr": round(sales_cr, 2),
-                      "reference_cogs_cr": round(cogs, 2), "components": components},
-        "denominator": {"label": "Average Inventory (opening + closing) ÷ 2", "value_cr": avg_inv,
-                        "inventory_by_year": {inv_cur[0]: inv_cur_cr, inv_prev[0]: inv_prev_cr}},
+        "numerator": _res.get("numerator"), "denominator": _res.get("denominator"),
+        "formula_version": _res.get("formula_version"), "methodology": _res.get("methodology"),
+        "warnings": list(_res.get("warnings") or []), "breakdown": _res.get("breakdown"),
         "sources": sources,
         "note": note,
     }, None
@@ -758,12 +813,14 @@ def _try_year(sym, name, ar_years, annuals, target_year):
     """Try to compute Inventory Turnover for one fiscal year: Annual Report
     first, then NSE XBRL for that same year. Returns (result_dict, None) or
     (None, reason) - never raises."""
+    ar_reason = None
     try:
         from tools.annual_report_financials import fetch_inventory_turnover_from_annual_report
         if target_year in ar_years:
             ar = fetch_inventory_turnover_from_annual_report(sym, name, target_year, consolidated=_resolved_consolidated(sym, name, target_year))
             if ar.get("applicable"):
                 return ar, None
+            ar_reason = ar.get("reason")
     except Exception as e:
         print(f"[nse_xbrl] Annual Report path errored for {sym} FY{target_year}: {e}")
 
@@ -778,7 +835,9 @@ def _try_year(sym, name, ar_years, annuals, target_year):
             idx = i
             break
     if idx is None:
-        return None, f"No published Annual Report or NSE result filing yet for FY{str(target_year)[-2:]}."
+        # the Annual Report WAS read and gave a reason (e.g. no goods-cost lines): that is the truth - do not replace it with
+        # a misleading "no filing published" message
+        return None, ar_reason or f"No published Annual Report or NSE result filing yet for FY{str(target_year)[-2:]}."
     if annuals[idx]["taxonomy"] == "BANKING":
         return None, "Not applicable - banking-taxonomy filing has no Inventory / Cost-of-materials lines."
     return _compute_pair(annuals[idx], annuals[idx + 1], sym=sym, name=name)
@@ -1206,7 +1265,7 @@ def fetch_working_capital_turnover(symbol, name=None, to_date=None):
     reports a sign-inverted or meaningless ratio). Cached; never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"wcturn_v3_{sym}_{to_date or 'latest'}_{_doc_tag_for_cache(sym, to_date)}"
+    ckey = f"wcturn_v4_{sym}_{to_date or 'latest'}_{_doc_tag_for_cache(sym, to_date)}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -3256,128 +3315,58 @@ def fetch_cost_to_income_ratio(symbol, name=None, to_date=None):
 # tools/angel_scraper.py's P/E-band builder, just never for an INDEX
 # ticker before).
 # --------------------------------------------------------------------------- #
+def _legacy_from_contract(res, base, period=None, sources=None):
+    """ratio_contract result -> the legacy `fetch_X` response dict (for providers that are not Annual-Report
+    statement ratios: Beta, Promoter Pledge %, Free Float %)."""
+    status = res.get("status")
+    raw = res.get("value_raw")
+    applicable = raw is not None and status in ("verified", "needs_review")
+    out = {**base, "applicable": applicable, "status": status,
+           "value": res.get("value") if applicable else None, "value_raw": raw if applicable else None,
+           "unit": res.get("unit"), "confidence": res.get("confidence"), "estimated": bool(res.get("estimated")),
+           "period": period or res.get("period"), "numerator": res.get("numerator"), "denominator": res.get("denominator"),
+           "warnings": list(res.get("warnings") or []), "formula_version": res.get("formula_version"),
+           "methodology": res.get("methodology"), "perimeter": res.get("perimeter"), "breakdown": res.get("breakdown")}
+    if sources:
+        out["sources"] = sources
+    if res.get("reason"):
+        out["reason"] = res["reason"]
+    out["note"] = " ".join(x for x in [res.get("methodology")] + list(res.get("warnings") or []) if x)
+    return out
+
+
 def fetch_beta(symbol, name=None, to_date=None):
     """
-    Beta = Cov(stock weekly returns, Nifty 50 weekly returns) / Var(Nifty
-    50 weekly returns), over a trailing 2-year window. `to_date` is
-    accepted for signature consistency with every other `fetch_X` in this
-    file but IGNORED - Beta always uses the current trailing window, since
-    it has no fiscal-year/Annual-Report concept to select a period from
-    (there is no "available_periods" list for this ratio).
-
-    Per spec, N/A / flagged unreliable if fewer than ~1 year of aligned
-    weekly returns are available (newly-listed/IPO stock, or a data
-    fetch failure). Confidence: 1.0 for a full ~2-year window (~100+
-    weekly points), 0.8 for a shorter window (~26-99 points, higher
-    standard error per spec's own tiering), 0.4 for a very thin window
-    (still >= the ~1-year N/A floor, but close to it).
-
-    Cached 7 days (Beta is a slow-moving statistic - no need to recompute
-    on every request). Never raises.
+    Beta (Sr 66) - the single policy in `tools.market_history` / `tools.ratio_contract.BETA_POLICY`:
+    Cov(stock weekly returns, Nifty 50 weekly returns) / Var(Nifty 50 weekly returns) over a trailing
+    2-year window, >= 52 aligned weekly observations, sample (ddof=1) estimators. `to_date` is accepted
+    for signature consistency but ignored (Beta has no fiscal-year concept). In the manual document
+    workflow no price history exists, so the result is insufficient_data - never fabricated.
+    Cached 7 days (versioned); never raises.
     """
+    from tools import ratio_contract as rc
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"beta_{sym}"
+    ckey = f"beta_{rc.FORMULA_VERSION}_{sym}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
-
     base = {"symbol": sym, "ratio_name": "Beta"}
     from tools.manual_mode import is_manual_mode
     if is_manual_mode():
-        # Beta requires a multi-year historical price series - never
-        # derivable from an uploaded Annual Report/XBRL, nor from a single
-        # Angel One live price. Never fabricated; never a live yfinance
-        # call in this workflow.
-        return {**base, "applicable": False, "status": "insufficient_data",
-                "reason": "Beta requires a multi-year historical price series, which is not derivable "
-                          "from an uploaded Annual Report/XBRL or a single live market price."}
+        return _legacy_from_contract(rc.beta_result({"reason": "Beta requires a multi-year historical price series, which is "
+                                                                 "not derivable from an uploaded Annual Report/XBRL or a "
+                                                                 "single live market price."}), base)
     db_row = try_db_ratio(sym, 66)
     if db_row is not None:
         return {**base, **db_row}
-
-    try:
-        from tools.yf_cache import cached_history
-        stock_hist = cached_history(f"{sym}.NS", period="2y", interval="1wk")
-        index_hist = cached_history("^NSEI", period="2y", interval="1wk")
-    except Exception as e:
-        print(f"[nse_xbrl] Beta history fetch failed for {sym}: {e}")
-        return {**base, "applicable": False,
-                "reason": "Could not fetch historical price data right now - please try again in a moment."}
-
-    if stock_hist is None or stock_hist.empty or index_hist is None or index_hist.empty:
-        out = {**base, "applicable": False,
-               "reason": "No historical price data available - likely a newly-listed stock with "
-                         "insufficient trading history."}
+    from tools.market_history import weekly_beta
+    info = weekly_beta(sym)
+    res = rc.beta_result(info, sym)
+    out = _legacy_from_contract(res, base, period=res.get("period"), sources=[
+        {"url": "https://finance.yahoo.com/quote/" + sym + ".NS/history", "label": f"{sym}.NS Historical Prices ↗"},
+        {"url": "https://finance.yahoo.com/quote/%5ENSEI/history", "label": "Nifty 50 (^NSEI) Historical Prices ↗"}])
+    if not (info or {}).get("error"):          # a transient fetch failure is never cached
         _write_cache(ckey, out)
-        return out
-
-    try:
-        import pandas as pd
-        # Inner-join on trading week (yfinance's own DatetimeIndex, timezone-
-        # normalised) so both series cover EXACTLY the same dates - a
-        # misalignment here would silently distort the regression, per
-        # spec's own warning.
-        stock_close = stock_hist["Close"].copy()
-        index_close = index_hist["Close"].copy()
-        stock_close.index = stock_close.index.tz_localize(None)
-        index_close.index = index_close.index.tz_localize(None)
-        aligned = pd.concat([stock_close, index_close], axis=1, join="inner")
-        aligned.columns = ["stock", "index"]
-        returns = aligned.pct_change().dropna()
-    except Exception as e:
-        print(f"[nse_xbrl] Beta alignment/return calc failed for {sym}: {e}")
-        return {**base, "applicable": False,
-                "reason": "Something went wrong computing this ratio - please try again."}
-
-    n_points = len(returns)
-    # Per spec, N/A if fewer than ~1 year of trading history - at weekly
-    # frequency that's roughly 52 aligned return points.
-    if n_points < 52:
-        out = {**base, "applicable": False,
-               "reason": f"Only {n_points} weeks of aligned trading history found - fewer than the "
-                         "~1-year minimum needed for a reliable Beta (newly-listed stock or an extremely "
-                         "illiquid one)."}
-        _write_cache(ckey, out)
-        return out
-
-    import numpy as np
-    stock_returns = returns["stock"].to_numpy()
-    index_returns = returns["index"].to_numpy()
-    cov = np.cov(stock_returns, index_returns, ddof=1)[0][1]
-    var = np.var(index_returns, ddof=1)
-    if var == 0:
-        out = {**base, "applicable": False, "reason": "Benchmark index return variance is zero over this "
-                                                        "window - Beta is undefined."}
-        _write_cache(ckey, out)
-        return out
-
-    beta = round(cov / var, 2)
-    confidence = 1.0 if n_points >= 100 else (0.8 if n_points >= 52 else 0.4)
-
-    start_date = returns.index.min().strftime("%d-%b-%Y")
-    end_date = returns.index.max().strftime("%d-%b-%Y")
-
-    out = {
-        **base,
-        "applicable": True,
-        "value": beta, "unit": "",
-        "confidence": confidence,
-        "estimated": confidence < 1.0,
-        "period": f"Weekly returns, {start_date} to {end_date} ({n_points} points)",
-        "numerator": {"label": "Covariance(Stock Returns, Nifty 50 Returns)", "value_cr": round(cov, 6)},
-        "denominator": {"label": "Variance(Nifty 50 Returns)", "value_cr": round(var, 6)},
-        "sources": [{"url": "https://finance.yahoo.com/quote/" + sym + ".NS/history",
-                     "label": f"{sym}.NS Historical Prices ↗"},
-                    {"url": "https://finance.yahoo.com/quote/%5ENSEI/history",
-                     "label": "Nifty 50 (^NSEI) Historical Prices ↗"}],
-        "note": "Purely a market-data/statistical computation - NOT derived from financial statements, "
-                "unaffected by Consolidated/Standalone reporting. Computed via weekly closing-price returns "
-                "over a trailing 2-year window against the Nifty 50 (^NSEI) benchmark. A backward-looking "
-                "historical measure, not a forecast - it can shift materially going forward. Cross-check "
-                "against the qualitative risk profile of the sector (e.g. a debt-free FMCG company showing "
-                "Beta > 1.5 warrants a data-quality check).",
-    }
-    _write_cache(ckey, out)
     return out
 
 
@@ -3393,33 +3382,15 @@ def fetch_beta(symbol, name=None, to_date=None):
 # --------------------------------------------------------------------------- #
 def fetch_promoter_pledge_pct(symbol, name=None, to_date=None):
     """
-    Promoter Pledge % = Number of Promoter Shares Pledged / Total Number
-    of Promoter Shares Held, from the most recent SEBI Shareholding
-    Pattern filing. `to_date` is accepted for signature consistency but
-    IGNORED -- always the latest quarter, per spec's own "do not use a
-    stale figure" instruction.
-
-    Per spec, this is a FLAG (not a mathematical N/A) when Total Promoter
-    Shareholding = 0 -- a professionally-managed company with no promoter/
-    founder holding, where pledge simply doesn't apply to the ownership
-    structure, distinct from a genuine data-fetch failure.
-
-    Confidence: 1.0 when NSE's own pledge endpoint returned a real,
-    explicit disclosure ("ok"); 0.95 when NSE explicitly listed no pledge
-    for this scrip (NSE only lists pledged scrips at all, so absence is a
-    real, high-confidence 0%, not a guess); 0.6 when NSE's endpoint
-    couldn't be reached at all and a 0% is merely ASSUMED, per
-    `shareholding_scraper.py`'s own `pledge_status` flag -- flagged
-    explicitly as "Assumed" in that case, never silently presented at the
-    same confidence as a confirmed 0%.
-
-    Cached via `shareholding_scraper.py`'s own 12-hour pledge-data cache
-    (pledge updates quarterly, so this is deliberately a short TTL relative
-    to the Annual-Report ratios' 90-day cache). Never raises.
+    Promoter Pledge % = Pledged Promoter Shares / Total Promoter Shares, from the most recent SEBI
+    Shareholding Pattern filing (`to_date` ignored - always the latest quarter). The arithmetic and the
+    never-assume-zero rule live in `tools.ratio_contract.pledge_result`: an unreachable pledge endpoint is
+    insufficient_data, NOT an assumed 0%; only NSE's explicit "no pledge on record" counts as evidence for 0%.
+    Never raises.
     """
+    from tools import ratio_contract as rc
     sym = symbol.strip().upper().replace(".NS", "")
     base = {"symbol": sym, "ratio_name": "Promoter Pledge %"}
-
     from tools.manual_mode import is_manual_mode
     if is_manual_mode():
         sh = _shareholding_from_manual_upload(sym)
@@ -3435,63 +3406,10 @@ def fetch_promoter_pledge_pct(symbol, name=None, to_date=None):
             print(f"[nse_xbrl] Promoter Pledge % fetch failed for {sym}: {e}")
             return {**base, "applicable": False,
                     "reason": "Could not fetch the Shareholding Pattern filing right now - please try again."}
-
-    promoter_holding_pct = sh.get("promoter_holding_pct")
-    if promoter_holding_pct is None or promoter_holding_pct == 0:
-        return {**base, "applicable": False,
-                "reason": "No promoter/founder shareholding on record - this appears to be a "
-                          "professionally-managed company with no promoter group, so Promoter Pledge % "
-                          "doesn't apply to its ownership structure."}
-
-    pledge_pct = sh.get("promoter_pledge_pct")
-    if pledge_pct is None:
-        return {**base, "applicable": False,
-                "reason": "Could not find a Promoter Pledge disclosure in the Shareholding Pattern filing."}
-
-    pledge_status = sh.get("pledge_status")
-    confidence = 1.0 if pledge_status == "ok" else (0.95 if pledge_status == "zero" else 0.6)
-    num_shares_pledged = sh.get("num_shares_pledged")
-    total_promoter_shares = sh.get("total_promoter_holding")
-    # Per spec, Promoter Pledge % = Pledged Promoter Shares / Total PROMOTER
-    # Shares -- but NSE's own `percSharesPledged` field (what `pledge_pct`
-    # holds) is actually pledged shares as a percent of the company's
-    # TOTAL ISSUED shares, a different, smaller denominator (confirmed on
-    # Gopal Snacks: NSE's raw field gives 11.66%, using num_shares_pledged /
-    # total_issued_shares; recomputing against the actual Total Promoter
-    # Shareholding count gives the spec-correct 14.32% -- materially
-    # different since promoter holding is always < 100% of the company).
-    # Recompute locally whenever both raw share counts are available
-    # (matches the numerator/denominator now shown in the breakdown);
-    # only fall back to NSE's own pre-computed percentage when the raw
-    # counts aren't both present (e.g. a "zero" pledge status with no
-    # promoter-holding count returned).
-    if num_shares_pledged is not None and total_promoter_shares:
-        pledge_pct = round((num_shares_pledged / total_promoter_shares) * 100, 2)
-
-    out = {
-        **base,
-        "applicable": True,
-        "value": round(pledge_pct, 2), "unit": "%",
-        "confidence": confidence,
-        "estimated": confidence < 1.0,
-        "assumed_zero": pledge_status == "assumed_zero",
-        "period": sh.get("as_of_quarter") or "most recent quarter",
-        "numerator": {"label": "Pledged Promoter Shares", "value_cr": num_shares_pledged},
-        "denominator": {"label": "Total Promoter Shareholding (shares)",
-                         "value_cr": total_promoter_shares},
-        "sources": [{"url": "https://www.nseindia.com/companies-listing/corporate-filings-pledged-data",
-                     "label": "NSE Shareholding Pattern ↗"}],
-        "note": ("From the most recent SEBI Shareholding Pattern filing (BSE/NSE), a governance/risk "
-                 "disclosure, not an accounting figure from the Annual Report. Pledged shares can be "
-                 "forcibly sold by lenders if the share price falls sharply and margin/collateral calls are "
-                 "triggered - a rising trend over consecutive quarters, especially alongside a declining "
-                 "share price, is a compounding governance-risk signal worth flagging explicitly."
-                 if pledge_status != "assumed_zero" else
-                 "NSE's pledge endpoint could not be reached for a live check this time, so 0% is ASSUMED "
-                 "(NSE only lists scrips with an actual pledge on record, so absence usually does mean "
-                 "zero) rather than confirmed - flagged with reduced confidence."),
-    }
-    return out
+    res = rc.pledge_result(sh)
+    return _legacy_from_contract(res, base, period=(sh or {}).get("as_of_quarter") or "most recent quarter", sources=[
+        {"url": "https://www.nseindia.com/companies-listing/corporate-filings-pledged-data",
+         "label": "NSE Shareholding Pattern ↗"}])
 
 
 # --------------------------------------------------------------------------- #
@@ -3504,35 +3422,14 @@ def fetch_promoter_pledge_pct(symbol, name=None, to_date=None):
 # --------------------------------------------------------------------------- #
 def fetch_free_float_pct(symbol, name=None, to_date=None):
     """
-    Free Float % = (Total Shares − Promoter Holding − Locked-in Shares) ÷
-    Total Shares. `to_date` accepted for signature consistency but
-    IGNORED -- always the latest quarter.
-
-    KNOWN, DISCLOSED SIMPLIFICATION (matches spec's own 0.8-confidence
-    fallback tier): this codebase's Shareholding Pattern data
-    (`shareholding_scraper.py`) exposes Promoter/Institutional/Public
-    percentages, but no SEPARATE "locked-in/non-tradeable shares"
-    category (e.g. employee-trust lock-ins, government holdings, shares
-    under litigation) beyond the Promoter/FII/DII/Public split already
-    available. Free Float here is therefore computed as
-    `100% - Promoter Holding %` -- per spec's own explicit warning, this
-    is a PROXY, not the more granular figure a dedicated index-methodology
-    document would give, and is flagged at confidence 0.8 rather than 1.0
-    accordingly, never presented as a precise index-eligibility figure.
-
-    Per spec, flag (not error) if Total Shares Outstanding is unknown
-    (i.e. Promoter Holding % itself couldn't be sourced) -- same
-    professionally-managed-company edge case as Sr No 67, though for Free
-    Float that case actually means ~100% free float (no promoter lock-in
-    at all), not N/A -- handled explicitly below, distinct from Sr No 67's
-    own "not applicable" branch for that same input.
-
-    Cached via `shareholding_scraper.py`'s own pledge/shareholding cache.
-    Never raises.
+    Free Float % (Sr 68) - defined once in `tools.ratio_contract.free_float_result`: 100% - promoter &
+    promoter-group % - locked-in % WHEN the locked-in share category is disclosed; otherwise the non-promoter
+    shareholding is a labelled PROXY (needs_review). Unknown promoter holding is NOT assumed to mean 100% free
+    float. `to_date` ignored - always the latest quarter. Never raises.
     """
+    from tools import ratio_contract as rc
     sym = symbol.strip().upper().replace(".NS", "")
     base = {"symbol": sym, "ratio_name": "Free Float %"}
-
     from tools.manual_mode import is_manual_mode
     if is_manual_mode():
         sh = _shareholding_from_manual_upload(sym)
@@ -3548,65 +3445,12 @@ def fetch_free_float_pct(symbol, name=None, to_date=None):
             print(f"[nse_xbrl] Free Float % fetch failed for {sym}: {e}")
             return {**base, "applicable": False,
                     "reason": "Could not fetch the Shareholding Pattern filing right now - please try again."}
-
-    promoter_holding_pct = sh.get("promoter_holding_pct")
-    institutional_pct = sh.get("institutional_holding_pct")
-    public_pct = sh.get("public_holding_pct")
-
-    if promoter_holding_pct is None:
-        # No promoter shareholding on record at all -- per spec, Free Float
-        # is genuinely ~100% for a professionally-managed company with no
-        # promoter group (distinct from Sr No 67's "not applicable" for
-        # this same input -- pledge genuinely doesn't apply there, but
-        # Free Float is a real, computable 100% here).
-        out = {
-            **base,
-            "applicable": True,
-            "value": 100.0, "unit": "%",
-            "confidence": 0.8,
-            "estimated": True,
-            "period": sh.get("as_of_quarter") or "most recent quarter",
-            "numerator": {"label": "Total Shares − Promoter Holding (0%, none on record)",
-                          "value_cr": 100.0},
-            "denominator": {"label": "Total Shares Outstanding", "value_cr": 100.0},
-            "sources": [{"url": f"https://www.nseindia.com/get-quotes/equity?symbol={sym}",
-                         "label": "NSE Shareholding Pattern ↗"}],
-            "note": "No promoter/founder shareholding was found on record -- this appears to be a "
-                    "professionally-managed company with no promoter group, so Free Float is effectively "
-                    "the full share count. Computed as 100% − Promoter Holding % (a proxy for the full "
-                    "Free Float definition, which would also net out any separately-disclosed locked-in "
-                    "categories not captured here), hence the reduced confidence.",
-        }
-        return out
-
-    free_float_pct = round(max(100.0 - promoter_holding_pct, 0.0), 2)
-
-    out = {
-        **base,
-        "applicable": True,
-        "value": free_float_pct, "unit": "%",
-        "confidence": 0.8,
-        "estimated": True,
-        "period": sh.get("as_of_quarter") or "most recent quarter",
-        "numerator": {
-            "label": "Total Shares − Promoter Holding (proxy for Free Float)",
-            "value_cr": free_float_pct,
-            "components": {
-                "Institutional Holding (FII + DII)": institutional_pct,
-                "Public Holding": public_pct,
-            },
-        },
-        "denominator": {"label": "Total Shares Outstanding", "value_cr": 100.0},
-        "sources": [{"url": f"https://www.nseindia.com/get-quotes/equity?symbol={sym}",
-                     "label": "NSE Shareholding Pattern ↗"}],
-        "note": "From the most recent SEBI Shareholding Pattern filing (BSE/NSE) - computed as 100% − "
-                "Promoter Holding %, a PROXY for the full Free Float definition (Total Shares − Promoter "
-                "Holding − Locked-in/Non-Tradeable Shares), since this codebase's data does not separately "
-                "disclose locked-in categories (employee-trust lock-ins, government holdings, litigation-"
-                "held shares) beyond the Promoter/Institutional/Public split - hence the reduced confidence. "
-                "Determines both trading liquidity and index eligibility/weighting (major indices use "
-                "free-float market capitalisation, not total market capitalisation).",
-    }
+    res = rc.free_float_result(sh)
+    out = _legacy_from_contract(res, base, period=(sh or {}).get("as_of_quarter") or "most recent quarter", sources=[
+        {"url": f"https://www.nseindia.com/get-quotes/equity?symbol={sym}", "label": "NSE Shareholding Pattern ↗"}])
+    if res.get("numerator") and sh:
+        out["numerator"] = {**res["numerator"], "components": {"Institutional Holding (FII + DII)": sh.get("institutional_holding_pct"),
+                                                               "Public Holding": sh.get("public_holding_pct")}}
     return out
 
 
@@ -5177,3 +5021,14 @@ if __name__ == "__main__":
     for s in (sys.argv[1:] or ["TATASTEEL", "ASIANPAINT", "HDFCBANK"]):
         print(f"\n===== {s} =====")
         print(json.dumps(fetch_inventory_turnover(s), indent=2))
+
+
+def _install_bank_guards():
+    """Same plausibility guard on the dashboard-facing bank wrappers (covers rows served from the DB cache too)."""
+    from tools import ratio_contract as _rc
+    for _name in ("net_interest_margin", "casa_ratio", "gross_npa_pct", "net_npa_pct", "capital_adequacy_ratio",
+                  "cost_to_income_ratio"):
+        globals()[f"fetch_{_name}"] = _rc.bank_guard(_name)(globals()[f"fetch_{_name}"])
+
+
+_install_bank_guards()

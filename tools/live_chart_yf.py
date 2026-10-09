@@ -48,8 +48,73 @@ _INTRADAY_MAX_PERIOD = {
 }
 
 
+# Chart-provider ticker resolution. app.py registers a provider that returns the
+# candidate Yahoo tickers for a company by the app's exchange rules (NSE first;
+# a BSE-only company is tried under its BSE trading symbol(s) as `<sym>.BO`).
+# Several candidates are probed once and the first with real data is cached.
+_CANDIDATES_PROVIDER = None
+_TICKER_CACHE: dict = {}
+
+
+def set_ticker_candidates_provider(fn):
+    """fn(symbol) -> (candidate_tickers: list[str], company_name: str | None)"""
+    global _CANDIDATES_PROVIDER
+    _CANDIDATES_PROVIDER = fn
+
+
+def _has_data(ticker: str) -> bool:
+    try:
+        h = yf.Ticker(ticker).history(period="5d", interval="1d")
+        return h is not None and not h.empty
+    except Exception:
+        return False
+
+
+def _search_by_name(name: str):
+    """Last resort for a BSE-only company with no known trading symbol: Yahoo's own
+    search, accepting only a .BO hit whose name equals the company name after
+    normalisation (no fuzzy guessing)."""
+    try:
+        from tools.company_search import normalize, strip_legal
+        want = strip_legal(normalize(name))
+        for q in yf.Search(name, max_results=8).quotes:
+            sym = q.get("symbol", "")
+            got = strip_legal(normalize(q.get("longname") or q.get("shortname") or ""))
+            if sym.endswith(".BO") and got and got == want:
+                return sym
+    except Exception:
+        pass
+    return None
+
+
 def _to_symbol(symbol: str) -> str:
-    return str(symbol).strip().upper().replace(".NS", "") + ".NS"
+    base = str(symbol).strip().upper().replace(".NS", "")
+    if _CANDIDATES_PROVIDER is None:
+        return _TICKER_CACHE.get(base) or base + ".NS"
+    try:
+        cands, name = _CANDIDATES_PROVIDER(base)
+    except Exception:
+        return base + ".NS"
+    if len(cands) == 1:
+        # NSE-listed, or not a known company at all: the company master is authoritative,
+        # so any cached BSE mapping for a company that has since been removed is dropped.
+        _TICKER_CACHE.pop(base, None)
+        return cands[0]
+    if base in _TICKER_CACHE:
+        return _TICKER_CACHE[base]
+    for c in cands:
+        if _have_yf() and _has_data(c):
+            _TICKER_CACHE[base] = c
+            return c
+    found = _search_by_name(name) if (name and _have_yf()) else None
+    if found:
+        _TICKER_CACHE[base] = found
+        return found
+    return cands[0]  # nothing verified: the first candidate, so the failure is an honest "unavailable"
+
+
+def _have_yf() -> bool:
+    return bool(_HAVE_YF)
 
 
 def get_candles(symbol: str, interval: str = "5m", period: str | None = None):

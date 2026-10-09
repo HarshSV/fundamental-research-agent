@@ -11,7 +11,7 @@ from tools.ratio_display import apply_display_names
 FIRST_13 = [  # (internal sr_no, ratio_key, display name) in the required display order
     (2, "days_inventory_outstanding", "Inventory Days"), (4, "days_sales_outstanding", "Debtor Days"),
     (6, "days_payables_outstanding", "Days Payable"), (9, "cash_conversion_cycle", "Cash Conversion Cycle"),
-    (15, "operating_profit_margin", "OPM %"), (18, "roe", "ROE %"), (19, "roce", "ROCE %"), (24, "pe_ratio", "Stock P/E"),
+    (15, "operating_profit_margin", "EBIT Margin %"), (18, "roe", "ROE %"), (19, "roce", "ROCE %"), (24, "pe_ratio", "Stock P/E"),
     (27, "dividend_yield", "Dividend Yield %"), (31, "days_working_capital", "Working Capital Days"),
     (36, "free_cash_flow", "Free Cash Flow"), (43, "effective_tax_rate", "Tax %"), (47, "dividend_payout_ratio", "Dividend Payout %"),
 ]

@@ -16,7 +16,7 @@ from unittest.mock import patch
 import tools.annual_report_financials as ar
 import tools.fundamental_fact_store as ffs
 import tools.ratio_calculation_engine as eng
-from tools.document_analysis_engine import _derived
+import tools.ratio_contract as rc
 
 
 def _parsed(**overrides):
@@ -27,6 +27,7 @@ def _parsed(**overrides):
         "total_current_assets": (700.0, 600.0), "total_current_liabilities": (400.0, 380.0),
         "total_assets": (2000.0, 1800.0), "equity": (900.0, 800.0), "pat": (100.0, 80.0),
         "pat_basis": "owners", "pbt": (130.0, 100.0), "finance_costs": (30.0, 25.0),
+        "non_controlling_interest": (0.0, 0.0), "nci_evaluated": True, "pat_total": (100.0, 80.0),
         "cash": (50.0, 40.0), "source_url": "synthetic://doc", "pl_page": 10, "bs_page": 9,
         "basis_used": "consolidated",
     }
@@ -47,6 +48,7 @@ class _NoCache:
 
 
 def _call(fn, parsed):
+    ffs.clear_run_cache()
     with _NoCache(), patch.object(ar, "_get_extracted_financials", return_value=parsed):
         return fn("SYNTHCO", None, 2026, consolidated=True)
 
@@ -94,18 +96,21 @@ class TestDisclosedPurchasesParser(unittest.TestCase):
 
 class TestInventoryAndPayables(unittest.TestCase):
 
-    def test_inventory_turnover_numerator_is_net_sales_not_cogs(self):
+    def test_inventory_turnover_numerator_is_cogs_not_net_sales(self):
         r = _call(ar.fetch_inventory_turnover_from_annual_report, _parsed())
         self.assertTrue(r["applicable"])
-        self.assertAlmostEqual(r["value_raw"], 1000.0 / 150.0, places=6)   # Sales / avg(200,100)
-        self.assertEqual(r["value"], round(1000.0 / 150.0, 2))
-        self.assertEqual(r["numerator"]["value_cr"], 1000.0)
-        self.assertEqual(r["numerator"]["reference_cogs_cr"], 450.0)       # COGS kept as reference only
+        self.assertAlmostEqual(r["value_raw"], 450.0 / 150.0, places=6)    # COGS (500 - 50) / avg(200,100)
+        self.assertEqual(r["value"], 3.0)
+        self.assertEqual(r["numerator"]["value_cr"], 450.0)
+        self.assertNotEqual(r["numerator"]["value_cr"], 1000.0)            # never Net Sales
 
-    def test_inventory_turnover_without_revenue_is_not_fabricated(self):
+    def test_inventory_turnover_does_not_need_revenue_but_needs_cogs_lines(self):
+        # revenue is not an input of the ratio any more; the COGS lines are
         r = _call(ar.fetch_inventory_turnover_from_annual_report, _parsed(revenue=None))
+        self.assertTrue(r["applicable"])
+        r = _call(ar.fetch_inventory_turnover_from_annual_report, _parsed(components={}))
         self.assertFalse(r["applicable"])
-        self.assertNotIn("value", r)
+        self.assertIsNone(r.get("value"))                                   # unknown, never 0
 
     def test_payables_use_disclosed_purchases_when_available(self):
         r = _call(ar.fetch_payables_turnover_from_annual_report,
@@ -132,16 +137,22 @@ class TestInventoryAndPayables(unittest.TestCase):
 
 class TestWorkingCapitalClosing(unittest.TestCase):
 
-    def test_wc_turnover_uses_closing_working_capital(self):
+    def test_wc_turnover_uses_average_working_capital(self):
         r = _call(ar.fetch_working_capital_turnover_from_annual_report, _parsed())
-        self.assertAlmostEqual(r["value_raw"], 1000.0 / 300.0, places=6)   # closing CA-CL = 700-400, not avg(300, 220)
-        self.assertEqual(r["denominator"]["value_cr"], 300.0)
+        self.assertAlmostEqual(r["value_raw"], 1000.0 / 260.0, places=6)   # avg(700-400, 600-380) = 260, not the closing 300
+        self.assertEqual(r["denominator"]["value_cr"], 260.0)
         self.assertEqual(r["denominator"]["working_capital_by_year"], {"FY2026": 300.0, "FY2025": 220.0})
 
-    def test_days_wc_is_reciprocal_of_wc_turnover(self):
-        t = _call(ar.fetch_working_capital_turnover_from_annual_report, _parsed())
+    def test_wc_turnover_falls_back_to_closing_only_when_prior_year_missing_and_says_so(self):
+        r = _call(ar.fetch_working_capital_turnover_from_annual_report,
+                  _parsed(total_current_assets=(700.0, None), total_current_liabilities=(400.0, None)))
+        self.assertAlmostEqual(r["value_raw"], 1000.0 / 300.0, places=6)
+        self.assertTrue(r["estimated"])
+
+    def test_days_wc_is_the_spec_average_definition_not_the_closing_reciprocal(self):
         d = _call(ar.fetch_days_working_capital_from_annual_report, _parsed())
-        self.assertAlmostEqual(d["value_raw"], 365.0 / t["value_raw"], places=6)
+        avg_wc = ((700.0 - 400.0) + (600.0 - 380.0)) / 2.0
+        self.assertAlmostEqual(d["value_raw"], avg_wc / 1000.0 * 365.0)
 
     def test_negative_working_capital_still_withheld_for_turnover(self):
         r = _call(ar.fetch_working_capital_turnover_from_annual_report,
@@ -152,24 +163,26 @@ class TestWorkingCapitalClosing(unittest.TestCase):
 class TestDerivedUseUnroundedParents(unittest.TestCase):
 
     def test_doh_dso_dpo_ccc_use_raw_turnover(self):
-        computed = {1: {"value": 0.82, "raw": 0.8203}, 3: {"value": 2.79, "raw": 2.7942},
-                    5: {"value": 1.90, "raw": 1.8950}}
-        doh, _ = _derived(2, computed)
-        dso, _ = _derived(4, computed)
-        dpo, _ = _derived(6, computed)
-        self.assertAlmostEqual(doh, 365 / 0.8203, places=6)
-        self.assertAlmostEqual(dso, 365 / 2.7942, places=6)
-        self.assertAlmostEqual(dpo, 365 / 1.8950, places=6)
-        computed.update({2: {"value": doh}, 4: {"value": dso}, 6: {"value": dpo}})
-        ccc, _ = _derived(9, computed)
-        self.assertAlmostEqual(ccc, dso + doh - dpo, places=9)
+        deps = {"inventory_turnover": {"ratio_key": "inventory_turnover", "label": "IT", "value": 0.82, "value_raw": 0.8203, "status": "verified"},
+                "receivables_turnover": {"ratio_key": "receivables_turnover", "label": "RT", "value": 2.79, "value_raw": 2.7942, "status": "verified"},
+                "payables_turnover": {"ratio_key": "payables_turnover", "label": "PT", "value": 1.90, "value_raw": 1.8950, "status": "verified"}}
+        fs = None
+        doh = rc._DERIVED["days_inventory_outstanding"](fs, None, deps)
+        dso = rc._DERIVED["days_sales_outstanding"](fs, None, deps)
+        dpo = rc._DERIVED["days_payables_outstanding"](fs, None, deps)
+        self.assertAlmostEqual(doh["value_raw"], 365 / 0.8203, places=9)
+        self.assertAlmostEqual(dso["value_raw"], 365 / 2.7942, places=9)
+        self.assertAlmostEqual(dpo["value_raw"], 365 / 1.8950, places=9)
+        ccc = rc._r_ccc(fs, None, {"days_sales_outstanding": dso, "days_inventory_outstanding": doh,
+                                   "days_payables_outstanding": dpo})
+        self.assertAlmostEqual(ccc["value_raw"], dso["value_raw"] + doh["value_raw"] - dpo["value_raw"], places=9)
 
-    def test_falls_back_to_displayed_value_when_no_raw(self):
-        doh, _ = _derived(2, {1: {"value": 0.82}})
-        self.assertAlmostEqual(doh, 365 / 0.82, places=9)
-
-    def test_missing_parent_stays_none(self):
-        self.assertEqual(_derived(2, {1: {"value": None}}), (None, None))
+    def test_missing_parent_stays_unavailable(self):
+        deps = {"inventory_turnover": {"ratio_key": "inventory_turnover", "label": "IT", "value_raw": None,
+                                       "status": "not_disclosed", "reason": "no inventory"}}
+        r = rc._DERIVED["days_inventory_outstanding"](None, None, deps)
+        self.assertIsNone(r["value_raw"])
+        self.assertIn(r["status"], rc.UNAVAILABLE)
 
 
 class TestBroadExtractionLabels(unittest.TestCase):
@@ -201,13 +214,21 @@ class TestBroadExtractionLabels(unittest.TestCase):
 
 class TestCashRatioSeesOtherBankBalances(unittest.TestCase):
 
-    def test_undetermined_other_bank_balance_lowers_confidence_but_not_value(self):
+    def test_current_other_bank_balances_are_part_of_the_cash_ratio_numerator(self):
         r = _call(ar.fetch_cash_ratio_from_annual_report,
                   _parsed(other_bank_balances=(15.0, 14.0), other_bank_balances_breakup=None))
-        self.assertAlmostEqual(r["value"], round(50.0 / 400.0, 2))        # numerator unchanged (policy)
+        self.assertAlmostEqual(r["value_raw"], (50.0 + 15.0) / 400.0)      # cash + current other bank balances
         self.assertEqual(r["other_bank_balances_cr"], 15.0)
-        self.assertEqual(r["confidence"], 0.8)
-        self.assertTrue(r["estimated"])
+        self.assertTrue(any("lien" in w.lower() for w in r["warnings"]))   # restricted portion not split -> disclosed, not hidden
+
+    def test_disclosed_restricted_split_excludes_the_restricted_part(self):
+        r = _call(ar.fetch_cash_ratio_from_annual_report,
+                  _parsed(other_bank_balances=(15.0, 14.0), other_bank_balances_breakup={"unrestricted_cur": 4.0}))
+        self.assertAlmostEqual(r["value_raw"], (50.0 + 4.0) / 400.0)
+
+    def test_no_other_bank_balances_leaves_cash_only(self):
+        r = _call(ar.fetch_cash_ratio_from_annual_report, _parsed())
+        self.assertAlmostEqual(r["value_raw"], 50.0 / 400.0)
 
     def test_singular_label_is_recognised(self):
         self.assertIn("other bank balance", ar._OTHER_BANK_BALANCES_LABELS)
@@ -225,17 +246,17 @@ class TestCanonicalEngineAlignment(unittest.TestCase):
 
     def test_registry_formulas_describe_ar_definitions(self):
         from tools.fundamental_ratio_registry import BY_RATIO_KEY
-        self.assertTrue(BY_RATIO_KEY["inventory_turnover"]["formula"].startswith("Net Sales"))
-        self.assertIn("closing", BY_RATIO_KEY["working_capital_turnover"]["formula"])
+        self.assertTrue(BY_RATIO_KEY["inventory_turnover"]["formula"].startswith("Cost of Goods Sold"))
+        self.assertIn("Average Working Capital", BY_RATIO_KEY["working_capital_turnover"]["formula"])
 
-    def test_inventory_turnover_engine_uses_revenue(self):
+    def test_inventory_turnover_engine_uses_cogs(self):
         r = self._run("inventory_turnover", _parsed())
         self.assertEqual(r["status"], "VERIFIED")
-        self.assertAlmostEqual(r["value"], round(1000.0 / 150.0, 4), places=4)
+        self.assertAlmostEqual(r["value"], round(450.0 / 150.0, 4), places=4)
 
-    def test_working_capital_turnover_engine_uses_closing_wc(self):
+    def test_working_capital_turnover_engine_uses_average_wc(self):
         r = self._run("working_capital_turnover", _parsed())
-        self.assertAlmostEqual(r["value"], round(1000.0 / 300.0, 4), places=4)
+        self.assertAlmostEqual(r["value"], round(1000.0 / 260.0, 4), places=4)
 
     def test_engine_purchases_prefer_disclosed_line(self):
         r = self._run("payables_turnover", _parsed(purchases_disclosed={"cur": 420.0, "prior": 380.0, "page": 3}))

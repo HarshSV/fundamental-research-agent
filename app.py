@@ -11,6 +11,7 @@ import tools.ssl_bootstrap  # noqa: E402  (must run before requests/yfinance/Ang
 import asyncio
 import concurrent.futures
 import threading
+import time
 import requests
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -159,6 +160,18 @@ STOCK_REGISTRY = [
     {"symbol": "JUBLFOOD", "name": "Jubilant FoodWorks Limited"}
 ]
 
+# Symbols of the curated seed list (all NSE blue chips) - counted as NSE-listed even
+# if the live scrip-master fetch fails.
+_CURATED_SYMBOLS = {item["symbol"].upper() for item in STOCK_REGISTRY}
+_NSE_LISTED = set()          # filled from Angel's NSE EQ scrip master
+_COMPANY_UNIVERSE = []       # DERIVED company-first view: STOCK_REGISTRY (NSE) + the `companies` master.
+                             # STOCK_REGISTRY itself stays the NSE list the batch/seed scripts iterate.
+_COMPANY_INDEX = None        # tools.company_search.CompanyIndex over _COMPANY_UNIVERSE
+_UNIVERSE_LOCK = threading.Lock()
+_UNIVERSE_LOADED_AT = 0.0
+_UNIVERSE_TTL = 300          # re-read the Supabase company master at most every 5 min
+_UNIVERSE_REFRESHING = threading.Event()
+
 _NSE_NAMES_CACHE = os.path.join(_BASE_DIR, "cache", "nse_company_names.json")
 _NSE_NAMES_TTL = 7 * 24 * 3600  # refresh weekly
 
@@ -238,6 +251,8 @@ def load_scrip_master_async():
                     if sym:
                         nse_symbols[sym] = True
             
+            _NSE_LISTED.update(nse_symbols.keys())
+
             # Full company names for the whole NSE universe (proper "preview names").
             nse_names = load_nse_company_names()
 
@@ -263,10 +278,120 @@ def load_scrip_master_async():
     except Exception as e:
         print(f"[HTTP WARNING] Dynamic scrip master load failed: {e}")
     finally:
+        # Merge in the Supabase company master (BSE-listed / uploaded companies that
+        # are not in the NSE list) and build the search index. Best-effort: a DB
+        # outage leaves the NSE universe fully searchable.
+        try:
+            _rebuild_company_universe()
+        except Exception as e:
+            print(f"[HTTP WARNING] Company universe rebuild failed: {e}")
         # Unblock any search/resolve requests that were waiting on the full
         # universe - even on failure, so we don't hang forever on just the
         # curated ~100-stock list (better degraded than stuck).
         _REGISTRY_READY.set()
+
+def _fetch_company_master_rows():
+    """Rows of the existing Supabase `companies` table (the canonical company master:
+    symbol, name, ISIN, BSE scrip code). [] if the DB is unreachable."""
+    try:
+        from tools.supabase_client import get_client
+        sb = get_client()
+        rows, start = [], 0
+        while True:
+            chunk = (sb.table("companies").select("symbol,name,isin,bse_code,bse_scrip_code")
+                     .range(start, start + 999).execute().data or [])
+            rows.extend(chunk)
+            if len(chunk) < 1000:
+                break
+            start += 1000
+        return rows
+    except Exception as e:
+        print(f"[HTTP WARNING] Company master fetch failed: {e}")
+        return []
+
+
+def _rebuild_company_universe():
+    """Company-first view: the NSE universe (STOCK_REGISTRY, left untouched) plus every
+    company in the `companies` master, each carrying ISIN / BSE scrip code / the exchanges
+    it trades on. Idempotent; built from copies so STOCK_REGISTRY consumers are unaffected."""
+    global _COMPANY_UNIVERSE, _COMPANY_INDEX, _UNIVERSE_LOADED_AT
+    from tools.company_search import CompanyIndex
+    with _UNIVERSE_LOCK:
+        base, order = {}, []
+        for item in STOCK_REGISTRY:
+            sym = item["symbol"].upper()
+            if sym not in base:
+                base[sym] = dict(item)
+                order.append(sym)
+        for row in _fetch_company_master_rows():
+            sym = (row.get("symbol") or "").strip().upper()
+            if not sym:
+                continue
+            item = base.get(sym)
+            if item is None:
+                item = {"symbol": sym, "name": row.get("name") or sym}
+                base[sym] = item
+                order.append(sym)
+            elif (item.get("name") or sym).upper() == sym and row.get("name"):
+                item["name"] = row["name"]  # a bare-symbol name is a placeholder; the master has the real one
+            if row.get("isin"):
+                item["isin"] = row["isin"]
+            code = row.get("bse_code") or row.get("bse_scrip_code")
+            if code:
+                item["bse_code"] = str(code)
+        listed = _NSE_LISTED | _CURATED_SYMBOLS
+        for sym in order:
+            item = base[sym]
+            item["exchanges"] = (["NSE"] if sym in listed else []) + (["BSE"] if item.get("bse_code") else [])
+        _COMPANY_UNIVERSE = [base[s] for s in order]
+        _COMPANY_INDEX = CompanyIndex(_COMPANY_UNIVERSE)
+        _UNIVERSE_LOADED_AT = time.time()
+        print(f"[HTTP] Company universe: {len(_COMPANY_UNIVERSE)} companies "
+              f"({sum(1 for i in _COMPANY_UNIVERSE if 'BSE' in i['exchanges'])} with a BSE code).")
+
+
+def _refresh_universe_after_upload():
+    """A document upload can register a brand-new company; make search see it now."""
+    global _UNIVERSE_LOADED_AT
+    _UNIVERSE_LOADED_AT = 0.0
+    _ensure_universe_fresh()
+
+
+def _ensure_universe_fresh():
+    """Pick up companies registered since startup (e.g. via document upload) without
+    blocking the request: refresh in the background when the index is stale."""
+    if (_REGISTRY_READY.is_set() and time.time() - _UNIVERSE_LOADED_AT > _UNIVERSE_TTL
+            and not _UNIVERSE_REFRESHING.is_set()):
+        _UNIVERSE_REFRESHING.set()
+
+        def _run():
+            try:
+                _rebuild_company_universe()
+            except Exception as e:
+                print(f"[HTTP WARNING] Company universe refresh failed: {e}")
+            finally:
+                _UNIVERSE_REFRESHING.clear()
+        threading.Thread(target=_run, daemon=True).start()
+
+
+def _company_index():
+    global _COMPANY_INDEX
+    if _COMPANY_INDEX is None:  # before the startup load finished: index whatever the registry holds
+        from tools.company_search import CompanyIndex
+        return CompanyIndex(STOCK_REGISTRY)
+    return _COMPANY_INDEX
+
+
+def _yahoo_ticker_candidates(symbol):
+    """Chart-provider tickers to try for a company, by the app's exchange rules: NSE is the
+    price source whenever the company trades there; a BSE-only company is priced from BSE
+    under its BSE trading symbol(s) (aliases) or its master symbol."""
+    r = _company_index().by_symbol.get(str(symbol).strip().upper())
+    item = r["item"] if r else None
+    if item is None or "NSE" in (item.get("exchanges") or []) or not item.get("exchanges"):
+        return [f"{str(symbol).strip().upper()}.NS"], None
+    return [f"{a}.BO" for a in r["alias_syms"]] + [f"{item['symbol']}.BO"], item.get("name")
+
 
 def warm_live_scraper_async():
     """Log in to Angel + prime the scrip-master cache in the background at startup,
@@ -296,6 +421,8 @@ def startup_event():
     # free thread regardless of what else is running.
     asyncio.get_event_loop().set_default_executor(
         concurrent.futures.ThreadPoolExecutor(max_workers=64))
+    from tools import live_chart_yf
+    live_chart_yf.set_ticker_candidates_provider(_yahoo_ticker_candidates)
     threading.Thread(target=load_scrip_master_async, daemon=True).start()
     threading.Thread(target=warm_live_scraper_async, daemon=True).start()
     threading.Thread(target=_precompute_loop, daemon=True).start()
@@ -303,34 +430,20 @@ def startup_event():
 
 @app.get("/api/search-symbols")
 def search_symbols(q: str = "", _: dict = Depends(auth.require_session)):
-    """Ranked autocomplete: symbol-starts-with (what a ticker search means)
-    ranks above name-starts-with, which ranks above a bare substring match
-    anywhere. The OLD version only checked "query in symbol/name" with no
-    ranking at all - typing "U" matched every company whose NAME contained
-    a "u" anywhere (e.g. "Reliance INdUstries", "Tata ConsUltancy") and
-    returned them in raw registry order, so RELIANCE/TCS/HINDUNILVR/LT/
-    SUNPHARMA (the curated list's first few entries) always won regardless
-    of query, never actual U-prefixed companies like UPL/ULTRACEMCO."""
-    query = q.strip().upper()
-    if not query:
+    """Company search over the one company universe (NSE list + the `companies` master).
+    Matches symbol / BSE scrip code / ISIN / company name, case-, space- and
+    punctuation-insensitively ("prime fresh" == "PRIMEFRESH" == "Prime Fresh Ltd"), and
+    ranks: exact symbol > exact name > starts-with > contains > (typo-only) fuzzy.
+    Each hit is a COMPANY with the exchanges it trades on, not a bare symbol -
+    see tools/company_search.py."""
+    if not q.strip():
         return []
-    # Wait for the full NSE universe to load (background fetch at startup)
-    # before searching, so an early query doesn't silently miss everything
-    # outside the curated ~100-stock seed list. Bounded so a slow/failed
-    # fetch still serves the curated list rather than hanging the request.
+    # Wait for the full universe to load (background fetch at startup) before
+    # searching, so an early query doesn't silently miss everything outside the
+    # curated seed list. Bounded so a slow/failed fetch still serves what we have.
     _REGISTRY_READY.wait(timeout=15)
-    starts_symbol, starts_name, contains = [], [], []
-    for item in STOCK_REGISTRY:
-        sym = item["symbol"].upper()
-        name = item["name"].upper()
-        if sym.startswith(query):
-            starts_symbol.append(item)
-        elif name.startswith(query):
-            starts_name.append(item)
-        elif query in sym or query in name:
-            contains.append(item)
-    results = starts_symbol + starts_name + contains
-    return results[:10]
+    _ensure_universe_fresh()
+    return _company_index().search(q, limit=10)
 
 # Define request schemas
 class ResearchRequest(BaseModel):
@@ -393,25 +506,15 @@ def resolve_symbol_from_registry(query_symbol: str) -> str:
         print(f"[Symbol Resolver] Mapped shorthand '{cleaned}' to alias: {aliases[cleaned]}")
         return aliases[cleaned]
 
-    # Check if the query matches the name or symbol in registry. Whole-word
-    # match only (not raw substring): a raw `cleaned in name` check let an
-    # unrelated manual-upload symbol (e.g. a synthetic slug like
-    # "PRIMEFRESHLIM" minted for a company with no registry match, see
-    # tools/manual_document_pipeline.py's _slug_symbol) accidentally collide
-    # with a completely different company whenever it happened to appear as
-    # a substring of that company's symbol/name - silently routing every
-    # later qualitative/document-analysis lookup for the uploaded company to
-    # the wrong ticker's cached data. Whole-word boundaries keep genuine
-    # partial-name lookups (e.g. "TATA MOTORS" typed without "LTD") working
-    # while ruling out mid-word/mid-token accidents.
-    cleaned_pattern = rf"\b{re.escape(cleaned)}\b"
-    for item in STOCK_REGISTRY:
-        sym = item["symbol"].upper()
-        name = item["name"].upper()
-        if cleaned == sym or cleaned == name or re.search(cleaned_pattern, sym) or re.search(cleaned_pattern, name):
-            print(f"[Symbol Resolver] Auto-resolved query '{cleaned}' to: {sym}")
-            return sym
-            
+    # Names / partial names / BSE codes / ISINs / spaced or punctuated variants:
+    # the same company-first matcher the search box uses, restricted to strong
+    # matches (never fuzzy). A synthetic upload slug like "PRIMEFRESHLIM" matches
+    # nothing here, so it can no longer collide with an unrelated company.
+    hit = _company_index().resolve(cleaned)
+    if hit:
+        print(f"[Symbol Resolver] Auto-resolved query '{cleaned}' to: {hit['symbol']}")
+        return hit["symbol"]
+
     return cleaned
 
 @app.get("/")
@@ -462,10 +565,21 @@ def live_quote(symbol: str = "", _: dict = Depends(auth.require_session)):
     sym = resolve_symbol_from_registry(symbol)
     if not sym:
         raise HTTPException(status_code=400, detail="Symbol required.")
+    err = None
     try:
         q = get_live_scraper().fetch_live_quote(sym)
     except Exception as e:
-        return {"symbol": sym, "ltp": None, "source": "unavailable", "error": str(e)}
+        q, err = None, str(e)
+    if not q or q.get("ltp") is None:
+        # Angel only knows NSE instruments. Fall back to the same exchange-aware
+        # provider lookup the live chart uses, so a BSE-only company still gets a
+        # price - and an unknown one answers "unavailable" instead of nothing.
+        from tools.live_chart_yf import get_latest
+        fb = get_latest(sym)
+        if fb and fb.get("ltp") is not None:
+            fb.update({"symbol": sym, "source": "yfinance"})
+            return fb
+        return {"symbol": sym, "ltp": None, "source": "unavailable", "error": err}
     ltp = q.get("ltp")
     prev_close = q.get("close")
     change = change_pct = None
@@ -525,6 +639,14 @@ def live_chart_latest(symbol: str, _: dict = Depends(auth.require_session)):
         return {"symbol": sym, "ltp": None, "source": "unavailable"}
     latest["symbol"] = sym
     return latest
+
+# Future-bar forecasting (probabilistic, validated) - see forecast/api.py. Additive: the endpoints
+# above are untouched; if the forecast package or its store is unavailable the app still starts.
+try:
+    from forecast.api import make_router as _make_forecast_router
+    app.include_router(_make_forecast_router(resolve_symbol_from_registry, auth.require_session))
+except Exception as _fc_err:  # pragma: no cover
+    print(f"[HTTP WARNING] forecast API not mounted: {_fc_err}")
 
 @app.post("/api/research")
 async def research_endpoint(request: ResearchRequest, _: dict = Depends(auth.require_session)):
@@ -973,8 +1095,14 @@ def document_analysis_get_endpoint(symbol: str, _: dict = Depends(auth.require_s
     category. Qualitative results are read via the existing
     /api/v1/qualitative/{symbol} endpoint - same table, unchanged."""
     sym = resolve_symbol_from_registry(symbol) or symbol.strip().upper()
-    from tools.document_analysis_engine import get_fundamental_results
-    return {"symbol": sym, "fundamental": get_fundamental_results(sym)}
+    from tools.document_analysis_engine import ensure_current_fundamental_results
+    from tools.ratio_contract import FORMULA_VERSION
+    # Rows computed under an older formula/extraction version are recalculated from the uploaded documents
+    # here (once, serialised per symbol) rather than served as current; whatever cannot be refreshed is
+    # returned flagged `stale` - never silently presented as up to date.
+    rows = ensure_current_fundamental_results(sym)
+    return {"symbol": sym, "fundamental": rows, "formula_version": FORMULA_VERSION,
+            "stale": any(r.get("stale") for r in rows)}
 
 
 @app.get("/api/v1/documents/coverage/{symbol}")
@@ -999,6 +1127,7 @@ async def manual_upload_auto_endpoint(file: UploadFile = File(...), _: dict = De
         raise HTTPException(status_code=400, detail="Empty file.")
     from tools.manual_document_pipeline import save_upload_auto
     result = save_upload_auto(file.filename, content)
+    _refresh_universe_after_upload()
     if "error" in result:
         raise HTTPException(status_code=422, detail=result["error"])
     return result
@@ -1169,7 +1298,9 @@ def _registry_name_for(sym: str) -> str:
     for item in STOCK_REGISTRY:
         if item["symbol"].upper() == up:
             return item["name"]
-    return ""
+    # not on the NSE list: a company known only from the `companies` master (BSE-listed / uploaded)
+    r = _company_index().by_symbol.get(up)
+    return r["item"]["name"] if r else ""
 
 
 def _quote_for_llm(args: dict) -> dict:

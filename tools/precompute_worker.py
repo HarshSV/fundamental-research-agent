@@ -78,7 +78,11 @@ def compute_one(sb, symbol, name, fiscal_year, spec):
             "sources": result.get("source_documents"),
         }
         consolidated = result.get("statement_basis") == "CONSOLIDATED"
-        write_db_ratio(symbol, sr_no, out, consolidated=consolidated, extraction_version=EXTRACTION_VERSION)
+        # ONE version for writer and readers: nse_xbrl's `try_db_ratio` filters on the extraction-LOGIC version
+        # (`_current_extraction_version`), so rows must be stamped with that same number - stamping them with the
+        # fact store's own counter meant a written row could never match, nor ever be invalidated by a logic bump.
+        from tools.annual_report_financials import _EXTRACTION_LOGIC_VERSION
+        write_db_ratio(symbol, sr_no, out, consolidated=consolidated, extraction_version=int(_EXTRACTION_LOGIC_VERSION))
         sb.table("refresh_jobs").upsert({
             "symbol": symbol, "ratio_no": sr_no,
             "status": "done", "last_run_at": "now()", "last_error": None,

@@ -1,0 +1,2895 @@
+[
+ {
+  "sym": "AADHARHFC",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Balance Sheet not found in the Annual Report.",
+  "sec": 10.3
+ },
+ {
+  "sym": "AARTIIND",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "nci_bounds",
+    "NCI -2 vs total equity 5,953"
+   ]
+  ],
+  "n_facts": 54,
+  "unflagged": [],
+  "facts": {
+   "revenue": 18036.86,
+   "pat": 419.06,
+   "pat_total": 419.06,
+   "eps": 11.56,
+   "shares_outstanding": 362594369.0,
+   "equity": 5955.17,
+   "nci": -2.38,
+   "total_assets": 13300.23,
+   "total_debt": 5002.18,
+   "operating_cash_flow": 780.8,
+   "dps": null
+  },
+  "sec": 19.7
+ },
+ {
+  "sym": "ABSLAMC",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 46,
+  "unflagged": [],
+  "facts": {
+   "revenue": 3661.46,
+   "pat": 985.69,
+   "pat_total": 985.69,
+   "eps": 34.13,
+   "shares_outstanding": 288091213.0,
+   "equity": 4016.59,
+   "nci": null,
+   "total_assets": 4380.55,
+   "total_debt": 122.12,
+   "operating_cash_flow": 807.0,
+   "dps": 25.5
+  },
+  "sec": 10.5
+ },
+ {
+  "sym": "AEGISLOG",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 5,706 + equity 9,530 != TA 14,491"
+   ]
+  ],
+  "n_facts": 55,
+  "unflagged": [],
+  "facts": {
+   "revenue": 8333.21,
+   "pat": 898.15,
+   "pat_total": 1106.63,
+   "eps": null,
+   "shares_outstanding": 351000000.0,
+   "equity": 9530.37,
+   "nci": null,
+   "total_assets": 14490.54,
+   "total_debt": 4149.94,
+   "operating_cash_flow": 2027.69,
+   "dps": 6.7
+  },
+  "sec": 8.2
+ },
+ {
+  "sym": "AFSL",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 0 vs EPS x shares 108"
+   ]
+  ],
+  "n_facts": 47,
+  "unflagged": [],
+  "facts": {
+   "revenue": 3280.68,
+   "pat": 0.22,
+   "pat_total": 0.22,
+   "eps": 21.56,
+   "shares_outstanding": 50145950.0,
+   "equity": 2075.46,
+   "nci": null,
+   "total_assets": 3059.83,
+   "total_debt": 849.82,
+   "operating_cash_flow": -118.76,
+   "dps": 0.0
+  },
+  "sec": 14.7
+ },
+ {
+  "sym": "AMRUTANJAN",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 48,
+  "unflagged": [],
+  "facts": {
+   "revenue": 502.55,
+   "pat": 57.92,
+   "pat_total": 57.92,
+   "eps": 20.03,
+   "shares_outstanding": 28910630.0,
+   "equity": 656.45,
+   "nci": null,
+   "total_assets": 508.89,
+   "total_debt": 1.77,
+   "operating_cash_flow": 35.97,
+   "dps": null
+  },
+  "sec": 7.4
+ },
+ {
+  "sym": "ANDHRSUGAR",
+  "fy": 2013,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 39,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1779.36,
+   "pat": 74.85,
+   "pat_total": 74.85,
+   "eps": 27.61,
+   "shares_outstanding": 27107078.0,
+   "equity": 27.11,
+   "nci": null,
+   "total_assets": null,
+   "total_debt": 0.12,
+   "operating_cash_flow": 149.92,
+   "dps": 6.0
+  },
+  "sec": 2.3
+ },
+ {
+  "sym": "ANURAS",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 8.0
+ },
+ {
+  "sym": "APEX",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 6.1
+ },
+ {
+  "sym": "ASIANPAINT",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 57,
+  "unflagged": [],
+  "facts": {
+   "revenue": 35583.54,
+   "pat": 4325.35,
+   "pat_total": 4394.69,
+   "eps": 45.12,
+   "shares_outstanding": 959197790.0,
+   "equity": 21371.59,
+   "nci": 643.39,
+   "total_assets": 34534.49,
+   "total_debt": 3928.93,
+   "operating_cash_flow": 7088.18,
+   "dps": 23.0
+  },
+  "sec": 18.6
+ },
+ {
+  "sym": "AZAD",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "nci_bounds",
+    "NCI -1 vs total equity 1,509"
+   ]
+  ],
+  "n_facts": 50,
+  "unflagged": [],
+  "facts": {
+   "revenue": 457.35,
+   "pat": 86.53,
+   "pat_total": 86.53,
+   "eps": 14.66,
+   "shares_outstanding": 64581743.0,
+   "equity": 1510.03,
+   "nci": -0.76,
+   "total_assets": 1860.7,
+   "total_debt": 263.38,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 7.7
+ },
+ {
+  "sym": "BALKRISIND",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 778 vs EPS x shares 1,243"
+   ]
+  ],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 10823.08,
+   "pat": 777.55,
+   "pat_total": 1243.1,
+   "eps": 64.3,
+   "shares_outstanding": 193317190.0,
+   "equity": 10955.29,
+   "nci": null,
+   "total_assets": 17766.34,
+   "total_debt": 4970.32,
+   "operating_cash_flow": 2249.32,
+   "dps": null
+  },
+  "sec": 8.5
+ },
+ {
+  "sym": "BATAINDIA",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 56,
+  "unflagged": [],
+  "facts": {
+   "revenue": 3515.49,
+   "pat": 134.2,
+   "pat_total": 134.2,
+   "eps": 10.44,
+   "shares_outstanding": 128527540.0,
+   "equity": 2173.98,
+   "nci": 0.0,
+   "total_assets": 3778.45,
+   "total_debt": 1386.57,
+   "operating_cash_flow": 594.88,
+   "dps": 9.0
+  },
+  "sec": 7.4
+ },
+ {
+  "sym": "BCG",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 42,
+  "unflagged": [],
+  "facts": {
+   "revenue": 418.68,
+   "pat": 0.05,
+   "pat_total": 0.05,
+   "eps": 0.0,
+   "shares_outstanding": 2018521873.0,
+   "equity": 41543.39,
+   "nci": null,
+   "total_assets": 1814.0,
+   "total_debt": 112.81,
+   "operating_cash_flow": -3.43,
+   "dps": 0.0
+  },
+  "sec": 11.3
+ },
+ {
+  "sym": "BHARTIARTL",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 210972.8,
+   "pat": 26695.2,
+   "pat_total": 33822.8,
+   "eps": 45.96,
+   "shares_outstanding": 6093282313.0,
+   "equity": 176477.8,
+   "nci": 46906.8,
+   "total_assets": 552151.6,
+   "total_debt": 204174.5,
+   "operating_cash_flow": 122229.6,
+   "dps": 0.0
+  },
+  "sec": 17.5
+ },
+ {
+  "sym": "CAMLINFINE",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 24 vs EPS x shares -31"
+   ],
+   [
+    "bs_identity",
+    "TL 1,323 + equity 2,943 != TA 2,324"
+   ]
+  ],
+  "n_facts": 55,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1723.31,
+   "pat": 23.54,
+   "pat_total": 23.54,
+   "eps": -1.59,
+   "shares_outstanding": 192091613.0,
+   "equity": 2942.59,
+   "nci": null,
+   "total_assets": 2323.9,
+   "total_debt": 720.1,
+   "operating_cash_flow": 82.07,
+   "dps": 0.0
+  },
+  "sec": 17.5
+ },
+ {
+  "sym": "CAMPUS",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1774.12,
+   "pat": 150.09,
+   "pat_total": 150.09,
+   "eps": 4.91,
+   "shares_outstanding": 305593205.0,
+   "equity": 906.25,
+   "nci": null,
+   "total_assets": 1467.19,
+   "total_debt": 236.16,
+   "operating_cash_flow": 134.77,
+   "dps": null
+  },
+  "sec": 7.3
+ },
+ {
+  "sym": "CELEBRITY",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 47,
+  "unflagged": [],
+  "facts": {
+   "revenue": 165.26,
+   "pat": -18.26,
+   "pat_total": -18.26,
+   "eps": -3.26,
+   "shares_outstanding": 59678413.0,
+   "equity": 20.55,
+   "nci": null,
+   "total_assets": 147.03,
+   "total_debt": 62.58,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 4.2
+ },
+ {
+  "sym": "CIPLA",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 58,
+  "unflagged": [],
+  "facts": {
+   "revenue": 56325.18,
+   "pat": 3861.74,
+   "pat_total": 3861.74,
+   "eps": 48.03,
+   "shares_outstanding": 807617120.0,
+   "equity": 34431.95,
+   "nci": 88.29,
+   "total_assets": 42495.98,
+   "total_debt": 613.77,
+   "operating_cash_flow": 3940.02,
+   "dps": null
+  },
+  "sec": 17.8
+ },
+ {
+  "sym": "CNL",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 46,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1782.75,
+   "pat": 46.21,
+   "pat_total": 53.11,
+   "eps": 32.18,
+   "shares_outstanding": 15016675.0,
+   "equity": 1780.67,
+   "nci": null,
+   "total_assets": 531.75,
+   "total_debt": 71.8,
+   "operating_cash_flow": null,
+   "dps": null
+  },
+  "sec": 6.1
+ },
+ {
+  "sym": "COUNCODOS",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 39,
+  "unflagged": [],
+  "facts": {
+   "revenue": 16.71,
+   "pat": 0.6,
+   "pat_total": 0.6,
+   "eps": 0.08,
+   "shares_outstanding": null,
+   "equity": 793.31,
+   "nci": null,
+   "total_assets": null,
+   "total_debt": 0.05,
+   "operating_cash_flow": -1.34,
+   "dps": 0.0
+  },
+  "sec": 3.6
+ },
+ {
+  "sym": "CUMMINSIND",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 32,
+  "unflagged": [],
+  "facts": {
+   "revenue": 12143.19,
+   "pat": 2361.75,
+   "pat_total": 2361.75,
+   "eps": 85.2,
+   "shares_outstanding": 277200000.0,
+   "equity": null,
+   "nci": null,
+   "total_assets": null,
+   "total_debt": 1.55,
+   "operating_cash_flow": null,
+   "dps": null
+  },
+  "sec": 8.3
+ },
+ {
+  "sym": "DALMIASUG",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 6.4
+ },
+ {
+  "sym": "DIAMINESQ",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 17 + equity 1,153 != TA 174"
+   ]
+  ],
+  "n_facts": 49,
+  "unflagged": [],
+  "facts": {
+   "revenue": 38.48,
+   "pat": -12.55,
+   "pat_total": -12.55,
+   "eps": -13.06,
+   "shares_outstanding": 10053392.0,
+   "equity": 1152.78,
+   "nci": null,
+   "total_assets": 174.44,
+   "total_debt": 8.19,
+   "operating_cash_flow": null,
+   "dps": null
+  },
+  "sec": 9.9
+ },
+ {
+  "sym": "DIVGIITTS",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 4.0
+ },
+ {
+  "sym": "DLINKINDIA",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 306 + equity 1,209 != TA 811"
+   ]
+  ],
+  "n_facts": 43,
+  "unflagged": [],
+  "facts": {
+   "revenue": 3124.72,
+   "pat": 102.95,
+   "pat_total": 102.95,
+   "eps": null,
+   "shares_outstanding": 35504850.0,
+   "equity": 1208.68,
+   "nci": null,
+   "total_assets": 811.45,
+   "total_debt": 14.81,
+   "operating_cash_flow": 14.89,
+   "dps": 48.5
+  },
+  "sec": 7.6
+ },
+ {
+  "sym": "DRCSYSTEMS",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 38,
+  "unflagged": [],
+  "facts": {
+   "revenue": 65.38,
+   "pat": 15.07,
+   "pat_total": 15.07,
+   "eps": 1.14,
+   "shares_outstanding": null,
+   "equity": 1388.16,
+   "nci": null,
+   "total_assets": 99.51,
+   "total_debt": 0.76,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 5.5
+ },
+ {
+  "sym": "ELECTHERM",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 442 vs EPS x shares 322"
+   ],
+   [
+    "nci_bounds",
+    "NCI 0 vs total equity -159"
+   ]
+  ],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 4115.37,
+   "pat": 441.9,
+   "pat_total": 441.9,
+   "eps": 252.97,
+   "shares_outstanding": 12742814.0,
+   "equity": -158.78,
+   "nci": 0.0,
+   "total_assets": 1918.29,
+   "total_debt": 375.11,
+   "operating_cash_flow": 328.68,
+   "dps": 0.0
+  },
+  "sec": 12.2
+ },
+ {
+  "sym": "EMUDHRA",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 47,
+  "unflagged": [],
+  "facts": {
+   "revenue": 78.25,
+   "pat": 8.2,
+   "pat_total": 8.2,
+   "eps": 0.99,
+   "shares_outstanding": 82811707.0,
+   "equity": 951.81,
+   "nci": null,
+   "total_assets": 668.72,
+   "total_debt": null,
+   "operating_cash_flow": 53.07,
+   "dps": null
+  },
+  "sec": 15.8
+ },
+ {
+  "sym": "ENRIN",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 51,
+  "unflagged": [],
+  "facts": {
+   "revenue": 7826.7,
+   "pat": 1100.1,
+   "pat_total": 1100.1,
+   "eps": 30.89,
+   "shares_outstanding": 356120505.0,
+   "equity": 4381.3,
+   "nci": null,
+   "total_assets": 9545.2,
+   "total_debt": 147.6,
+   "operating_cash_flow": 3670.1,
+   "dps": 4.0
+  },
+  "sec": 4.4
+ },
+ {
+  "sym": "ETERNAL",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "nci_bounds",
+    "NCI -7 vs total equity 30,973"
+   ]
+  ],
+  "n_facts": 56,
+  "unflagged": [],
+  "facts": {
+   "revenue": 54364.0,
+   "pat": 366.0,
+   "pat_total": 366.0,
+   "eps": 0.4,
+   "shares_outstanding": 9193892179.0,
+   "equity": 30980.0,
+   "nci": -7.0,
+   "total_assets": 40736.0,
+   "total_debt": 4592.0,
+   "operating_cash_flow": 632.0,
+   "dps": 0.0
+  },
+  "sec": 18.2
+ },
+ {
+  "sym": "FLUOROCHEM",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 49,
+  "unflagged": [],
+  "facts": {
+   "revenue": 4737.49,
+   "pat": 546.06,
+   "pat_total": 545.96,
+   "eps": 49.7,
+   "shares_outstanding": null,
+   "equity": 7202.6,
+   "nci": 7298.29,
+   "total_assets": 10608.24,
+   "total_debt": 2080.31,
+   "operating_cash_flow": 545.24,
+   "dps": 3.0
+  },
+  "sec": 11.4
+ },
+ {
+  "sym": "GANESHCP",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 0.3
+ },
+ {
+  "sym": "GANGESSECU",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 3 vs EPS x shares 8"
+   ],
+   [
+    "bs_identity",
+    "TL 41 + equity 1,530 != TA 581"
+   ]
+  ],
+  "n_facts": 52,
+  "unflagged": [],
+  "facts": {
+   "revenue": 72.22,
+   "pat": 2.69,
+   "pat_total": 2.69,
+   "eps": 2.69,
+   "shares_outstanding": 30500000.0,
+   "equity": 1530.23,
+   "nci": null,
+   "total_assets": 580.8,
+   "total_debt": 0.0,
+   "operating_cash_flow": 22.06,
+   "dps": 0.0
+  },
+  "sec": 6.6
+ },
+ {
+  "sym": "GCSL",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 23 vs EPS x shares 12"
+   ]
+  ],
+  "n_facts": 49,
+  "unflagged": [],
+  "facts": {
+   "revenue": 178.52,
+   "pat": 23.07,
+   "pat_total": 27.63,
+   "eps": 9.82,
+   "shares_outstanding": 11915545.0,
+   "equity": 218.68,
+   "nci": null,
+   "total_assets": 244.11,
+   "total_debt": 14.85,
+   "operating_cash_flow": -28.3,
+   "dps": 0.7
+  },
+  "sec": 9.5
+ },
+ {
+  "sym": "GOKUL",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 423 + equity 2,305 != TA 768"
+   ]
+  ],
+  "n_facts": 46,
+  "unflagged": [],
+  "facts": {
+   "revenue": 3510.85,
+   "pat": 14.81,
+   "pat_total": 14.81,
+   "eps": 1.5,
+   "shares_outstanding": null,
+   "equity": 2304.67,
+   "nci": null,
+   "total_assets": 767.88,
+   "total_debt": 276.98,
+   "operating_cash_flow": 17.07,
+   "dps": 0.0
+  },
+  "sec": 6.1
+ },
+ {
+  "sym": "GRAVITA",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 57,
+  "unflagged": [],
+  "facts": {
+   "revenue": 3868.77,
+   "pat": 312.39,
+   "pat_total": 312.9,
+   "eps": 45.11,
+   "shares_outstanding": 73808451.0,
+   "equity": 2069.91,
+   "nci": 7.62,
+   "total_assets": 2515.08,
+   "total_debt": 548.62,
+   "operating_cash_flow": 282.18,
+   "dps": 6.35
+  },
+  "sec": 8.7
+ },
+ {
+  "sym": "GREENPLY",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 1,066 + equity 2,131 != TA 1,962"
+   ],
+   [
+    "pat_vs_total",
+    "owners 91 > whole-entity 90"
+   ]
+  ],
+  "n_facts": 54,
+  "unflagged": [],
+  "facts": {
+   "revenue": 2739.04,
+   "pat": 91.17,
+   "pat_total": 89.78,
+   "eps": 7.19,
+   "shares_outstanding": 124902045.0,
+   "equity": 2131.36,
+   "nci": null,
+   "total_assets": 1961.65,
+   "total_debt": 393.4,
+   "operating_cash_flow": 246.88,
+   "dps": null
+  },
+  "sec": 16.8
+ },
+ {
+  "sym": "GRMOVER",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "debt_bounds",
+    "debt 36,259 vs assets 911"
+   ]
+  ],
+  "n_facts": 48,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1348.19,
+   "pat": 60.6,
+   "pat_total": 61.24,
+   "eps": 10.21,
+   "shares_outstanding": 60000000.0,
+   "equity": 1613.64,
+   "nci": null,
+   "total_assets": 910.76,
+   "total_debt": 36258.72,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 9.3
+ },
+ {
+  "sym": "GSFC",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 46,
+  "unflagged": [],
+  "facts": {
+   "revenue": 9533.96,
+   "pat": 591.06,
+   "pat_total": 591.16,
+   "eps": 14.83,
+   "shares_outstanding": 398477530.0,
+   "equity": 20028.33,
+   "nci": 10.85,
+   "total_assets": 14369.01,
+   "total_debt": null,
+   "operating_cash_flow": 83.48,
+   "dps": 5.0
+  },
+  "sec": 6.7
+ },
+ {
+  "sym": "GTL",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [
+   [
+    "debt_bounds",
+    "debt 5,639 vs assets 105"
+   ]
+  ],
+  "n_facts": 44,
+  "unflagged": [],
+  "facts": {
+   "revenue": 253.88,
+   "pat": -8.38,
+   "pat_total": -8.38,
+   "eps": -0.54,
+   "shares_outstanding": 157296781.0,
+   "equity": -6029.31,
+   "nci": null,
+   "total_assets": 105.26,
+   "total_debt": 5639.02,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 4.3
+ },
+ {
+  "sym": "GULPOLY",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 51,
+  "unflagged": [],
+  "facts": {
+   "revenue": 2312.42,
+   "pat": 107.15,
+   "pat_total": 107.15,
+   "eps": 17.18,
+   "shares_outstanding": 62370586.0,
+   "equity": 1336.05,
+   "nci": null,
+   "total_assets": 1304.39,
+   "total_debt": 110.74,
+   "operating_cash_flow": 207.45,
+   "dps": null
+  },
+  "sec": 5.9
+ },
+ {
+  "sym": "HCLTECH",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 60,
+  "unflagged": [],
+  "facts": {
+   "revenue": 130144.0,
+   "pat": 16642.0,
+   "pat_total": 16652.0,
+   "eps": 61.46,
+   "shares_outstanding": 2713665096.0,
+   "equity": 75165.0,
+   "nci": 32.0,
+   "total_assets": 116258.0,
+   "total_debt": 5062.26,
+   "operating_cash_flow": 19975.0,
+   "dps": 24.0
+  },
+  "sec": 9.8
+ },
+ {
+  "sym": "HDFCBANK",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 15,
+  "unflagged": [],
+  "facts": {
+   "revenue": null,
+   "pat": 74671.2933,
+   "pat_total": 74671.2933,
+   "eps": 48.62,
+   "shares_outstanding": 15393368000.0,
+   "equity": 558355.8013,
+   "nci": 0.0,
+   "total_assets": 4364886.3308,
+   "total_debt": 0.0,
+   "operating_cash_flow": null,
+   "dps": 18.0
+  },
+  "sec": 23.8
+ },
+ {
+  "sym": "HEADSUP",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 36,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1.42,
+   "pat": 1.39,
+   "pat_total": 1.39,
+   "eps": 0.63,
+   "shares_outstanding": null,
+   "equity": 2201.51,
+   "nci": null,
+   "total_assets": 18.26,
+   "total_debt": 0.0,
+   "operating_cash_flow": 0.09,
+   "dps": 0.0
+  },
+  "sec": 3.8
+ },
+ {
+  "sym": "HEXATRADEX",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 38,
+  "unflagged": [],
+  "facts": {
+   "revenue": 4.58,
+   "pat": -8.72,
+   "pat_total": -8.72,
+   "eps": -1.58,
+   "shares_outstanding": 55245354.0,
+   "equity": 5709.37,
+   "nci": null,
+   "total_assets": 5320.89,
+   "total_debt": 8.63,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 33.6
+ },
+ {
+  "sym": "HFCL",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 173 vs EPS x shares 0"
+   ]
+  ],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 4064.52,
+   "pat": 173.26,
+   "pat_total": 173.26,
+   "eps": 1.23,
+   "shares_outstanding": 1382200.0,
+   "equity": 4079.15,
+   "nci": 40.17,
+   "total_assets": 7546.29,
+   "total_debt": 1512.99,
+   "operating_cash_flow": null,
+   "dps": null
+  },
+  "sec": 15.8
+ },
+ {
+  "sym": "HINDUNILVR",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 15,040 vs EPS x shares 10,632"
+   ],
+   [
+    "pat_vs_total",
+    "owners 15,040 > whole-entity 10,652"
+   ]
+  ],
+  "n_facts": 57,
+  "unflagged": [],
+  "facts": {
+   "revenue": 64468.0,
+   "pat": 15040.0,
+   "pat_total": 10652.0,
+   "eps": 45.25,
+   "shares_outstanding": 2349591262.0,
+   "equity": 48739.0,
+   "nci": 269.0,
+   "total_assets": 79752.0,
+   "total_debt": 1478.0,
+   "operating_cash_flow": 10999.0,
+   "dps": 41.0
+  },
+  "sec": 10.3
+ },
+ {
+  "sym": "ICICIBANK",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 15,
+  "unflagged": [],
+  "facts": {
+   "revenue": null,
+   "pat": 50146.6407,
+   "pat_total": 50146.6407,
+   "eps": 70.21,
+   "shares_outstanding": 7161172000.0,
+   "equity": 334689.35050000006,
+   "nci": 0.0,
+   "total_assets": 2372530.9971,
+   "total_debt": 0.0,
+   "operating_cash_flow": null,
+   "dps": 12.0
+  },
+  "sec": 24.2
+ },
+ {
+  "sym": "IDFCFIRSTB",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 11.4
+ },
+ {
+  "sym": "INA",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 12,619 vs EPS x shares 2,778,488"
+   ],
+   [
+    "debt_bounds",
+    "debt 10,809 vs assets 4"
+   ]
+  ],
+  "n_facts": 36,
+  "unflagged": [],
+  "facts": {
+   "revenue": 133375.97,
+   "pat": 12619.01,
+   "pat_total": 12619.01,
+   "eps": 133375.97,
+   "shares_outstanding": 208320000.0,
+   "equity": -2.0,
+   "nci": null,
+   "total_assets": 4.0,
+   "total_debt": 10809.17,
+   "operating_cash_flow": null,
+   "dps": 0.1
+  },
+  "sec": 6.6
+ },
+ {
+  "sym": "INFY",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 34,
+  "unflagged": [],
+  "facts": {
+   "revenue": 363.0,
+   "pat": null,
+   "pat_total": null,
+   "eps": null,
+   "shares_outstanding": 4046940812.0,
+   "equity": 92852.0,
+   "nci": null,
+   "total_assets": 155967.0,
+   "total_debt": 4.42,
+   "operating_cash_flow": 33986.0,
+   "dps": 23.0
+  },
+  "sec": 14.7
+ },
+ {
+  "sym": "INOXGREEN",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 49,
+  "unflagged": [],
+  "facts": {
+   "revenue": 235.55,
+   "pat": 19.8,
+   "pat_total": null,
+   "eps": 0.55,
+   "shares_outstanding": 367016789.0,
+   "equity": 1447.62,
+   "nci": 6.94,
+   "total_assets": 2486.9,
+   "total_debt": 180.93,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 8.7
+ },
+ {
+  "sym": "IPCALAB",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 9646.33,
+   "pat": 1141.12,
+   "pat_total": 1183.78,
+   "eps": 46.94,
+   "shares_outstanding": 253704218.0,
+   "equity": 8063.81,
+   "nci": 1460.25,
+   "total_assets": 12370.19,
+   "total_debt": 808.76,
+   "operating_cash_flow": 1141.97,
+   "dps": null
+  },
+  "sec": 6.7
+ },
+ {
+  "sym": "IRCON",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 10759.58,
+   "pat": 732.9,
+   "pat_total": null,
+   "eps": 7.73,
+   "shares_outstanding": 940515710.0,
+   "equity": 6326.35,
+   "nci": 35.6,
+   "total_assets": 19521.28,
+   "total_debt": 86.6,
+   "operating_cash_flow": -1109.53,
+   "dps": 1.0
+  },
+  "sec": 9.6
+ },
+ {
+  "sym": "IRMENERGY",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 5.8
+ },
+ {
+  "sym": "ITC",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 58,
+  "unflagged": [],
+  "facts": {
+   "revenue": 23.0,
+   "pat": 20689.47,
+   "pat_total": 21018.15,
+   "eps": 16.52,
+   "shares_outstanding": 12529468231.0,
+   "equity": 72507.3,
+   "nci": 365.72,
+   "total_assets": 93792.38,
+   "total_debt": 2355.06,
+   "operating_cash_flow": 18464.31,
+   "dps": 6.5
+  },
+  "sec": 15.0
+ },
+ {
+  "sym": "JKTYRE",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 606 vs EPS x shares 785"
+   ]
+  ],
+  "n_facts": 52,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1632.66,
+   "pat": 606.08,
+   "pat_total": 606.08,
+   "eps": 27.24,
+   "shares_outstanding": 288289511.0,
+   "equity": 657.98,
+   "nci": -0.02,
+   "total_assets": 1599.59,
+   "total_debt": 491.12,
+   "operating_cash_flow": 144.38,
+   "dps": null
+  },
+  "sec": 11.9
+ },
+ {
+  "sym": "JUBLFOOD",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 428 vs EPS x shares 375"
+   ]
+  ],
+  "n_facts": 54,
+  "unflagged": [],
+  "facts": {
+   "revenue": 9512.51,
+   "pat": 428.48,
+   "pat_total": 444.24,
+   "eps": 5.68,
+   "shares_outstanding": 659845200.0,
+   "equity": 3479.82,
+   "nci": 5.71,
+   "total_assets": 9560.55,
+   "total_debt": 4902.22,
+   "operating_cash_flow": 1893.55,
+   "dps": null
+  },
+  "sec": 9.7
+ },
+ {
+  "sym": "KOTAKBANK",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 14,
+  "unflagged": [],
+  "facts": {
+   "revenue": null,
+   "pat": 14007.7037,
+   "pat_total": 14007.7037,
+   "eps": 14.09,
+   "shares_outstanding": 9946465000.0,
+   "equity": 135198.58560000002,
+   "nci": 0.0,
+   "total_assets": 783002.7612,
+   "total_debt": 0.0,
+   "operating_cash_flow": null,
+   "dps": null
+  },
+  "sec": 15.4
+ },
+ {
+  "sym": "KREBSBIO",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [
+   [
+    "debt_bounds",
+    "debt 21,221 vs assets 16,904"
+   ]
+  ],
+  "n_facts": 43,
+  "unflagged": [],
+  "facts": {
+   "revenue": 4331.19,
+   "pat": -2693.93,
+   "pat_total": -2693.93,
+   "eps": -12.49,
+   "shares_outstanding": null,
+   "equity": -14623.88,
+   "nci": null,
+   "total_assets": 16903.56,
+   "total_debt": 21220.84,
+   "operating_cash_flow": -789.1,
+   "dps": 0.0
+  },
+  "sec": 2.5
+ },
+ {
+  "sym": "KRONOX",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 2,547 vs EPS x shares 26"
+   ]
+  ],
+  "n_facts": 49,
+  "unflagged": [],
+  "facts": {
+   "revenue": 10019.39,
+   "pat": 2546.71,
+   "pat_total": 2546.71,
+   "eps": 6.91,
+   "shares_outstanding": 37104000.0,
+   "equity": 9010.5,
+   "nci": null,
+   "total_assets": 9882.64,
+   "total_debt": 0.0,
+   "operating_cash_flow": 3069.66,
+   "dps": 0.5
+  },
+  "sec": 21.0
+ },
+ {
+  "sym": "KSL",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 891 + equity 2,306 != TA 2,996"
+   ]
+  ],
+  "n_facts": 51,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1845.61,
+   "pat": 257.87,
+   "pat_total": 257.87,
+   "eps": 59.07,
+   "shares_outstanding": null,
+   "equity": 2305.9,
+   "nci": null,
+   "total_assets": 2995.76,
+   "total_debt": 533.15,
+   "operating_cash_flow": 140.76,
+   "dps": 10.0
+  },
+  "sec": 8.8
+ },
+ {
+  "sym": "LOTUSDEV",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 285 + equity 1,089 != TA 1,219"
+   ]
+  ],
+  "n_facts": 50,
+  "unflagged": [],
+  "facts": {
+   "revenue": 549.68,
+   "pat": 227.89,
+   "pat_total": 227.89,
+   "eps": 5.51,
+   "shares_outstanding": null,
+   "equity": 1088.85,
+   "nci": null,
+   "total_assets": 1218.6,
+   "total_debt": 428.87,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 10.3
+ },
+ {
+  "sym": "LT",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 59,
+  "unflagged": [],
+  "facts": {
+   "revenue": 285874.36,
+   "pat": 16083.99,
+   "pat_total": 18953.88,
+   "eps": 116.93,
+   "shares_outstanding": 1375192165.0,
+   "equity": 109289.8,
+   "nci": 19240.66,
+   "total_assets": 452549.88,
+   "total_debt": 38619.1,
+   "operating_cash_flow": 16740.97,
+   "dps": 38.0
+  },
+  "sec": 15.0
+ },
+ {
+  "sym": "MADHAVIPL",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 32,
+  "unflagged": [],
+  "facts": {
+   "revenue": 692.68,
+   "pat": 0.0,
+   "pat_total": 0.0,
+   "eps": 69268.41,
+   "shares_outstanding": null,
+   "equity": 0.03,
+   "nci": null,
+   "total_assets": null,
+   "total_debt": 65.09,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 8.0
+ },
+ {
+  "sym": "MAFATIND",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 54,
+  "unflagged": [],
+  "facts": {
+   "revenue": 3871.07,
+   "pat": 89.07,
+   "pat_total": 89.07,
+   "eps": 12.49,
+   "shares_outstanding": 72163930.0,
+   "equity": 401.32,
+   "nci": -0.09,
+   "total_assets": 1750.15,
+   "total_debt": 63.57,
+   "operating_cash_flow": null,
+   "dps": 1.25
+  },
+  "sec": 11.6
+ },
+ {
+  "sym": "MAHLIFE",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 51,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1178.31,
+   "pat": 297.34,
+   "pat_total": 298.17,
+   "eps": 14.64,
+   "shares_outstanding": 213342715.0,
+   "equity": 24747.8,
+   "nci": null,
+   "total_assets": 8294.83,
+   "total_debt": 662.29,
+   "operating_cash_flow": null,
+   "dps": 3.5
+  },
+  "sec": 18.0
+ },
+ {
+  "sym": "MARUTI",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 55,
+  "unflagged": [],
+  "facts": {
+   "revenue": 47.5,
+   "pat": 14679.5,
+   "pat_total": 14679.5,
+   "eps": 466.9,
+   "shares_outstanding": 314402574.0,
+   "equity": 1618.8,
+   "nci": 0.0,
+   "total_assets": 148881.0,
+   "total_debt": 102.5,
+   "operating_cash_flow": 19099.9,
+   "dps": 140.0
+  },
+  "sec": 17.0
+ },
+ {
+  "sym": "MERCURYEV",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 45,
+  "unflagged": [],
+  "facts": {
+   "revenue": 89.64,
+   "pat": 7.7,
+   "pat_total": 7.7,
+   "eps": 0.39,
+   "shares_outstanding": null,
+   "equity": 2157.61,
+   "nci": null,
+   "total_assets": 335.57,
+   "total_debt": 3.81,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 6.5
+ },
+ {
+  "sym": "MWL",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 623 + equity 3,240 != TA 929"
+   ]
+  ],
+  "n_facts": 48,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1207.98,
+   "pat": 50.1,
+   "pat_total": 50.14,
+   "eps": 16.87,
+   "shares_outstanding": null,
+   "equity": 3240.06,
+   "nci": null,
+   "total_assets": 928.66,
+   "total_debt": 0.93,
+   "operating_cash_flow": null,
+   "dps": 0.3
+  },
+  "sec": 5.9
+ },
+ {
+  "sym": "NAZARA",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 63 vs EPS x shares 72"
+   ],
+   [
+    "pat_vs_total",
+    "owners 63 > whole-entity 51"
+   ]
+  ],
+  "n_facts": 50,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1623.91,
+   "pat": 62.53,
+   "pat_total": 50.96,
+   "eps": 10.86,
+   "shares_outstanding": 66174092.0,
+   "equity": 6333.0,
+   "nci": null,
+   "total_assets": 4435.47,
+   "total_debt": 218.86,
+   "operating_cash_flow": 65.5,
+   "dps": 0.0
+  },
+  "sec": 21.7
+ },
+ {
+  "sym": "NITINSPIN",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 17,543 vs EPS x shares 175"
+   ]
+  ],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 330565.42,
+   "pat": 17542.63,
+   "pat_total": 17542.63,
+   "eps": 31.2,
+   "shares_outstanding": 56220000.0,
+   "equity": 131119.94,
+   "nci": null,
+   "total_assets": 273231.97,
+   "total_debt": 63669.67,
+   "operating_cash_flow": 30742.61,
+   "dps": null
+  },
+  "sec": 8.1
+ },
+ {
+  "sym": "NLCINDIA",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 2,621 vs EPS x shares 4,128"
+   ]
+  ],
+  "n_facts": 48,
+  "unflagged": [],
+  "facts": {
+   "revenue": 15282.96,
+   "pat": 2621.36,
+   "pat_total": 2713.61,
+   "eps": 20.64,
+   "shares_outstanding": 2000000000.0,
+   "equity": 16324.75,
+   "nci": 92.25,
+   "total_assets": 57851.35,
+   "total_debt": 22428.58,
+   "operating_cash_flow": 8977.12,
+   "dps": 3.0
+  },
+  "sec": 22.6
+ },
+ {
+  "sym": "NUVAMA",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 50,
+  "unflagged": [],
+  "facts": {
+   "revenue": 8316.17,
+   "pat": 985.06,
+   "pat_total": 985.06,
+   "eps": 276.66,
+   "shares_outstanding": 35974358.0,
+   "equity": 3813.91,
+   "nci": 2.97,
+   "total_assets": 28387.64,
+   "total_debt": 1109.14,
+   "operating_cash_flow": null,
+   "dps": 69.0
+  },
+  "sec": 12.9
+ },
+ {
+  "sym": "OFSS",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Balance Sheet not found in the Annual Report.",
+  "sec": 5.9
+ },
+ {
+  "sym": "ORCHASP",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 4.2
+ },
+ {
+  "sym": "ORIENTELEC",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 47,
+  "unflagged": [],
+  "facts": {
+   "revenue": 3326.39,
+   "pat": 95.84,
+   "pat_total": 95.84,
+   "eps": 4.49,
+   "shares_outstanding": 213365899.0,
+   "equity": 760.1,
+   "nci": null,
+   "total_assets": 1666.61,
+   "total_debt": 93.35,
+   "operating_cash_flow": null,
+   "dps": 0.75
+  },
+  "sec": 8.7
+ },
+ {
+  "sym": "PAISALO",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 41,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1542.2,
+   "pat": 200.12,
+   "pat_total": 200.12,
+   "eps": 2.23,
+   "shares_outstanding": null,
+   "equity": 10466.57,
+   "nci": 0.0,
+   "total_assets": 5254.6,
+   "total_debt": 2469.67,
+   "operating_cash_flow": -841.53,
+   "dps": null
+  },
+  "sec": 8.5
+ },
+ {
+  "sym": "PARACABLES",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 46,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1575.6,
+   "pat": 86.97,
+   "pat_total": 86.97,
+   "eps": 2.85,
+   "shares_outstanding": null,
+   "equity": 6756.84,
+   "nci": null,
+   "total_assets": 907.78,
+   "total_debt": 33.22,
+   "operating_cash_flow": 104.09,
+   "dps": null
+  },
+  "sec": 9.1
+ },
+ {
+  "sym": "PNBHOUSING",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 50,
+  "unflagged": [],
+  "facts": {
+   "revenue": 17009.04,
+   "pat": 2291.24,
+   "pat_total": 2291.24,
+   "eps": 88.01,
+   "shares_outstanding": 260549578.0,
+   "equity": 19219.13,
+   "nci": 0.0,
+   "total_assets": 93512.07,
+   "total_debt": 43543.17,
+   "operating_cash_flow": -8983.55,
+   "dps": 8.0
+  },
+  "sec": 18.9
+ },
+ {
+  "sym": "PNGSREVA",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 0.5
+ },
+ {
+  "sym": "POLYCAB",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 52,
+  "unflagged": [],
+  "facts": {
+   "revenue": 28883.79,
+   "pat": 2708.43,
+   "pat_total": 2708.43,
+   "eps": 177.53,
+   "shares_outstanding": 150550508.0,
+   "equity": 13363.54,
+   "nci": null,
+   "total_assets": 20476.19,
+   "total_debt": 4401.21,
+   "operating_cash_flow": 3810.67,
+   "dps": null
+  },
+  "sec": 16.6
+ },
+ {
+  "sym": "POONAWALLA",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 47,
+  "unflagged": [],
+  "facts": {
+   "revenue": 13356.94,
+   "pat": 541.81,
+   "pat_total": 541.81,
+   "eps": 6.84,
+   "shares_outstanding": null,
+   "equity": 10348.24,
+   "nci": 0.0,
+   "total_assets": 60271.56,
+   "total_debt": 33608.13,
+   "operating_cash_flow": -21736.31,
+   "dps": 0.0
+  },
+  "sec": 19.0
+ },
+ {
+  "sym": "PRABHA",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 0 vs EPS x shares 1"
+   ]
+  ],
+  "n_facts": 46,
+  "unflagged": [],
+  "facts": {
+   "revenue": 4.47,
+   "pat": 0.47,
+   "pat_total": 0.47,
+   "eps": 0.04,
+   "shares_outstanding": 136905531.0,
+   "equity": 1789.87,
+   "nci": null,
+   "total_assets": 689.22,
+   "total_debt": 155.3,
+   "operating_cash_flow": 10.77,
+   "dps": 0.0
+  },
+  "sec": 8.3
+ },
+ {
+  "sym": "PRAJIND",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 1,747 + equity 1,640 != TA 3,056"
+   ]
+  ],
+  "n_facts": 55,
+  "unflagged": [],
+  "facts": {
+   "revenue": 3167.88,
+   "pat": 23.84,
+   "pat_total": 23.85,
+   "eps": 1.3,
+   "shares_outstanding": 183813088.0,
+   "equity": 1639.98,
+   "nci": null,
+   "total_assets": 3055.89,
+   "total_debt": 194.88,
+   "operating_cash_flow": 200.09,
+   "dps": 9.6
+  },
+  "sec": 12.5
+ },
+ {
+  "sym": "RAJRATAN",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 509 + equity 1,655 != TA 1,159"
+   ]
+  ],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1156.5,
+   "pat": 70.11,
+   "pat_total": 70.11,
+   "eps": 13.81,
+   "shares_outstanding": null,
+   "equity": 1655.29,
+   "nci": null,
+   "total_assets": 1159.0,
+   "total_debt": 323.9,
+   "operating_cash_flow": 74.51,
+   "dps": 2.0
+  },
+  "sec": 7.4
+ },
+ {
+  "sym": "RAJTV",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 41,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1258205.62,
+   "pat": -210128.65,
+   "pat_total": -210128.65,
+   "eps": null,
+   "shares_outstanding": 51913344.0,
+   "equity": 1235270.95,
+   "nci": null,
+   "total_assets": 1895678.15,
+   "total_debt": 261015.88,
+   "operating_cash_flow": -51691.66,
+   "dps": 0.0
+  },
+  "sec": 6.7
+ },
+ {
+  "sym": "RAMCOCEM",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 55,
+  "unflagged": [],
+  "facts": {
+   "revenue": 9028.76,
+   "pat": 692.0,
+   "pat_total": 698.79,
+   "eps": 29.56,
+   "shares_outstanding": 236292380.0,
+   "equity": 8093.51,
+   "nci": 0.37,
+   "total_assets": 16635.59,
+   "total_debt": 3871.1,
+   "operating_cash_flow": 1611.06,
+   "dps": 2.5
+  },
+  "sec": 16.4
+ },
+ {
+  "sym": "RAYMONDLSL",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 56,
+  "unflagged": [],
+  "facts": {
+   "revenue": 6888.0,
+   "pat": 46.17,
+   "pat_total": 46.17,
+   "eps": 7.59,
+   "shares_outstanding": 60923629.0,
+   "equity": 10841.64,
+   "nci": 0.0,
+   "total_assets": 13996.96,
+   "total_debt": 2185.53,
+   "operating_cash_flow": 546.23,
+   "dps": null
+  },
+  "sec": 13.8
+ },
+ {
+  "sym": "RBA",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 45,
+  "unflagged": [],
+  "facts": {
+   "revenue": 2822.64,
+   "pat": null,
+   "pat_total": null,
+   "eps": -3.19,
+   "shares_outstanding": 85698864.0,
+   "equity": 5966.99,
+   "nci": 0.0,
+   "total_assets": 3382.31,
+   "total_debt": 1966.99,
+   "operating_cash_flow": 302.66,
+   "dps": 0.0
+  },
+  "sec": 9.2
+ },
+ {
+  "sym": "REDTAPE",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 50,
+  "unflagged": [],
+  "facts": {
+   "revenue": 2418.77,
+   "pat": 240.55,
+   "pat_total": 240.55,
+   "eps": 4.35,
+   "shares_outstanding": 552800000,
+   "equity": 11966.82,
+   "nci": null,
+   "total_assets": 2305.58,
+   "total_debt": 426.33,
+   "operating_cash_flow": null,
+   "dps": 2.0
+  },
+  "sec": 10.8
+ },
+ {
+  "sym": "REFEX",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 10.3
+ },
+ {
+  "sym": "RELCHEMQ",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 2.5
+ },
+ {
+  "sym": "RELIANCE",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1075675.0,
+   "pat": 80775.0,
+   "pat_total": 95754.0,
+   "eps": 59.69,
+   "shares_outstanding": 13532472634.0,
+   "equity": 904030.0,
+   "nci": 181836.0,
+   "total_assets": 2178140.0,
+   "total_debt": 481354.0,
+   "operating_cash_flow": 192113.0,
+   "dps": null
+  },
+  "sec": 11.0
+ },
+ {
+  "sym": "RHL",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 49,
+  "unflagged": [],
+  "facts": {
+   "revenue": 136.28,
+   "pat": 16.46,
+   "pat_total": 16.46,
+   "eps": 9.52,
+   "shares_outstanding": null,
+   "equity": 2429.1,
+   "nci": null,
+   "total_assets": 905.69,
+   "total_debt": 154.4,
+   "operating_cash_flow": 54.35,
+   "dps": 0.0
+  },
+  "sec": 4.4
+ },
+ {
+  "sym": "RMDRIP",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 3.8
+ },
+ {
+  "sym": "ROTO",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 46,
+  "unflagged": [],
+  "facts": {
+   "revenue": 297.94,
+   "pat": 33.36,
+   "pat_total": 33.67,
+   "eps": null,
+   "shares_outstanding": null,
+   "equity": 842.68,
+   "nci": null,
+   "total_assets": 319.7,
+   "total_debt": 108.89,
+   "operating_cash_flow": 3617.16,
+   "dps": 0.8
+  },
+  "sec": 7.0
+ },
+ {
+  "sym": "ROUTE",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 50,
+  "unflagged": [],
+  "facts": {
+   "revenue": 4408.21,
+   "pat": 239.02,
+   "pat_total": 256.94,
+   "eps": 37.94,
+   "shares_outstanding": null,
+   "equity": 2769.59,
+   "nci": 52.03,
+   "total_assets": 3556.23,
+   "total_debt": 41.98,
+   "operating_cash_flow": 581.16,
+   "dps": null
+  },
+  "sec": 12.1
+ },
+ {
+  "sym": "SAKHTISUG",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 52,
+  "unflagged": [],
+  "facts": {
+   "revenue": 928.54,
+   "pat": 79.97,
+   "pat_total": 79.97,
+   "eps": 6.73,
+   "shares_outstanding": 118849036.0,
+   "equity": 11964.7,
+   "nci": null,
+   "total_assets": 1530.75,
+   "total_debt": 672.33,
+   "operating_cash_flow": 40.58,
+   "dps": null
+  },
+  "sec": 3.4
+ },
+ {
+  "sym": "SANOFI",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 31,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1837.4,
+   "pat": 326.7,
+   "pat_total": 326.7,
+   "eps": 141.85,
+   "shares_outstanding": null,
+   "equity": null,
+   "nci": null,
+   "total_assets": 364.8,
+   "total_debt": null,
+   "operating_cash_flow": null,
+   "dps": 75.0
+  },
+  "sec": 6.1
+ },
+ {
+  "sym": "SANOFICONR",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 240 vs EPS x shares 21"
+   ]
+  ],
+  "n_facts": 48,
+  "unflagged": [],
+  "facts": {
+   "revenue": 878.4,
+   "pat": 240.1,
+   "pat_total": 240.1,
+   "eps": 104.27,
+   "shares_outstanding": 2000000.0,
+   "equity": 591.0,
+   "nci": null,
+   "total_assets": 547.0,
+   "total_debt": 42.3,
+   "operating_cash_flow": null,
+   "dps": null
+  },
+  "sec": 7.4
+ },
+ {
+  "sym": "SATIA",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 0.3
+ },
+ {
+  "sym": "SAYAJIHOTL",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 43,
+  "unflagged": [],
+  "facts": {
+   "revenue": 148.78,
+   "pat": null,
+   "pat_total": null,
+   "eps": 21.78,
+   "shares_outstanding": null,
+   "equity": 67.36,
+   "nci": null,
+   "total_assets": 216.67,
+   "total_debt": 190.25,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 10.5
+ },
+ {
+  "sym": "SBIN",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 14,
+  "unflagged": [],
+  "facts": {
+   "revenue": null,
+   "pat": 80032.0136,
+   "pat_total": 80032.0136,
+   "eps": 87.59,
+   "shares_outstanding": 9230618000.0,
+   "equity": 544442.2784000001,
+   "nci": 0.0,
+   "total_assets": 7623012.0111,
+   "total_debt": 0.0,
+   "operating_cash_flow": null,
+   "dps": null
+  },
+  "sec": 23.7
+ },
+ {
+  "sym": "SECURKLOUD",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 42,
+  "unflagged": [],
+  "facts": {
+   "revenue": 167.67,
+   "pat": -13.93,
+   "pat_total": -45.83,
+   "eps": -4.1,
+   "shares_outstanding": 33410605.0,
+   "equity": 1678.33,
+   "nci": null,
+   "total_assets": 235.66,
+   "total_debt": 106.5,
+   "operating_cash_flow": -48.71,
+   "dps": 0.0
+  },
+  "sec": 6.6
+ },
+ {
+  "sym": "SGL",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 2.7
+ },
+ {
+  "sym": "SHARDACROP",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 54,
+  "unflagged": [],
+  "facts": {
+   "revenue": 5267.59,
+   "pat": 680.86,
+   "pat_total": 680.99,
+   "eps": 75.47,
+   "shares_outstanding": 90220495.0,
+   "equity": 12068.32,
+   "nci": null,
+   "total_assets": 5780.3,
+   "total_debt": 1490.99,
+   "operating_cash_flow": 655.69,
+   "dps": 9.0
+  },
+  "sec": 9.2
+ },
+ {
+  "sym": "SHYAMMETL",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "nci_bounds",
+    "NCI -4 vs total equity 11,519"
+   ],
+   [
+    "pat_vs_total",
+    "owners 1,070 > whole-entity 1,060"
+   ]
+  ],
+  "n_facts": 51,
+  "unflagged": [],
+  "facts": {
+   "revenue": 18552.21,
+   "pat": 1070.24,
+   "pat_total": 1060.17,
+   "eps": 38.1,
+   "shares_outstanding": 278223162.0,
+   "equity": 11522.81,
+   "nci": -3.66,
+   "total_assets": 20060.84,
+   "total_debt": 1005.07,
+   "operating_cash_flow": 2023.56,
+   "dps": null
+  },
+  "sec": 14.0
+ },
+ {
+  "sym": "SMARTWORKS",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Balance Sheet not found in the Annual Report.",
+  "sec": 7.7
+ },
+ {
+  "sym": "SMCGLOBAL",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 45,
+  "unflagged": [],
+  "facts": {
+   "revenue": 3753.85,
+   "pat": 103.25,
+   "pat_total": 103.25,
+   "eps": 4.87,
+   "shares_outstanding": null,
+   "equity": null,
+   "nci": null,
+   "total_assets": 5743.64,
+   "total_debt": 1687.73,
+   "operating_cash_flow": -72.91,
+   "dps": 0.6
+  },
+  "sec": 14.6
+ },
+ {
+  "sym": "SOLARA",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 51,
+  "unflagged": [],
+  "facts": {
+   "revenue": 1283.76,
+   "pat": 0.54,
+   "pat_total": null,
+   "eps": 0.14,
+   "shares_outstanding": 36054267.0,
+   "equity": 1094.24,
+   "nci": 2.67,
+   "total_assets": 2231.84,
+   "total_debt": 796.08,
+   "operating_cash_flow": 212.82,
+   "dps": 0.0
+  },
+  "sec": 8.6
+ },
+ {
+  "sym": "SUPREME",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 7.8
+ },
+ {
+  "sym": "SURAJLTD",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 45,
+  "unflagged": [],
+  "facts": {
+   "revenue": 205.85,
+   "pat": 7.47,
+   "pat_total": 7.47,
+   "eps": 4.07,
+   "shares_outstanding": 18364100.0,
+   "equity": 1955.8,
+   "nci": null,
+   "total_assets": 226.02,
+   "total_debt": 60.3,
+   "operating_cash_flow": 17.27,
+   "dps": 1.5
+  },
+  "sec": 3.1
+ },
+ {
+  "sym": "SURYAROSNI",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 7435.87,
+   "pat": 346.6,
+   "pat_total": 346.6,
+   "eps": 15.95,
+   "shares_outstanding": 217635896.0,
+   "equity": 2465.22,
+   "nci": 0.0,
+   "total_assets": 3233.74,
+   "total_debt": 16.3,
+   "operating_cash_flow": 394.75,
+   "dps": 5.5
+  },
+  "sec": 8.8
+ },
+ {
+  "sym": "SUVIDHAA",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 44,
+  "unflagged": [],
+  "facts": {
+   "revenue": 10.62,
+   "pat": -16.58,
+   "pat_total": -16.59,
+   "eps": -0.79,
+   "shares_outstanding": null,
+   "equity": 37.46,
+   "nci": 1.18,
+   "total_assets": 77.95,
+   "total_debt": 3.54,
+   "operating_cash_flow": null,
+   "dps": 0.0
+  },
+  "sec": 9.5
+ },
+ {
+  "sym": "SUZLON",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 11.2
+ },
+ {
+  "sym": "TATASTEEL",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 31,
+  "unflagged": [],
+  "facts": {
+   "revenue": 216.0,
+   "pat": 10793.87,
+   "pat_total": 10885.82,
+   "eps": 8.65,
+   "shares_outstanding": 12471847611.0,
+   "equity": null,
+   "nci": null,
+   "total_assets": 0.0,
+   "total_debt": null,
+   "operating_cash_flow": null,
+   "dps": 4.0
+  },
+  "sec": 16.7
+ },
+ {
+  "sym": "TCS",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 267021.0,
+   "pat": 49454.0,
+   "pat_total": 49454.0,
+   "eps": 136.01,
+   "shares_outstanding": 3618087518.0,
+   "equity": 107240.0,
+   "nci": 1238.0,
+   "total_assets": 182372.0,
+   "total_debt": 2283.0,
+   "operating_cash_flow": 52094.0,
+   "dps": 110.0
+  },
+  "sec": 17.7
+ },
+ {
+  "sym": "THEINVEST",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 48,
+  "unflagged": [],
+  "facts": {
+   "revenue": 352.97,
+   "pat": 42.53,
+   "pat_total": 45.92,
+   "eps": 8.14,
+   "shares_outstanding": 52242217.0,
+   "equity": 705.18,
+   "nci": null,
+   "total_assets": 1542.34,
+   "total_debt": 378.31,
+   "operating_cash_flow": null,
+   "dps": null
+  },
+  "sec": 8.2
+ },
+ {
+  "sym": "THERMAX",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 54,
+  "unflagged": [],
+  "facts": {
+   "revenue": 10694.15,
+   "pat": 720.5,
+   "pat_total": null,
+   "eps": 63.95,
+   "shares_outstanding": 112620748.0,
+   "equity": 5549.97,
+   "nci": 29.22,
+   "total_assets": 13282.11,
+   "total_debt": 2294.99,
+   "operating_cash_flow": 541.55,
+   "dps": 26.0
+  },
+  "sec": 15.1
+ },
+ {
+  "sym": "TINNARUBR",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 53,
+  "unflagged": [],
+  "facts": {
+   "revenue": 505.35,
+   "pat": 48.36,
+   "pat_total": 48.36,
+   "eps": 28.23,
+   "shares_outstanding": 17129500.0,
+   "equity": 1873.98,
+   "nci": null,
+   "total_assets": 384.99,
+   "total_debt": 138.43,
+   "operating_cash_flow": 35.88,
+   "dps": 4.0
+  },
+  "sec": 8.1
+ },
+ {
+  "sym": "TITAN",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 55,
+  "unflagged": [],
+  "facts": {
+   "revenue": 87584.0,
+   "pat": 5073.0,
+   "pat_total": 5073.0,
+   "eps": 57.19,
+   "shares_outstanding": null,
+   "equity": 15703.0,
+   "nci": 0.0,
+   "total_assets": 60561.0,
+   "total_debt": 19336.0,
+   "operating_cash_flow": 5590.0,
+   "dps": 26.0
+  },
+  "sec": 11.0
+ },
+ {
+  "sym": "TPINDIA",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [
+   [
+    "debt_bounds",
+    "debt 16 vs assets 9"
+   ]
+  ],
+  "n_facts": 45,
+  "unflagged": [],
+  "facts": {
+   "revenue": 30.18,
+   "pat": 0.35,
+   "pat_total": 0.35,
+   "eps": 0.08,
+   "shares_outstanding": 42963470.0,
+   "equity": 42944.51,
+   "nci": null,
+   "total_assets": 9.33,
+   "total_debt": 16.12,
+   "operating_cash_flow": 8813.0,
+   "dps": 0.0
+  },
+  "sec": 2.4
+ },
+ {
+  "sym": "TRITURBINE",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 1,051 + equity 1,732 != TA 2,497"
+   ]
+  ],
+  "n_facts": 55,
+  "unflagged": [],
+  "facts": {
+   "revenue": 2181.08,
+   "pat": 349.45,
+   "pat_total": 349.45,
+   "eps": 11.0,
+   "shares_outstanding": 317894979.0,
+   "equity": 1732.12,
+   "nci": null,
+   "total_assets": 2496.82,
+   "total_debt": 35.86,
+   "operating_cash_flow": 110.95,
+   "dps": 4.25
+  },
+  "sec": 12.3
+ },
+ {
+  "sym": "TTL",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 47,
+  "unflagged": [],
+  "facts": {
+   "revenue": 191.52,
+   "pat": 0.29,
+   "pat_total": 0.29,
+   "eps": 0.01,
+   "shares_outstanding": 258310944.0,
+   "equity": 2682.39,
+   "nci": null,
+   "total_assets": 227.13,
+   "total_debt": 79.74,
+   "operating_cash_flow": -6.03,
+   "dps": 0.0
+  },
+  "sec": 5.1
+ },
+ {
+  "sym": "TVTODAY",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT 14 vs EPS x shares 20"
+   ]
+  ],
+  "n_facts": 46,
+  "unflagged": [],
+  "facts": {
+   "revenue": 808.7,
+   "pat": 14.35,
+   "pat_total": 14.35,
+   "eps": 3.39,
+   "shares_outstanding": 59668615.0,
+   "equity": 890.86,
+   "nci": 0.0,
+   "total_assets": 1129.16,
+   "total_debt": 14.67,
+   "operating_cash_flow": 10.43,
+   "dps": 0.0
+  },
+  "sec": 10.3
+ },
+ {
+  "sym": "ULTRACEMCO",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 59,
+  "unflagged": [],
+  "facts": {
+   "revenue": 88511.53,
+   "pat": 8165.64,
+   "pat_total": 8287.31,
+   "eps": 277.62,
+   "shares_outstanding": 294677410.0,
+   "equity": 76623.54,
+   "nci": 4088.9,
+   "total_assets": 141376.05,
+   "total_debt": 23755.09,
+   "operating_cash_flow": 15315.86,
+   "dps": 240.0
+  },
+  "sec": 12.2
+ },
+ {
+  "sym": "WHIRLPOOL",
+  "fy": 2026,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 44,
+  "unflagged": [],
+  "facts": {
+   "revenue": 803420.0,
+   "pat": 29375.0,
+   "pat_total": 29530.0,
+   "eps": 23.15,
+   "shares_outstanding": null,
+   "equity": 416064.0,
+   "nci": 0.0,
+   "total_assets": 738443.0,
+   "total_debt": 6723.0,
+   "operating_cash_flow": null,
+   "dps": 5.0
+  },
+  "sec": 10.1
+ },
+ {
+  "sym": "WIPRO",
+  "fy": 2026,
+  "basis": "STANDALONE",
+  "viol": [],
+  "n_facts": 39,
+  "unflagged": [],
+  "facts": {
+   "revenue": 609.3,
+   "pat": null,
+   "pat_total": null,
+   "eps": null,
+   "shares_outstanding": 10488412458.0,
+   "equity": 82559.0,
+   "nci": null,
+   "total_assets": 97342.4,
+   "total_debt": 8086.1,
+   "operating_cash_flow": -41.5,
+   "dps": 16.0
+  },
+  "sec": 15.3
+ },
+ {
+  "sym": "XELPMOC",
+  "fy": 2025,
+  "basis": "STANDALONE",
+  "viol": [
+   [
+    "eps_pat",
+    "owners PAT -9 vs EPS x shares -0"
+   ]
+  ],
+  "n_facts": 45,
+  "unflagged": [],
+  "facts": {
+   "revenue": 3.9,
+   "pat": -8.62,
+   "pat_total": -8.62,
+   "eps": -5.86,
+   "shares_outstanding": 146284.13,
+   "equity": 147248.68,
+   "nci": null,
+   "total_assets": 71.75,
+   "total_debt": 0.77,
+   "operating_cash_flow": -3.64,
+   "dps": 0.0
+  },
+  "sec": 8.4
+ },
+ {
+  "sym": "ZEEL",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [
+   [
+    "bs_identity",
+    "TL 2,201 + equity 12,398 != TA 13,734"
+   ]
+  ],
+  "n_facts": 55,
+  "unflagged": [],
+  "facts": {
+   "revenue": 8294.1,
+   "pat": 687.4,
+   "pat_total": 687.4,
+   "eps": 7.16,
+   "shares_outstanding": 960519420.0,
+   "equity": 12398.3,
+   "nci": null,
+   "total_assets": 13734.1,
+   "total_debt": 320.9,
+   "operating_cash_flow": 1186.0,
+   "dps": 2.43
+  },
+  "sec": 10.3
+ },
+ {
+  "sym": "ZENITHSTL",
+  "fy": 2025,
+  "basis": "CONSOLIDATED",
+  "viol": [],
+  "n_facts": 0,
+  "error": "Consolidated Statement of Profit and Loss not found in the Annual Report.",
+  "sec": 2.1
+ }
+]

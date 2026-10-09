@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { authFetch, fetchRatio } from '../../lib/api.js';
+import { authFetch, fetchRatio, searchSymbols } from '../../lib/api.js';
+import { exchangeLabel } from '../../lib/companySearch.js';
 import { inr, inrCrore, isNum } from '../../lib/format.js';
 import { getNseSector } from '../../lib/nseSectorMap.js';
 import StockSearch from '../StockSearch.jsx';
@@ -12,6 +13,25 @@ const IconRefresh = () => (<I><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5" />
 const IconExport = () => (<I><path d="M12 3v12M8 11l4 4 4-4M4 21h16" /></I>);
 const IconCompare = () => (<I><path d="M4 7h7M4 7l3-3M4 7l3 3M20 17h-7M20 17l-3-3M20 17l-3 3" /></I>);
 const IconShare = () => (<I><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" /></I>);
+
+// The company record (name + the exchanges it trades on) from the same company
+// search the search box uses - so the header never claims "NSE" for a BSE-only
+// company, and shows its real name before the research report has arrived.
+function useCompanyIdentity(symbol) {
+  const [ident, setIdent] = useState(null);
+  useEffect(() => {
+    setIdent(null);
+    if (!symbol) return undefined;
+    let live = true;
+    searchSymbols(symbol).then((r) => {
+      if (!live) return;
+      const sym = String(symbol).toUpperCase();
+      setIdent(r.find((m) => m.symbol.toUpperCase() === sym || (m.alias_symbols || []).some((a) => a.toUpperCase() === sym)) || null);
+    });
+    return () => { live = false; };
+  }, [symbol]);
+  return ident;
+}
 
 // NSE cash market session: Mon–Fri, 09:00–15:30 IST.
 function useMarketLive() {
@@ -33,7 +53,8 @@ function useMarketLive() {
 function useQuote(symbol) {
   const [q, setQ] = useState(null);
   useEffect(() => {
-    if (!symbol) return;
+    setQ(null); // a company switch must never leave the previous company's price on screen
+    if (!symbol) return undefined;
     let live = true;
     const poll = () => {
       authFetch(`/api/quote?symbol=${encodeURIComponent(symbol)}`)
@@ -96,6 +117,9 @@ export default function DashHeader({ symbol, name, data, score, loading, onRefre
   // Overview.jsx's metric grid uses) - falls back to the slow calculated_metrics
   // figure only until the fast fetch itself resolves.
   const sharesFast = useFastShares(symbol, name);
+  const ident = useCompanyIdentity(symbol);
+  // The report's name wins; until it arrives (name === symbol) use the company master's.
+  const displayName = name && name !== symbol ? name : (ident?.name || name || symbol);
   const sharesVal = sharesFast?.applicable ? sharesFast.value : null;
   const marketCap = (isNum(price) && isNum(sharesVal)) ? price * sharesVal : (isNum(val.MarketCap) ? val.MarketCap : null);
 
@@ -116,7 +140,7 @@ export default function DashHeader({ symbol, name, data, score, loading, onRefre
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="nv-h1 text-[19px] text-slate-100 truncate">{name || symbol}</h1>
+              <h1 className="nv-h1 text-[19px] text-slate-100 truncate">{displayName}</h1>
               <span className="text-[11px] font-mono font-semibold text-blue-600 bg-blue-500/10 border border-blue-500/15 rounded-md px-1.5 py-0.5">{symbol}</span>
               {peer.cap_tier && <span className="text-[11px] font-semibold text-slate-400 bg-slate-850 border border-slate-800 rounded-md px-1.5 py-0.5">{peer.cap_tier}</span>}
             </div>
@@ -165,7 +189,7 @@ export default function DashHeader({ symbol, name, data, score, loading, onRefre
       <div className="flex items-center gap-x-8 gap-y-2 flex-wrap mt-4 pt-4 border-t border-slate-800/60">
         <Stat label="Sector" value={sectorDisplay} />
         <span className="hidden sm:block w-px h-8 bg-slate-800" />
-        <Stat label="Exchange" value="NSE" />
+        <Stat label="Exchange" value={ident ? exchangeLabel(ident) : '-'} />
         <span className="hidden sm:block w-px h-8 bg-slate-800" />
         <Stat label="Market cap" value={isNum(marketCap) ? inrCrore(marketCap) : '-'} />
         <span className="hidden sm:block w-px h-8 bg-slate-800" />

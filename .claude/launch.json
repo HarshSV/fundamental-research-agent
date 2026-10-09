@@ -4,22 +4,45 @@
     {
       "name": "dashboard",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "5500", "--directory", "frontend-dashboard"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5500",
+        "--directory",
+        "frontend-dashboard"
+      ],
       "port": 5500
     },
     {
       "name": "backend",
       "runtimeExecutable": "venv/Scripts/python.exe",
-      "runtimeArgs": ["app.py"],
+      "runtimeArgs": [
+        "app.py"
+      ],
       "port": 8000,
       "autoPort": false
     },
     {
       "name": "frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "frontend",
       "port": 5173
+    },
+    {
+      "name": "test-instance",
+      "runtimeExecutable": "venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "frontend/scripts/serveTestInstance.py"
+      ],
+      "port": 8010,
+      "autoPort": false,
+      "env": {
+        "TEST_STUB_AGENT": "1"
+      }
     }
   ]
 }

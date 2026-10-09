@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { authFetch } from '../lib/api.js';
 import { groupFundamentalRatios } from '../lib/ratioCategories.js';
+import CalculationBreakdown from '../components/CalculationBreakdown.jsx';
 import ManualUpload from '../components/ManualUpload.jsx';
 import { QualChart } from '../components/QualCharts.jsx';
 import navristLogo from '../assets/navrist-logo.svg';
@@ -46,6 +47,17 @@ function FundamentalCard({ r, defaultOpen = false }) {
   const visibleInputs = allInputs.filter((inp) => !inp.name?.startsWith('_'));
   const derivedFrom = metaEntry?.derived_from;
   const reason = metaEntry?.reason;
+  // exact calculation provenance from the backend (tools/ratio_breakdown.py); older stored rows have none
+  const breakdown = metaEntry?.breakdown || null;
+  // Provenance the calculation recorded alongside the number: which formula version, which statement
+  // basis/perimeter, what warnings applied, when it was computed.
+  const calcMeta = [
+    metaEntry?.statement_basis && `${metaEntry.statement_basis} statements`,
+    metaEntry?.perimeter && `perimeter: ${metaEntry.perimeter}`,
+    metaEntry?.period_basis && `basis: ${metaEntry.period_basis}`,
+    metaEntry?.formula_version && `formula v${metaEntry.formula_version}`,
+    metaEntry?.calculated_at && `calculated ${new Date(metaEntry.calculated_at).toLocaleString()}`,
+  ].filter(Boolean);
 
   return (
     <div className="nv-card overflow-hidden">
@@ -56,13 +68,22 @@ function FundamentalCard({ r, defaultOpen = false }) {
       </button>
       {open && (
         <div className="px-3.5 pb-3.5 pt-1 text-[12px] text-slate-400 space-y-1.5 border-t border-slate-800/60">
-          <p className="pt-2.5"><span className="text-slate-500">Formula:</span> {r.formula}</p>
+          {breakdown ? (
+            <div className="pt-1"><CalculationBreakdown b={breakdown} /></div>
+          ) : (
+            <>
+              <p className="pt-2.5"><span className="text-slate-500">Formula:</span> {r.formula}</p>
+              {metaEntry?.methodology && (
+                <p><span className="text-slate-500">Definition:</span> {metaEntry.methodology}</p>
+              )}
+            </>
+          )}
           {reason && r.value == null && (
             <p className="text-slate-500">
               {reason}
             </p>
           )}
-          {visibleInputs.map((inp) => (
+          {!breakdown && visibleInputs.map((inp) => (
             <p key={inp.name}>
               <span className="text-slate-500">{inp.name.replace(/_/g, ' ')}:</span>{' '}
               {inp.value != null ? Number(inp.value).toLocaleString('en-IN') : '-'}
@@ -77,7 +98,10 @@ function FundamentalCard({ r, defaultOpen = false }) {
               )}
             </p>
           ))}
-          {derivedFrom && derivedFrom.length > 0 && (
+          {calcMeta.length > 0 && (
+            <p className="text-[11px] text-slate-600 pt-1">{calcMeta.join(' · ')}</p>
+          )}
+          {!breakdown && derivedFrom && derivedFrom.length > 0 && (
             <div className="pt-1.5 border-t border-slate-800/40 mt-1.5">
               <p className="text-slate-500 mb-1">Derived from:</p>
               {derivedFrom.map((d) => (
@@ -97,12 +121,13 @@ function FundamentalCard({ r, defaultOpen = false }) {
 
 function FundamentalTab({ symbol, query }) {
   const [results, setResults] = useState(null);
+  const [anyStale, setAnyStale] = useState(false);
   const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     let cancelled = false;
     authFetch(`/api/v1/document-analysis/${encodeURIComponent(symbol)}`)
       .then((r) => r.json())
-      .then((d) => { if (!cancelled) setResults(d.fundamental || []); })
+      .then((d) => { if (!cancelled) { setResults(d.fundamental || []); setAnyStale(!!d.stale); } })
       .catch(() => setResults([]));
     return () => { cancelled = true; };
   }, [symbol]);
@@ -152,6 +177,12 @@ function FundamentalTab({ symbol, query }) {
 
   return (
     <div className="space-y-6">
+      {anyStale && (
+        <p className="text-[12px] text-rose-300/90 bg-rose-500/5 border border-rose-500/20 rounded px-3 py-2">
+          Some ratios were computed under an older formula version and could not be refreshed automatically
+          (the source documents may no longer be on file). They are flagged "Stale" - re-run Analyse to recalculate.
+        </p>
+      )}
       {hiddenCount > 0 && (
         <p className="text-[11px] text-slate-600 -mt-2">
           {hiddenCount} ratio{hiddenCount === 1 ? '' : 's'} not disclosed for this company - hidden from view.

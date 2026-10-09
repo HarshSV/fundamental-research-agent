@@ -3,6 +3,11 @@
 Phase-1 fundamental equity research terminal. FastAPI backend + single-file React
 dashboard, served together from one origin.
 
+> **Note (2026-10-09):** this guide dates from the 2026-06 architecture. The dashboard is now the Vite build in
+> `frontend/` (`npm run build`), and section 6's data-source table is out of date (financials now come from audited
+> Annual Reports/XBRL, not yfinance; LLM calls are disabled). See [`PROJECT_DOCUMENTATION.md`](PROJECT_DOCUMENTATION.md)
+> sections E, N and O for the current picture.
+
 > **Hosting requirement:** this app scrapes NSE for promoter-pledge (F-11) and
 > FII/DII flow (F-12) data. NSE blocks most datacenter IPs **outside India**.
 > Deploy in an **Indian region** (AWS `ap-south-1` Mumbai, or an Indian VPS).

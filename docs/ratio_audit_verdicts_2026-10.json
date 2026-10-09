@@ -1,0 +1,349 @@
+{
+ "counts": {
+  "PASS": 56,
+  "NEEDS REVIEW": 12
+ },
+ "verdicts": {
+  "inventory_turnover": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)",
+    "Corrected 2026.10.7 from Net Sales to COGS per the authoritative spec."
+   ]
+  ],
+  "days_inventory_outstanding": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "receivables_turnover": [
+   "NEEDS REVIEW",
+   [
+    "DEVIATION (documented, forced by disclosure): authoritative numerator is Net CREDIT Sales; credit sales are never disclosed, Revenue from operations is the proxy -> needs_review by design (policy S)."
+   ]
+  ],
+  "days_sales_outstanding": [
+   "NEEDS REVIEW",
+   [
+    "Inherits the revenue proxy of Sr 3 (needs_review by design)."
+   ]
+  ],
+  "payables_turnover": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "days_payables_outstanding": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "asset_turnover": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "working_capital_turnover": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "cash_conversion_cycle": [
+   "NEEDS REVIEW",
+   [
+    "Inherits the receivables proxy (needs_review by design); Inventory Days now COGS-based."
+   ]
+  ],
+  "current_ratio": [
+   "PASS",
+   []
+  ],
+  "quick_ratio": [
+   "PASS",
+   []
+  ],
+  "cash_ratio": [
+   "NEEDS REVIEW",
+   [
+    "DEVIATION (user-directed extension, policy N): authoritative (Cash + Cash Equivalents); implementation adds UNRESTRICTED current other bank balances. 'Deposit account' (INR 7.61 Cr) has no stated nature -> needs_review."
+   ]
+  ],
+  "working_capital": [
+   "PASS",
+   []
+  ],
+  "gross_profit_margin": [
+   "PASS",
+   []
+  ],
+  "operating_profit_margin": [
+   "PASS",
+   []
+  ],
+  "net_profit_margin": [
+   "PASS",
+   []
+  ],
+  "roa": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "roe": [
+   "PASS",
+   []
+  ],
+  "roce": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "debt_to_equity": [
+   "PASS",
+   []
+  ],
+  "debt_ratio": [
+   "PASS",
+   []
+  ],
+  "interest_coverage_ratio": [
+   "PASS",
+   []
+  ],
+  "financial_leverage_ratio": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "pe_ratio": [
+   "PASS",
+   []
+  ],
+  "pb_ratio": [
+   "PASS",
+   []
+  ],
+  "ps_ratio": [
+   "PASS",
+   []
+  ],
+  "dividend_yield": [
+   "PASS",
+   []
+  ],
+  "earnings_yield": [
+   "PASS",
+   []
+  ],
+  "ev_to_ebitda": [
+   "PASS",
+   []
+  ],
+  "fixed_asset_turnover": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "days_working_capital": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "receivables_to_payables": [
+   "PASS",
+   []
+  ],
+  "net_debt_to_ebitda": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "dscr": [
+   "NEEDS REVIEW",
+   [
+    "ANURAS discloses no gross principal repayment line, so DSCR is correctly WITHHELD (insufficient_data, never rebuilt from net flows); the numeric path is covered by synthetic tests only."
+   ]
+  ],
+  "cash_flow_coverage_ratio": [
+   "PASS",
+   []
+  ],
+  "free_cash_flow": [
+   "PASS",
+   []
+  ],
+  "fcf_yield": [
+   "PASS",
+   []
+  ],
+  "fcf_margin": [
+   "PASS",
+   []
+  ],
+  "ocf_ratio": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "capex_intensity": [
+   "PASS",
+   []
+  ],
+  "ocf_to_net_profit": [
+   "PASS",
+   []
+  ],
+  "roic": [
+   "PASS",
+   [
+    "status needs_review is the intended acquisition-year guard (balances consolidate a part-year acquisition)"
+   ]
+  ],
+  "effective_tax_rate": [
+   "PASS",
+   []
+  ],
+  "contribution_margin": [
+   "NEEDS REVIEW",
+   [
+    "PROXY by necessity (Ind AS discloses no variable-cost line) - needs_review by design (policy C/S). Rounding of intermediates found by this audit and removed (2026.10.13)."
+   ]
+  ],
+  "eps_growth_rate": [
+   "PASS",
+   []
+  ],
+  "bvps": [
+   "PASS",
+   []
+  ],
+  "dividend_payout_ratio": [
+   "PASS",
+   []
+  ],
+  "retention_ratio": [
+   "PASS",
+   []
+  ],
+  "sustainable_growth_rate": [
+   "PASS",
+   []
+  ],
+  "peg_ratio": [
+   "PASS",
+   []
+  ],
+  "ev_to_sales": [
+   "PASS",
+   []
+  ],
+  "ev_to_fcf": [
+   "PASS",
+   []
+  ],
+  "price_to_cash_flow": [
+   "PASS",
+   []
+  ],
+  "graham_number": [
+   "PASS",
+   []
+  ],
+  "altman_z_score": [
+   "NEEDS REVIEW",
+   [
+    "Retained earnings is the Other-Equity proxy (always needs_review, policy D)."
+   ]
+  ],
+  "piotroski_f_score": [
+   "PASS",
+   [
+    "Conventions documented: ROA / asset turnover use closing total assets; leverage test uses total debt / total assets (long-term debt alone not separable)."
+   ]
+  ],
+  "beneish_m_score": [
+   "NEEDS REVIEW",
+   [
+    "SG&A is proxied by Other expenses (no SG&A line under Ind AS) -> needs_review by design."
+   ]
+  ],
+  "net_interest_margin": [
+   "NEEDS REVIEW",
+   [
+    "ANURAS is a non-lender (correctly not_applicable). The value is computed from the bank's statements (identity-gated) and is verified on 4 bank filings, but it is printed verbatim in the bank's own report for only 1 of them (definition differences, e.g. the bank's own NIM/CASA basis) - not independently corroborated. Values: ['HDFCBANK=3.45', 'ICICIBANK=4.25', 'KOTAKBANK=4.5', 'SBIN=2.81']"
+   ]
+  ],
+  "casa_ratio": [
+   "NEEDS REVIEW",
+   [
+    "ANURAS is a non-lender (correctly not_applicable). The value is computed from the bank's statements (identity-gated) and is verified on 4 bank filings, but it is printed verbatim in the bank's own report for only 2 of them (definition differences, e.g. the bank's own NIM/CASA basis) - not independently corroborated. Values: ['HDFCBANK=34.79', 'ICICIBANK=41.84', 'KOTAKBANK=42.96', 'SBIN=38.72']"
+   ]
+  ],
+  "gross_npa_pct": [
+   "PASS",
+   [
+    "ANURAS is a non-lender (correctly not_applicable); validated on 4 bank filings, 4 with the value printed verbatim in the bank's own report"
+   ]
+  ],
+  "net_npa_pct": [
+   "PASS",
+   [
+    "ANURAS is a non-lender (correctly not_applicable); validated on 4 bank filings, 4 with the value printed verbatim in the bank's own report"
+   ]
+  ],
+  "provision_coverage_ratio": [
+   "PASS",
+   [
+    "ANURAS is a non-lender (correctly not_applicable); validated on 4 bank filings, 4 with the value printed verbatim in the bank's own report"
+   ]
+  ],
+  "capital_adequacy_ratio": [
+   "PASS",
+   [
+    "ANURAS is a non-lender (correctly not_applicable); validated on 4 bank filings, 4 with the value printed verbatim in the bank's own report"
+   ]
+  ],
+  "credit_to_deposit_ratio": [
+   "NEEDS REVIEW",
+   [
+    "ANURAS is a non-lender (correctly not_applicable). The value is computed from the bank's statements (identity-gated) and is verified on 4 bank filings, but it is printed verbatim in the bank's own report for only 1 of them (definition differences, e.g. the bank's own NIM/CASA basis) - not independently corroborated. Values: ['HDFCBANK=96.5', 'ICICIBANK=83.32', 'KOTAKBANK=85.54', 'SBIN=77.35']"
+   ]
+  ],
+  "cost_to_income_ratio": [
+   "PASS",
+   [
+    "ANURAS is a non-lender (correctly not_applicable); validated on 4 bank filings, 3 with the value printed verbatim in the bank's own report"
+   ]
+  ],
+  "beta": [
+   "NEEDS REVIEW",
+   [
+    "Insufficient_data by policy in the manual document mode (no price series in an uploaded filing); estimator covered by tests."
+   ]
+  ],
+  "promoter_pledge_pct": [
+   "PASS",
+   [
+    "Found by this audit: pledge came out needs_review ('NSE endpoint, secondary') although the uploaded filing itself carries the pledged count and percentage. Fixed 2026.10.13 -> verified, cross-checked against the filing's own percentage."
+   ]
+  ],
+  "free_float_pct": [
+   "PASS",
+   [
+    "Found by this audit: free float was a labelled proxy although the uploaded filing states there are NO locked-in shares in any category. Fixed 2026.10.13 -> exact (100 - promoter %)."
+   ]
+  ]
+ }
+}

@@ -61,9 +61,10 @@ export async function fetchQuote(symbol) {
 // Live-chart candles/ticker - currently yfinance-backed (polling, not push)
 // as a stand-in until Axis Direct's RAPID API or ICICI Breeze is
 // provisioned; response shape won't change when that swap happens.
-export async function fetchLiveChartCandles(symbol, interval = '5m') {
+export async function fetchLiveChartCandles(symbol, interval = '5m', period = null) {
   try {
-    const res = await authFetch(`/api/live-chart/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}`);
+    const p = period ? `&period=${encodeURIComponent(period)}` : '';
+    const res = await authFetch(`/api/live-chart/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}${p}`);
     if (!res.ok) return null;
     return await res.json();
   } catch (e) {
@@ -88,6 +89,18 @@ export async function fetchLiveChartLatest(symbol) {
     return await res.json();
   } catch (e) {
     return null;
+  }
+}
+
+// Probabilistic future-bar forecast (all ML server-side). Returns null on any failure.
+// On failure returns { clientError } (never null) so the UI can say WHY: session expired / HTTP status / network.
+export async function fetchChartForecast(symbol, refresh = false) {
+  try {
+    const res = await authFetch(`/api/chart/${encodeURIComponent(symbol)}/forecast${refresh ? '?refresh=true' : ''}`);
+    if (!res.ok) return { clientError: `HTTP ${res.status}` };
+    return await res.json();
+  } catch (e) {
+    return { clientError: /expired/i.test(String(e && e.message)) ? 'session expired - sign in again' : 'network error' };
   }
 }
 

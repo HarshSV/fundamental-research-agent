@@ -25,3 +25,6 @@ batch_tasks.json
 qual_inconclusive_*.txt
 excel_data.json
 _audit_final_table.txt
+
+# forecasting system: local market data store and model artifacts
+data/forecast/

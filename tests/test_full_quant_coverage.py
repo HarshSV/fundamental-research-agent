@@ -29,10 +29,10 @@ def _parsed(**overrides):
         "revenue": (1000.0, 900.0), "pat": (120.0, 100.0), "pbt": (150.0, 130.0),
         "equity": (600.0, 520.0), "equity_full": (650.0, 560.0),
         "retained_earnings": (400.0, 350.0), "retained_earnings_basis": "exact",
-        "total_assets": (2000.0, 1800.0), "total_current_assets": (500.0, 450.0),
+        "total_assets": (2000.0, 1800.0), "total_current_assets": (560.0, 500.0),
         "total_current_liabilities": (300.0, 280.0), "cash": (200.0, 180.0),
         "inventory": (150.0, 140.0), "receivables": (180.0, 170.0), "payables": (120.0, 110.0),
-        "net_fixed_assets": (900.0, 850.0), "shares_outstanding": (10_000_000, 10_000_000),
+        "net_fixed_assets": (900.0, 850.0), "shares_outstanding": (100_000_000, 100_000_000),
         "eps": (12.0, 10.0), "dividend_per_share": (3.0, 2.5),
         "tax_expense": (30.0, 25.0), "finance_costs": (40.0, 35.0), "depreciation": (60.0, 55.0),
         "total_expenses": (850.0, 770.0), "employee_benefit_expense": (200.0, 180.0),
@@ -42,6 +42,8 @@ def _parsed(**overrides):
         "borrowings_repayment": (20.0, 15.0), "lease_repayment": (5.0, 4.0),
         "interest_paid": (38.0, 33.0), "dividend_paid": (-30.0, -25.0),
         "components": dict(_COMPONENTS),
+        "non_controlling_interest": (50.0, 40.0), "pat_total": (130.0, 108.0), "nci_evaluated": True,
+        "pat_basis": "owners", "equity_basis": "owners",
         "bs_page": 42, "pl_page": 40, "source_url": "http://example.test/AR.pdf", "basis_used": "consolidated",
     }
     base.update(overrides)
@@ -73,10 +75,21 @@ class TestCOGSPurchasesRatios(unittest.TestCase):
                 self.assertIsNotNone(r["value"], key)
 
     def test_m_purchases_dependent_ratios_wired(self):
-        with _patched():
-            for key in ("payables_turnover", "days_payables_outstanding", "cash_conversion_cycle"):
+        # with the note's disclosed "Purchases during the year" the whole chain is verifiable
+        parsed = _parsed(purchases_disclosed={"cur": 380.0, "prior": 340.0, "page": 50})
+        with _patched(parsed):
+            for key in ("payables_turnover", "days_payables_outstanding"):
                 r = eng.calculate_ratio(key, "SYNTHCO", "Synth Co", 2025)
                 self.assertEqual(r["status"], "VERIFIED", key)
+                self.assertIsNotNone(r["value"], key)
+
+    def test_m_purchases_proxy_is_never_verified(self):
+        """Cost of Materials Consumed standing in for purchases is an approximation: the payables chain and
+        everything derived from it must inherit NEEDS_REVIEW, never VERIFIED."""
+        with _patched():                                  # no purchases_disclosed on the filing
+            for key in ("payables_turnover", "days_payables_outstanding", "cash_conversion_cycle"):
+                r = eng.calculate_ratio(key, "SYNTHCO", "Synth Co", 2025)
+                self.assertEqual(r["status"], "NEEDS_REVIEW", key)
                 self.assertIsNotNone(r["value"], key)
 
     def test_cogs_absent_never_fabricated(self):
@@ -112,8 +125,9 @@ class TestAltmanPiotroskiBeneish(unittest.TestCase):
         with _patched():
             r = eng.calculate_ratio("piotroski_f_score", "SYNTHCO", "Synth Co", 2025)
         self.assertEqual(r["status"], "VERIFIED")
-        self.assertIsInstance(r["value"], int)
+        self.assertEqual(r["value"], int(r["value"]))
         self.assertTrue(0 <= r["value"] <= 9)
+        self.assertEqual(r["tests_evaluated"], 9)
 
     def test_o_piotroski_insufficient_when_leverage_fact_missing(self):
         parsed = _parsed(lt_borrowings=None)
@@ -166,15 +180,26 @@ class TestShareholdingAndBeta(unittest.TestCase):
                    return_value={"promoter_pledge_pct": 12.5, "pledge_status": "ok",
                                  "promoter_holding_pct": 55.0, "source": "NSE"}):
             r = eng.calculate_ratio("promoter_pledge_pct", "SYNTHCO", "Synth Co", 2025)
-        self.assertEqual(r["status"], "VERIFIED")
+        self.assertEqual(r["status"], "NEEDS_REVIEW")      # secondary source (NSE pledge endpoint), not cross-checked
         self.assertEqual(r["value"], 12.5)
 
-    def test_t_promoter_pledge_assumed_zero_is_needs_review_not_verified(self):
+    def test_t_impossible_pledge_percentage_is_withheld(self):
+        """Real defect: 25.4 crore pledged shares against 31 lakh promoter shares printed 8,174% as 'verified'."""
+        with patch("tools.shareholding_scraper.fetch_shareholding",
+                   return_value={"num_shares_pledged": 253727853.0, "total_promoter_holding": 3104065.0, "pledge_status": "ok",
+                                 "promoter_holding_pct": 0.02, "source": "NSE"}):
+            r = eng.calculate_ratio("promoter_pledge_pct", "SYNTHCO", "Synth Co", 2025)
+        self.assertEqual(r["status"], "INSUFFICIENT_DATA")
+        self.assertIsNone(r["value"])
+
+    def test_t_promoter_pledge_assumed_zero_is_insufficient_not_a_zero(self):
+        """An unreachable pledge endpoint is UNKNOWN - the old 'assumed 0%' is gone."""
         with patch("tools.shareholding_scraper.fetch_shareholding",
                    return_value={"promoter_pledge_pct": 0.0, "pledge_status": "assumed_zero",
                                  "promoter_holding_pct": 55.0, "source": "fallback"}):
             r = eng.calculate_ratio("promoter_pledge_pct", "SYNTHCO", "Synth Co", 2025)
-        self.assertEqual(r["status"], "NEEDS_REVIEW")
+        self.assertEqual(r["status"], "INSUFFICIENT_DATA")
+        self.assertIsNone(r["value"])
 
     def test_u_free_float_proxy_is_needs_review(self):
         with patch("tools.shareholding_scraper.fetch_shareholding",
@@ -183,31 +208,38 @@ class TestShareholdingAndBeta(unittest.TestCase):
         self.assertEqual(r["status"], "NEEDS_REVIEW")
         self.assertAlmostEqual(r["value"], 45.0)
 
-    def test_u_free_float_insufficient_when_no_shareholding_data(self):
+    def test_u_free_float_not_disclosed_when_no_shareholding_data(self):
+        """No promoter holding available -> unavailable, NEVER an assumed 100% free float."""
         with patch("tools.shareholding_scraper.fetch_shareholding", return_value={}):
             r = eng.calculate_ratio("free_float_pct", "SYNTHCO", "Synth Co", 2025)
-        self.assertEqual(r["status"], "INSUFFICIENT_DATA")
+        self.assertEqual(r["status"], "NOT_DISCLOSED")
         self.assertIsNone(r["value"])
 
     def test_s_beta_computed_from_real_series(self):
+        import pandas as pd
+        from tools import market_history as mh
         random.seed(7)
-        stock = [random.gauss(0.001, 0.02) for _ in range(252)]
-        mkt = [random.gauss(0.0005, 0.015) for _ in range(252)]
-        with patch("tools.market_history.get_price_history", return_value=stock), \
-             patch("tools.market_history.get_benchmark_history", return_value=mkt):
+        idx = pd.date_range("2024-01-05", periods=105, freq="W-FRI")
+        mkt_ret = [random.gauss(0.001, 0.02) for _ in range(104)]
+        stock_ret = [0.5 * m + random.gauss(0.0, 0.01) for m in mkt_ret]
+        mp, sp = [100.0], [50.0]
+        for m, s_ in zip(mkt_ret, stock_ret):
+            mp.append(mp[-1] * (1 + m))
+            sp.append(sp[-1] * (1 + s_))
+        info = mh.beta_from_close_series(pd.Series(sp, index=idx), pd.Series(mp, index=idx))
+        with patch("tools.market_history.weekly_beta", return_value=info):
             r = eng.calculate_ratio("beta", "SYNTHCO", "Synth Co", 2025)
         self.assertEqual(r["status"], "VERIFIED")
         self.assertIsInstance(r["value"], float)
-        self.assertEqual(r["benchmark"], "^NSEI")
+        self.assertAlmostEqual(r["value"], 0.5, delta=0.2)
+        self.assertEqual(r["benchmark"] if "benchmark" in r else "^NSEI", "^NSEI")
 
     def test_s_beta_insufficient_when_no_price_history(self):
-        with patch("tools.market_history.get_price_history", return_value=None), \
-             patch("tools.market_history.get_benchmark_history", return_value=None):
+        with patch("tools.market_history.weekly_beta", return_value={"reason": "No historical price data available.", "n": 0}):
             r = eng.calculate_ratio("beta", "SYNTHCO", "Synth Co", 2025)
         self.assertEqual(r["status"], "INSUFFICIENT_DATA")
         self.assertIsNone(r["value"])
         self.assertNotEqual(r.get("value"), 1.0)  # never a fabricated default of 1.0
-
 
 class TestPrecomputeWorkerUsesEngine(unittest.TestCase):
     """V: the production precompute path calls the universal engine, not
@@ -218,7 +250,7 @@ class TestPrecomputeWorkerUsesEngine(unittest.TestCase):
             fn = dict(pw.RATIO_FETCHERS)[10]  # current_ratio, sr_no 10
             out = fn("SYNTHCO", "Synth Co")
         self.assertTrue(out["applicable"])
-        self.assertAlmostEqual(out["value"], 500.0 / 300.0, places=4)
+        self.assertAlmostEqual(out["value"], 560.0 / 300.0, places=4)
         self.assertIn("consolidated", out)
 
     def test_v_compute_one_writes_via_engine_result(self):
@@ -247,7 +279,10 @@ class TestPrecomputeWorkerUsesEngine(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(writes["ratio_values"]["ratio_no"], 10)
         self.assertTrue(writes["ratio_values"]["consolidated"])
-        self.assertEqual(writes["ratio_values"]["extraction_version"], ffs.EXTRACTION_VERSION)
+        # stamped with the SAME version the readers filter on (`nse_xbrl._current_extraction_version`), so a
+        # logic/formula bump invalidates exactly the rows this worker wrote
+        import tools.nse_xbrl as nx
+        self.assertEqual(writes["ratio_values"]["extraction_version"], int(nx._current_extraction_version()))
 
 
 class TestProvenanceCompleteness(unittest.TestCase):

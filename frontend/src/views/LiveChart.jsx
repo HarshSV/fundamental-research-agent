@@ -1,12 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createChart, createSeriesMarkers, ColorType, CandlestickSeries } from 'lightweight-charts';
 import { inr, signedPct, toneClass, isNum } from '../lib/format.js';
-import { fetchLiveChartCandles, fetchLiveChartLatest, fetchLiveChartDay } from '../lib/api.js';
+import { fetchLiveChartCandles, fetchLiveChartLatest, fetchLiveChartDay, fetchChartForecast } from '../lib/api.js';
 import { analyzeCandles } from '../lib/technicalAnalysis.js';
-import { detectChartPatterns } from '../lib/chartPatterns.js';
-import { replayDayEvents } from '../lib/eventReplay.js';
-import { PATTERN_CATALOG, latestOccurrence, collapseRuns } from '../lib/patternCatalog.js';
+import { runDetectors, PATTERN_REGISTRY, registryById } from '../lib/patternRegistry.js';
+import { patternStatus } from '../lib/patternStatus.js';
+import { stampEvent } from '../lib/eventModel.js';
+import { computeHigherTimeframeEvents } from '../lib/htfEvents.js';
+import { IST, istDate, todayISO, istClock, fmtDate, fmtTime, fmtDayMonth } from '../lib/marketTime.js';
+import { replayDayEvents, sortNewestFirst } from '../lib/eventReplay.js';
+import { latestOccurrence, collapseRuns } from '../lib/patternCatalog.js';
 import { RangeBox } from '../lib/rangeBoxPrimitive.js';
+import ForecastPanel from '../components/ForecastPanel.jsx';
 
 const KIND_LABEL = {
   momentum: 'Momentum', volatility: 'Volatility', volume: 'Volume',
@@ -27,15 +32,6 @@ const INTERVALS = [
   { key: '60m', label: '1h' },
 ];
 
-// All market times are Asia/Kolkata. Candle `time` is unix seconds (UTC
-// instant); it is only ever formatted with this zone, never browser-local.
-const IST = 'Asia/Kolkata';
-const istDate = (t) => new Date(t * 1000).toLocaleDateString('en-CA', { timeZone: IST }); // YYYY-MM-DD
-const todayISO = () => istDate(Date.now() / 1000);
-const istClock = (t, opts) => new Date(t * 1000).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: IST, ...opts });
-
-const fmtDate = (t) => new Date(t * 1000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: IST });
-const fmtTime = (t) => istClock(t);
 // One neutral colour for every pattern marker (the name is what identifies
 // it); amber only marks the pattern picked in the selector.
 const MARKER_COLOR = 'rgb(96 165 250)';
@@ -48,7 +44,9 @@ function EventRow({ e }) {
     <div className="flex items-start gap-2 text-[12px] flex-wrap">
       <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.tone === 'pos' ? 'bg-emerald-500' : e.tone === 'neg' ? 'bg-red-500' : 'bg-slate-500'}`} />
       <span className="text-slate-500 flex-shrink-0 nv-num">
-        {istClock(e.time)}
+        {e.timeframe && e.timeframe !== 'intraday'
+          ? `${fmtDayMonth(e.time)} (${e.timeframe})`
+          : istClock(e.time)}
       </span>
       <span className="text-slate-500 flex-shrink-0">{KIND_LABEL[e.kind] || e.kind}</span>
       <span className={toneClass(e.tone)}>{e.text}</span>
@@ -77,6 +75,11 @@ export default function LiveChart({ symbol, name }) {
   const rangeBoxRef = useRef(null);
   const [visRange, setVisRange] = useState(null); // visible logical (bar-index) range
   const lastFitKeyRef = useRef('');
+  // Forecast (backend-driven) lives in its OWN panel beside the live chart; the live chart shows actual candles only.
+  const [showForecast, setShowForecast] = useState(false); // default: LIVE only
+  const [forecastResp, setForecastResp] = useState(null);
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastError, setForecastError] = useState(null); // why the last request failed (HTTP status / network / session)
   const seenRef = useRef(new Set()); // "time|text" keys already logged, so re-polling the same closed candle doesn't duplicate an event
 
   // Day History: replays a single past trading day's 9:15-3:30 candles
@@ -91,6 +94,11 @@ export default function LiveChart({ symbol, name }) {
   const [mode, setMode] = useState('live');
   const [liveCandles, setLiveCandles] = useState([]);
   const [historyCandles, setHistoryCandles] = useState([]);
+  const [warmupLen, setWarmupLen] = useState(0); // prior-session bars fed to the day replay's detectors
+  // Daily / weekly history for the base & weekly detectors (loaded once per symbol).
+  const [dailyBars, setDailyBars] = useState([]);
+  const [weeklyBars, setWeeklyBars] = useState([]);
+  const [htfStatus, setHtfStatus] = useState({ daily: 'loading', weekly: 'loading' });
   const [loadedDate, setLoadedDate] = useState(null);
   const [selected, setSelected] = useState('all'); // pattern type slug or 'all'
 
@@ -111,6 +119,7 @@ export default function LiveChart({ symbol, name }) {
       const warmup = (resp.warmup || []).filter((c) => c.time < candles[0].time);
       setHistoryEvents(replayDayEvents([...warmup, ...candles], { sessionStart: warmup.length }));
       setHistoryCandles(candles);
+      setWarmupLen(warmup.length);
       // One canonical session_date: the IST date of the loaded bars themselves.
       const sessionDate = istDate(candles[0].time);
       setLoadedDate(sessionDate);
@@ -215,7 +224,10 @@ export default function LiveChart({ symbol, name }) {
         && a.time === b.time && a.close === b.close && a.high === b.high && a.low === b.low && a.volume === b.volume;
       return same ? prev : candles;
     });
-    const found = [...analyzeCandles(candles), ...detectChartPatterns(candles)];
+    const evalBar = candles[candles.length - 1];
+    const now = Date.now() / 1000;
+    const found = [...analyzeCandles(candles), ...runDetectors('intraday', candles)]
+      .map((e) => ({ ...stampEvent(e, evalBar, now), receivedAt: now }));
     const fresh = found.filter((e) => {
       const key = `${e.time}|${e.text}`;
       if (seenRef.current.has(key)) return false;
@@ -223,7 +235,9 @@ export default function LiveChart({ symbol, name }) {
       return true;
     });
     if (fresh.length) {
-      setEvents((prev) => [...prev, ...fresh].slice(-100));
+      // Globally ordered by candle time (newest first) before trimming, so the
+      // cap keeps the 100 most recent events, not the 100 most recently appended.
+      setEvents((prev) => sortNewestFirst([...prev, ...fresh]).slice(0, 100));
     }
   };
 
@@ -236,6 +250,7 @@ export default function LiveChart({ symbol, name }) {
     let cancelled = false;
     setLoading(true);
     setUnavailable(false);
+    setLatest(null); // never show the previous company's price while the new one loads
     setEvents([]);
     setLiveCandles([]);
     setMode('live');
@@ -265,6 +280,36 @@ export default function LiveChart({ symbol, name }) {
     return () => { cancelled = true; window.clearInterval(id); };
   }, [symbol, interval]);
 
+  // Forecast: fetched from the backend (all ML stays server-side). Only while the split view is open, live 5m.
+  const forecastView = showForecast && mode === 'live' && interval === '5m';
+  useEffect(() => {
+    setForecastResp(null); // never show the previous symbol's forecast
+    if (!symbol || !forecastView) return undefined;
+    let cancelled = false;
+    setForecastLoading(true);
+    let timer = null;
+    let failures = 0;
+    // Re-poll quickly while the backend reports it is still fetching the latest candle (or the request failed,
+    // e.g. a server reload); slowly otherwise. Failures back off 4s -> 8s -> 16s and then heal on their own.
+    const load = () => fetchChartForecast(symbol, true).then((resp) => {
+      if (cancelled) return;
+      setForecastLoading(false);
+      if (resp && resp.clientError) {
+        failures += 1;
+        setForecastError(resp.clientError);
+        setForecastResp(null);
+        timer = window.setTimeout(load, Math.min(16000, 2000 * 2 ** failures));
+        return;
+      }
+      failures = 0;
+      setForecastError(null);
+      setForecastResp(resp);
+      timer = window.setTimeout(load, resp && resp.refreshing ? 4000 : 20000);
+    });
+    load();
+    return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
+  }, [symbol, forecastView]);
+
   // Symbol changed: drop the previous symbol's history + filter.
   useEffect(() => {
     setHistoryEvents(null);
@@ -272,6 +317,30 @@ export default function LiveChart({ symbol, name }) {
     setHistoryUnavailable(false);
     setLoadedDate(null);
     setSelected('all');
+  }, [symbol]);
+
+  // Daily + weekly history for the base / weekly detectors: loaded once per
+  // symbol (not in the 5s poll loop), 5y so the long-lookback detectors have
+  // their warm-up and a young listing's real start date is visible.
+  useEffect(() => {
+    if (!symbol) return undefined;
+    let cancelled = false;
+    setHtfStatus({ daily: 'loading', weekly: 'loading' });
+    setDailyBars([]);
+    setWeeklyBars([]);
+    const load = (interval, setter, key) => fetchLiveChartCandles(symbol, interval, '5y').then((resp) => {
+      if (cancelled) return;
+      const c = resp && resp.candles;
+      if (c && c.length) {
+        setter(c);
+        setHtfStatus((s) => ({ ...s, [key]: 'ok' }));
+      } else {
+        setHtfStatus((s) => ({ ...s, [key]: 'failed' }));
+      }
+    });
+    load('1d', setDailyBars, 'daily');
+    load('1wk', setWeeklyBars, 'weekly');
+    return () => { cancelled = true; };
   }, [symbol]);
 
   const displayCandles = mode === 'history' ? historyCandles : liveCandles;
@@ -291,23 +360,42 @@ export default function LiveChart({ symbol, name }) {
 
   // Shared detection model. History: the loaded day's replayed events.
   // Live: the same detectors replayed over the current rolling window.
-  // The replay is O(n^2) in bars, so only run it when something needs the
-  // events, and only when a bar is added/rolled - not on every intra-bar tick.
-  const needPatterns = showPatterns || selected !== 'all';
+  // Chip counts need the detections whether or not markers are shown, so this
+  // always runs - but only when a bar is added/rolled (the replay is O(n^2)),
+  // not on every intra-bar tick.
   const liveCandlesRef = useRef(liveCandles);
   liveCandlesRef.current = liveCandles;
   const liveLast = liveCandles.length ? liveCandles[liveCandles.length - 1].time : 0;
   const livePatternEvents = useMemo(
-    () => (needPatterns && mode === 'live' ? replayDayEvents(liveCandlesRef.current, { patternsOnly: true }) : []),
-    [needPatterns, mode, liveCandles.length, liveLast],
+    () => (mode === 'live' ? replayDayEvents(liveCandlesRef.current, { patternsOnly: true }) : []),
+    [mode, liveCandles.length, liveLast],
+  );
+  // Daily / weekly detections, computed on their own timeframe and placed on a
+  // real bar of the loaded intraday dataset (live window or the loaded day).
+  const displayLast = displayCandles.length ? displayCandles[displayCandles.length - 1].time : 0;
+  const htfEvents = useMemo(
+    () => computeHigherTimeframeEvents({ dailyBars, weeklyBars, intradayCandles: displayCandles }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dailyBars, weeklyBars, mode, loadedDate, displayCandles.length, displayLast],
   );
   const patternEvents = useMemo(() => {
     const src = mode === 'history' ? (historyEvents || []) : livePatternEvents;
-    return src.filter((e) => e.kind === 'pattern');
-  }, [mode, historyEvents, livePatternEvents]);
+    return [...src.filter((e) => e.kind === 'pattern'), ...htfEvents];
+  }, [mode, historyEvents, livePatternEvents, htfEvents]);
 
-  const selectedEntry = PATTERN_CATALOG.find((p) => p.type === selected);
-  const selectedLabel = selectedEntry?.label;
+  const patternCounts = useMemo(() => {
+    const m = new Map();
+    collapseRuns(patternEvents).forEach((e) => m.set(e.patternType, (m.get(e.patternType) || 0) + 1));
+    return m;
+  }, [patternEvents]);
+  const statusCtx = {
+    counts: patternCounts,
+    barCounts: { intraday: mode === 'history' ? historyCandles.length + warmupLen : liveCandles.length, daily: dailyBars.length, weekly: weeklyBars.length },
+    history: htfStatus,
+  };
+  const selectedEntry = registryById.get(selected);
+  const selectedStatus = selectedEntry ? patternStatus(selectedEntry, statusCtx) : null;
+  const selectedLabel = selectedEntry?.displayName;
   const occurrence = selected === 'all' ? null : latestOccurrence(patternEvents, selected);
   const occTime = occurrence ? occurrence.time : null;
 
@@ -491,8 +579,11 @@ export default function LiveChart({ symbol, name }) {
 
   // Feed rows: live feed / loaded-day timeline, or every occurrence of the
   // selected pattern in the currently loaded data.
-  const baseFeed = mode === 'history' ? (historyEvents || []) : events;
-  const feed = selected === 'all' ? baseFeed : patternEvents.filter((e) => e.patternType === selected);
+  // Daily/weekly detections fire on every session a pattern persists; the feed
+  // lists one row per formation (same unit as the chip counts).
+  const htfFeed = useMemo(() => collapseRuns(htfEvents), [htfEvents]);
+  const baseFeed = [...(mode === 'history' ? (historyEvents || []) : events), ...htfFeed];
+  const feed = selected === 'all' ? baseFeed : collapseRuns(patternEvents.filter((e) => e.patternType === selected));
 
   const change = latest ? signedPct(latest.change_pct, { alreadyPercent: true }) : { text: '-', tone: 'neutral' };
 
@@ -541,6 +632,19 @@ export default function LiveChart({ symbol, name }) {
           >
             {showPatterns ? 'Hide Patterns' : 'Show Patterns'}
           </button>
+          {mode === 'live' && interval === '5m' && (
+            <button
+              onClick={() => setShowForecast((v) => !v)}
+              data-testid="forecast-toggle"
+              className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors ${
+                showForecast
+                  ? 'bg-blue-500/20 border-blue-500/40 text-blue-300'
+                  : 'border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {showForecast ? 'Hide Forecast' : 'Show Forecast'}
+            </button>
+          )}
           <div className="flex gap-1">
             {INTERVALS.map((iv) => (
               <button
@@ -559,6 +663,14 @@ export default function LiveChart({ symbol, name }) {
         </div>
       </div>
 
+      <div className={forecastView ? 'grid grid-cols-1 lg:grid-cols-2 gap-4' : ''} data-testid="chart-layout">
+      <div className="min-w-0">
+      {forecastView && (
+        <div className="mb-1.5" data-testid="live-panel-header">
+          <div className="text-[11px] font-bold uppercase tracking-widest text-emerald-300">Live</div>
+          <div className="text-[11px] text-slate-500">Actual market data</div>
+        </div>
+      )}
       <div className="relative h-[420px]">
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center text-[12px] text-slate-500 italic">Loading chart...</div>
@@ -630,7 +742,7 @@ export default function LiveChart({ symbol, name }) {
                   </div>
                   {t.evs.length > 1 && expanded[t.pattern] && t.evs.map((e) => (
                     <button
-                      key={`${e.patternType}:${e.barIndex}`}
+                      key={e.id}
                       onClick={() => pickDetection(e)}
                       className="block w-full min-h-[32px] pl-6 pr-3 py-1 text-left text-[11px] text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors nv-num"
                     >
@@ -642,6 +754,10 @@ export default function LiveChart({ symbol, name }) {
             </div>
           </div>
         )}
+      </div>
+
+      </div>
+      {forecastView && <ForecastPanel resp={forecastResp} loading={forecastLoading} error={forecastError} />}
       </div>
 
       <div className="mt-4 border-t border-slate-800 pt-3">
@@ -676,35 +792,70 @@ export default function LiveChart({ symbol, name }) {
         </div>
 
         <div className="flex gap-1.5 overflow-x-auto pb-1.5 mb-2" style={{ scrollbarWidth: 'thin' }}>
-          {[{ label: 'All', type: 'all', implemented: true }, ...PATTERN_CATALOG].map((p) => (
-            <button
-              key={p.type}
-              onClick={() => pickPattern(p.type)}
-              title={p.implemented ? p.label : `${p.label} - detector not implemented yet`}
-              className={`flex-shrink-0 whitespace-nowrap px-2.5 py-1 text-[11px] rounded-full border transition-colors ${
-                selected === p.type
-                  ? 'bg-blue-500/20 border-blue-500/50 text-blue-300 font-semibold'
-                  : p.implemented
-                    ? 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500'
-                    : 'border-slate-800 text-slate-600 hover:text-slate-400'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+          <button
+            onClick={() => pickPattern('all')}
+            className={`flex-shrink-0 whitespace-nowrap px-2.5 py-1 text-[11px] rounded-full border transition-colors ${
+              selected === 'all'
+                ? 'bg-blue-500/20 border-blue-500/50 text-blue-300 font-semibold'
+                : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500'
+            }`}
+          >
+            All
+          </button>
+          {PATTERN_REGISTRY.map((p) => {
+            const st = patternStatus(p, statusCtx);
+            const unavailable = st.state === 'unavailable';
+            const tone = selected === p.id
+              ? 'bg-blue-500/20 border-blue-500/50 text-blue-300 font-semibold'
+              : unavailable
+                ? 'border-slate-800 text-slate-600 cursor-not-allowed'
+                : st.state === 'needs-data'
+                  ? 'border-dashed border-slate-600 text-slate-500 hover:text-slate-300'
+                  : st.state === 'found'
+                    ? 'border-slate-600 text-slate-200 hover:border-slate-400'
+                    : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500';
+            return (
+              <button
+                key={p.id}
+                onClick={() => pickPattern(p.id)}
+                disabled={unavailable}
+                title={st.reason ? `${p.displayName}: ${st.reason}` : `${p.displayName} - ${p.timeframe} timeframe. ${p.definition}`}
+                className={`flex-shrink-0 whitespace-nowrap px-2.5 py-1 text-[11px] rounded-full border transition-colors ${tone}`}
+              >
+                {p.displayName}
+                {(st.state === 'found' || st.state === 'zero') && (
+                  <span className={`ml-1.5 nv-num ${st.state === 'found' ? 'text-blue-300' : 'text-slate-600'}`}>{st.count}</span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {selected !== 'all' && (
           <div className="mb-2 rounded-md border border-slate-800 bg-slate-900/60 px-3 py-2 text-[12px]">
-            {!selectedEntry?.implemented ? (
-              <span className="text-slate-500 italic">{selectedLabel} detection isn't implemented yet - nothing is marked on the chart.</span>
+            {selectedStatus?.state === 'unavailable' ? (
+              <span className="text-slate-500 italic">{selectedStatus.reason} - nothing is marked on the chart.</span>
+            ) : selectedStatus?.state === 'needs-data' || selectedStatus?.state === 'loading' ? (
+              <span className="text-slate-500 italic">{selectedLabel}: {selectedStatus.reason}</span>
             ) : !occurrence ? (
               <span className="text-slate-500 italic">No {selectedLabel} detected in this period</span>
             ) : (
               <div className="space-y-0.5">
-                <div className="font-semibold text-slate-200">{occurrence.pattern}</div>
-                <div className="text-slate-400">Detected: <span className="nv-num">{fmtDate(occurrence.time)}, {fmtTime(occurrence.time)}</span></div>
-                {displayCandles[occurrence.startIndex] && (
+                <div className="font-semibold text-slate-200">
+                  {occurrence.pattern}
+                  {occurrence.timeframe !== 'intraday' && <span className="ml-1.5 text-[10px] font-normal uppercase tracking-wider text-slate-500">{occurrence.timeframe} timeframe</span>}
+                </div>
+                {occurrence.timeframe === 'intraday' ? (
+                  <>
+                    <div className="text-slate-400">Formed: <span className="nv-num">{fmtDate(occurrence.formedAt)}, {fmtTime(occurrence.formedAt)}</span></div>
+                    {occurrence.confirmedAt > occurrence.formedAt && (
+                      <div className="text-slate-400">Confirmed: <span className="nv-num">{fmtTime(occurrence.confirmedAt)}</span></div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-slate-400">Completed on the <span className="nv-num">{fmtDate(occurrence.formedAt)}</span> {occurrence.timeframe} close</div>
+                )}
+                {occurrence.timeframe === 'intraday' && displayCandles[occurrence.startIndex] && (
                   <div className="text-slate-400">Pattern span: <span className="nv-num">{fmtTime(displayCandles[occurrence.startIndex].time)} - {fmtTime(occurrence.time)}</span> ({occurrence.endIndex - occurrence.startIndex + 1} bars)</div>
                 )}
                 {occurrence.rangeLow != null && occurrence.rangeHigh != null && (
@@ -735,10 +886,7 @@ export default function LiveChart({ symbol, name }) {
           {!historyLoading && feed.length === 0 && selected === 'all' && mode === 'history' && (
             <div className="text-[12px] text-slate-500 italic py-2">No notable moves detected for {loadedDate}.</div>
           )}
-          {!historyLoading && feed.length === 0 && selected !== 'all' && selectedEntry?.implemented && (
-            <div className="text-[12px] text-slate-500 italic py-2">No {selectedLabel} detected in this period</div>
-          )}
-          {[...feed].reverse().map((e, i) => (
+          {sortNewestFirst(feed).map((e, i) => (
             <EventRow key={`${mode}-${e.time}-${e.text}-${i}`} e={e} />
           ))}
         </div>

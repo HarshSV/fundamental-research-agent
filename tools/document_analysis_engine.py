@@ -24,6 +24,7 @@ Two independent halves:
 """
 
 import concurrent.futures
+import threading
 import importlib
 import re
 
@@ -108,7 +109,7 @@ _LINE_ITEM_ALIASES = {
     "ebit": ["profit before interest and tax", "operating profit", "ebit"],
     "interest_expense": ["finance costs", "interest expense", "interest and finance charges",
                           "finance charges", "interest cost"],
-    "pbt": ["profit before tax", "profit before exceptional items and tax", "profit before extraordinary items and tax"],
+    "pbt": ["profit before tax", "profit before share of profit / (loss) of associates / joint ventures and tax", "profit before share of profit of associates and joint ventures and tax", "profit before exceptional items and tax", "profit before extraordinary items and tax"],
     "tax": ["tax expense", "total tax expense", "provision for tax", "income tax expense"],
     # Owners-attributable phrasing is tried FIRST, matching the narrow
     # parser's own established `_PAT_OWNERS_LABELS`-before-`_PAT_GENERIC_
@@ -152,7 +153,7 @@ _LINE_ITEM_ALIASES = {
     "inventory": ["inventories", "inventory", "stock-in-trade"],
     "receivables": ["trade receivables", "receivables", "sundry debtors", "debtors"],
     "payables": ["trade payables", "payables", "sundry creditors", "creditors"],
-    "cash": ["cash and cash equivalents", "cash & cash equivalents", "cash and bank balances",
+    "cash": ["cash and cash equivalents", "cash and cash equivalent", "cash & cash equivalents", "cash and bank balances",
              "cash & bank balances", "cash balances"],
     # Bank balances OTHER than cash equivalents (fixed deposits, margin money,
     # unpaid-dividend accounts...) - a separate Balance Sheet line Cash Ratio
@@ -185,6 +186,7 @@ _LINE_ITEM_ALIASES = {
     # total, so it silently extracted the wrong number. Every alias here
     # names the TOTAL line specifically.
     "operating_cash_flow": ["net cash from operating activities", "net cash generated from operating activities",
+                             "net cash flow generated from operating activities", "net cash (used in) generated from operating activities", "net cash (used in)/ generated from operating activities", "cash flow generated from operating activities", "net cash flows (used in)/generated from operating activities", "net cash flow (used in)/generated from operating activities", "net cash flow from/(used in) operating activities", "net cash generated from operating activities (a)", "net cash flows from/(used in) operating activities",
                              "net cash generated from/(used in) operating activities",
                              "net cash (used in)/generated from operating activities",
                              "net cash flow from operating activities",
@@ -202,7 +204,7 @@ _LINE_ITEM_ALIASES = {
     # "capital expenditure" deliberately excluded - confirmed real bug: too
     # generic, matched an MD&A capacity-expansion sentence ("...29,800 MT")
     # instead of the cash flow statement's actual purchase-of-PPE line.
-    "capex": ["purchase of property, plant and equipment", "purchase of fixed assets",
+    "capex": ["purchase of property, plant and equipment", "expenditure for property, plant and equipment", "expenditure on property, plant and equipment", "purchase of fixed assets",
               "additions to property, plant and equipment", "acquisition of property, plant and equipment",
               "payments for property, plant and equipment", "payments to acquire property, plant and equipment",
               # Singular "Payment for purchase of..." - standard Ind AS Cash Flow
@@ -228,6 +230,24 @@ _LINE_ITEM_ALIASES = {
     # P/E (Sr No 24) and Graham Number (Sr No 54, which reuses P/E's own
     # extracted EPS). Listed first/second so the correctly-anchored page's
     # own row is preferred whenever this singular phrasing is present.
+    # EPS ATTRIBUTABLE TO OWNERS - a consolidated P&L may print two Basic EPS
+    # lines (one on whole-entity profit, one "Excluding Non-controlling
+    # interest"); shareholder valuation (P/E, Earnings Yield, EPS Growth, PEG,
+    # Graham) must use the owners' one. Absent => the single printed Basic EPS
+    # is already owners-attributable per Ind AS 33 (handled by the consumer).
+    "eps_owners": ["basic earnings per equity share - excluding non controlling interest",
+                   "basic earnings per equity share - excluding non-controlling interest",
+                   "basic earnings per equity share excluding non controlling interest",
+                   "basic earnings per equity share excluding non-controlling interest",
+                   "basic earnings per share - excluding non controlling interest",
+                   "basic earnings per share - excluding non-controlling interest",
+                   "basic earnings per share excluding non-controlling interest",
+                   "basic earning per equity share - excluding non controlling interest",
+                   "basic earning per share - excluding non controlling interest",
+                   "basic earnings per equity share attributable to owners",
+                   "basic earnings per share attributable to owners",
+                   "basic eps attributable to owners",
+                   "basic earnings per share attributable to equity holders"],
     "eps": ["basic earning per equity share", "basic earning per share",
             "earning per equity share", "earning per share",
             "basic earnings per equity share", "basic earnings per share", "earnings per share (basic)",
@@ -297,6 +317,11 @@ _LINE_ITEM_ALIASES = {
         # so the number immediately following can only be a count.
     ],
     "dividend_per_share": ["dividend per share", "dividend per equity share"],
+    # Cash dividends actually PAID (Financing Activities). "dividend income" /
+    # "interest and dividend income" (Investing) deliberately never match.
+    "dividends_paid": ["dividend paid on equity shares", "dividends paid on equity shares", "equity dividend paid",
+                       "payment of dividend", "dividend paid", "dividends paid", "final dividend paid",
+                       "interim dividend paid"],
     # Needed by the narrow "..._from_annual_report" component-sum EBITDA
     # calc that Operating Profit Margin/ROCE/Net Debt-EBITDA/DSCR/ROIC read
     # from the shared `parsed` dict - the broad-fallback adapter's own
@@ -305,6 +330,19 @@ _LINE_ITEM_ALIASES = {
     "employee_benefit_expense": ["employee benefits expense", "employee benefit expense", "employee costs"],
     "other_expenses": ["other expenses"],
     "net_fixed_assets": ["property, plant and equipment", "net fixed assets", "net block"],
+    # Components of Navrist's Net Fixed Assets definition (PPE + ROU assets +
+    # Capital WIP + Intangibles, EXCLUDING goodwill) - each its own face-of-
+    # Balance-Sheet row, so the policy never depends on one blended alias.
+    "ppe": ["property, plant and equipment", "property, plant & equipment", "net block"],
+    "rou_assets": ["right-of-use assets", "right of use assets", "rights-of-use assets",
+                   "right-of-use asset", "right of use asset"],
+    "cwip": ["capital work-in-progress", "capital work in progress", "capital work-in progress"],
+    "intangibles": ["other intangible assets", "intangible assets", "intangible asset"],
+    "goodwill": ["goodwill on consolidation", "goodwill"],
+    # Lease liabilities are summed across the non-current + current rows (see
+    # _SUM_GROUPS); Total Liabilities is the statement's own subtotal.
+    "lease_liabilities": ["lease liabilities", "lease liability"],
+    "total_liabilities": ["total liabilities"],
     "reserves_and_surplus": ["other equity", "reserves and surplus"],
     # Equity Share Capital (P-B/Sr No 25 only - see that key's sole
     # consumer) - a virtually-always-explicitly-labeled Balance Sheet row,
@@ -429,11 +467,12 @@ _BALANCE_SHEET_ITEMS = {"total_assets", "current_assets", "current_liabilities",
                         "receivables", "payables", "cash", "other_bank_balances", "total_debt", "equity",
                         "deposits", "advances", "gross_npa", "total_provisions",
                         "net_fixed_assets", "reserves_and_surplus", "non_controlling_interest",
-                        "equity_share_capital"}
+                        "equity_share_capital", "ppe", "rou_assets", "cwip", "intangibles", "goodwill",
+                        "lease_liabilities", "total_liabilities"}
 _PROFIT_LOSS_ITEMS = {"revenue", "cogs", "ebitda", "ebit", "interest_expense", "pbt", "tax", "pat", "pat_total",
                        "depreciation", "eps", "shares_outstanding", "dividend_per_share", "employee_benefit_expense",
                        "other_expenses", "cost_of_materials_consumed", "purchases_of_stock_in_trade",
-                       "changes_in_inventories", "total_expenses"}
+                       "changes_in_inventories", "total_expenses", "eps_owners"}
 _CASH_FLOW_ITEMS = {"operating_cash_flow", "capex"}
 
 # EPS, Dividend per Share and Shares Outstanding are NEVER stated "in
@@ -452,7 +491,7 @@ _CASH_FLOW_ITEMS = {"operating_cash_flow", "capex"}
 # Balance Sheet anchor page happens to carry the "issued/outstanding" note
 # text directly, rather than needing the whole-document fallback scan.
 _PER_SHARE_ITEMS = {"eps", "dividend_per_share"}
-_UNSCALED_ITEMS = _PER_SHARE_ITEMS | {"shares_outstanding"}
+_UNSCALED_ITEMS = _PER_SHARE_ITEMS | {"shares_outstanding", "eps_owners"}
 
 _ANCHOR_HINTS = {
     "balance_sheet": ["total current assets", "total current liabilities", "total equity", "total assets"],
@@ -557,6 +596,12 @@ _PAGE_UNIT_RE = re.compile(
     r"|in\s+(?:rs\.?|inr|`|₹)\s+(crores?|lakhs?|lacs?|millions?|billions?|thousands?)\b",
     re.I,
 )
+_PAGE_UNIT_FOOTNOTE_RE = re.compile(
+    r"\(\s*(?:all\s+)?(?:amounts?\s+|figures\s+|values\s+)?(?:are\s+)?(?:stated\s+)?(?:in|(?:rs\.?|inr|`|\u20b9)\s+in)\s+"
+    r"(?:(?:rs\.?|inr|`|\u20b9)\s*)?(?:of\s+)?(crores?|lakhs?|lacs?|millions?|billions?|thousands?)\b"
+    r"|\(\s*(?:rs\.?|inr|`|\u20b9)\s+in\s+(crores?|lakhs?|lacs?|millions?|billions?|thousands?)\b",
+    re.I,
+)
 _PAGE_UNIT_TO_CRORE = {
     "crore": 1.0, "crores": 1.0,
     "lakh": 0.01, "lakhs": 0.01, "lac": 0.01, "lacs": 0.01,
@@ -571,7 +616,12 @@ def _page_unit_multiplier(page_text):
     1.0 (assume already crore) if no unit declaration is found - never
     fabricates a unit, and 1.0 is the pre-existing implicit assumption this
     replaces, so an undetected page is no worse off than before."""
-    m = _PAGE_UNIT_RE.search(page_text[:800])  # unit is always declared near the statement's own header
+    m = _PAGE_UNIT_RE.search(page_text[:800])  # unit is usually declared near the statement's own header ...
+    if not m:
+        # ... but some filers print it as a footnote far below the table (Maruti: "(in ` million, unless otherwise stated)"
+        # ~3,000 characters in, after the signature block). A PARENTHESISED declaration anywhere on the page is accepted;
+        # bare prose ("... in million units") is not, so a stray phrase cannot rescale a page.
+        m = _PAGE_UNIT_FOOTNOTE_RE.search(page_text)
     if not m:
         return 1.0
     # Two alternatives in the pattern ("<currency> in <unit>" vs "in
@@ -703,6 +753,43 @@ def _extract_bare_section_subtotal(page_text, key, unit_mult):
             "unit": "crore", "evidence": f"Unlabelled section subtotal ("
                                           f"{'first two of the last three' if three_column and len(nums) >= 3 else 'last two'} "
                                           f"figures before '{stop.group()}')", "confidence": 0.85}
+
+
+_SHARE_ROW_NUM_RE = re.compile(r"\(?-?[\d,]+(?:\.\d+)?\)?")
+
+
+def _shares_prior_from_page(page_text, alias_variants):
+    """Prior-year share COUNT for a direct-alias `shares_outstanding` hit.
+
+    The Share Capital note prints "<caption> <shares_cur> <amount_cur>
+    <shares_prior> <amount_prior>" - four interleaved numbers (Ind AS
+    mandated shape), so the plain "first two numbers" read used by every
+    other row yields (current shares, current amount) and never finds the
+    prior count. Takes positions 0 and 2, but only when positions 1 and 3
+    look like the rupee AMOUNT columns (decimal figures) - otherwise the
+    layout is something else and nothing is guessed (returns None)."""
+    low = page_text.lower()
+    for alias in alias_variants:
+        pos, end = _fuzzy_find(low, alias, 0)
+        if pos == -1:
+            continue
+        toks = []
+        for m in _SHARE_ROW_NUM_RE.finditer(page_text[end:end + 160]):
+            raw = m.group()
+            digits = raw.strip("()").replace(",", "").replace(".", "")
+            if digits:
+                toks.append(raw)
+            if len(toks) == 4:
+                break
+        if len(toks) == 4 and "." in toks[1] and "." in toks[3] and "." not in toks[0] and "." not in toks[2]:
+            try:
+                cur = float(toks[0].strip("()").replace(",", ""))
+                prior = float(toks[2].strip("()").replace(",", ""))
+            except ValueError:
+                return None
+            if cur > 0 and prior > 0:
+                return prior
+    return None
 
 
 def _extract_shares_outstanding_from_reconciliation(pages):
@@ -838,6 +925,32 @@ def _extract_shares_outstanding_from_paidup_sentence(pages):
     return None
 
 
+# Third standard phrasing of the Share Capital note: a table row per share class, e.g.
+#   "Ordinary Shares of ` 1.00 each, fully paid  12,51,41,19,781  1251.41  12,48,47,21,471  1248.47"
+# = (closing count, closing amount, opening count, opening amount). The AUTHORISED row of the same table has no "fully paid"
+# and is therefore never matched. A generic Companies Act / Schedule III layout, not specific to one filer.
+_CLASS_ROW_SHARES_RE = re.compile(
+    r"(?:ordinary|equity)\s+shares?(?:\s+with\s+voting\s+rights)?\s+of\s+(?:[`₹]|rs\.?|inr)?\s*[\d.]+\s*(?:/-)?\s*each,?\s*"
+    r"(?:fully\s+)?paid[\s-]*(?:up)?,?\s+(\d[\d,]{6,})\s+([\d,]+(?:\.\d+)?)\s+(\d[\d,]{6,})\s+([\d,]+(?:\.\d+)?)", re.I)
+
+
+def _extract_shares_outstanding_from_class_row(pages):
+    for p in pages:
+        text = p if isinstance(p, str) else (p.get("text", "") if isinstance(p, dict) else "")
+        m = _CLASS_ROW_SHARES_RE.search(text) if text else None
+        if not m:
+            continue
+        try:
+            cur, prior = float(m.group(1).replace(",", "")), float(m.group(3).replace(",", ""))
+        except ValueError:
+            continue
+        if cur <= 0 or not 0.5 <= prior / cur <= 2.0:
+            continue
+        return {"value": round(cur, 2), "prior_value": round(prior, 2), "unit": "shares",
+                "evidence": "Equity Share Capital note - fully paid share-class row (closing / opening count)", "confidence": 0.9}
+    return None
+
+
 def _extract_from_anchor_page(page_text, aliases, unit_mult, exclude_percent=True, permissive=False):
     """Page-anchored, unit-normalized, column-position-aware extraction:
     once a specific statement's own page is known (via _find_anchor_pages),
@@ -878,6 +991,20 @@ def _extract_from_anchor_page(page_text, aliases, unit_mult, exclude_percent=Tru
                 continue
             window = page_text[end:end + 200]
             nums = []
+            # Note-reference column guard (permissive mode): a Schedule III
+            # statement prints "<label> <Note No> <current> <prior>". A bare
+            # small integer FOLLOWED BY two or more formatted (comma/decimal)
+            # figures is that Note No, never the current-year value - reading
+            # it as one shifted every column by one (a Note "16" became 1.6 Cr
+            # with the real current figure demoted to "prior").
+            _formatted_after = [mm for mm in _ALL_NUMS_RE.finditer(window)
+                                if "," in mm.group(1) or "." in mm.group(1).strip("()")]
+            _first_tok = next(iter(_ALL_NUMS_RE.finditer(window)), None)
+            _lead_is_note_ref = bool(
+                permissive and _first_tok is not None and len(_formatted_after) >= 2
+                and "," not in _first_tok.group(1) and "." not in _first_tok.group(1).strip("()")
+                and len(_first_tok.group(1).strip("()").replace("-", "")) <= 3
+                and _first_tok.start() < _formatted_after[0].start())
             for m in _ALL_NUMS_RE.finditer(window):
                 raw = m.group(1)
                 digits_only = raw.strip("()").replace(",", "").replace(".", "").replace("-", "")
@@ -908,6 +1035,8 @@ def _extract_from_anchor_page(page_text, aliases, unit_mult, exclude_percent=Tru
                     # followed by a lettered sub-reference in parens
                     # ("8(m)", "10(a)") is never itself a real rupee figure,
                     # even on a row whose genuine value is a bare number.
+                    if _lead_is_note_ref and m.start() == _first_tok.start():
+                        continue  # the Note No. column
                     if len(digits_only) <= 2 and window[m.end():m.end() + 1] == "(":
                         continue
                 try:
@@ -944,6 +1073,7 @@ def _extract_from_anchor_page(page_text, aliases, unit_mult, exclude_percent=Tru
 # sub-line, missing the much larger "Due to others" line entirely. Sums
 # every sub-item phrase found on the anchor page instead.
 _SUM_GROUPS = {
+    "lease_liabilities": ["lease liability", "lease liabilities"],
     "payables": ["due to micro and small enterprises", "due to other than micro and small enterprises",
                  "due to micro enterprises and small enterprises", "due to other than micro enterprises and small enterprises"],
     "total_debt": ["borrowings"],
@@ -1138,7 +1268,14 @@ def _search_xbrl(symbol, key):
         return None
 
 
-def extract_line_items(symbol):
+def _manual_xbrl_allowed():
+    """Uploaded-XBRL facts belong to the manual document pipeline only; another pipeline asking for a specific year must not pick up
+    a stale uploaded file from a different period."""
+    from tools.manual_mode import is_manual_mode
+    return is_manual_mode()
+
+
+def extract_line_items(symbol, fiscal_year=None):
     """Returns {key: {value, unit, page, evidence, confidence, source} or None, ...}
     for every canonical line item, sourced from XBRL first (structured,
     higher confidence) then the uploaded Annual Report text. Never
@@ -1147,7 +1284,7 @@ def extract_line_items(symbol):
     sym = symbol.strip().upper().replace(".NS", "")
     t0 = time.time()
     from tools.ar_document_cache import get_ar_pages
-    ar = get_ar_pages(sym, sym)
+    ar = get_ar_pages(sym, sym, fiscal_year=fiscal_year)         # a requested year is read as THAT year in every pipeline
     pages = ar.get("pages") or []
     print(f"[document_analysis] [DOCUMENT] {sym}: Annual Report - {len(pages)} pages "
           f"({'from cache' if ar.get('text_from_cache') else 'freshly parsed'}) in {time.time()-t0:.2f}s")
@@ -1168,7 +1305,7 @@ def extract_line_items(symbol):
     t2 = time.time()
     out = {}
     for key, aliases in _LINE_ITEM_ALIASES.items():
-        xbrl_hit = _search_xbrl(sym, key)
+        xbrl_hit = _search_xbrl(sym, key) if _manual_xbrl_allowed() else None
         ar_hit = None
         if pages:
             # Page-anchored, unit-normalized, current/prior-column-correct
@@ -1232,7 +1369,7 @@ def extract_line_items(symbol):
                 if recon is not None:
                     ar_hit = {**recon, "page": None, "source": "Annual Report"}
                 else:
-                    paidup = _extract_shares_outstanding_from_paidup_sentence(pages)
+                    paidup = _extract_shares_outstanding_from_paidup_sentence(pages)                         or _extract_shares_outstanding_from_class_row(pages)
                     if paidup is not None:
                         ar_hit = {**paidup, "page": None, "source": "Annual Report"}
 
@@ -1254,6 +1391,11 @@ def extract_line_items(symbol):
         # Capex Intensity = Capex / Revenue) expects it as a positive spend
         # amount, per the registry's own formula convention. Normalize the
         # sign here, once, at the source, rather than in every consumer.
+        if key == "shares_outstanding" and hit is not None and hit.get("prior_value") is None \
+                and hit.get("page") and pages:
+            _prior_sh = _shares_prior_from_page(pages[hit["page"] - 1], aliases)
+            if _prior_sh is not None:
+                hit = {**hit, "prior_value": _prior_sh}
         if key == "capex" and hit is not None:
             hit = {**hit, "value": abs(hit["value"]) if hit.get("value") is not None else None,
                    "prior_value": abs(hit["prior_value"]) if hit.get("prior_value") is not None else None}
@@ -1429,33 +1571,28 @@ def _synthesize_reason(ratio_def, status, inputs, derived_from=None):
             "Report's Balance Sheet, Profit & Loss, or Cash Flow Statement.")
 
 
-def _row_shell(ratio_def, value, unit, status, inputs, financial_year=None, derived_from=None):
+def _row_shell(ratio_def, value, unit, status, inputs, financial_year=None, derived_from=None, meta=None, reason=None):
     inputs = list(inputs)
     if financial_year:
         inputs.append({"name": "financial_year", "value": None, "unit": None,
                         "source": financial_year, "page": None})
-    # Strategy "B" (Strategy-B in this registry - see fundamental_ratio_
-    # registry.py's own docstring) is ALWAYS a pure formula over other
-    # already-computed ratios' values, never a fresh document extraction -
-    # "DERIVED" is a direct, unambiguous readout of `ratio_def["strategy"]`,
-    # never inferred/guessed. Strategy "A" (nse_xbrl fetch) and "C" (local
-    # Annual-Report/market-data computation) both extract their own inputs
-    # directly, hence "DIRECT".
     calc_type = "DERIVED" if ratio_def.get("strategy") == "B" else "DIRECT"
-    # db/006_document_analysis.sql's `fundamental_analysis_results` table
-    # has a FIXED column set - `calculation_type`/`derived_from` as
-    # top-level dict keys here would upsert as columns that don't exist
-    # (confirmed real: a live upsert attempt raised
-    # "Could not find the 'calculation_type' column..."). Rather than a
-    # schema migration, both are nested inside the EXISTING flexible
-    # `inputs` jsonb column as one marker entry (name-prefixed "_" so the
-    # frontend can distinguish it from genuine numeric inputs and route it
-    # to a metadata panel instead of rendering it as an input row) - no DB
-    # change needed, and every existing consumer of `inputs` that doesn't
-    # know about this marker is unaffected (it's just one more list entry).
-    reason = _synthesize_reason(ratio_def, status, inputs, derived_from)
-    inputs.append({"name": "_metadata", "value": None, "unit": None, "source": None, "page": None,
-                    "calculation_type": calc_type, "derived_from": derived_from, "reason": reason})
+    reason = reason or _synthesize_reason(ratio_def, status, inputs, derived_from)
+    md = {"name": "_metadata", "value": None, "unit": None, "source": None, "page": None,
+          "calculation_type": calc_type, "derived_from": derived_from, "reason": reason,
+          "status_detail": status}
+    # provenance of the calculation (formula version, statement basis, perimeter, input facts,
+    # warnings, timestamp) travels with the stored row so the evidence panel can show exactly what
+    # was used and a later formula change can tell this row is stale.
+    if meta:
+        md.update(meta)
+    from tools.ratio_contract import FORMULA_VERSION as _FV
+    import datetime as _dtm
+    md.setdefault("formula_version", _FV)          # EVERY row is versioned, so staleness is decidable for all
+    from tools.ratio_breakdown import BREAKDOWN_VERSION as _BV
+    md.setdefault("breakdown_version", _BV)        # rows saved before the calculation breakdown existed are refreshed on read
+    md.setdefault("calculated_at", _dtm.datetime.now(_dtm.timezone.utc).isoformat())
+    inputs.append(md)
     row = {
         "ratio_key": ratio_def["ratio_key"], "label": ratio_def["label"],
         "category": ratio_def["category"], "value": value, "unit": unit,
@@ -1514,58 +1651,63 @@ def _source_file_and_type(pdf_url, sources):
     return "Not available", source_type
 
 
+def _meta_from_out(out):
+    keys = ("formula_version", "calculated_at", "warnings", "perimeter", "statement_basis", "period_basis",
+            "methodology", "confidence", "provenance", "estimated", "breakdown")
+    return {k: out.get(k) for k in keys if out.get(k) not in (None, [], {})}
+
+
+_ROW_STATUSES = ("verified", "needs_review", "not_meaningful", "insufficient_data", "not_disclosed", "not_applicable")
+
+
 def _row_from_nse_xbrl_out(ratio_def, out):
-    """Adapts a tools.nse_xbrl fetch_X() result (applicable/value/unit/
-    confidence/selected_period/numerator/denominator/reason/status shape)
-    into this table's row shape. Never fabricates: an unresolved value is
-    always status='not_disclosed'/'not_applicable'/'insufficient_data'
-    with value=None, never a guessed number."""
-    if out.get("status") == "insufficient_data":
+    """Adapts a ratio fetch result (the legacy `fetch_X` shape, which the ratio contract now also produces)
+    into this table's row shape. Never fabricates: an unresolved value is always status='not_disclosed'/
+    'not_applicable'/'insufficient_data' with value=None, never a guessed number. When the result carries an
+    explicit contract `status` that status IS the row status (it already folds in parent uncertainty,
+    estimates, acquisition/perimeter warnings and 'not meaningful' multiples)."""
+    meta = _meta_from_out(out)
+    if "breakdown" not in meta and (out.get("numerator") and out.get("denominator")):
+        try:                                    # dedicated bank-module results: legacy legs (rounded) -> same payload
+            from tools.ratio_breakdown import legacy_breakdown
+            _bd = legacy_breakdown(ratio_def["ratio_key"], out, ratio_def.get("formula"))
+            if _bd:
+                meta["breakdown"] = _bd
+        except Exception as _e:
+            print(f"[document_analysis] legacy breakdown failed for {ratio_def.get('ratio_key')}: {_e}")
+    st_in = out.get("status")
+    if st_in == "insufficient_data":
         return _row_shell(ratio_def, None, None, "insufficient_data",
-                           [{"name": "reason", "value": None, "unit": None, "source": out.get("reason"), "page": None}])
-    if not out.get("applicable", True):
+                           [{"name": "reason", "value": None, "unit": None, "source": out.get("reason"), "page": None}],
+                           meta=meta, reason=out.get("reason"))
+    if not out.get("applicable", True) and st_in != "not_meaningful":
         reason = (out.get("reason") or "")
-        # Some fetch_X wrappers flag a genuinely NOT-MEANINGFUL result with
-        # their own explicit boolean (e.g. `net_cash: True` on Net Debt/
-        # EBITDA for a net-cash company - "This is NOT a leverage ratio")
-        # rather than the literal substring "not applicable" this status
-        # check was written against - confirmed real: that reason text
-        # reached the frontend correctly, but under status='not_disclosed',
-        # indistinguishable from a genuine extraction failure even though
-        # the underlying data was fully read and the ratio is simply
-        # inapplicable by definition for this company.
-        status = ("not_applicable"
-                  if ("not applicable" in reason.lower() or out.get("net_cash"))
-                  else "not_disclosed")
+        if st_in in ("not_applicable", "not_disclosed"):
+            status = st_in
+        else:
+            status = ("not_applicable"
+                      if ("not applicable" in reason.lower() or out.get("net_cash"))
+                      else "not_disclosed")
         return _row_shell(ratio_def, None, None, status,
-                           [{"name": "reason", "value": None, "unit": None, "source": reason, "page": None}])
-    value = out.get("value")
+                           [{"name": "reason", "value": None, "unit": None, "source": reason, "page": None}],
+                           meta=meta, reason=reason or None)
+    value = out.get("mathematical_value") if st_in == "not_meaningful" else out.get("value")
     if value is None:
-        return _row_shell(ratio_def, None, None, "not_disclosed", [])
+        if st_in == "not_meaningful":
+            # the contract withheld the number on purpose (negative EPS/equity/FCF...): that is "not meaningful", never
+            # "not disclosed" - the data WAS found, the ratio just has no economic meaning
+            return _row_shell(ratio_def, None, None, "not_meaningful", [], meta=meta, reason=out.get("reason"))
+        return _row_shell(ratio_def, None, None, "not_disclosed", [], meta=meta, reason=out.get("reason"))
     confidence = out.get("confidence")
-    status = "needs_review" if (out.get("estimated") or (confidence is not None and confidence < 0.85)) else "verified"
+    if st_in in ("verified", "needs_review", "not_meaningful"):
+        status = st_in
+    else:
+        status = "needs_review" if (out.get("estimated") or (confidence is not None and confidence < 0.85)) else "verified"
     inputs = []
     sources = out.get("sources") or []
     source_label = (sources[0] if sources else {}).get("label", "Uploaded document")
-    # `source_url` is only ever populated on the FAILURE-path dicts of most
-    # fetch_X_from_annual_report() functions (an early-return convenience
-    # for the error message), not on the success dict - but the full URL
-    # (including the document marker `_source_file_and_type` needs) is
-    # already embedded in `sources[0]["url"]` as "{pdf_url}#page={N}" on
-    # every successful response, so it's derived from there instead of
-    # requiring source_url on ~50 individual functions' success paths.
     pdf_url = out.get("source_url") or (sources[0]["url"].split("#page=")[0] if sources else None)
     src_file, src_type = _source_file_and_type(pdf_url, sources)
-    # Page is only attached when it's UNAMBIGUOUS - a ratio can legitimately
-    # pull from both the P&L (e.g. a numerator) and Balance Sheet (e.g. a
-    # denominator) with genuinely different page numbers, and the input
-    # metadata this pipeline actually persists doesn't track which specific
-    # `sources` entry each individual input came from - attaching just
-    # `sources[0]`'s page to EVERY input would silently fabricate a page
-    # number for whichever input didn't actually come from that page. Only
-    # attached when there's exactly one source page for this whole ratio
-    # (the common case - most ratios draw every input from one statement),
-    # otherwise explicitly "Not available" rather than guessed.
     single_page = sources[0].get("url", "").split("page=")[-1] if len(sources) == 1 and "page=" in sources[0].get("url", "") else None
 
     def _evidence(label):
@@ -1573,16 +1715,6 @@ def _row_from_nse_xbrl_out(ratio_def, out):
                 "section": label if len(sources) > 1 else source_label,
                 "page": single_page or "Not available"}
 
-    # `line_items` (currently populated only by Quick Ratio - Sr No 11) lets
-    # a fetch_X_from_annual_report function surface its OWN atomic source
-    # figures as separate, unambiguously-labeled rows instead of collapsing
-    # them into one combined numerator value - confirmed real need: Quick
-    # Ratio's numerator is "Total Current Assets minus Inventories" as a
-    # single figure, and reading that combined value as if it were the raw
-    # Inventory figure (then subtracting it a second time) silently produces
-    # a materially wrong ratio. Purely additive - every other ratio has no
-    # `line_items` key and falls through to the unchanged numerator/
-    # denominator behavior below, so no other card's inputs change.
     line_items = out.get("line_items")
     if line_items:
         for li in line_items:
@@ -1592,16 +1724,17 @@ def _row_from_nse_xbrl_out(ratio_def, out):
         for side in ("numerator", "denominator"):
             d = out.get(side)
             if d:
-                inputs.append({"name": d.get("label", side), "value": d.get("value_cr"), "unit": "cr",
-                                "source": source_label, "page": None, **_evidence(d.get("label", side))})
+                inputs.append({"name": d.get("label", side), "value": d.get("value_cr"), "unit": d.get("unit") or "cr",
+                                "source": d.get("source") or source_label, "page": None, **_evidence(d.get("label", side))})
     try:
         value = round(float(value), 4)
     except (TypeError, ValueError):
         pass
-    return _row_shell(ratio_def, value, out.get("unit") or "", status, inputs, financial_year=out.get("selected_period"))
+    return _row_shell(ratio_def, value, out.get("unit") or "", status, inputs, financial_year=out.get("selected_period"),
+                      meta=meta, reason=out.get("reason") or (("; ".join(out.get("warnings") or [])) or None))
 
 
-def _call_nse_xbrl(fn_name, symbol, name):
+def _call_nse_xbrl(fn_name, symbol, name, lender=False):
     """Every Strategy-A ratio funnels through here, running on a shared
     ThreadPoolExecutor (_QUALITATIVE_WORKERS concurrent workers) that all
     hit the SAME on-disk PDF-extraction cache (tools.annual_report_
@@ -1618,97 +1751,27 @@ def _call_nse_xbrl(fn_name, symbol, name):
     reproduces identically on the retry and is still reported honestly."""
     import tools.nse_xbrl as nse_xbrl
     fn = getattr(nse_xbrl, fn_name)
-    try:
-        return fn(symbol, name)
-    except Exception as e:
-        print(f"[document_analysis] {fn_name}({symbol}) failed, retrying once: {e}")
-        return fn(symbol, name)
+    with nse_xbrl.lender_context(lender):        # sector-based lender gating (not just company-name keywords)
+        try:
+            return fn(symbol, name)
+        except Exception as e:
+            print(f"[document_analysis] {fn_name}({symbol}) failed, retrying once: {e}")
+            return fn(symbol, name)
 
 
-def _derived(sr_no, computed):
-    """Strategy-B: pure formulas over already-computed rows' raw numeric
-    values (computed[sr_no] -> {'value':..., 'unit':..., 'extra':{...}}).
-    Returns (value, unit) or (None, None) if a dependency is missing -
-    never re-searches the document for a value another ratio already
-    resolved (matches the approved dependency graph)."""
-    def val(sr):
-        c = computed.get(sr)
-        return c["value"] if c and c.get("value") is not None else None
-
-    def val_precise(sr):
-        """Unrounded parent value when the fetcher supplied one, else the
-        displayed value (never invents precision that isn't there)."""
-        c = computed.get(sr)
-        if not c:
-            return None
-        return c["raw"] if c.get("raw") is not None else c.get("value")
-
-    if sr_no == 2:  # DOH = 365 / Inventory Turnover
-        it = val_precise(1)
-        return (365 / it, "days") if it else (None, None)
-    if sr_no == 4:  # DSO = 365 / Receivables Turnover
-        rt = val_precise(3)
-        return (365 / rt, "days") if rt else (None, None)
-    if sr_no == 6:  # DPO = 365 / Payables Turnover
-        pt = val_precise(5)
-        return (365 / pt, "days") if pt else (None, None)
-    if sr_no == 9:  # CCC = DSO + DOH - DPO (from the same unrounded turnovers)
-        dso, doh, dpo = val(4), val(2), val(6)
-        if None in (dso, doh, dpo):
-            return None, None
-        return dso + doh - dpo, "days"
-    if sr_no == 28:  # Earnings Yield = 1 / P/E * 100
-        pe = val(24)
-        return (round(100 / pe, 4), "%") if pe else (None, None)
-    if sr_no == 48:  # Retention Ratio = 100 - Dividend Payout Ratio (%)
-        payout = val(47)
-        return (100 - payout, "%") if payout is not None else (None, None)
-    if sr_no == 49:  # Sustainable Growth Rate = ROE% x Retention%
-        roe, retention = val(18), val(48)
-        if roe is None or retention is None:
-            return None, None
-        return roe * retention / 100, "%"
-    if sr_no == 50:  # PEG = P/E / EPS Growth Rate (%)
-        pe, growth = val(24), val(45)
-        if not pe or not growth:
-            return None, None
-        return round(pe / growth, 4), "x"
-    if sr_no == 51:  # EV/Sales = Enterprise Value / Revenue
-        ev_row = computed.get(29)
-        ev = ev_row.get("extra", {}).get("ev") if ev_row else None
-        revenue_cr = ev_row.get("extra", {}).get("revenue_cr") if ev_row else None
-        if not ev or not revenue_cr:
-            return None, None
-        return round(ev / (revenue_cr * 1e7), 4), "x"
-    if sr_no == 52:  # EV/FCF = Enterprise Value / Free Cash Flow
-        ev_row = computed.get(29)
-        ev = ev_row.get("extra", {}).get("ev") if ev_row else None
-        fcf_cr = val(36)
-        if not ev or not fcf_cr:
-            return None, None
-        return round(ev / (fcf_cr * 1e7), 4), "x"
-    if sr_no == 54:  # Graham Number = sqrt(22.5 x EPS x BVPS)
-        pe_row = computed.get(24)
-        eps = pe_row.get("extra", {}).get("eps") if pe_row else None
-        bvps = val(46)
-        if not eps or not bvps or eps <= 0 or bvps <= 0:
-            return None, None
-        return round((22.5 * eps * bvps) ** 0.5, 2), "₹"
-    return None, None
 
 
-_DERIVED_FORMULA_NEEDS_INPUTS = {28: [24], 48: [47], 49: [18, 48], 50: [24, 45], 51: [29], 52: [29, 36], 54: [24, 46]}
 
 
-def _local_group_c(sr_no, items, sector, price, sym=None):
-    """Strategy-C: computed locally from extract_line_items()'s alias-
-    extracted document facts + (only for the market-price ratios)
-    tools.market_price.get_live_price() - never Revenue/PAT/EBITDA/Debt/
-    Cash/etc. from the market-price source. Returns
-    (value, unit, status, inputs, extra_dict)."""
-    def get(key):
-        return items.get(key)
+def rc_bounds(key):
+    from tools.ratio_contract import BANK_BOUNDS
+    return BANK_BOUNDS[key]
 
+
+def _local_bank_group_c(sr_no, items, sym=None):
+    """Bank-only Strategy-C ratios (Sr 62 PCR, Sr 64 Credit-to-Deposit) computed from the document's own
+    banking line items. Every non-bank Strategy-C ratio now comes from `tools.ratio_contract`.
+    Returns (value, unit, status, inputs, extra)."""
     def num(key):
         h = items.get(key)
         return h["value"] if h else None
@@ -1716,224 +1779,100 @@ def _local_group_c(sr_no, items, sector, price, sym=None):
     def inp(*keys):
         return _inputs_for(items, list(keys), sym=sym)
 
-    if sr_no == 13:  # Working Capital
-        ca, cl = num("current_assets"), num("current_liabilities")
-        if ca is None or cl is None:
-            return None, None, "not_disclosed", inp("current_assets", "current_liabilities"), {}
-        return round(ca - cl, 4), "₹ Cr", "verified", inp("current_assets", "current_liabilities"), {}
-
-    if sr_no == 17:  # ROA = Net Income / Average Total Assets (registry's
-        # own declared formula) - was previously dividing by CLOSING Total
-        # Assets only, silently dropping the averaging entirely. Confirmed
-        # real on ANURAS: closing-only gave 3.0362%; averaging (opening +
-        # closing)/2, the SAME convention every other averaged ratio in
-        # this suite already uses, gives a different, formula-correct
-        # result. Falls back to closing-only (with reduced confidence, same
-        # as the narrow parser's own averaging fallback) only when the
-        # prior-year comparative wasn't itself extracted.
-        pat = num("pat")
-        ta_hit = get("total_assets")
-        if pat is None or ta_hit is None or ta_hit.get("value") in (None, 0):
-            return None, None, "not_disclosed", inp("pat", "total_assets"), {}
-        ta_cur = ta_hit["value"]
-        ta_prior = ta_hit.get("prior_value")
-        if ta_prior and ta_prior > 0:
-            avg_ta = (ta_cur + ta_prior) / 2
-            status = "verified"
-        else:
-            avg_ta = ta_cur
-            status = "needs_review"
-        return round(pat / avg_ta * 100, 4), "%", status, inp("pat", "total_assets"), {}
-
-    if sr_no in (24, 25, 26, 27, 29, 37, 53):
-        if price is None:
-            return None, None, "not_disclosed", [{"name": "market_price", "value": None, "unit": None,
-                                                    "source": "Angel One live price unavailable", "page": None}], {}
-        ltp = price["ltp"]
-        shares = num("shares_outstanding")
-        eps = num("eps")
-        # P-B (Sr No 25, the sole consumer of `equity` in this block) needs
-        # OWNERS-attributable equity specifically - shares outstanding
-        # represents only the parent company's own shares, so Non-
-        # Controlling Interest (and, on some filers, Money Received
-        # Against Share Warrants - not yet an issued equity share) must
-        # never be folded into the denominator. The section's own final
-        # Balance Sheet subtotal (whether explicitly labeled "Total
-        # Equity" or read via the bare-subtotal fallback) is the WHOLE
-        # Equity section total, which bundles those in - so prefer
-        # reconstructing owners-only equity by summing the two universally
-        # separately-labeled components that ARE owners' equity (Equity
-        # Share Capital + Other Equity/Reserves and Surplus - the same
-        # "sum what's there" convention used throughout this file) when
-        # both are independently confirmed. Falls back to the generic
-        # "equity" match (bare-subtotal or explicit "Total Equity"/
-        # "Shareholders' Funds" label) only when that split isn't
-        # available - never blocks the ratio outright.
-        _share_capital_hit = get("equity_share_capital")
-        _reserves_hit = get("reserves_and_surplus")
-        _equity_hit = get("equity")
-        _share_capital = _share_capital_hit["value"] if _share_capital_hit else None
-        _reserves = _reserves_hit["value"] if _reserves_hit else None
-        # Cross-validation against the generic "equity" match's own page -
-        # "equity share capital"/"other equity" are short, common phrases
-        # that a whole-document scan can match inside an unrelated JV/
-        # associate reconciliation note or MD&A narrative sentence
-        # elsewhere in a large filing (confirmed real on LT: "equity share
-        # capital" matched a narrative sentence about an ACQUISITION on a
-        # completely different page, and "other equity" separately matched
-        # a joint-venture equity-accounting reconciliation table - neither
-        # the actual consolidated Balance Sheet's own Share Capital/Other
-        # Equity rows). Only trust the reconstruction when BOTH sub-items
-        # were found on the SAME page as the generic "equity" match itself
-        # (the genuine Balance Sheet page, already independently located) -
-        # real Balance Sheet rows always co-locate on that one page; a
-        # narrative/note false positive essentially never does. Silently
-        # falls back to the generic match (unchanged prior behaviour)
-        # whenever this cross-check can't be satisfied - never blocks the
-        # ratio outright.
-        _used_equity_split = (_share_capital is not None and _reserves is not None and _equity_hit is not None
-                               and _share_capital_hit.get("page") is not None
-                               and _share_capital_hit.get("page") == _equity_hit.get("page")
-                               and _reserves_hit.get("page") == _equity_hit.get("page"))
-        if _used_equity_split:
-            equity = _share_capital + _reserves
-        else:
-            equity = num("equity")
-        revenue = num("revenue")
-        dps = num("dividend_per_share")
-        total_debt, cash = num("total_debt"), num("cash")
-        # EBITDA is deliberately NOT read from the raw "ebitda" alias match
-        # (`items.get("ebitda")`) - Schedule III filings routinely print an
-        # "EBITDA" HEADING above a margin-analysis table (Reported EBITDA %,
-        # Pre-R&D EBITDA %, ...) rather than the absolute figure itself, and
-        # the generic alias-matcher can't tell a percentage table from the
-        # real value - confirmed real on CIPLA: this alias matched "EBITDA
-        # 22.5 27.0 21.0 25.9" (margin percentages, not crore) and fed a
-        # 5110x EV/EBITDA. Derived instead the SAME reliable way the narrow
-        # parser's own `fetch_ebitda_from_annual_report` already computes it
-        # (Revenue - COGS - Employee Benefit Expense - Other Expenses) from
-        # atomic P&L lines that don't have this ambiguity, falling back to
-        # the raw alias only when one of those atomic lines is itself
-        # unavailable (never silently substituting a value known to be
-        # unreliable when a reliable derivation is possible).
-        materials = num("cost_of_materials_consumed") or 0.0
-        stock_in_trade = num("purchases_of_stock_in_trade") or 0.0
-        inv_change = num("changes_in_inventories") or 0.0
-        ebe = num("employee_benefit_expense")
-        oe = num("other_expenses")
-        if revenue is not None and ebe is not None and oe is not None and \
-                (num("cost_of_materials_consumed") is not None or num("purchases_of_stock_in_trade") is not None):
-            cogs_for_ebitda = materials + stock_in_trade + inv_change
-            ebitda = revenue - cogs_for_ebitda - ebe - oe
-        else:
-            ebitda = num("ebitda")
-        ocf = num("operating_cash_flow")
-        fcf_cr = num("operating_cash_flow") - num("capex") if (num("operating_cash_flow") is not None and num("capex") is not None) else None
-
-        # Every ratio below divides/multiplies a CURRENT market price against
-        # a HISTORICAL (FY-end) financial-statement figure - two genuinely
-        # different dates by design (this is what P/E, P/B etc. always are),
-        # but the ratio's own `inputs` trail must show that explicitly rather
-        # than silently combining them - a value can only be independently
-        # re-derived (or its "why does this look wrong" investigated) if the
-        # price actually used is itself part of the recorded lineage, not
-        # just implied by back-solving (ratio x other_input).
-        price_input = {"name": "market_price", "value": round(ltp, 2), "unit": "₹",
-                        "source": f"Live quote ({price.get('source') or 'unknown source'})", "page": "Not available",
-                        "source_file": "Live market quote (not a document)",
-                        "source_type": "Market Data", "section": "Not available"}
-
-        def inp_with_price(*keys):
-            return inp(*keys) + [price_input]
-
-        if sr_no == 24:  # P/E = price / EPS
-            if not eps:
-                return None, None, "not_disclosed", inp_with_price("eps"), {}
-            return round(ltp / eps, 4), "x", "verified", inp_with_price("eps"), {"eps": eps}
-
-        if sr_no == 25:  # P/B = price / BVPS
-            equity_keys = (("equity_share_capital", "reserves_and_surplus")
-                           if _used_equity_split else ("equity",))
-            if not equity or not shares:
-                return None, None, "not_disclosed", inp_with_price(*equity_keys, "shares_outstanding"), {}
-            bvps = equity * 1e7 / shares
-            return round(ltp / bvps, 4), "x", "verified", inp_with_price(*equity_keys, "shares_outstanding"), {}
-
-        if sr_no == 26:  # P/S = Market Cap / Revenue
-            if not shares or not revenue:
-                return None, None, "not_disclosed", inp_with_price("shares_outstanding", "revenue"), {}
-            market_cap = ltp * shares
-            return round(market_cap / (revenue * 1e7), 4), "x", "verified", inp_with_price("shares_outstanding", "revenue"), {}
-
-        if sr_no == 27:  # Dividend Yield = DPS / price
-            # Per the project's own established, documented policy (see the
-            # narrow parser's `_find_dividend_per_share`/Sr No 47 docstrings
-            # in tools/annual_report_financials.py: "no dividend declared is
-            # a real 0%, NOT missing data"), finding no dividend-per-share
-            # line at all defaults to a CONFIRMED 0.0 at reduced confidence
-            # (needs_review), never `not_disclosed` - a company genuinely
-            # paying no dividend this year is a real, common, meaningful
-            # fact, not an extraction failure. This Strategy-C path
-            # previously diverged from that established policy, showing
-            # not_disclosed instead - confirmed wrong on ANURAS by reading
-            # the actual Directors' Report text: "For the financial year
-            # 2024-25, no dividend has been recommended by the Board..." -
-            # a genuine, confirmed zero, not missing information.
-            if dps is None:
-                return round(0.0, 4), "%", "needs_review", inp_with_price("dividend_per_share"), {}
-            return round(dps / ltp * 100, 4), "%", "verified", inp_with_price("dividend_per_share"), {}
-
-        if sr_no == 29:  # EV/EBITDA = (Market Cap + Debt - Cash) / EBITDA
-            if not shares or not ebitda:
-                return None, None, "not_disclosed", inp_with_price("shares_outstanding", "total_debt", "cash", "ebitda"), {}
-            market_cap = ltp * shares
-            ev = market_cap + (total_debt or 0) * 1e7 - (cash or 0) * 1e7
-            return (round(ev / (ebitda * 1e7), 4), "x", "verified", inp_with_price("total_debt", "cash", "ebitda"),
-                    {"ev": ev, "revenue_cr": revenue})
-
-        if sr_no == 37:  # FCF Yield = FCF / Market Cap
-            if not shares or fcf_cr is None:
-                return None, None, "not_disclosed", inp_with_price("shares_outstanding", "operating_cash_flow", "capex"), {}
-            market_cap = ltp * shares
-            return round(fcf_cr * 1e7 / market_cap * 100, 4), "%", "verified", inp_with_price("operating_cash_flow", "capex"), {}
-
-        if sr_no == 53:  # Price/Cash Flow = Market Cap / OCF
-            if not shares or not ocf:
-                return None, None, "not_disclosed", inp_with_price("shares_outstanding", "operating_cash_flow"), {}
-            market_cap = ltp * shares
-            return round(market_cap / (ocf * 1e7), 4), "x", "verified", inp_with_price("operating_cash_flow"), {}
-
-    if sr_no in (62, 64):  # bank-only, resolved sector already gated in caller
-        if sr_no == 62:  # PCR = Total Provisions / Gross NPA
-            prov, npa = num("total_provisions"), num("gross_npa")
-            if prov is None or npa is None or npa == 0:
-                return None, None, "not_disclosed", inp("total_provisions", "gross_npa"), {}
-            return round(prov / npa * 100, 4), "%", "verified", inp("total_provisions", "gross_npa"), {}
-        if sr_no == 64:  # Credit-to-Deposit = Advances / Deposits
-            adv, dep = num("advances"), num("deposits")
-            if adv is None or dep is None or dep == 0:
-                return None, None, "not_disclosed", inp("advances", "deposits"), {}
-            return round(adv / dep * 100, 4), "%", "verified", inp("advances", "deposits"), {}
-
+    if sr_no == 62:  # PCR = Total Provisions / Gross NPA
+        prov, npa = num("total_provisions"), num("gross_npa")
+        if prov is None or npa is None or npa == 0:
+            return None, None, "not_disclosed", inp("total_provisions", "gross_npa"), {}
+        v = prov / npa * 100
+        lo, hi = rc_bounds("provision_coverage_ratio")
+        if not lo <= v <= hi:
+            return None, None, "insufficient_data", inp("total_provisions", "gross_npa"), {}
+        return round(v, 4), "%", "verified", inp("total_provisions", "gross_npa"), {}
+    if sr_no == 64:  # Credit-to-Deposit = Advances / Deposits
+        adv, dep = num("advances"), num("deposits")
+        if adv is None or dep is None or dep == 0:
+            return None, None, "not_disclosed", inp("advances", "deposits"), {}
+        v = adv / dep * 100
+        lo, hi = rc_bounds("credit_to_deposit_ratio")
+        if not lo <= v <= hi:
+            return None, None, "insufficient_data", inp("advances", "deposits"), {}
+        return round(v, 4), "%", "verified", inp("advances", "deposits"), {}
     return None, None, "not_disclosed", [], {}
+
+
+_DB_STATUSES = ("verified", "needs_review", "not_disclosed", "not_applicable", "insufficient_data")
+
+
+def _db_status(status):
+    """`fundamental_analysis_results.status` carries a CHECK constraint that predates 'not_meaningful'. The true
+    status is always stored in the row's `_metadata.status_detail` and restored on read (see
+    `regroup_fundamental_rows`), so no schema migration is needed; a not-meaningful multiple is parked in the
+    column as 'needs_review' (it is never a verified number)."""
+    return status if status in _DB_STATUSES else "needs_review"
+
+
+def _persist_fundamental_rows(sb, sym, results_rows):
+    """Upserts the computed rows. `computed_at` is written EXPLICITLY on every upsert: the column default only
+    fires on INSERT, so without this a recalculated row kept its first-ever timestamp. Statuses are written
+    in their DB-constraint-safe form (see `_db_status`); the true status lives in `_metadata.status_detail`."""
+    import time
+    import datetime as _dt
+    stamp = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    rows = [{"symbol": sym, "computed_at": stamp, **r, "status": _db_status(r["status"])} for r in results_rows]
+    for i in range(0, len(rows), 100):
+        batch = rows[i:i + 100]
+        for attempt in range(3):
+            try:
+                sb.table("fundamental_analysis_results").upsert(batch, on_conflict="symbol,ratio_key").execute()
+                break
+            except Exception as e:
+                if attempt == 2:
+                    raise
+                print(f"[document_analysis] [DATABASE] {sym}: fundamental batch write failed (attempt {attempt+1}): {e} - retrying")
+                time.sleep(0.3 * (3 ** attempt))
+    return len(rows)
+
+
+def _like(ratio_def, out, row):
+    """Result-shaped view of a computed row (what the contract's derived ratios consume as a parent)."""
+    raw = out.get("value_raw") if out.get("value_raw") is not None else row.get("value")
+    return {"ratio_key": ratio_def["ratio_key"], "label": ratio_def["label"], "value_raw": raw,
+            "status": row["status"], "confidence": out.get("confidence") if out.get("confidence") is not None else 1.0,
+            "estimated": bool(out.get("estimated")), "warnings": out.get("warnings") or [], "reason": out.get("reason"),
+            "unit": row.get("unit"), "breakdown": out.get("breakdown")}
+
+
+# Ratios that have no meaning for a lender (its balance sheet is loans and deposits): working capital, enterprise-value
+# multiples (debt is raw material, not capital structure), free-cash-flow yields and price/sales. A lender whose statements are
+# not Schedule III (RBI format) is therefore Not Applicable for them rather than "could not be read".
+_LENDER_NA_KEYS = {"working_capital", "ps_ratio", "ev_to_ebitda", "fcf_yield", "ev_to_sales", "ev_to_fcf", "price_to_cash_flow"}
+_LENDER_NA_REASON = ("Not applicable - this is a lender (Banks/NBFC sector): working capital, enterprise-value, free-cash-flow "
+                     "and price/sales measures are not defined for a balance sheet made of loans and deposits.")
 
 
 def run_fundamental_analysis(symbol, name=None):
     """Computes all 68 ratios from tools/fundamental_ratio_registry.py and
     persists them to fundamental_analysis_results (upsert on
     symbol+ratio_key) - always exactly 68 rows, each with an honest status
-    (verified/needs_review/not_disclosed/not_applicable/insufficient_data),
+    (verified/needs_review/not_meaningful/not_disclosed/not_applicable/insufficient_data),
     never a fabricated value just to make the count look complete.
+
+    Every non-bank ratio is computed by `tools.ratio_contract` from the ONE normalized FactSet
+    (Strategy A rows through the legacy fetch adapters, Strategy C/B directly), so this table, the
+    dashboard endpoints and the canonical API cannot disagree. Rows carry the formula version,
+    statement basis, perimeter, input facts and a fresh `computed_at`.
 
     Runs entirely inside tools/manual_mode.py's guard - see that module's
     docstring for why every reused tools.nse_xbrl fetcher is safe to call
     here without reaching live NSE/BSE/yfinance/shareholding-scraper."""
     import time
+    import datetime as _dt
     from tools.fundamental_ratio_registry import RATIOS, COMPUTE_ORDER, BY_SR_NO
     from tools.sector_ratio_applicability import is_bank_ratio_applicable
     from tools.nse_sector_map import get_nse_sector
     from tools.market_price import get_live_price
     from tools.manual_mode import manual_mode
+    from tools import ratio_contract as rc
 
     sym = symbol.strip().upper().replace(".NS", "")
     t0 = time.time()
@@ -1941,12 +1880,7 @@ def run_fundamental_analysis(symbol, name=None):
     with manual_mode():
         sector = get_nse_sector(sym)
         bank_ok = is_bank_ratio_applicable(sector)
-        items = extract_line_items(sym)
-        # bse_code: the company's real BSE scrip code (backfilled from the
-        # Annual Report's own text - see manual_document_pipeline.py's
-        # _backfill_listing_identifiers), used as a fallback market-price
-        # identifier when `sym` (the internal registry symbol, which can be
-        # a synthetic placeholder) isn't itself a real tradeable ticker.
+        items = extract_line_items(sym)  # banking line items for the bank-only Strategy-C ratios
         bse_code = None
         try:
             from tools.supabase_client import get_client as _get_sb
@@ -1954,21 +1888,25 @@ def run_fundamental_analysis(symbol, name=None):
             bse_code = (_rows[0].get("bse_code") if _rows else None)
         except Exception:
             pass
-        price = get_live_price(sym, bse_code=bse_code)  # market-price layer, kept separate - never used for any facts above
+        price = get_live_price(sym, bse_code=bse_code)  # market-price layer, kept separate - never used for any facts
+        market = {"price": float(price["ltp"]), "source": price.get("source") or "unknown",
+                  "as_of": "live quote"} if price and price.get("ltp") else None
 
-        computed = {}  # sr_no -> {"value", "unit", "extra"}
+        # ONE fact set for the whole run (same document the Strategy-A fetchers read)
+        fs, fy = None, None
+        try:
+            from tools.ar_document_cache import get_ar_pages
+            from tools.fundamental_fact_store import get_canonical_facts
+            fy = (get_ar_pages(sym, sym) or {}).get("fiscal_year")
+            if fy:
+                _fs = get_canonical_facts(sym, name, fy)
+                fs = None if _fs.facts.get("_error") else _fs
+        except Exception as e:
+            print(f"[document_analysis] fact set unavailable for {sym}: {e}")
+
+        results = {}      # ratio_key -> result-shaped dict (parents for derived ratios)
         rows_by_sr = {}
 
-        # Strategy A/C ratios each independently scan the (large, cached)
-        # Annual Report text and have no cross-ratio dependencies - safe to
-        # run concurrently. Strategy B (derived) ratios only ever depend on
-        # A/C or earlier-B ratios (COMPUTE_ORDER guarantees this - see its
-        # own comment), so they must stay sequential and run only after
-        # every A/C ratio has finished. Mirrors the same
-        # ThreadPoolExecutor-with-manual_mode()-entered-per-worker pattern
-        # already proven safe for run_qualitative_analysis (contextvars
-        # don't propagate into worker threads, so manual_mode() must be
-        # entered INSIDE each worker, not just around the pool).
         ac_sr_nos = [sr_no for sr_no in COMPUTE_ORDER if BY_SR_NO[sr_no]["strategy"] != "B"]
         b_sr_nos = [sr_no for sr_no in COMPUTE_ORDER if BY_SR_NO[sr_no]["strategy"] == "B"]
 
@@ -1983,60 +1921,72 @@ def run_fundamental_analysis(symbol, name=None):
                                             "source": (f"{ratio_def['label']} is a banking/NBFC-specific ratio and "
                                                        f"is not applicable to {sector_label} companies."),
                                             "page": None}])
-                        return sr_no, row, {"value": None, "unit": None, "extra": {}}
+                        return sr_no, row, None
 
                     if ratio_def["strategy"] == "A":
-                        out = _call_nse_xbrl(ratio_def["nse_xbrl_fn"], sym, name)
+                        out = _call_nse_xbrl(ratio_def["nse_xbrl_fn"], sym, name, lender=bank_ok)
                         row = _row_from_nse_xbrl_out(ratio_def, out)
-                        # `raw`: the fetcher's UNROUNDED ratio (when it emits one) - Strategy-B
-                        # derivations (DOH/DSO/DPO/CCC...) must divide by this, never by the
-                        # 2-decimal display value, or the rounding error is amplified
-                        # (365 / 0.82 vs 365 / 0.8203 is 0.16 days; 365 / 1.90 vs 1.895 is 0.5).
-                        return sr_no, row, {"value": row["value"], "unit": row["unit"], "extra": {},
-                                            "raw": out.get("value_raw")}
-                    else:  # "C"
-                        value, unit, status, inputs, extra = _local_group_c(sr_no, items, sector, price, sym=sym)
-                        row = _row_shell(ratio_def, value, unit, status, inputs)
-                        return sr_no, row, {"value": value, "unit": unit, "extra": extra}
+                        return sr_no, row, _like(ratio_def, out, row)
+                    # strategy "C": contract ratios from the fact set; bank-only ones from banking line items
+                    if ratio_def["ratio_key"] in rc.COMPUTABLE:
+                        if bank_ok and ratio_def["ratio_key"] in _LENDER_NA_KEYS:
+                            row = _row_shell(ratio_def, None, None, "not_applicable", [], reason=_LENDER_NA_REASON)
+                            return sr_no, row, {"ratio_key": ratio_def["ratio_key"], "label": ratio_def["label"], "value_raw": None,
+                                                "status": "not_applicable", "confidence": 0.0, "estimated": False,
+                                                "warnings": [], "reason": _LENDER_NA_REASON, "unit": None}
+                        if fs is None:
+                            row = _row_shell(ratio_def, None, None, "insufficient_data", [],
+                                              reason="The uploaded Annual Report's statements could not be read.")
+                            return sr_no, row, None
+                        from tools.annual_report_financials import _contract_to_legacy
+                        res = rc.compute_ratio(ratio_def["ratio_key"], fs, market, {})
+                        legacy = _contract_to_legacy(res, fs, fy)
+                        row = _row_from_nse_xbrl_out(ratio_def, legacy)
+                        return sr_no, row, _like(ratio_def, legacy, row)
+                    # PCR (Sr 62) / Credit-to-Deposit (Sr 64): the same identity-checked bank reader as Sr 58-61/63/65
+                    import tools.annual_report_financials as _arf
+                    _fn = getattr(_arf, f"fetch_{ratio_def['ratio_key']}_from_annual_report", None)
+                    if _fn is not None and fy:
+                        out = _fn(sym, name, fy, True)
+                        row = _row_from_nse_xbrl_out(ratio_def, out)
+                        return sr_no, row, _like(ratio_def, out, row)
+                    value, unit, status, inputs, _extra = _local_bank_group_c(sr_no, items, sym=sym)
+                    row = _row_shell(ratio_def, value, unit, status, inputs)
+                    return sr_no, row, _like(ratio_def, {}, row)
             except Exception as e:
-                # A bug in ONE ratio's compute logic (e.g. the UnboundLocal-
-                # Error class of crash confirmed real in ROCE/ROIC's
-                # Total-Expenses-shortcut branch) must never take down the
-                # other 60+ ratios in this same concurrent batch -
-                # `ex.map` below re-raises any worker exception the moment
-                # its result is consumed, which previously meant one bad
-                # ratio silently aborted the ENTIRE run_fundamental_analysis
-                # call (a raw HTTP 500, not even a partial result) rather
-                # than reporting just that one ratio as unavailable.
+                # A bug in ONE ratio's compute logic must never take down the other 60+ ratios in this
+                # concurrent batch - report just that one ratio as unavailable.
                 print(f"[document_analysis] sr_no={sr_no} ({ratio_def.get('label')}) compute crashed: {e}")
                 row = _row_shell(ratio_def, None, None, "not_disclosed",
                                   [{"name": "reason", "value": None, "unit": None,
                                     "source": "An internal error occurred computing this ratio - please report this "
                                               "if it persists on re-analysis.", "page": None}])
-                return sr_no, row, {"value": None, "unit": None, "extra": {}}
+                return sr_no, row, None
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=_QUALITATIVE_WORKERS) as ex:
-            for sr_no, row, comp in ex.map(_compute_ac, ac_sr_nos):
+            for sr_no, row, like in ex.map(_compute_ac, ac_sr_nos):
                 rows_by_sr[sr_no] = row
-                computed[sr_no] = comp
+                if like is not None:
+                    results[BY_SR_NO[sr_no]["ratio_key"]] = like
 
         for sr_no in b_sr_nos:
             ratio_def = BY_SR_NO[sr_no]
-            # "B" derived - pure math over `computed`, cheap and sequential
-            value, unit = _derived(sr_no, computed)
-            needs = _DERIVED_FORMULA_NEEDS_INPUTS.get(sr_no, ratio_def.get("depends_on", []))
-            missing_dep = any(computed.get(d, {}).get("value") is None for d in needs)
-            status = "not_disclosed" if value is None else "verified"
-            if value is None and missing_dep:
-                status = "not_disclosed"
-            # `derived_from` REFERENCES each dependency's own
-            # already-computed row (value/formula/status) rather than
-            # re-fabricating or duplicating its extraction evidence -
-            # the dependency's OWN row already carries its full
-            # source_file/page/section trail (or its own `derived_from`
-            # chain, for a ratio derived from another derived ratio,
-            # e.g. Sustainable Growth Rate <- Retention Ratio <-
-            # Dividend Payout Ratio), so this is a pointer, not a copy.
+            key = ratio_def["ratio_key"]
+            if (bank_ok and key in _LENDER_NA_KEYS) or fs is None:
+                na_parent = next((results[pk] for pk in rc.PARENTS.get(key, []) if (results.get(pk) or {}).get("status") == "not_applicable"), None)
+                if na_parent is not None or (bank_ok and key in _LENDER_NA_KEYS):
+                    why = (f"{na_parent['label']} is not applicable: {na_parent.get('reason') or ''}" if na_parent is not None
+                           else _LENDER_NA_REASON)
+                    res = {"ratio_key": key, "label": ratio_def["label"], "value_raw": None, "unit": "x", "status": "not_applicable",
+                           "confidence": 0.0, "estimated": False, "warnings": [], "reason": why}
+                else:
+                    res = {"ratio_key": key, "label": ratio_def["label"], "value_raw": None, "unit": "x",
+                           "status": "insufficient_data", "confidence": 0.0, "estimated": False, "warnings": [],
+                           "reason": "The uploaded Annual Report's statements could not be read."}
+            else:
+                deps = {p: results.get(p) for p in rc.PARENTS.get(key, [])}
+                res = rc.compute_ratio(key, fs, market, deps)
+            needs = ratio_def.get("depends_on", [])
             derived_from = [
                 {"sr_no": d, "ratio": BY_SR_NO[d]["label"], "ratio_key": BY_SR_NO[d]["ratio_key"],
                  "value": rows_by_sr[d]["value"] if d in rows_by_sr else None,
@@ -2045,50 +1995,73 @@ def run_fundamental_analysis(symbol, name=None):
                  "status": rows_by_sr[d]["status"] if d in rows_by_sr else None}
                 for d in needs
             ]
-            row = _row_shell(ratio_def, value, unit, status, [], derived_from=derived_from)
+            meta = {k: res.get(k) for k in ("formula_version", "perimeter", "period_basis", "methodology", "confidence")
+                    if res.get(k) is not None}
+            if res.get("warnings"):
+                meta["warnings"] = res["warnings"]
+            if res.get("breakdown"):
+                meta["breakdown"] = res["breakdown"]
+            meta["calculated_at"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
+            if fs is not None:
+                meta["statement_basis"] = "consolidated" if fs.selection.selected_basis == "CONSOLIDATED" else "standalone"
+            row = _row_shell(ratio_def, res.get("value_raw"), res.get("unit") or "x", res["status"], [],
+                              derived_from=derived_from, meta=meta, reason=res.get("reason"))
             rows_by_sr[sr_no] = row
-            computed[sr_no] = {"value": value, "unit": unit, "extra": {}}
+            results[key] = {**res, "label": ratio_def["label"]}
 
-        results = [rows_by_sr[r["sr_no"]] for r in RATIOS]
+        results_rows = [rows_by_sr[r["sr_no"]] for r in RATIOS]
 
-    print(f"[document_analysis] [FUNDAMENTAL] {sym}: {len(results)}/68 ratios computed in {time.time()-t0:.2f}s "
-          f"({sum(1 for r in results if r['status'] == 'verified')} verified, "
-          f"{sum(1 for r in results if r['status'] == 'needs_review')} needs_review, "
-          f"{sum(1 for r in results if r['status'] == 'not_disclosed')} not_disclosed, "
-          f"{sum(1 for r in results if r['status'] == 'not_applicable')} not_applicable, "
-          f"{sum(1 for r in results if r['status'] == 'insufficient_data')} insufficient_data)")
+    print(f"[document_analysis] [FUNDAMENTAL] {sym}: {len(results_rows)}/68 ratios computed in {time.time()-t0:.2f}s "
+          f"({sum(1 for r in results_rows if r['status'] == 'verified')} verified, "
+          f"{sum(1 for r in results_rows if r['status'] == 'needs_review')} needs_review, "
+          f"{sum(1 for r in results_rows if r['status'] == 'not_meaningful')} not_meaningful, "
+          f"{sum(1 for r in results_rows if r['status'] == 'not_disclosed')} not_disclosed, "
+          f"{sum(1 for r in results_rows if r['status'] == 'not_applicable')} not_applicable, "
+          f"{sum(1 for r in results_rows if r['status'] == 'insufficient_data')} insufficient_data)")
 
     t2 = time.time()
     from tools.supabase_client import get_client
-    sb = get_client()
-    rows = [{"symbol": sym, **r} for r in results]
-    # Same transient-Windows-socket-exhaustion retry the qualitative
-    # pipeline already needed (tools/qualitative_db.py's write_qualitative)
-    # - this bulk upsert had NONE at all, so a single WinError 10035 hit
-    # here (confirmed real: killed a whole first-time analysis run with a
-    # raw HTTP 422, not a soft per-ratio failure) aborted the entire
-    # fundamental analysis outright instead of just retrying once.
-    for i in range(0, len(rows), 100):
-        batch = rows[i:i + 100]
-        for attempt in range(3):
-            try:
-                sb.table("fundamental_analysis_results").upsert(batch, on_conflict="symbol,ratio_key").execute()
-                break
-            except Exception as e:
-                if attempt == 2:
-                    raise
-                print(f"[document_analysis] [DATABASE] {sym}: fundamental batch write failed (attempt {attempt+1}): {e} - retrying")
-                time.sleep(0.3 * (3 ** attempt))
-    print(f"[document_analysis] [DATABASE] {sym}: {len(rows)} fundamental rows written in {time.time()-t2:.2f}s")
+    n_written = _persist_fundamental_rows(get_client(), sym, results_rows)
+    print(f"[document_analysis] [DATABASE] {sym}: {n_written} fundamental rows written in {time.time()-t2:.2f}s")
 
     return {
-        "verified": sum(1 for r in results if r["status"] == "verified"),
-        "needs_review": sum(1 for r in results if r["status"] == "needs_review"),
-        "not_disclosed": sum(1 for r in results if r["status"] == "not_disclosed"),
-        "not_applicable": sum(1 for r in results if r["status"] == "not_applicable"),
-        "insufficient_data": sum(1 for r in results if r["status"] == "insufficient_data"),
-        "total": len(results),
+        "verified": sum(1 for r in results_rows if r["status"] == "verified"),
+        "needs_review": sum(1 for r in results_rows if r["status"] == "needs_review"),
+        "not_meaningful": sum(1 for r in results_rows if r["status"] == "not_meaningful"),
+        "not_disclosed": sum(1 for r in results_rows if r["status"] == "not_disclosed"),
+        "not_applicable": sum(1 for r in results_rows if r["status"] == "not_applicable"),
+        "insufficient_data": sum(1 for r in results_rows if r["status"] == "insufficient_data"),
+        "total": len(results_rows),
     }
+
+
+def _row_formula_version(row):
+    for i in row.get("inputs") or []:
+        if isinstance(i, dict) and i.get("name") == "_metadata":
+            return i.get("formula_version")
+    return None
+
+
+def _row_breakdown_version(row):
+    for i in row.get("inputs") or []:
+        if isinstance(i, dict) and i.get("name") == "_metadata":
+            return i.get("breakdown_version")
+    return None
+
+
+def mark_stale_rows(rows):
+    """Flags (never hides) rows computed under an older ratio-contract formula version, or before formula
+    versions existed - they must not silently pass as current. Bank/not-applicable rows that carry no
+    metadata of their own are judged by the rest of the set."""
+    from tools.ratio_contract import FORMULA_VERSION
+    from tools.ratio_breakdown import BREAKDOWN_VERSION
+    out = []
+    for r in rows:
+        v = _row_formula_version(r)
+        out.append({**r, "stale": v != FORMULA_VERSION, "formula_version": v or None,
+                    # same numbers, but saved without the calculation breakdown (display provenance) - refreshed on read
+                    "breakdown_outdated": _row_breakdown_version(r) != BREAKDOWN_VERSION})
+    return out
 
 
 def get_fundamental_results(symbol):
@@ -2096,7 +2069,31 @@ def get_fundamental_results(symbol):
     from tools.supabase_client import get_client
     sb = get_client()
     rows = sb.table("fundamental_analysis_results").select("*").eq("symbol", sym).execute().data or []
-    return regroup_fundamental_rows(rows)
+    return mark_stale_rows(regroup_fundamental_rows(rows))
+
+
+_RECALC_LOCKS = {}
+_RECALC_GUARD = threading.Lock()
+
+
+def ensure_current_fundamental_results(symbol, name=None):
+    """Rows computed under an older formula/extraction version are recalculated from the uploaded documents
+    on read (once, serialised per symbol) instead of being served as if they were current. If the documents
+    are gone or the recalculation fails, the stale rows are still returned - flagged `stale` - never hidden."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    rows = get_fundamental_results(sym)
+    if rows and any(r.get("stale") or r.get("breakdown_outdated") for r in rows):
+        with _RECALC_GUARD:
+            lock = _RECALC_LOCKS.setdefault(sym, threading.Lock())
+        with lock:
+            rows = get_fundamental_results(sym)       # another request may have refreshed it meanwhile
+            if any(r.get("stale") or r.get("breakdown_outdated") for r in rows):
+                try:
+                    run_fundamental_analysis(sym, name)
+                    rows = get_fundamental_results(sym)
+                except Exception as e:
+                    print(f"[document_analysis] lazy recalculation failed for {sym}: {e}")
+    return rows
 
 
 def regroup_fundamental_rows(rows):
@@ -2110,7 +2107,12 @@ def regroup_fundamental_rows(rows):
     out = []
     for r in rows:
         spec = BY_RATIO_KEY.get(r.get("ratio_key"))
-        out.append({**r, "category": spec["category"], "sr_no": spec["sr_no"]} if spec else dict(r))
+        row = {**r, "category": spec["category"], "sr_no": spec["sr_no"]} if spec else dict(r)
+        for i in row.get("inputs") or []:                       # restore the true status (see _db_status)
+            if isinstance(i, dict) and i.get("name") == "_metadata" and i.get("status_detail") in (
+                    "verified", "needs_review", "not_meaningful", "not_disclosed", "not_applicable", "insufficient_data"):
+                row["status"] = i["status_detail"]
+        out.append(row)
     from tools.ratio_display import apply_display_names
     out = [apply_display_names(r) for r in out]            # user-facing label + display_priority (presentation only)
     rank = {c: i for i, c in enumerate(CATEGORY_ORDER)}

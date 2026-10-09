@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { searchSymbols } from '../lib/api.js';
+import { detailLine, chooseCompany, NO_MATCH_TEXT } from '../lib/companySearch.js';
 import ManualUpload from '../components/ManualUpload.jsx';
 
 /* ---- small inline icon set (stroke, currentColor) ---- */
@@ -68,6 +69,7 @@ const TRUST = [
 export default function Landing({ onSelect, onOpenManual, onLogout }) {
   const [q, setQ] = useState('');
   const [matches, setMatches] = useState([]);
+  const [noMatch, setNoMatch] = useState(false);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const boxRef = useRef(null);
@@ -113,11 +115,11 @@ export default function Landing({ onSelect, onOpenManual, onLogout }) {
 
   useEffect(() => {
     let live = true;
-    if (!q.trim()) { setMatches([]); setOpen(false); return; }
+    if (!q.trim()) { setMatches([]); setNoMatch(false); setOpen(false); return; }
     const t = setTimeout(async () => {
       const r = await searchSymbols(q);
       if (!live) return;
-      setMatches(r.slice(0, 8)); setOpen(true); setActive(0);
+      setMatches(r.slice(0, 8)); setNoMatch(r.length === 0); setOpen(true); setActive(0);
     }, 130);
     return () => { live = false; clearTimeout(t); };
   }, [q]);
@@ -136,22 +138,22 @@ export default function Landing({ onSelect, onOpenManual, onLogout }) {
     setManualSymbol(sym ? String(sym).toUpperCase() : '');
     setShowManual(true);
   };
-  const onKey = async (e) => {
-    if (!open || !matches.length) {
-      // No dropdown match yet (typed faster than the debounced search
-      // resolved) - try one direct lookup before sending the raw text as
-      // the "symbol", otherwise a full company name like "Gopal Snacks"
-      // reaches the backend instead of its real ticker "GOPAL".
-      if (e.key === 'Enter' && q.trim()) {
-        const query = q.trim();
-        const r = await searchSymbols(query);
-        go(r[0]?.symbol || query);
-      }
-      return;
-    }
+  // Enter / Analyze: open the highlighted company, else look the typed text up once.
+  // Only a resolved company is opened - raw text is never sent on as a "symbol".
+  const submit = async () => {
+    const query = q.trim();
+    if (!query) return;
+    if (open && matches[active]) { go(matches[active].symbol); return; }
+    const r = await searchSymbols(query);
+    const pick = chooseCompany(r);
+    if (pick) { go(pick.symbol); return; }
+    setMatches(r.slice(0, 8)); setNoMatch(r.length === 0); setActive(0); setOpen(true);
+  };
+  const onKey = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submit(); return; }
+    if (!open || !matches.length) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => (i + 1) % matches.length); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => (i - 1 + matches.length) % matches.length); }
-    else if (e.key === 'Enter') { e.preventDefault(); go(matches[active]?.symbol || q.trim()); }
     else if (e.key === 'Escape') setOpen(false);
   };
 
@@ -194,12 +196,12 @@ export default function Landing({ onSelect, onOpenManual, onLogout }) {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={onKey}
-                onFocus={() => matches.length && setOpen(true)}
+                onFocus={() => (matches.length || noMatch) && setOpen(true)}
                 placeholder="Search a company or ticker"
                 className="flex-1 bg-transparent outline-none text-slate-100 placeholder:text-slate-500 text-[16px] min-w-0"
                 aria-label="Search companies"
               />
-              <button onClick={() => go(matches[active]?.symbol || q.trim())} className="nv-btn nv-btn-primary h-10 px-5 flex-shrink-0">
+              <button onClick={submit} className="nv-btn nv-btn-primary h-10 px-5 flex-shrink-0">
                 Analyze <IconArrow />
               </button>
             </div>
@@ -219,9 +221,12 @@ export default function Landing({ onSelect, onOpenManual, onLogout }) {
                 popping; pointer-events off while hidden so it never blocks clicks. */}
             <div
               className={`absolute left-0 right-0 mt-2 z-30 nv-card nv-float2 p-1.5 overflow-hidden transition-all duration-200 ease-out origin-top ${
-                open && matches.length > 0 ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-[0.98] -translate-y-1 pointer-events-none'
+                open && (matches.length > 0 || noMatch) ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-[0.98] -translate-y-1 pointer-events-none'
               }`}
             >
+              {open && noMatch && (
+                <div className="px-3 py-3 text-[13px] text-slate-400">{NO_MATCH_TEXT}</div>
+              )}
               {matches.map((m, i) => (
                 <button
                   key={m.symbol + i}
@@ -234,7 +239,7 @@ export default function Landing({ onSelect, onOpenManual, onLogout }) {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[14px] font-semibold text-slate-100 truncate">{m.name || m.symbol}</span>
-                    <span className="block text-[11px] text-slate-500 truncate">{m.symbol} · NSE · Equity</span>
+                    <span className="block text-[11px] text-slate-500 truncate">{detailLine(m)}</span>
                   </span>
                   <span className="nv-eyebrow text-slate-600">Open</span>
                 </button>
@@ -245,7 +250,7 @@ export default function Landing({ onSelect, onOpenManual, onLogout }) {
         </div>
 
         {/* watchlist */}
-        <div ref={editRef} className={`max-w-3xl mx-auto px-6 pb-16 transition-opacity duration-200 ${open && matches.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        <div ref={editRef} className={`max-w-3xl mx-auto px-6 pb-16 transition-opacity duration-200 ${open && (matches.length > 0 || noMatch) ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
           <div className="flex items-center justify-center gap-2 mb-3">
             <span className="nv-eyebrow text-slate-500">Your watchlist</span>
             <button

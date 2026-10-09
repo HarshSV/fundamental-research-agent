@@ -79,7 +79,8 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         function useLiveQuote(symbol) {
             const [quote, setQuote] = useState(null);
             useEffect(() => {
-                if (!symbol) { setQuote(null); return; }
+                setQuote(null); // a company switch must never keep the previous company's price on screen
+                if (!symbol) return;
                 let active = true;
                 const token = localStorage.getItem(TOKEN_KEY);
                 const poll = () => {
@@ -242,6 +243,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         const LivePriceTicker = ({ symbol }) => {
             const [quote, setQuote] = useState(null);
             useEffect(() => {
+                setQuote(null); // never keep the previous company's price after a switch
                 if (!symbol) return;
                 let active = true;
                 const token = localStorage.getItem(TOKEN_KEY);
@@ -280,6 +282,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
         const StickyQuoteCard = ({ symbol, name, score, visible }) => {
             const [quote, setQuote] = useState(null);
             useEffect(() => {
+                setQuote(null); // never keep the previous company's price after a switch
                 if (!symbol) return;
                 let active = true;
                 const token = localStorage.getItem(TOKEN_KEY);
@@ -4640,7 +4643,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Inventory Turnover</span>
-                            <InfoTip text="Measures how efficiently inventory is converted into sales - a key working-capital signal. Formula: Net Sales ÷ Average Inventory (the Annual Report's own definition). Can be distorted by stale/obsolete stock inflating average inventory. Indicative benchmark: Manufacturing/FMCG 6-12x is healthy, below 3x suggests slow-moving stock (varies by industry)." />
+                            <InfoTip text="Measures how efficiently inventory is converted into sales - a key working-capital signal. Formula: Cost of Goods Sold ÷ Average Inventory. Can be distorted by stale/obsolete stock inflating average inventory. Indicative benchmark: Manufacturing/FMCG 6-12x is healthy, below 3x suggests slow-moving stock (varies by industry)." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -4847,7 +4850,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
 
             if (state.loading && !state.data) return (
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg animate-pulse">
-                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">OPM %</div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">EBIT Margin %</div>
                     <div className="text-slate-600 text-xs mt-2">Reading audited filings…</div>
                 </div>
             );
@@ -4902,7 +4905,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg space-y-3">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">OPM %</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">EBIT Margin %</span>
                             <InfoTip text="Shows core operating efficiency, stripping out financing, tax, and one-off items - this is EBIT-basis: excludes Finance Costs, Other Income and Exceptional Items, but DEDUCTS Depreciation & Amortisation as a real operating cost (unlike EBITDA). Formula: (Revenue from Operations − COGS − Employee Benefit Expense − Other Expenses − Depreciation and Amortisation) ÷ Revenue from Operations. Can be manipulated by reclassifying recurring costs as 'Exceptional Items'. Indicative benchmark (highly industry-dependent): IT/Services 20-30%, Manufacturing 10-20%, Trading 3-8% - always compare within sector, not against a single number." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -6025,7 +6028,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Working Capital Turnover</span>
-                            <InfoTip text="Shows how efficiently working capital is used to generate sales. Formula: Revenue from Operations ÷ closing Working Capital (Total Current Assets − Total Current Liabilities) - the Annual Report's Net Capital Turnover definition. Very high values can indicate a lean/efficient operation OR dangerously low (even negative) working capital - read alongside Current Ratio. A negative/zero Working Capital is flagged N/A rather than reported, since it would invert the sign and mislead." />
+                            <InfoTip text="Shows how efficiently working capital is used to generate sales. Formula: Revenue from Operations ÷ Average Working Capital (opening + closing) ÷ 2, where Working Capital = Total Current Assets − Total Current Liabilities. Very high values can indicate a lean/efficient operation OR dangerously low (even negative) working capital - read alongside Current Ratio. A negative/zero Working Capital is flagged N/A rather than reported, since it would invert the sign and mislead." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {d.estimated && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-200 bg-amber-950 border border-amber-500/60 px-2 py-1 rounded-md whitespace-nowrap">Estimated</span>}
@@ -9727,7 +9730,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Dividend Payout %</span>
-                            <InfoTip text="Shows what proportion of profit is being returned to shareholders vs. retained for reinvestment/growth. Directly feeds the Retention Ratio and Sustainable Growth Rate. Formula: Total Dividends Declared ÷ Net Profit. A payout ratio persistently above 100% (paying more in dividends than earned) is a sustainability red flag, especially if funded by debt or cash reserves rather than current earnings. Indicative benchmark: mature/stable-cash-flow businesses (utilities, FMCG) 40-70%; growth companies reinvesting heavily 0-20%; sustained >100% is a red flag unless clearly a one-off special dividend." />
+                            <InfoTip text="Shows what proportion of profit is being returned to shareholders vs. retained for reinvestment/growth. Directly feeds the Retention Ratio and Sustainable Growth Rate. Formula: Dividends Paid (cash flow statement) ÷ Net Profit attributable to owners. When the dividend cannot be determined the ratio is shown as unavailable - never as 0%. A payout ratio persistently above 100% (paying more in dividends than earned) is a sustainability red flag, especially if funded by debt or cash reserves rather than current earnings. Indicative benchmark: mature/stable-cash-flow businesses (utilities, FMCG) 40-70%; growth companies reinvesting heavily 0-20%; sustained >100% is a red flag unless clearly a one-off special dividend." />
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                             {PeriodPicker}
@@ -9740,7 +9743,7 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                         )}
                         {d.confidence != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${d.confidence >= 1 ? 'text-emerald-200 bg-emerald-950 border-emerald-500/60' : d.confidence >= 0.9 ? 'text-blue-200 bg-blue-950 border-blue-500/60' : 'text-amber-200 bg-amber-950 border-amber-500/60'}`}
-                                title="Confidence: 1.0 = an explicit 'dividend paid during the year' disclosure was found; 0.4 = no such disclosure found - defaulted to 0%, which could be a genuine zero-dividend year or an extraction gap.">
+                                title="Confidence: 1.0 = dividends paid read from the cash flow statement; 0.8 = consolidated cash dividends may include amounts paid to non-controlling holders; 0.6 = estimated from declared DPS x shares because no cash-flow line was found.">
                                 Confidence {d.confidence.toFixed(2)}
                             </span>
                         )}
@@ -13358,7 +13361,9 @@ import { getNseSector } from "./lib/nseSectorMap.js";
                 setShowSuggestions(false);
                 setActiveTab(6);
                 setActiveSubTab(p => ({ ...p, 6: 0 }));
-                setDashView('overview'); // land on the new Overview for each new company
+                // Land on the new Overview for each new company - except when the user is
+                // on the Live Chart, where switching company should keep them on the chart.
+                setDashView((v) => (v === 'liveChart' ? v : 'overview'));
                 setShowAllPeers(false);
                 setShowSummary(false);
                 setReportData({
@@ -15224,7 +15229,7 @@ return `₹${(val / 1e7).toFixed(2)} Cr`;
                                                                 { ratio_no: 30, title: 'Fixed Asset Turnover', node: <FixedAssetTurnover {...rp} /> },
                                                                 { ratio_no: 8, title: 'Working Capital Turnover', node: <><WorkingCapitalTurnover {...rp} /><DaysWorkingCapital {...rp} /><ReceivablesToPayablesRatio {...rp} /></> },
                                                                 { ratio_no: 14, title: 'Gross Profit Margin', node: <GrossProfitMargin {...rp} /> },
-                                                                { ratio_no: 15, title: 'OPM %', node: <OperatingProfitMargin {...rp} /> },
+                                                                { ratio_no: 15, title: 'EBIT Margin %', node: <OperatingProfitMargin {...rp} /> },
                                                                 { ratio_no: 16, title: 'Net Profit Margin', node: <NetProfitMargin {...rp} /> },
                                                                 { ratio_no: 17, title: 'Return on Assets', node: <ReturnOnAssets {...rp} /> },
                                                                 { ratio_no: 18, title: 'ROE %', node: <ReturnOnEquity {...rp} /> },

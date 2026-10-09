@@ -14,7 +14,7 @@
 
 import { swingPoints } from './technicalAnalysis.js';
 
-const pct = (a, b) => Math.abs(a - b) / ((a + b) / 2);
+export const pct = (a, b) => Math.abs(a - b) / ((a + b) / 2);
 
 function tierFromScore(score) {
   // score in [0,1]: how closely the geometry matches the textbook shape.
@@ -32,7 +32,7 @@ export function patternType(name) {
   return name.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
-function mk(name, time, tone, score, note, loc) {
+export function mk(name, time, tone, score, note, loc) {
   return {
     time, kind: 'pattern', pattern: name, patternType: patternType(name), tone,
     confidence: tierFromScore(score), text: `${name}${note ? ` - ${note}` : ''}`,
@@ -44,7 +44,7 @@ function rangeOf(candles, a, b) {
   const w = candles.slice(a, b + 1);
   return { rangeLow: Math.min(...w.map((c) => c.low)), rangeHigh: Math.max(...w.map((c) => c.high)) };
 }
-function locOf(candles, startIndex, endIndex, barIndex, price) {
+export function locOf(candles, startIndex, endIndex, barIndex, price) {
   return { barIndex, startIndex, endIndex, price, ...rangeOf(candles, startIndex, endIndex) };
 }
 
@@ -115,7 +115,7 @@ function headAndShoulders(candles, highs, lows) {
 // --- Triangles (Ascending / Symmetrical) + Wedges + Rectangle -------------
 // Fits a line through the last 3+ swing highs and the last 3+ swing lows,
 // classifies by the slopes' signs/magnitudes relative to each other.
-function linRegSlope(points) {
+export function linRegSlope(points) {
   const n = points.length;
   const sx = points.reduce((a, p) => a + p.index, 0);
   const sy = points.reduce((a, p) => a + p.price, 0);
@@ -164,7 +164,7 @@ function trianglesAndWedges(candles, highs, lows) {
   return out;
 }
 
-// --- Flag / High Tight Flag ------------------------------------------------
+// --- Flag (intraday; the High Tight Flag is a daily structure) ------------------------------------------------
 // Flagpole: a strong directional move over the prior N bars, followed by a
 // tight, low-volatility consolidation drifting counter to the pole.
 function flags(candles) {
@@ -188,78 +188,11 @@ function flags(candles) {
 
   if (poleMove > 0.08 && flagDrift <= 0.01) {
     const score = Math.min(1, (poleMove / 0.15) * 0.5 + (1 - flagRange / (Math.abs(poleMove) * 0.5)) * 0.5);
-    const label = poleMove > 0.9 ? 'High Tight Flag' : 'Flag';
+    const label = 'Flag';
     out.push(mk(label, candles[last].time, 'pos', score, `${(poleMove * 100).toFixed(0)}% pole, tight ${(flagRange * 100).toFixed(1)}% consolidation`, locOf(candles, last - flagLen - poleLen, last, last, candles[last].close)));
   } else if (poleMove < -0.08 && flagDrift >= -0.01) {
     const score = Math.min(1, (Math.abs(poleMove) / 0.15) * 0.5 + (1 - flagRange / (Math.abs(poleMove) * 0.5)) * 0.5);
     out.push(mk('Flag', candles[last].time, 'neg', score, `${(poleMove * 100).toFixed(0)}% pole, tight ${(flagRange * 100).toFixed(1)}% consolidation`, locOf(candles, last - flagLen - poleLen, last, last, candles[last].close)));
-  }
-  return out;
-}
-
-// --- Flat Base ---------------------------------------------------------
-function flatBase(candles) {
-  const out = [];
-  const last = candles.length - 1;
-  const lens = [15, 25];
-  for (const len of lens) {
-    if (candles.length < len) continue;
-    const window = candles.slice(last - len + 1, last + 1);
-    const hi = Math.max(...window.map((c) => c.high));
-    const lo = Math.min(...window.map((c) => c.low));
-    const range = (hi - lo) / hi;
-    if (range < 0.08) {
-      const score = Math.min(1, (0.08 - range) / 0.08 + 0.3);
-      out.push(mk('Flat Base', candles[last].time, 'neutral', score, `${(range * 100).toFixed(1)}% range over ${len} bars`, locOf(candles, last - len + 1, last, last, candles[last].close)));
-      break; // one Flat Base call per refresh, tightest window wins
-    }
-  }
-  return out;
-}
-
-// --- Cup & Handle --------------------------------------------------------
-function cupAndHandle(candles, highs) {
-  const out = [];
-  const last = candles.length - 1;
-  if (highs.length < 2 || candles.length < 40) return out;
-  const rimRight = highs[highs.length - 1];
-  const priorHighs = highs.filter((h) => h.index < rimRight.index - 10);
-  if (!priorHighs.length) return out;
-  const rimLeft = priorHighs[priorHighs.length - 1];
-  const rimSim = 1 - pct(rimLeft.price, rimRight.price);
-  if (rimSim < 0.93) return out;
-  const cupBars = candles.slice(rimLeft.index, rimRight.index + 1);
-  const cupLow = Math.min(...cupBars.map((c) => c.low));
-  const depth = (rimLeft.price - cupLow) / rimLeft.price;
-  if (depth < 0.1 || depth > 0.45) return out;
-  // Handle: a shallow pullback in the bars after the right rim.
-  const handleBars = candles.slice(rimRight.index, last + 1);
-  if (handleBars.length < 3) return out;
-  const handleLow = Math.min(...handleBars.map((c) => c.low));
-  const handleDepth = (rimRight.price - handleLow) / rimRight.price;
-  if (handleDepth > depth * 0.5 || handleDepth < 0.01) return out;
-  const score = Math.min(1, rimSim * 0.5 + (1 - handleDepth / (depth * 0.5)) * 0.5);
-  out.push(mk('Cup & Handle', candles[last].time, 'pos', score, `${(depth * 100).toFixed(0)}% cup, ${(handleDepth * 100).toFixed(1)}% handle`, locOf(candles, rimLeft.index, last, last, candles[last].close)));
-  return out;
-}
-
-// --- Three Weeks Tight (approximated on available intraday bars) ---------
-// The textbook definition needs weekly closes; lacking that granularity
-// here, this checks the last 3 equal chunks of the series for closes
-// within a tight band of each other - a same-shaped but lower-fidelity
-// proxy, so it is capped at Low/Medium confidence regardless of fit.
-function threeWeeksTight(candles) {
-  const out = [];
-  const last = candles.length - 1;
-  const chunk = 5;
-  if (candles.length < chunk * 3) return out;
-  const closesOf = (start) => candles[start + chunk - 1].close;
-  const c1 = closesOf(last - chunk * 3 + 1);
-  const c2 = closesOf(last - chunk * 2 + 1);
-  const c3 = closesOf(last - chunk + 1);
-  const spread = (Math.max(c1, c2, c3) - Math.min(c1, c2, c3)) / c3;
-  if (spread < 0.015) {
-    out.push({ ...mk('Three Weeks Tight', candles[last].time, 'pos', 0.4, `proxy on ${chunk}-bar chunks, ${(spread * 100).toFixed(2)}% spread (needs weekly bars for a real read)`, locOf(candles, last - chunk * 3 + 1, last, last, candles[last].close)) });
   }
   return out;
 }
@@ -352,9 +285,6 @@ export function detectChartPatterns(candles) {
     ...headAndShoulders(candles, highs, lows),
     ...trianglesAndWedges(candles, highs, lows),
     ...flags(candles),
-    ...flatBase(candles),
-    ...cupAndHandle(candles, highs),
-    ...threeWeeksTight(candles),
     ...pocketPivot(candles),
     ...undercutRally(candles, lows),
     ...wyckoffSpringUpthrust(candles, highs, lows),

@@ -20,10 +20,10 @@ def _parsed(source_url="http://example.test/AR.pdf", basis_used="consolidated", 
     base = {
         "revenue": (1000.0, 900.0), "pat": (120.0, 100.0), "pbt": (150.0, 130.0),
         "equity": (600.0, 520.0), "equity_full": (650.0, 560.0),
-        "total_assets": (2000.0, 1800.0), "total_current_assets": (500.0, 450.0),
+        "total_assets": (2000.0, 1800.0), "total_current_assets": (560.0, 500.0),
         "total_current_liabilities": (300.0, 280.0), "cash": (200.0, 180.0),
         "inventory": (150.0, 140.0), "receivables": (180.0, 170.0), "payables": (120.0, 110.0),
-        "net_fixed_assets": (900.0, 850.0), "shares_outstanding": (10_000_000, 10_000_000),
+        "net_fixed_assets": (900.0, 850.0), "shares_outstanding": (100_000_000, 100_000_000),
         "eps": (12.0, 10.0), "dividend_per_share": (3.0, 2.5),
         "tax_expense": (30.0, 25.0), "finance_costs": (40.0, 35.0), "depreciation": (60.0, 55.0),
         "total_expenses": (850.0, 770.0), "employee_benefit_expense": (200.0, 180.0),
@@ -31,6 +31,9 @@ def _parsed(source_url="http://example.test/AR.pdf", basis_used="consolidated", 
         "capex_ppe_purchase": (50.0, 45.0), "capex_intangible_purchase": (5.0, 4.0),
         "capex_disposal_proceeds": (0.0, 0.0), "borrowings_repayment": (20.0, 15.0),
         "lease_repayment": (5.0, 4.0), "interest_paid": (38.0, 33.0), "dividend_paid": (-30.0, -25.0),
+        # NCI explicitly evaluated (equity_full = equity + 50), owners' profit line printed
+        "non_controlling_interest": (50.0, 40.0), "pat_total": (130.0, 108.0), "nci_evaluated": True,
+        "pat_basis": "owners", "equity_basis": "owners",
         "bs_page": 42, "pl_page": 40, "source_url": source_url, "basis_used": basis_used,
     }
     base.update(overrides)
@@ -124,7 +127,8 @@ class TestCalculationEngineArchitecture(unittest.TestCase):
             r_roce = eng.calculate_ratio("roce", "SYNTHCO", "Synth Co", 2025, _fs=fs)
         ebit = fs.get("ebit").value
         self.assertAlmostEqual(r_opm["value"], round(ebit / 1000.0 * 100, 4))
-        self.assertIn("ebit", r_roce["calculation_trace"])
+        self.assertIn("ebit", r_roce["input_facts"])
+        self.assertIn("ebit", r_opm["input_facts"])
 
     def test_case_h_market_data_only_when_required(self):
         """H: a financial-statement-only ratio never calls get_live_price;
@@ -198,7 +202,8 @@ class TestCalculationEngineArchitecture(unittest.TestCase):
             dso = eng.calculate_ratio("days_sales_outstanding", "SYNTHCO", "Synth Co", 2025, _fs=fs)
             payout = eng.calculate_ratio("dividend_payout_ratio", "SYNTHCO", "Synth Co", 2025, _fs=fs)
             retention = eng.calculate_ratio("retention_ratio", "SYNTHCO", "Synth Co", 2025, _fs=fs)
-        self.assertAlmostEqual(dso["value"], round(365 / rt["value"], 2))
+        # derived ratios consume the parent's UNROUNDED value, never its rounded display value
+        self.assertAlmostEqual(dso["value"], round(365 / rt["value_raw"], 4), places=4)
         self.assertAlmostEqual(retention["value"], round(100 - payout["value"], 4))
 
 
