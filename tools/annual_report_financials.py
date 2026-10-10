@@ -1905,10 +1905,11 @@ _TOTAL_EXPENSES_LABELS = [
     "total expenses",
 ]
 _TOTAL_CURRENT_ASSETS_LABELS = [
-    "total current assets",
+    "total current assets", "sub-total - current assets", "sub total - current assets", "sub-total current assets", "total - current assets",
 ]
 _TOTAL_CURRENT_LIABILITIES_LABELS = [
-    "total current liabilities",
+    "total current liabilities", "sub-total - current liabilities", "sub total - current liabilities", "sub-total current liabilities",
+    "total - current liabilities",
 ]
 # Net Fixed Assets (Sr No 30 denominator) - Property, Plant & Equipment net
 # of accumulated depreciation. Deliberately EXCLUDES Capital Work-in-Progress
@@ -7210,6 +7211,50 @@ def _scan_shares_opening(page_texts, shares_closing):
     return None
 
 
+def _find_retained_earnings_note(texts, proxy_pair, first_page=0):
+    """The Retained Earnings line of the 'Other equity' note, as (cur, prior, page) in Rs crore - or None.
+
+    The balance sheet prints only TOTAL 'Other equity' (reserves incl. securities premium, general reserve, OCI ...), which the contract used as a
+    flagged proxy for Retained Earnings (ANURAS: 3,187.99 Cr against a true retained-earnings balance of 995.69 Cr). The note lists the retained
+    earnings movement: opening, + profit, +/- other items ..., closing. Self-validating, never guesses: a candidate is accepted only when
+      * some amount pair equals the sum of the pairs before it (the closing balance reconciles to opening + movements, both columns), and
+      * a later amount pair in the same note equals the balance-sheet 'Other equity' total at one of the standard reporting units
+        (this proves the note belongs to the same statement basis, and derives the unit)."""
+    if not proxy_pair or proxy_pair[0] in (None, 0):
+        return None
+    amt = re.compile(r"\(?-?\d[\d,]*\.\d{2}\)?|(?<=\s)-(?=\s)")      # a bare '-' is the statement's nil placeholder (keeps the two columns in step)
+    cur_total, prior_total = proxy_pair[0], (proxy_pair[1] if len(proxy_pair) > 1 else None)
+    for i in range(max(first_page, 0), len(texts)):
+        t = texts[i]
+        if not t or "retained" not in t.lower():
+            continue
+        for m in re.finditer(r"Retained\s+Earnings", t, re.I):
+            seg = t[m.end():] + " " + (texts[i + 1] if i + 1 < len(texts) else "")
+            vals = [0.0 if x == "-" else _note_num(x) for x in amt.findall(seg[:4000])]
+            vals = [v for v in vals if v is not None]
+            pairs = [(vals[k], vals[k + 1]) for k in range(0, len(vals) - 1, 2)]
+            for k in range(3, min(len(pairs), 12) + 1):
+                close = pairs[k - 1]
+                s0 = sum(p[0] for p in pairs[:k - 1])
+                s1 = sum(p[1] for p in pairs[:k - 1])
+                tol = max(0.1, 0.0005 * abs(close[0]))
+                if not (close[0] > 0 and abs(s0 - close[0]) <= tol and abs(s1 - close[1]) <= max(0.1, 0.0005 * abs(close[1]))):
+                    continue
+                for later in pairs[k:k + 24]:
+                    if not later[0] or later[0] <= 0:
+                        continue
+                    scale = cur_total / later[0]
+                    unit = next((u for u in _UNIT_TO_CRORE if abs(scale / u - 1.0) <= 0.005), None)
+                    if unit is None:
+                        continue
+                    if prior_total is not None and later[1] and abs(later[1] * unit - prior_total) > 0.005 * abs(prior_total) + 0.01:
+                        continue
+                    if close[0] * unit > cur_total * 1.001:
+                        continue
+                    return (close[0] * unit, close[1] * unit, i + 1)
+    return None
+
+
 def _attach_text_disclosures(parsed, content, fiscal_year=None):
     """Adds the document-text facts no statement row carries:
       parsed["purchases_disclosed"]  - the Cost of Materials Consumed note's
@@ -7223,6 +7268,7 @@ def _attach_text_disclosures(parsed, content, fiscal_year=None):
     parsed["dividend_components"] = None
     parsed["obb_note"] = None
     parsed["ofl_note"] = None
+    parsed["retained_earnings_note"] = None
     try:
         import fitz
         doc = fitz.open(stream=content, filetype="pdf")
@@ -7262,6 +7308,12 @@ def _attach_text_disclosures(parsed, content, fiscal_year=None):
             parsed["obb_note"] = _scan_other_bank_balance_note(texts, _obb[0] if isinstance(_obb, (tuple, list)) else _obb)
     except Exception as e:
         print(f"[annual_report_financials] other-bank-balance note scan skipped: {e}")
+    try:
+        _re = parsed.get("retained_earnings")
+        if _re and parsed.get("retained_earnings_basis") in ("other_equity_proxy", "consolidated", "standalone"):
+            parsed["retained_earnings_note"] = _find_retained_earnings_note(texts, tuple(_re), max((parsed.get("bs_page") or 1) - 1, 0))
+    except Exception as e:
+        print(f"[annual_report_financials] retained-earnings note scan skipped: {e}")
     try:
         parsed["dividend_components"] = _scan_dividend_components(texts)
     except Exception as e:
@@ -7303,6 +7355,10 @@ _attach_disclosed_purchases = _attach_text_disclosures   # legacy name
 # "75" - lettered note refs ("23A, 23B") and contents (dot-leader) pages are no longer read as figures / statements.
 # "74" - hyphenated page-number ranges ("431-432") in a Notes/Page-No column are no longer read as two values.
 # "73" - page unit declared as a footnote far below the table (Maruti "(in ` million ...)") is now honoured.
+# "103" - captions worded "Statement of Standalone/Consolidated Profit and Loss" are recognised as statement headings (ANURAS standalone).
+# "102" - 'Sub-total - Current assets/liabilities' captions are the current-asset / current-liability totals (L&T).
+# "99" - Retained Earnings read from the Other-equity note (self-validated) instead of the total Other-equity proxy.
+# "200" - Retained Earnings from the Other-equity note; 'Sub-total - Current assets/liabilities' captions (L&T).
 # "98" - bank extraction serves uploaded (manual-upload://) reports from the PDF cache.
 # "97" - a header-only 'Tax expense / (credit)' line is not the total tax (Bharti).
 # "96" - excise duty expense line read (net sales fact).
@@ -7323,7 +7379,7 @@ _attach_disclosed_purchases = _attach_text_disclosures   # legacy name
 # "81" - dividends paid are split by recipient (owners vs minorities) from the notes.
 # "80" - comma-separated note-number lists ("26, 15") ahead of a figure are blanked.
 # "79" - second reference column in the line-based P&L row reader.
-_EXTRACTION_LOGIC_VERSION = "98"
+_EXTRACTION_LOGIC_VERSION = "200"
 
 
 def _document_identity_tag(symbol, fiscal_year):

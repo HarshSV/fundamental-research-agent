@@ -2581,23 +2581,14 @@ def fetch_altman_z_score_components(symbol, name=None, to_date=None):
     zero/negative. Cached; never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    ckey = f"zscore_comp_v4_{sym}_{to_date or 'latest'}_{_doc_tag_for_cache(sym, to_date)}"
-    cached = _read_cache(ckey)
-    if cached is not None:
-        return cached
-
+    # The Z-score contains a LIVE market capitalisation: it is never served from a wrapper cache or from a stored row (both would freeze an old
+    # quote), and the value is the contract's own result (a second copy of the formula is no longer applied here).
     base = {"symbol": sym, "ratio_name": "Altman Z-Score"}
-    if to_date is None:
-        db_row = try_db_ratio(sym, 55)
-        if db_row is not None:
-            return {**base, **db_row}
-
     nm = (name or sym).lower()
     if any(w in nm for w in _NON_INVENTORY):
         out = {**base, "applicable": False,
                "reason": "Not applicable - this is a lender/financial business (balance sheet structure "
                          "differs fundamentally; use a sector-specific distress model instead)."}
-        _write_cache(ckey, out)
         return out
 
     try:
@@ -2611,7 +2602,6 @@ def fetch_altman_z_score_components(symbol, name=None, to_date=None):
     if not ar_years:
         out = {**base, "applicable": False,
                "reason": "No Annual Report filings found for this company.", "available_periods": None}
-        _write_cache(ckey, out)
         return out
 
     available = [{"to_date": f"31-Mar-{y}", "label": f"FY{str(y)[-2:]}"} for y in ar_years]
@@ -2620,9 +2610,8 @@ def fetch_altman_z_score_components(symbol, name=None, to_date=None):
         target_year = _yr_from_to_date(to_date) or ar_years[0]
         r = fetch_altman_z_score_components_from_annual_report(sym, name, target_year, consolidated=_resolved_consolidated(sym, name, target_year))
         if r.get("applicable"):
-            r = _combine_altman_z_score(sym, r)
+            r = r  # the contract result is used as is
         out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
-        _write_cache(ckey, out)
         return out
 
     MAX_PROBE_YEARS = 4
@@ -2630,15 +2619,13 @@ def fetch_altman_z_score_components(symbol, name=None, to_date=None):
     for target_year in ar_years[:MAX_PROBE_YEARS]:
         r = fetch_altman_z_score_components_from_annual_report(sym, name, target_year, consolidated=_resolved_consolidated(sym, name, target_year))
         if r.get("applicable"):
-            r = _combine_altman_z_score(sym, r)
+            r = r  # the contract result is used as is
             out = {**base, "selected_period": f"31-Mar-{target_year}", "available_periods": available, **r}
-            _write_cache(ckey, out)
             return out
         if first_reason is None:
             first_reason = r.get("reason")
     out = {**base, "applicable": False, "reason": first_reason or "Not applicable for this company.",
            "selected_period": f"31-Mar-{ar_years[0]}", "available_periods": available}
-    _write_cache(ckey, out)
     return out
 
 

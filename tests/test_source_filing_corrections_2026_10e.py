@@ -45,5 +45,58 @@ class TestSourceFilingCorrections(unittest.TestCase):
         self.assertEqual(fs.get("net_sales").value, fs.get("revenue").value)
 
 
+def _facts_basis(sym, fy, consolidated):
+    if not os.path.exists(os.path.join(ROOT, "cache", "ar_pdfs", f"{sym}_{fy}.pdf")):
+        raise unittest.SkipTest(f"{sym}_{fy}.pdf not cached")
+    from tools.fundamental_fact_store import clear_run_cache, get_canonical_facts
+    from tools.manual_mode import manual_mode
+    clear_run_cache()
+    with manual_mode():                                   # ANURAS is an uploaded report: the manual workflow is its real path
+        return get_canonical_facts(sym, sym, fy, consolidated=consolidated)
+
+
+class TestFinalAuditFilings(unittest.TestCase):
+    """2026.10.18.  Printed figures: L&T consolidated balance sheet 'Sub-total - Current assets' 245,184.27 / 217,583.24 and 'Sub-total - Current
+    liabilities' 201,970.90 / 177,109.46 (the caption is 'Sub-total', not 'Total'); ANURAS consolidated Other-equity note 'Retained Earnings'
+    closing 9,956.92 mn (= 995.692 Cr; the balance sheet's total Other equity is 31,879.90 mn); ANURAS standalone statements (INR crore):
+    revenue 1,675.567, inventory 1,398.020, total current assets 2,815.795, total current liabilities 2,177.889."""
+
+    def test_lt_current_assets_and_liabilities_use_the_sub_total_captions(self):
+        fs = _facts("LT", 2025)
+        self.assertAlmostEqual(fs.get("total_current_assets").value, 245184.27, places=2)
+        self.assertAlmostEqual(fs.get("total_current_assets").prior_value, 217583.24, places=2)
+        self.assertAlmostEqual(fs.get("total_current_liabilities").value, 201970.90, places=2)
+        self.assertEqual(fs.extras["integrity_failures"], [])
+
+    def test_anuras_retained_earnings_is_the_note_line_not_total_other_equity(self):
+        fs = _facts_basis("ANURAS", 2026, True)
+        re_ = fs.get("retained_earnings")
+        self.assertAlmostEqual(re_.value, 995.692, places=3)
+        self.assertEqual((re_.status, re_.source_tag), ("VERIFIED", "retained_earnings(note)"))
+        self.assertAlmostEqual(fs.extras["retained_earnings_proxy_total_cr"], 3187.99, places=2)
+
+    def test_standalone_request_is_never_silently_answered_with_consolidated_facts(self):
+        """ANURAS's integrated report words its standalone P&L 'Statement of Standalone Profit and Loss'; the statement locator does not read that
+        layout, so a standalone request cannot be served. It must say so (basis label + note) and keep the figures labelled consolidated - it
+        must not present consolidated numbers as standalone. (Printed standalone figures - revenue 1,675.567, inventory 1,398.020, current assets
+        2,815.795, current liabilities 2,177.889 - are verified separately in tests/test_anuras_fy2026_source_audit.py.)"""
+        fs = _facts_basis("ANURAS", 2026, False)
+        self.assertEqual(fs.selection.selected_basis, "CONSOLIDATED")
+        self.assertIn("no readable standalone", fs.extras["basis_fallback"])
+        self.assertEqual(fs.extras["basis_requested"], "standalone")
+        self.assertAlmostEqual(fs.get("revenue").value, 2365.455, places=2)                  # consolidated, labelled as such
+        self.assertNotAlmostEqual(fs.get("revenue").value, 1675.567, places=1)
+        cons = _facts_basis("ANURAS", 2026, True)
+        self.assertIsNone(cons.extras["basis_fallback"])
+        self.assertAlmostEqual(cons.get("revenue").value, 2365.455, places=2)
+
+    def test_tcs_second_company_regression(self):
+        fs = _facts("TCS", 2026)
+        self.assertEqual(fs.selection.selected_basis, "CONSOLIDATED")
+        self.assertAlmostEqual(fs.get("total_debt").value, 11283.0, delta=1.0)           # Screener borrowings 11,283 (earlier extraction fix)
+        self.assertGreater(fs.get("net_sales").value, 250000)
+        self.assertEqual(fs.get("net_sales").value, fs.get("revenue").value)           # no excise line: net sales IS reported revenue
+
+
 if __name__ == "__main__":
     unittest.main()

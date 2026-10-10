@@ -614,10 +614,12 @@ def _build_altman(b, key, res):
         return None
     wc = b.fact_node("working_capital", "cur", "Working Capital")
     ta = b.leaf("total_assets", "cur", "Total Assets")
-    re_ = b.leaf("retained_earnings", "cur", "Retained Earnings (Other Equity proxy)")
+    _ref = b.fs.get("retained_earnings") if b.fs is not None else None
+    re_ = b.leaf("retained_earnings", "cur", "Retained Earnings (Other-equity note)" if _ref is not None and (_ref.source_tag or "") == "retained_earnings(note)"
+                 else "Retained Earnings (Other Equity proxy)")
     ebit = b.fact_node("ebit", "cur", "EBIT")
     tl = b.leaf("total_liabilities", "cur", "Total Liabilities")
-    rev = b.leaf("revenue", "cur", "Sales (Revenue from Operations)")
+    rev = b.leaf("net_sales", "cur", "Sales (Net Sales)")
     mc = _mcap_node(b, mp["value"], mp.get("source"))
     if mc is None:
         return None
@@ -695,7 +697,7 @@ def _build_beneish(b, key, res):
     P, Cu = "prior", "cur"
     # facts for both years
     f = {}
-    for k in ("receivables", "revenue", "gross_profit", "total_current_assets", "ppe", "total_assets", "depreciation",
+    for k in ("receivables", "net_sales", "gross_profit", "total_current_assets", "ppe", "total_assets", "depreciation",
               "other_expenses", "total_current_liabilities"):
         f[k] = (b.fact_node(k, Cu, _nice(k)), b.fact_node(k, P, _nice(k)))
     f["debt"] = (b.fact_node(lk, Cu, _nice(lk)), b.fact_node(lk, P, _nice(lk)))
@@ -709,26 +711,26 @@ def _build_beneish(b, key, res):
         return f[k][i]["value_raw"]
     defs = {
         "DSRI": ("(Receivables ÷ Revenue) this year ÷ prior year",
-                 lambda: (V("receivables", 0) / V("revenue", 0)) / (V("receivables", 1) / V("revenue", 1)),
-                 lambda: f"({D('receivables', 0)} ÷ {D('revenue', 0)}) ÷ ({D('receivables', 1)} ÷ {D('revenue', 1)})"),
+                 lambda: (V("receivables", 0) / V("net_sales", 0)) / (V("receivables", 1) / V("net_sales", 1)),
+                 lambda: f"({D('receivables', 0)} ÷ {D('net_sales', 0)}) ÷ ({D('receivables', 1)} ÷ {D('net_sales', 1)})"),
         "GMI": ("(Gross Profit ÷ Revenue) prior year ÷ this year",
-                lambda: (V("gross_profit", 1) / V("revenue", 1)) / (V("gross_profit", 0) / V("revenue", 0)),
-                lambda: f"({D('gross_profit', 1)} ÷ {D('revenue', 1)}) ÷ ({D('gross_profit', 0)} ÷ {D('revenue', 0)})"),
+                lambda: (V("gross_profit", 1) / V("net_sales", 1)) / (V("gross_profit", 0) / V("net_sales", 0)),
+                lambda: f"({D('gross_profit', 1)} ÷ {D('net_sales', 1)}) ÷ ({D('gross_profit', 0)} ÷ {D('net_sales', 0)})"),
         "AQI": ("(1 − (Current Assets + PPE) ÷ Total Assets) this year ÷ prior year",
                 lambda: (1 - (V("total_current_assets", 0) + V("ppe", 0)) / V("total_assets", 0)) /
                 (1 - (V("total_current_assets", 1) + V("ppe", 1)) / V("total_assets", 1)),
                 lambda: f"(1 − ({D('total_current_assets', 0)} + {D('ppe', 0)}) ÷ {D('total_assets', 0)}) ÷ "
                         f"(1 − ({D('total_current_assets', 1)} + {D('ppe', 1)}) ÷ {D('total_assets', 1)})"),
-        "SGI": ("Revenue this year ÷ prior year", lambda: V("revenue", 0) / V("revenue", 1),
-                lambda: f"{D('revenue', 0)} ÷ {D('revenue', 1)}"),
+        "SGI": ("Revenue this year ÷ prior year", lambda: V("net_sales", 0) / V("net_sales", 1),
+                lambda: f"{D('net_sales', 0)} ÷ {D('net_sales', 1)}"),
         "DEPI": ("(Dep ÷ (PPE + Dep)) prior year ÷ this year",
                  lambda: (V("depreciation", 1) / (V("ppe", 1) + V("depreciation", 1))) /
                  (V("depreciation", 0) / (V("ppe", 0) + V("depreciation", 0))),
                  lambda: f"({D('depreciation', 1)} ÷ ({D('ppe', 1)} + {D('depreciation', 1)})) ÷ "
                          f"({D('depreciation', 0)} ÷ ({D('ppe', 0)} + {D('depreciation', 0)}))"),
         "SGAI": ("(Other Expenses ÷ Revenue) this year ÷ prior year (Other Expenses = SG&A proxy)",
-                 lambda: (V("other_expenses", 0) / V("revenue", 0)) / (V("other_expenses", 1) / V("revenue", 1)),
-                 lambda: f"({D('other_expenses', 0)} ÷ {D('revenue', 0)}) ÷ ({D('other_expenses', 1)} ÷ {D('revenue', 1)})"),
+                 lambda: (V("other_expenses", 0) / V("net_sales", 0)) / (V("other_expenses", 1) / V("net_sales", 1)),
+                 lambda: f"({D('other_expenses', 0)} ÷ {D('net_sales', 0)}) ÷ ({D('other_expenses', 1)} ÷ {D('net_sales', 1)})"),
         "TATA": ("(Net Profit − Operating Cash Flow) ÷ Total Assets",
                  lambda: (pt["value_raw"] - ocf["value_raw"]) / V("total_assets", 0),
                  lambda: f"({b._disp(pt)} − {b._disp(ocf)}) ÷ {D('total_assets', 0)}"),

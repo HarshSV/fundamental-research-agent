@@ -49,7 +49,8 @@ FIXED = {
     16: "2026.10.17: net sales.", 26: "2026.10.17: net sales.", 30: "2026.10.17: net sales.", 38: "2026.10.17: net sales.",
     40: "2026.10.17: net sales.", 51: "2026.10.9: EV definition; 2026.10.17: net sales.",
     66: "2026.10.18: Beta is market data - the manual workflow now computes it (^NSEI, weekly, 2y, ddof=1) instead of withholding it.",
-    56: "legacy research-report Piotroski (financial_analysis.py) fixed separately - see engine inventory; the contract version was unaffected.",
+    56: "2026.10.18: one profit perimeter (whole entity) for all ROA/accrual signals; net sales for margin and turnover signals; every signal's inputs are exposed.",
+    55: "2026.10.18: exact Retained Earnings from the Other-equity note when it reconciles (else flagged proxy); net sales; quote provenance; the adapter's second formula, cache and stored-row path removed.",
 }
 METHOD = {
     3: "Net CREDIT sales are never disclosed: Revenue from operations is the labelled proxy (needs_review by design, policy S).",
@@ -61,14 +62,12 @@ METHOD = {
     31: "average working capital (spec); Screener's Working Capital Days definition is not reproducible from the statements.",
     44: "variable costs are a PROXY - Ind AS has no variable-cost line (needs_review by design).",
     47: "cash-basis dividends PAID to owners (spec) vs the dividend DECLARED for the year (Screener); both carried.",
-    55: "Retained earnings = Other-Equity proxy (always needs_review).",
+    55: "exact Retained Earnings only where the Other-equity note reconciles (ANURAS); other filings keep the flagged Other-Equity proxy (needs_review).",
     57: "SG&A proxied by Other expenses (needs_review by design).",
     20: "equity basis = total equity incl. NCI (policy W); Total Debt = borrowings + lease liabilities (Ind AS 116) + gold-on-loan + qualifying other financial liabilities; Screener's borrowings exclude leases (Reliance 109,313).",
 }
 EXTRACTION = {
-    # remaining per-ratio extraction gaps seen in the cross-company scan (company-level, not formula-level)
-    10: "L&T (conglomerate with a financial-services balance sheet): current assets/liabilities unreliable - flagged by identity checks (debt itself is fixed).",
-    11: "same as Sr 10.", 13: "same as Sr 10.",
+    # no open per-ratio extraction gap after the 2026.10.18 L&T current-asset / liability and debt fixes
 }
 INSUFFICIENT = {
     34: "gross principal repayments are not disclosed by ANURAS (correctly withheld); the numeric path is covered by synthetic tests only - no real filing in the cache exercises it.",
@@ -152,9 +151,9 @@ def main():
         # --- the five-way status --------------------------------------------------------------------------------------------
         if sr in INSUFFICIENT:
             status, why = N, INSUFFICIENT[sr]
-        elif sr in METHOD and sr in (3, 4, 9, 12, 15, 17, 19, 31, 44, 47, 55, 57):
+        elif sr in METHOD and sr in (3, 4, 9, 12, 15, 17, 19, 31, 44, 47, 57):
             status, why = M, METHOD[sr]
-        elif sr in FIXED and sr not in (5, 6, 56):
+        elif sr in FIXED and sr not in (5, 6):
             status, why = F, FIXED[sr]
         elif sr in EXTRACTION:
             status, why = E, EXTRACTION[sr]

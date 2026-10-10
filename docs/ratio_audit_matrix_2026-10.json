@@ -76,7 +76,7 @@
     "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover",
     "test_ar_definition_alignment.py::test_inventory_turnover_engine_uses_cogs"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -160,7 +160,7 @@
     ],
     [
      "LT:2025",
-     "needs_review",
+     "verified",
      9.03
     ]
    ]
@@ -213,7 +213,7 @@
     "test_anuras_fy2026_source_audit.py::test_inventory_days_are_365_over_cogs_turnover_on_average_inventory",
     "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -297,7 +297,7 @@
     ],
     [
      "LT:2025",
-     "needs_review",
+     "verified",
      40.42389006195035
     ]
    ]
@@ -378,7 +378,7 @@
     "test_calculation_engine.py::test_case_j_registry_dependency_behaviour",
     "test_net_sales_excise.py::test_revenue_denominated_ratios_use_net_sales"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -515,7 +515,7 @@
     "test_anuras_fy2026_source_audit.py::test_debtor_days_use_revenue_proxy_on_average_receivables",
     "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -680,7 +680,7 @@
     "test_ar_definition_alignment.py::test_engine_purchases_prefer_disclosed_line",
     "test_full_quant_coverage.py::test_m_purchases_dependent_ratios_wired"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -817,7 +817,7 @@
     "test_anuras_fy2026_source_audit.py::test_days_payable_use_disclosed_purchases_on_average_payables",
     "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -981,7 +981,7 @@
     "test_ratio_edge_cases.py::test_acquisition_year_flags_every_balance_vs_flow_ratio_without_changing_numbers",
     "test_ratio_edge_cases.py::test_zero_denominators_are_unavailable_not_zero"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -1165,7 +1165,7 @@
     "test_ar_definition_alignment.py::test_working_capital_turnover_engine_uses_average_wc",
     "test_global_audit_2026_10c.py::test_average_working_capital_denominator"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -1249,8 +1249,8 @@
     ],
     [
      "LT:2025",
-     "not_meaningful",
-     null
+     "verified",
+     6.11
     ]
    ]
   },
@@ -1312,7 +1312,7 @@
     "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions",
     "test_full_quant_coverage.py::test_m_purchases_proxy_is_never_verified"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -1465,7 +1465,7 @@
     "test_basis_request_honesty.py::test_matching_basis_carries_no_fallback_note",
     "test_basis_request_honesty.py::test_standalone_request_answered_with_consolidated_is_flagged_and_labelled"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -1549,8 +1549,8 @@
     ],
     [
      "LT:2025",
-     "needs_review",
-     0.0
+     "verified",
+     1.21
     ]
    ]
   },
@@ -1630,7 +1630,7 @@
     "test_ratio_breakdown.py::test_composite_numerators_are_decomposed",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[quick_ratio]"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -1714,8 +1714,8 @@
     ],
     [
      "LT:2025",
-     "needs_review",
-     -0.04
+     "verified",
+     1.18
     ]
    ]
   },
@@ -1799,7 +1799,7 @@
     "test_global_audit_2026_10c.py::test_cash_plus_current_other_bank_balances",
     "test_global_audit_2026_10c.py::test_formula_extraction_and_fact_versions_each_change_the_ratio_cache_key"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -1954,7 +1954,7 @@
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[working_capital]",
     "test_ratio_remediation.py::test_every_computable_key_has_exactly_one_registry_entry_and_spec"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -2038,8 +2038,8 @@
     ],
     [
      "LT:2025",
-     "needs_review",
-     -201813.46
+     "verified",
+     43213.37
     ]
    ]
   },
@@ -2116,7 +2116,7 @@
     "test_full_quant_coverage.py::test_l_cogs_dependent_ratios_wired",
     "test_net_sales_excise.py::test_revenue_denominated_ratios_use_net_sales"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -2283,7 +2283,7 @@
     "test_calculation_engine.py::test_case_g_derived_facts_computed_once_and_reused",
     "test_global_audit_2026_10c.py::test_sr15_is_labelled_as_what_it_computes"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -2431,13 +2431,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 12,
+   "tests_specific": 13,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
     "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios",
     "test_calculation_engine.py::test_case_c_standalone_propagates_consistently"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -2597,13 +2597,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 9,
+   "tests_specific": 10,
    "tests_examples": [
     "test_anuras_reference_conventions.py::test_roa_and_roce_follow_their_documented_definitions",
     "test_calculation_engine.py::test_case_a_shared_factset_no_re_extraction",
     "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -2760,13 +2760,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 17,
+   "tests_specific": 18,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
     "test_anuras_reference_conventions.py::test_roe_owners_profit_over_average_owners_equity_and_the_whole_entity_reference",
-    "test_global_audit_2026_10c.py::test_basis_is_stamped_on_the_result"
+    "test_final_consistency_2026_10f.py::test_roe_uses_owners_profit_over_owners_equity_and_roic_total_equity"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -2966,7 +2966,7 @@
     "test_anuras_reference_conventions.py::test_roa_and_roce_follow_their_documented_definitions",
     "test_calculation_engine.py::test_case_g_derived_facts_computed_once_and_reused"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -3139,7 +3139,7 @@
     "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios",
     "test_calculation_engine.py::test_case_c_standalone_propagates_consistently"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -3302,7 +3302,7 @@
     "test_ratio_remediation.py::test_debt_above_total_assets_is_flagged_not_verified",
     "test_ratio_remediation.py::test_every_debt_ratio_consumes_the_one_total_debt_fact"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -3458,7 +3458,7 @@
     "test_ratio_edge_cases.py::test_zero_denominators_are_unavailable_not_zero",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[interest_coverage_ratio]"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -3653,7 +3653,7 @@
     "test_ratio_edge_cases.py::test_acquisition_year_flags_every_balance_vs_flow_ratio_without_changing_numbers",
     "test_ratio_edge_cases.py::test_negative_equity_makes_equity_based_ratios_not_meaningful"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -3798,13 +3798,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 12,
+   "tests_specific": 13,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_market_ratios_use_the_latest_quote_with_fiscal_year_per_share_figures",
     "test_calculation_engine.py::test_case_h_market_data_only_when_required",
-    "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract"
+    "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -3959,13 +3959,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 5,
+   "tests_specific": 6,
    "tests_examples": [
+    "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
     "test_ratio_edge_cases.py::test_negative_equity_makes_equity_based_ratios_not_meaningful",
-    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[pb_ratio]",
-    "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale"
+    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[pb_ratio]"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -4121,13 +4121,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 3,
+   "tests_specific": 4,
    "tests_examples": [
+    "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
     "test_net_sales_excise.py::test_price_to_sales_and_ev_to_sales_use_net_sales",
-    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ps_ratio]",
-    "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale"
+    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ps_ratio]"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -4280,7 +4280,7 @@
     "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract",
     "test_final_validation_regressions.py::test_dividend_inputs_unknown_means_unavailable"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -4425,13 +4425,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 4,
+   "tests_specific": 5,
    "tests_examples": [
+    "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[earnings_yield]",
-    "test_ratio_remediation.py::test_earnings_yield_is_eps_over_price_not_100_over_rounded_pe",
-    "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale"
+    "test_ratio_remediation.py::test_earnings_yield_is_eps_over_price_not_100_over_rounded_pe"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -4635,13 +4635,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 13,
+   "tests_specific": 15,
    "tests_examples": [
-    "test_global_audit_2026_10c.py::test_consolidated_ev_with_nci_is_a_separate_labelled_reference",
-    "test_global_audit_2026_10c.py::test_ev_is_the_same_number_in_all_three_multiples",
-    "test_global_audit_2026_10c.py::test_nci_never_changes_the_multiple_status_or_warnings"
+    "test_final_consistency_2026_10f.py::test_all_ev_multiples_use_the_same_enterprise_value",
+    "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
+    "test_global_audit_2026_10c.py::test_consolidated_ev_with_nci_is_a_separate_labelled_reference"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -4865,7 +4865,7 @@
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[fixed_asset_turnover]",
     "test_ratio_remediation.py::test_net_fixed_assets_is_ppe_rou_cwip_intangibles_excluding_goodwill"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -5049,7 +5049,7 @@
     "test_anuras_reference_conventions.py::test_working_capital_days_is_its_own_formula_average_working_capital_over_revenue",
     "test_ratio_edge_cases.py::test_acquisition_year_flags_every_balance_vs_flow_ratio_without_changing_numbers"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -5134,7 +5134,7 @@
     [
      "LT:2025",
      "verified",
-     -269.69
+     59.72
     ]
    ]
   },
@@ -5201,7 +5201,7 @@
     "test_anuras_fy2026_source_audit.py::test_liquidity_and_leverage_ratios",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[receivables_to_payables]"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -5285,7 +5285,7 @@
     ],
     [
      "LT:2025",
-     "needs_review",
+     "verified",
      1.02
     ]
    ]
@@ -5400,7 +5400,7 @@
     "test_legacy_engine_guard.py::test_known_debt_and_cash_compute",
     "test_legacy_engine_guard.py::test_missing_cash_withholds_net_debt_instead_of_assuming_no_cash"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -5556,7 +5556,7 @@
     "test_ratio_remediation.py::test_canonical_and_contract_agree_on_unavailable",
     "test_ratio_remediation.py::test_every_ebitda_ratio_uses_that_fact_and_evidence_matches"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -5718,7 +5718,7 @@
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[cash_flow_coverage_ratio]",
     "test_ratio_remediation.py::test_every_debt_ratio_consumes_the_one_total_debt_fact"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -5875,7 +5875,7 @@
     "test_global_audit_2026_10c.py::test_ev_is_the_same_number_in_all_three_multiples",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[free_cash_flow]"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -6053,7 +6053,7 @@
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[fcf_yield]",
     "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -6219,7 +6219,7 @@
    "tests_examples": [
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[fcf_margin]"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -6372,7 +6372,7 @@
    "tests_examples": [
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ocf_ratio]"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -6530,7 +6530,7 @@
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[capex_intensity]",
     "test_ratio_remediation.py::test_missing_inputs_never_become_computed_zeros_elsewhere"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -6682,7 +6682,7 @@
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ocf_to_net_profit]",
     "test_ratio_remediation.py::test_whole_entity_flows_are_not_divided_by_owners_only_profit"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -6907,7 +6907,7 @@
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[roic]",
     "test_ratio_remediation.py::test_every_debt_ratio_consumes_the_one_total_debt_fact"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -7060,7 +7060,7 @@
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[effective_tax_rate]",
     "test_ratio_remediation.py::test_zero_or_negative_denominators_are_not_meaningful"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -7231,7 +7231,7 @@
     "test_ratio_remediation.py::test_direct_expenses_line_counts_as_variable_cost_proxy",
     "test_ratio_remediation.py::test_proxy_with_note_items_is_needs_review_never_verified"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -7376,13 +7376,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 7,
+   "tests_specific": 8,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_market_ratios_use_the_latest_quote_with_fiscal_year_per_share_figures",
-    "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract",
-    "test_ratio_corrections_2026_10b.py::test_eps_growth_formula_names_both_periods"
+    "test_final_consistency_2026_10f.py::test_eps_and_payout_follow_the_owners_perimeter",
+    "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -7537,7 +7537,7 @@
     "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract",
     "test_global_audit_2026_10c.py::test_numbers_follow_the_declared_basis_when_nci_is_material"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -7695,7 +7695,7 @@
     "test_final_validation_regressions.py::test_dividend_inputs_unknown_means_unavailable",
     "test_global_audit_2026_10c.py::test_anuras_style_split_owners_only_numerator"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -7834,7 +7834,7 @@
     "test_final_validation_regressions.py::test_dividend_inputs_unknown_means_unavailable",
     "test_global_audit_2026_10c.py::test_retention_and_sustainable_growth_follow_the_owners_payout"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -7976,7 +7976,7 @@
     "test_global_audit_2026_10c.py::test_retention_and_sustainable_growth_follow_the_owners_payout",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[sustainable_growth_rate]"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -8129,7 +8129,7 @@
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[peg_ratio]",
     "test_ratio_remediation.py::test_peg_is_not_meaningful_when_growth_is_not_positive"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -8225,7 +8225,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Enterprise Value (Mkt Cap + Debt \u2212 Cash) \u00f7 Revenue",
    "strategy": "B",
-   "implementation_formula": "Enterprise Value (Market Cap + Debt + NCI - Cash) \u00f7 Revenue.",
+   "implementation_formula": "Enterprise Value (Market Cap + Total Debt - Cash & Cash Equivalents; NCI is not added) \u00f7 Net Sales.",
    "perimeter": "whole_entity",
    "period_basis": "derived",
    "equity_basis": null,
@@ -8309,13 +8309,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 4,
+   "tests_specific": 7,
    "tests_examples": [
-    "test_global_audit_2026_10c.py::test_ev_is_the_same_number_in_all_three_multiples",
-    "test_global_audit_2026_10c.py::test_net_debt_and_ev_do_not_move_with_the_cash_ratio_policy",
-    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ev_to_sales]"
+    "test_final_consistency_2026_10f.py::test_all_ev_multiples_use_the_same_enterprise_value",
+    "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
+    "test_final_consistency_2026_10f.py::test_specification_text_matches_the_calculation_for_every_ev_ratio"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -8411,7 +8411,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Enterprise Value (Mkt Cap + Debt \u2212 Cash) \u00f7 Free Cash Flow",
    "strategy": "B",
-   "implementation_formula": "Enterprise Value (Market Cap + Debt + NCI - Cash) \u00f7 Free Cash Flow (not meaningful when FCF \u2264 0).",
+   "implementation_formula": "Enterprise Value (Market Cap + Total Debt - Cash & Cash Equivalents; NCI is not added) \u00f7 Free Cash Flow (not meaningful when FCF \u2264 0).",
    "perimeter": "whole_entity",
    "period_basis": "derived",
    "equity_basis": null,
@@ -8494,13 +8494,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 6,
+   "tests_specific": 9,
    "tests_examples": [
-    "test_global_audit_2026_10c.py::test_ev_is_the_same_number_in_all_three_multiples",
-    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ev_to_fcf]",
-    "test_ratio_remediation.py::test_ev_to_fcf_with_negative_fcf_is_not_meaningful_but_keeps_the_number"
+    "test_final_consistency_2026_10f.py::test_all_ev_multiples_use_the_same_enterprise_value",
+    "test_final_consistency_2026_10f.py::test_negative_fcf_is_not_presented_as_a_meaningful_multiple",
+    "test_final_consistency_2026_10f.py::test_specification_text_matches_the_calculation_for_every_ev_ratio"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -8657,13 +8657,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 3,
+   "tests_specific": 4,
    "tests_examples": [
+    "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[price_to_cash_flow]",
-    "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale",
-    "test_ratio_remediation.py::test_zero_or_negative_denominators_are_not_meaningful"
+    "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -8826,7 +8826,7 @@
     "test_ratio_edge_cases.py::test_negative_eps_makes_price_multiples_not_meaningful",
     "test_ratio_edge_cases.py::test_negative_equity_makes_equity_based_ratios_not_meaningful"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -8927,10 +8927,10 @@
    "period_basis": "closing",
    "equity_basis": "none",
    "unit": "score",
-   "anuras_value": 3.5374059361941894,
-   "anuras_status": "needs_review",
+   "anuras_value": 3.1543572793530426,
+   "anuras_status": "verified",
    "breakdown_formula": "1.2\u00d7(WC \u00f7 TA) + 1.4\u00d7(RE \u00f7 TA) + 3.3\u00d7(EBIT \u00f7 TA) + 0.6\u00d7(Market Cap \u00f7 TL) + 1.0\u00d7(Sales \u00f7 TA)",
-   "expression": "0.1665 + 0.5570 + 0.1660 + 2.3526 + 0.2952",
+   "expression": "0.1665 + 0.1740 + 0.1660 + 2.3526 + 0.2952",
    "reconciles": true,
    "inputs": [
     {
@@ -8965,11 +8965,11 @@
     },
     {
      "fact": "retained_earnings",
-     "name": "Retained Earnings (Other Equity proxy)",
-     "value": 3187.99,
+     "name": "Retained Earnings (Other-equity note)",
+     "value": 995.692,
      "period": "FY2026",
      "basis": "consolidated",
-     "page": 264,
+     "page": 298,
      "statement": "Balance Sheet",
      "method": "annual_report_pdf"
     },
@@ -9004,13 +9004,13 @@
      "method": "annual_report_pdf"
     },
     {
-     "fact": "revenue",
-     "name": "Sales (Revenue from Operations)",
+     "fact": "net_sales",
+     "name": "Sales (Net Sales)",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     },
     {
@@ -9034,18 +9034,16 @@
      "method": "annual_report_pdf"
     }
    ],
-   "warnings": [
-    "Retained Earnings is proxied by 'Other Equity' (reserves incl. securities premium)."
-   ],
+   "warnings": [],
    "reason": null,
    "parents": [],
-   "independent_value": 3.5374066316848536,
-   "delta_rel": 1.966103240553099e-07,
+   "independent_value": 3.1543579748437067,
+   "delta_rel": 2.2048564865419933e-07,
    "missing_input_probe": {
     "read": [
      "ebit",
+     "net_sales",
      "retained_earnings",
-     "revenue",
      "shares_outstanding",
      "total_assets",
      "total_liabilities",
@@ -9055,7 +9053,6 @@
     "withheld": [
      "ebit",
      "retained_earnings",
-     "revenue",
      "shares_outstanding",
      "total_assets",
      "total_liabilities",
@@ -9065,13 +9062,13 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 6,
+   "tests_specific": 10,
    "tests_examples": [
-    "test_full_quant_coverage.py::test_n_altman_needs_review_on_retained_earnings_proxy",
-    "test_full_quant_coverage.py::test_n_altman_z_uses_market_cap_not_book_equity",
-    "test_global_audit_2026_10c.py::test_roa_altman_piotroski_are_documented_as_reading_no_equity_fact"
+    "test_final_consistency_2026_10f.py::test_components_and_final_score_by_hand",
+    "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
+    "test_final_consistency_2026_10f.py::test_market_input_states_source_and_quote_time"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -9120,8 +9117,8 @@
     ],
     [
      "BATAINDIA:2025",
-     "needs_review",
-     2.53
+     "verified",
+     2.46
     ],
     [
      "TITAN:2025",
@@ -9136,7 +9133,7 @@
     [
      "ITC:2025",
      "needs_review",
-     7.68
+     7.61
     ],
     [
      "NAZARA:2025",
@@ -9156,7 +9153,7 @@
     [
      "LT:2025",
      "needs_review",
-     0.66
+     1.43
     ]
    ]
   },
@@ -9172,16 +9169,16 @@
    "period_basis": "two-year",
    "equity_basis": "none",
    "unit": "",
-   "anuras_value": 7.0,
+   "anuras_value": 6.0,
    "anuras_status": "verified",
    "breakdown_formula": "F-Score = number of the 9 tests passed (each 1 point)",
-   "expression": "1 + 1 + 1 + 1 + 1 + 1 + 0 + 0 + 1",
+   "expression": "1 + 0 + 1 + 1 + 1 + 1 + 0 + 0 + 1",
    "reconciles": true,
    "inputs": [
     {
-     "fact": "pat",
-     "name": "Profit After Tax (owners)",
-     "value": 170.121,
+     "fact": "pat_total",
+     "name": "Profit After Tax (whole entity)",
+     "value": 222.199,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
@@ -9199,9 +9196,9 @@
      "method": "annual_report_pdf"
     },
     {
-     "fact": "pat",
-     "name": "Profit After Tax (owners)",
-     "value": 93.349,
+     "fact": "pat_total",
+     "name": "Profit After Tax (whole entity)",
+     "value": 159.972,
      "period": "FY2025",
      "basis": "consolidated",
      "page": 265,
@@ -9226,16 +9223,6 @@
      "basis": "consolidated",
      "page": 266,
      "statement": "Cash Flow Statement",
-     "method": "annual_report_pdf"
-    },
-    {
-     "fact": "pat_total",
-     "name": "Profit After Tax (whole entity)",
-     "value": 222.199,
-     "period": "FY2026",
-     "basis": "consolidated",
-     "page": 265,
-     "statement": "Statement of Profit and Loss",
      "method": "annual_report_pdf"
     },
     {
@@ -9349,6 +9336,16 @@
      "method": "derived"
     },
     {
+     "fact": "net_sales",
+     "name": "Net Sales",
+     "value": 2365.455,
+     "period": "FY2026",
+     "basis": "consolidated",
+     "page": 265,
+     "statement": null,
+     "method": "annual_report_pdf"
+    },
+    {
      "fact": "revenue",
      "name": "Revenue from Operations",
      "value": 1436.974,
@@ -9367,21 +9364,31 @@
      "page": 265,
      "statement": null,
      "method": "derived"
+    },
+    {
+     "fact": "net_sales",
+     "name": "Net Sales",
+     "value": 1436.974,
+     "period": "FY2025",
+     "basis": "consolidated",
+     "page": 265,
+     "statement": null,
+     "method": "annual_report_pdf"
     }
    ],
    "warnings": [],
    "reason": null,
    "parents": [],
-   "independent_value": 7.0,
+   "independent_value": 6.0,
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
      "gross_profit",
      "lt_borrowings",
+     "net_sales",
      "operating_cash_flow",
      "pat",
      "pat_total",
-     "revenue",
      "shares_outstanding",
      "total_assets",
      "total_current_assets",
@@ -9392,9 +9399,7 @@
     "withheld": [
      "gross_profit",
      "operating_cash_flow",
-     "pat",
      "pat_total",
-     "revenue",
      "shares_outstanding",
      "total_assets",
      "total_current_assets",
@@ -9402,18 +9407,19 @@
     ],
     "unchanged": [
      "lt_borrowings",
+     "pat",
      "total_debt"
     ],
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 9,
+   "tests_specific": 11,
    "tests_examples": [
-    "test_full_quant_coverage.py::test_o_piotroski_computes_real_score_when_all_facts_present",
-    "test_full_quant_coverage.py::test_o_piotroski_insufficient_when_leverage_fact_missing",
-    "test_global_audit_2026_10c.py::test_basis_is_stamped_on_the_result"
+    "test_final_consistency_2026_10f.py::test_every_signal_is_reproducible_from_the_fixture_with_one_profit_perimeter",
+    "test_final_consistency_2026_10f.py::test_roa_signal_uses_whole_entity_profit_not_the_owners_figure",
+    "test_full_quant_coverage.py::test_o_piotroski_computes_real_score_when_all_facts_present"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -9497,7 +9503,7 @@
     ],
     [
      "LT:2025",
-     "needs_review",
+     "verified",
      7.0
     ]
    ]
@@ -9541,20 +9547,30 @@
      "method": "annual_report_pdf"
     },
     {
-     "fact": "revenue",
-     "name": "Revenue from Operations",
+     "fact": "net_sales",
+     "name": "Net Sales",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
+     "method": "annual_report_pdf"
+    },
+    {
+     "fact": "net_sales",
+     "name": "Net Sales",
+     "value": 1436.974,
+     "period": "FY2025",
+     "basis": "consolidated",
+     "page": 265,
+     "statement": null,
      "method": "annual_report_pdf"
     },
     {
      "fact": "revenue",
      "name": "Revenue from Operations",
-     "value": 1436.974,
-     "period": "FY2025",
+     "value": 2365.455,
+     "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
      "statement": "Statement of Profit and Loss",
@@ -9569,6 +9585,16 @@
      "page": 265,
      "statement": null,
      "method": "derived"
+    },
+    {
+     "fact": "revenue",
+     "name": "Revenue from Operations",
+     "value": 1436.974,
+     "period": "FY2025",
+     "basis": "consolidated",
+     "page": 265,
+     "statement": "Statement of Profit and Loss",
+     "method": "annual_report_pdf"
     },
     {
      "fact": "cogs",
@@ -9763,12 +9789,12 @@
      "depreciation",
      "gross_profit",
      "lt_borrowings",
+     "net_sales",
      "operating_cash_flow",
      "other_expenses",
      "pat_total",
      "ppe",
      "receivables",
-     "revenue",
      "total_assets",
      "total_current_assets",
      "total_current_liabilities",
@@ -9783,7 +9809,6 @@
      "pat_total",
      "ppe",
      "receivables",
-     "revenue",
      "total_assets",
      "total_current_assets",
      "total_current_liabilities"
@@ -9802,7 +9827,7 @@
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[beneish_m_score]",
     "test_ratio_remediation.py::test_beneish_tata_uses_whole_entity_profit"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -9921,7 +9946,7 @@
     "test_full_quant_coverage.py::test_q_not_applicable_for_non_bank_sector",
     "test_full_quant_coverage.py::test_r_bank_ratio_not_fabricated_when_applicable_but_unwired"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -10040,7 +10065,7 @@
     "test_ratio_corrections_2026_10b.py::test_casa_from_proven_schedule_3",
     "test_ratio_corrections_2026_10b.py::test_missing_demand_is_insufficient_not_zero"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -10159,7 +10184,7 @@
     "test_ratio_corrections_2026_10b.py::test_disclosed_ratio_is_used_as_printed",
     "test_ratio_corrections_2026_10b.py::test_disclosed_ratios_missing_are_not_disclosed_never_zero"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -10278,7 +10303,7 @@
     "test_ratio_corrections_2026_10b.py::test_disclosed_ratios_missing_are_not_disclosed_never_zero",
     "test_ratio_formula_oracle.py::test_registry_has_exactly_68_ratios_each_with_a_contract_or_provider_path"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -10397,7 +10422,7 @@
     "test_ratio_corrections_2026_10b.py::test_disclosed_ratios_missing_are_not_disclosed_never_zero",
     "test_ratio_formula_oracle.py::test_registry_has_exactly_68_ratios_each_with_a_contract_or_provider_path"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -10516,7 +10541,7 @@
     "test_ratio_corrections_2026_10b.py::test_crar_computed_from_capital_and_rwa",
     "test_ratio_corrections_2026_10b.py::test_disclosed_ratios_missing_are_not_disclosed_never_zero"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -10635,7 +10660,7 @@
     "test_ratio_corrections_2026_10b.py::test_credit_to_deposit_and_cost_to_income",
     "test_ratio_formula_oracle.py::test_registry_has_exactly_68_ratios_each_with_a_contract_or_provider_path"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -10754,7 +10779,7 @@
     "test_ratio_corrections_2026_10b.py::test_credit_to_deposit_and_cost_to_income",
     "test_ratio_formula_oracle.py::test_registry_has_exactly_68_ratios_each_with_a_contract_or_provider_path"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -10879,7 +10904,7 @@
     "test_beta_independent.py::test_exact_multiple_has_that_beta",
     "test_beta_independent.py::test_real_series_matches_slope_when_reachable"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -11006,7 +11031,7 @@
     "test_full_quant_coverage.py::test_t_impossible_pledge_percentage_is_withheld",
     "test_full_quant_coverage.py::test_t_promoter_pledge_assumed_zero_is_insufficient_not_a_zero"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -11127,7 +11152,7 @@
     "test_full_quant_coverage.py::test_u_free_float_proxy_is_needs_review",
     "test_ratio_formula_oracle.py::test_registry_has_exactly_68_ratios_each_with_a_contract_or_provider_path"
    ],
-   "tests_generic": 25,
+   "tests_generic": 27,
    "cross_company": [
     [
      "ASIANPAINT:2025",
@@ -11730,21 +11755,20 @@
    "found": true,
    "pages": {
     "cur": [
-     264,
      269,
      299
     ],
     "prior": [
-     264,
      269,
      270,
+     298,
      299
     ]
    },
-   "stated_page": 264,
-   "tag": "retained_earnings(other_equity_proxy)",
-   "value": 3187.99,
-   "prior": 2740.382
+   "stated_page": 298,
+   "tag": "retained_earnings(note)",
+   "value": 995.692,
+   "prior": 834.4639999999999
   }
  },
  "derived_checks": [
@@ -11791,7 +11815,7 @@
    1323.256
   ],
   [
-   "gross_profit = revenue - cogs",
+   "gross_profit = net sales - cogs",
    true,
    1042.1989999999998,
    1042.1989999999998
@@ -11863,6 +11887,7 @@
   "pe": 72.1
  },
  "generic_tests": [
+  "test_final_consistency_2026_10f.py::test_specification_text_matches_the_calculation_for_every_ev_ratio",
   "test_final_validation_regressions.py::test_every_computable_ratio_agrees_in_all_four_paths",
   "test_final_validation_regressions.py::test_removing_any_single_input_never_produces_a_zero_ratio",
   "test_final_validation_regressions.py::test_dividend_inputs_unknown_means_unavailable",
@@ -11870,6 +11895,7 @@
   "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract",
   "test_global_audit_2026_10c.py::test_no_undeclared_ratio_reads_an_equity_fact",
   "test_global_audit_artefact.py::test_all_68_ratios_have_exactly_one_of_the_five_statuses",
+  "test_quant_snapshot_artefact.py::test_the_same_68_metrics_as_the_registry",
   "test_ratio_breakdown.py::test_first_18_present_and_formula_is_the_implemented_one",
   "test_ratio_categories.py::test_registry_matches_authoritative_spec_exactly",
   "test_ratio_categories.py::test_first_view_is_16_and_rest_is_52",

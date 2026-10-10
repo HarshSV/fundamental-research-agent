@@ -38,7 +38,7 @@ silently served as current.
 
 import math
 
-FORMULA_VERSION = "2026.10.17"
+FORMULA_VERSION = "2026.10.18"
 
 # --------------------------------------------------------------------------------------------
 # Policy switches (each one a documented Navrist methodology decision)
@@ -191,9 +191,9 @@ SPEC = {
     "sustainable_growth_rate": dict(perimeter="owners", basis="derived", definition="ROE × Retention (both must be available)."),
     "peg_ratio": dict(perimeter="owners", basis="derived", definition="P/E ÷ EPS growth (%) (not meaningful when growth ≤ 0)."),
     "ev_to_sales": dict(perimeter="whole_entity", basis="derived", definition=
-        "Enterprise Value (Market Cap + Debt + NCI - Cash) ÷ Revenue."),
+        "Enterprise Value (Market Cap + Total Debt - Cash & Cash Equivalents; NCI is not added) ÷ Net Sales."),
     "ev_to_fcf": dict(perimeter="whole_entity", basis="derived", definition=
-        "Enterprise Value (Market Cap + Debt + NCI - Cash) ÷ Free Cash Flow (not meaningful when FCF ≤ 0)."),
+        "Enterprise Value (Market Cap + Total Debt - Cash & Cash Equivalents; NCI is not added) ÷ Free Cash Flow (not meaningful when FCF ≤ 0)."),
     "price_to_cash_flow": dict(perimeter="whole_entity", basis="mcap / flow", definition="Market Cap ÷ Operating Cash Flow."),
     "graham_number": dict(perimeter="owners", basis="derived", definition="√(22.5 × EPS (owners) × BVPS)."),
     "altman_z_score": dict(perimeter="whole_entity", basis="closing", definition=
@@ -394,19 +394,38 @@ def _eq_full_label(f):
 # --------------------------------------------------------------------------------------------
 # market helpers
 # --------------------------------------------------------------------------------------------
+# One quote per run: every market-dependent row of one analysis (and every adapter that fetches its own quote) shares the same price and the same
+# quote time for QUOTE_MEMO_SECONDS; a later request fetches a new quote, so a refreshed quote always reaches every dependent valuation together.
+QUOTE_MEMO_SECONDS = 45
+_QUOTE_MEMO = {}
+
+
+def clear_quote_memo():
+    _QUOTE_MEMO.clear()
+
+
 def live_market(symbol, bse_code=None):
     """Current price, kept strictly separate from every statement fact. None if unavailable."""
+    import time as _time
+    import datetime as _dt
     try:
         from tools.market_price import get_live_price
+        memo_key = (str(symbol).upper(), id(get_live_price), bse_code)
+        hit = _QUOTE_MEMO.get(memo_key)
+        if hit and _time.monotonic() - hit[0] <= QUOTE_MEMO_SECONDS:
+            return dict(hit[1])
         px = get_live_price(symbol, bse_code=bse_code) if bse_code else get_live_price(symbol)
     except Exception:
         px = None
+        memo_key = None
     if not px or px.get("ltp") is None:
         return None
-    import datetime as _dt
-    return {"price": float(px["ltp"]), "source": px.get("source") or "unknown", "as_of": "live quote",
-            "quoted_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-            "prev_close": px.get("close")}
+    out = {"price": float(px["ltp"]), "source": px.get("source") or "unknown", "as_of": "live quote",
+           "quoted_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+           "prev_close": px.get("close")}
+    if memo_key is not None:
+        _QUOTE_MEMO[memo_key] = (_time.monotonic(), dict(out))
+    return out
 
 
 def _mcap(fs, market):
@@ -1274,7 +1293,7 @@ def _r_altman(fs, market, deps):
     key = "altman_z_score"
     if market is None:
         return _no_market(key, "score")
-    wc, ta, re_, ebit, tl, rev = (fs.get(k) for k in ("working_capital", "total_assets", "retained_earnings", "ebit", "total_liabilities", "revenue"))
+    wc, ta, re_, ebit, tl, rev = (fs.get(k) for k in ("working_capital", "total_assets", "retained_earnings", "ebit", "total_liabilities", "net_sales"))
     req = [wc, ta, re_, ebit, tl, rev]
     if any(f is None or f.value is None for f in req):
         return _unavailable(key, req, fs, unit="score")
@@ -1293,19 +1312,26 @@ def _r_altman(fs, market, deps):
                 num={"label": "Z = 1.2(WC/TA) + 1.4(RE/TA) + 3.3(EBIT/TA) + 0.6(MktCap/TL) + 1.0(Sales/TA)",
                      "value_cr": round(z, 2), "components": comps},
                 extra={"components": {"total_assets_cr": ta.value, "working_capital_cr": wc.value, "retained_earnings_cr": re_.value,
-                                      "retained_earnings_basis": "other_equity_proxy", "ebit_cr": ebit.value,
+                                      "retained_earnings_basis": ("note" if (re_.source_tag or "") == "retained_earnings(note)" else "other_equity_proxy"), "ebit_cr": ebit.value,
                                       "total_liabilities_cr": tl.value, "sales_cr": rev.value},
                        "market_price": {"name": "market_price", "value": market["price"], "unit": "₹",
-                                        "source": f"Live quote ({market.get('source')})"}})
+                                        "source": _market_input(market)["source"]}})
 
 
 def _r_piotroski(fs, market, deps):
     key = "piotroski_f_score"
     pat_o, pat_t = fs.get("pat"), fs.get("pat_total")
     ta, ocf, tca, tcl = fs.get("total_assets"), fs.get("operating_cash_flow"), fs.get("total_current_assets"), fs.get("total_current_liabilities")
-    gp, rev, sh = fs.get("gross_profit"), fs.get("revenue"), fs.get("shares_outstanding")
+    gp, rev, sh = fs.get("gross_profit"), fs.get("net_sales"), fs.get("shares_outstanding")
     lt, debt = fs.get("lt_borrowings"), fs.get("total_debt")
-    roa_pat, _ = _pat_fact(fs, "roa")
+    # ONE profit perimeter for the whole score: whole-entity profit (the SPEC perimeter), matching the whole-entity assets in the ROA tests and the
+    # whole-entity profit in the accrual test. (The displayed ROA, Sr 17, is a different metric: owners' PAT over AVERAGE assets.) When the
+    # whole-entity figure is absent it is replaced by owners' PAT only if no material NCI exists.
+    roa_pat = fs.get("pat_total")
+    if roa_pat is None or roa_pat.value is None:
+        _po = fs.get("pat")
+        if _po is not None and _po.value is not None and not (fs.extras or {}).get("nci_material"):
+            roa_pat = _po
     tests = []
     used = [roa_pat, pat_t, ta, ocf, tca, tcl, gp, rev, sh]      # leverage fact (lt OR total debt) is added below
 
@@ -1319,8 +1345,8 @@ def _r_piotroski(fs, market, deps):
     if two(roa_pat) and two(ta) and ta.value and ta.prior_value:
         r0, r1 = roa_pat.value / ta.value, roa_pat.prior_value / ta.prior_value
         _rs = {"type": "ratio", "num": roa_pat.fact_key, "den": "total_assets", "cur": r0, "prior": r1, "unit": "frac%",
-               "label": "ROA = PAT ÷ closing Total Assets"}
-        add("ROA > 0", "Profitability", True, r0 > 0, f"ROA {r0:.2%} (PAT / closing Total Assets)", {**_rs, "op": ">", "vs": "zero"})
+               "label": "Piotroski ROA = whole-entity PAT ÷ closing Total Assets"}
+        add("ROA > 0", "Profitability", True, r0 > 0, f"ROA {r0:.2%} (whole-entity PAT / closing Total Assets)", {**_rs, "op": ">", "vs": "zero"})
         add("ROA improved YoY", "Profitability", True, r0 > r1, f"{r0:.2%} vs {r1:.2%} prior year", {**_rs, "op": ">", "vs": "prior"})
     else:
         add("ROA > 0", "Profitability", False, detail="Current/prior PAT or Total Assets not found.")
@@ -1367,14 +1393,14 @@ def _r_piotroski(fs, market, deps):
     if two(gp) and two(rev) and rev.value and rev.prior_value:
         g0, g1 = gp.value / rev.value, gp.prior_value / rev.prior_value
         add("Gross Margin improved YoY", "Operating Efficiency", True, g0 > g1, f"{g0:.2%} vs {g1:.2%}",
-            {"type": "ratio", "num": "gross_profit", "den": "revenue", "cur": g0, "prior": g1, "unit": "frac%", "op": ">",
+            {"type": "ratio", "num": "gross_profit", "den": "net_sales", "cur": g0, "prior": g1, "unit": "frac%", "op": ">",
              "vs": "prior", "label": "Gross Margin = Gross Profit ÷ Revenue"})
     else:
         add("Gross Margin improved YoY", "Operating Efficiency", False, detail="Gross profit for both years not found.")
     if two(rev) and two(ta) and ta.value and ta.prior_value:
         a0, a1 = rev.value / ta.value, rev.prior_value / ta.prior_value
         add("Asset Turnover improved YoY", "Operating Efficiency", True, a0 > a1, f"{a0:.3f} vs {a1:.3f}",
-            {"type": "ratio", "num": "revenue", "den": "total_assets", "cur": a0, "prior": a1, "unit": "x", "op": ">", "vs": "prior",
+            {"type": "ratio", "num": "net_sales", "den": "total_assets", "cur": a0, "prior": a1, "unit": "x", "op": ">", "vs": "prior",
              "label": "Asset Turnover = Revenue ÷ closing Total Assets"})
     else:
         add("Asset Turnover improved YoY", "Operating Efficiency", False, detail="Revenue/Total Assets for both years not found.")
@@ -1393,7 +1419,7 @@ def _r_piotroski(fs, market, deps):
 
 def _r_beneish(fs, market, deps):
     key = "beneish_m_score"
-    recv, rev, gp, tca, ppe, ta = (fs.get(k) for k in ("receivables", "revenue", "gross_profit", "total_current_assets", "ppe", "total_assets"))
+    recv, rev, gp, tca, ppe, ta = (fs.get(k) for k in ("receivables", "net_sales", "gross_profit", "total_current_assets", "ppe", "total_assets"))
     dep, oe, pt, ocf = fs.get("depreciation"), fs.get("other_expenses"), fs.get("pat_total"), fs.get("operating_cash_flow")
     tcl, debt, lt = fs.get("total_current_liabilities"), fs.get("total_debt"), fs.get("lt_borrowings")
     need2 = [recv, rev, gp, tca, ppe, ta, dep, oe, tcl]

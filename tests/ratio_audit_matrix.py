@@ -72,7 +72,7 @@ def oracle(fs, market):
     price = market["price"]
     shares = g("shares_outstanding")
     mcap = price * shares / 1e7
-    rev, cogs = g("revenue"), g("cogs")
+    rev, cogs = g("net_sales"), g("cogs")          # net sales = revenue less an excise-duty expense line (revenue when none)
     ebit, ebitda = g("ebit"), g("ebitda")
     debt, cash = g("total_debt"), g("cash")
     o = {}
@@ -147,26 +147,26 @@ def oracle(fs, market):
     o["altman_z_score"] = (1.2 * wc_c / g("total_assets") + 1.4 * g("retained_earnings") / g("total_assets")
                            + 3.3 * ebit / g("total_assets") + 0.6 * mcap / tl + 1.0 * rev / g("total_assets"))
     ta_c, ta_p = fv(fs, "total_assets")
-    gpf = lambda s: (s("revenue") - s("cogs")) / s("revenue")          # noqa: E731
+    gpf = lambda s: (s("net_sales") - s("cogs")) / s("net_sales")          # noqa: E731
     tests = [
-        g("pat") / ta_c > 0,
-        g("pat") / ta_c > gp("pat") / ta_p,
+        g("pat_total") / ta_c > 0,                                  # ONE profit perimeter in the score: whole-entity PAT
+        g("pat_total") / ta_c > gp("pat_total") / ta_p,
         g("operating_cash_flow") > 0,
         g("operating_cash_flow") > g("pat_total"),
         debt / ta_c < fv(fs, "total_debt")[1] / ta_p,
         g("total_current_assets") / g("total_current_liabilities") > gp("total_current_assets") / gp("total_current_liabilities"),
         shares <= gp("shares_outstanding") * 1.001,
         gpf(g) > gpf(gp),
-        rev / ta_c > gp("revenue") / ta_p,
+        rev / ta_c > gp("net_sales") / ta_p,
     ]
     o["piotroski_f_score"] = float(sum(bool(t) for t in tests))
-    gpm = lambda s: (s("revenue") - s("cogs")) / s("revenue")          # noqa: E731
-    dsri = (g("receivables") / rev) / (gp("receivables") / gp("revenue"))
+    gpm = lambda s: (s("net_sales") - s("cogs")) / s("net_sales")          # noqa: E731
+    dsri = (g("receivables") / rev) / (gp("receivables") / gp("net_sales"))
     gmi = gpm(gp) / gpm(g)
     aqi = (1 - (g("total_current_assets") + g("ppe")) / ta_c) / (1 - (gp("total_current_assets") + gp("ppe")) / ta_p)
-    sgi = rev / gp("revenue")
+    sgi = rev / gp("net_sales")
     depi = (gp("depreciation") / (gp("ppe") + gp("depreciation"))) / (g("depreciation") / (g("ppe") + g("depreciation")))
-    sgai = (g("other_expenses") / rev) / (gp("other_expenses") / gp("revenue"))
+    sgai = (g("other_expenses") / rev) / (gp("other_expenses") / gp("net_sales"))
     tata = (g("pat_total") - g("operating_cash_flow")) / ta_c
     lvgi = ((debt + g("total_current_liabilities")) / ta_c) / ((fv(fs, "total_debt")[1] + gp("total_current_liabilities")) / ta_p)
     o["beneish_m_score"] = (-4.84 + 0.92 * dsri + 0.528 * gmi + 0.404 * aqi + 0.892 * sgi + 0.115 * depi - 0.172 * sgai
@@ -268,7 +268,7 @@ def derived_checks(fs):
     eq("equity_full = equity + nci", g("equity_full")[0], g("equity")[0] + g("nci")[0])
     comps = (fs.extras or {}).get("components") or {}
     eq("cogs = sum(P&L cost lines)", g("cogs")[0], sum(v[0] for v in comps.values()))
-    eq("gross_profit = revenue - cogs", g("gross_profit")[0], g("revenue")[0] - g("cogs")[0])
+    eq("gross_profit = net sales - cogs", g("gross_profit")[0], g("net_sales")[0] - g("cogs")[0])
     eq("fcf = ocf - capex", g("fcf")[0], g("operating_cash_flow")[0] - g("capex")[0])
     dc = (fs.extras or {}).get("debt_components_raw") or {}
     if dc:

@@ -68,7 +68,7 @@ from tools.statement_selector import select_statement_basis, StatementSelection
 # v6 2026-10 global remediation: owners EPS, dividends paid/DPS evidence, lease
 #    liabilities, reported Total Liabilities, policy Net Fixed Assets, EBITDA =
 #    EBIT + D&A, acquisition signals, perimeter-aware PAT/equity, provenance.
-EXTRACTION_VERSION = 22
+EXTRACTION_VERSION = 23
 
 
 @dataclass(frozen=True)
@@ -337,9 +337,21 @@ def get_canonical_facts(symbol, name, fiscal_year, lease_basis="basis1", consoli
     re_fact = facts.get("retained_earnings")
     if re_fact is not None and re_fact.value is not None and \
             parsed.get("retained_earnings_basis") in ("other_equity_proxy", "consolidated", "standalone"):
-        facts["retained_earnings"] = _replace(
-            re_fact, source_tag="retained_earnings(other_equity_proxy)", status="NEEDS_REVIEW", estimated=True,
-            warnings=("Retained Earnings is proxied by 'Other Equity' (reserves incl. securities premium).",))
+        _ren = parsed.get("retained_earnings_note")
+        if _ren and _ren[0] is not None:
+            # the Retained Earnings line of the Other-equity note, reconciled (opening + movements = closing) and tied to the balance-sheet
+            # Other-equity total: the exact input, so the 'proxy' flag no longer applies. The proxy total is kept for disclosure.
+            extras_re = {"retained_earnings_proxy_total_cr": re_fact.value}
+            facts["retained_earnings"] = _replace(
+                re_fact, value=_ren[0], prior_value=_ren[1], source_page=_ren[2], source_tag="retained_earnings(note)",
+                raw_label="Retained Earnings (Other-equity note)", status="VERIFIED", estimated=False, warnings=())
+        else:
+            extras_re = {}
+            facts["retained_earnings"] = _replace(
+                re_fact, source_tag="retained_earnings(other_equity_proxy)", status="NEEDS_REVIEW", estimated=True,
+                warnings=("Retained Earnings is proxied by 'Other Equity' (reserves incl. securities premium) - the Retained Earnings line of "
+                          "the Other-equity note could not be read and reconciled.",))
+        extras.update(extras_re)
 
     # ---- whole-entity profit ----------------------------------------------------------------
     pat = facts.get("pat")

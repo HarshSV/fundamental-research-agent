@@ -7,7 +7,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Cost of Goods Sold \u00f7 Average Inventory",
    "implementation": "Cost of Goods Sold \u00f7 Average Inventory (opening + closing) \u00f7 2. COGS = Cost of materials consumed + Purchases of stock-in-trade + Changes in inventories of finished goods, WIP and stock-in-trade (the P&L's own cost lines). Formal correction 2026.10.7: the earlier Net-Sales numerator (Annual Report's own definition) was retired.",
-   "code_location": "tools/ratio_contract.py:500 (_r_inventory_turnover)",
+   "code_location": "tools/ratio_contract.py:519 (_r_inventory_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "cogs",
@@ -63,7 +63,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "365 \u00f7 Inventory Turnover",
    "implementation": "365 \u00f7 Inventory Turnover (unrounded).",
-   "code_location": "tools/ratio_contract.py:1463 (_days_from, via the _DERIVED table)",
+   "code_location": "tools/ratio_contract.py:1489 (_days_from, via the _DERIVED table)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "cogs",
@@ -121,7 +121,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Credit Sales \u00f7 Average Accounts Receivable",
    "implementation": "Revenue from Operations \u00f7 Average Trade Receivables (net credit sales are not disclosed - revenue is a proxy, so the result is always needs_review).",
-   "code_location": "tools/ratio_contract.py:528 (_r_receivables_turnover)",
+   "code_location": "tools/ratio_contract.py:547 (_r_receivables_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "net_sales",
@@ -179,7 +179,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "365 \u00f7 Receivables Turnover",
    "implementation": "365 \u00f7 Receivables Turnover (unrounded).",
-   "code_location": "tools/ratio_contract.py:1463 (_days_from, via the _DERIVED table)",
+   "code_location": "tools/ratio_contract.py:1489 (_days_from, via the _DERIVED table)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "net_sales",
@@ -239,7 +239,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Purchases \u00f7 Average Accounts Payable",
    "implementation": "Net Purchases \u00f7 Average Trade Payables. Purchases = the Cost of Materials Consumed note's 'Purchases during the year' (+ Purchases of stock-in-trade); when the note line is absent Cost of Materials Consumed is a flagged proxy.",
-   "code_location": "tools/ratio_contract.py:539 (_r_payables_turnover)",
+   "code_location": "tools/ratio_contract.py:558 (_r_payables_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "payables",
@@ -296,7 +296,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "365 \u00f7 Payables Turnover",
    "implementation": "365 \u00f7 Payables Turnover (unrounded).",
-   "code_location": "tools/ratio_contract.py:1463 (_days_from, via the _DERIVED table)",
+   "code_location": "tools/ratio_contract.py:1489 (_days_from, via the _DERIVED table)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "payables",
@@ -355,7 +355,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Sales \u00f7 Average Total Assets",
    "implementation": "Net Sales \u00f7 Average Total Assets.",
-   "code_location": "tools/ratio_contract.py:570 (_r_asset_turnover)",
+   "code_location": "tools/ratio_contract.py:589 (_r_asset_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "net_sales",
@@ -413,7 +413,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Sales \u00f7 Average Working Capital (Current Assets \u2212 Current Liabilities)",
    "implementation": "Net Sales \u00f7 Average Working Capital, Working Capital = Current Assets \u2212 Current Liabilities, average = (opening + closing) \u00f7 2 (authoritative 68-ratio specification; same average basis as Sr 31). Closing WC is used only when the prior year is unavailable, and the result is then flagged. Corrected in 2026.10.8 - the earlier closing-WC alignment is retired.",
-   "code_location": "tools/ratio_contract.py:575 (_r_working_capital_turnover)",
+   "code_location": "tools/ratio_contract.py:594 (_r_working_capital_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "net_sales",
@@ -453,7 +453,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "DSO + DOH \u2212 DPO",
    "implementation": "DSO + DOH - DPO (unrounded parents).",
-   "code_location": "tools/ratio_contract.py:1474 (_r_ccc)",
+   "code_location": "tools/ratio_contract.py:1500 (_r_ccc)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "cogs",
@@ -518,7 +518,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Current Assets \u00f7 Current Liabilities",
    "implementation": "Total Current Assets \u00f7 Total Current Liabilities.",
-   "code_location": "tools/ratio_contract.py:585 (_r_current_ratio)",
+   "code_location": "tools/ratio_contract.py:604 (_r_current_ratio)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "total_current_assets",
@@ -564,9 +564,9 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Source extraction issue",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
-   "decision_or_issue": "L&T (conglomerate with a financial-services balance sheet): current assets/liabilities unreliable - flagged by identity checks (debt itself is fixed)."
+   "decision_or_issue": ""
   },
   {
    "sr_no": 11,
@@ -575,7 +575,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "(Current Assets \u2212 Inventory) \u00f7 Current Liabilities",
    "implementation": "(Total Current Assets - Inventories) \u00f7 Total Current Liabilities.",
-   "code_location": "tools/ratio_contract.py:590 (_r_quick_ratio)",
+   "code_location": "tools/ratio_contract.py:609 (_r_quick_ratio)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "inventory",
@@ -621,9 +621,9 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Source extraction issue",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
-   "decision_or_issue": "same as Sr 10."
+   "decision_or_issue": ""
   },
   {
    "sr_no": 12,
@@ -632,7 +632,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "(Cash + Cash Equivalents) \u00f7 Current Liabilities",
    "implementation": "(Cash & Cash Equivalents + unrestricted Other Bank Balances) \u00f7 Total Current Liabilities. Other Bank Balances count when the note shows they are unrestricted: restricted lines (unclaimed dividend, earmarked, margin money, lien-marked deposits) are excluded; a line of unstated nature is included but needs_review; an undisclosed split keeps the line, needs_review, with an explicit limitation. Separate from the Cash (cash & equivalents only) used by Net debt / EV / EV multiples.",
-   "code_location": "tools/ratio_contract.py:621 (_r_cash_ratio)",
+   "code_location": "tools/ratio_contract.py:640 (_r_cash_ratio)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "cash",
@@ -682,7 +682,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Current Assets \u2212 Current Liabilities",
    "implementation": "Total Current Assets - Total Current Liabilities.",
-   "code_location": "tools/ratio_contract.py:669 (_r_working_capital)",
+   "code_location": "tools/ratio_contract.py:688 (_r_working_capital)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "total_current_assets",
@@ -729,9 +729,9 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Source extraction issue",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
-   "decision_or_issue": "same as Sr 10."
+   "decision_or_issue": ""
   },
   {
    "sr_no": 14,
@@ -740,7 +740,7 @@
    "category": "P&L",
    "authoritative_formula": "Gross Profit \u00f7 Revenue",
    "implementation": "(Revenue - COGS) \u00f7 Revenue; COGS = Cost of materials consumed + Purchases of stock-in-trade + Changes in inventories.",
-   "code_location": "tools/ratio_contract.py:681 (_r_gross_profit_margin)",
+   "code_location": "tools/ratio_contract.py:700 (_r_gross_profit_margin)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "cogs",
@@ -780,7 +780,7 @@
    "category": "P&L",
    "authoritative_formula": "Operating Profit (EBIT) \u00f7 Revenue",
    "implementation": "EBIT \u00f7 Revenue; EBIT = Profit Before Tax + Finance Costs (Other Income included - same EBIT everywhere).",
-   "code_location": "tools/ratio_contract.py:721 (_r_operating_profit_margin)",
+   "code_location": "tools/ratio_contract.py:740 (_r_operating_profit_margin)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "ebit",
@@ -835,7 +835,7 @@
    "category": "P&L",
    "authoritative_formula": "Net Income \u00f7 Revenue",
    "implementation": "Owners'-attributable Profit After Tax \u00f7 Revenue from Operations (PERIMETER_POLICY['npm']).",
-   "code_location": "tools/ratio_contract.py:742 (_r_net_profit_margin)",
+   "code_location": "tools/ratio_contract.py:761 (_r_net_profit_margin)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "net_sales",
@@ -845,7 +845,7 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter owners (policy); period flow",
    "dependencies": [],
    "tests": {
-    "specific": 12,
+    "specific": 13,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
      "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios",
@@ -893,7 +893,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Income \u00f7 Average Total Assets",
    "implementation": "Owners'-attributable Profit After Tax \u00f7 Average Total Assets (PERIMETER_POLICY['roa']).",
-   "code_location": "tools/ratio_contract.py:754 (_r_roa)",
+   "code_location": "tools/ratio_contract.py:773 (_r_roa)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "pat",
@@ -903,7 +903,7 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter owners (policy); period average assets",
    "dependencies": [],
    "tests": {
-    "specific": 9,
+    "specific": 10,
     "examples": [
      "test_anuras_reference_conventions.py::test_roa_and_roce_follow_their_documented_definitions",
      "test_calculation_engine.py::test_case_a_shared_factset_no_re_extraction",
@@ -952,7 +952,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Income \u00f7 Average Shareholders' Equity",
    "implementation": "Owners'-attributable PAT \u00f7 Average Owners' Equity (EQUITY_BASIS = owners_equity; never calculated on negative equity).",
-   "code_location": "tools/ratio_contract.py:765 (_r_roe)",
+   "code_location": "tools/ratio_contract.py:784 (_r_roe)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "equity",
@@ -962,11 +962,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter owners; period average equity",
    "dependencies": [],
    "tests": {
-    "specific": 17,
+    "specific": 18,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
      "test_anuras_reference_conventions.py::test_roe_owners_profit_over_average_owners_equity_and_the_whole_entity_reference",
-     "test_global_audit_2026_10c.py::test_basis_is_stamped_on_the_result"
+     "test_final_consistency_2026_10f.py::test_roe_uses_owners_profit_over_owners_equity_and_roic_total_equity"
     ],
     "textbook": true,
     "edge_cases": true
@@ -1009,7 +1009,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "EBIT \u00f7 Average Capital Employed",
    "implementation": "EBIT \u00f7 Average Capital Employed; Capital Employed = Total Assets - Total Current Liabilities.",
-   "code_location": "tools/ratio_contract.py:782 (_r_roce)",
+   "code_location": "tools/ratio_contract.py:801 (_r_roce)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "capital_employed",
@@ -1064,7 +1064,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Total Debt \u00f7 Total Equity (incl. NCI)",
    "implementation": "Total Debt \u00f7 Total Equity incl. NCI (whole-entity debt over whole-entity equity; EQUITY_BASIS = total_equity_incl_nci).",
-   "code_location": "tools/ratio_contract.py:801 (_r_debt_to_equity)",
+   "code_location": "tools/ratio_contract.py:820 (_r_debt_to_equity)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "equity_full",
@@ -1104,7 +1104,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Total Debt \u00f7 Total Assets",
    "implementation": "Total Debt \u00f7 Total Assets.",
-   "code_location": "tools/ratio_contract.py:817 (_r_debt_ratio)",
+   "code_location": "tools/ratio_contract.py:836 (_r_debt_ratio)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "total_assets",
@@ -1162,7 +1162,7 @@
    "category": "P&L",
    "authoritative_formula": "EBIT \u00f7 Interest Expense",
    "implementation": "EBIT \u00f7 Finance Costs (gross).",
-   "code_location": "tools/ratio_contract.py:833 (_r_interest_coverage)",
+   "code_location": "tools/ratio_contract.py:852 (_r_interest_coverage)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "ebit",
@@ -1216,7 +1216,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Average Total Assets \u00f7 Average Total Equity (incl. NCI)",
    "implementation": "Average Total Assets \u00f7 Average Total Equity incl. NCI.",
-   "code_location": "tools/ratio_contract.py:851 (_r_financial_leverage)",
+   "code_location": "tools/ratio_contract.py:870 (_r_financial_leverage)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "equity_full",
@@ -1274,7 +1274,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Market Price per Share \u00f7 Basic EPS (owners)",
    "implementation": "Market Price \u00f7 Basic EPS attributable to owners.",
-   "code_location": "tools/ratio_contract.py:857 (_r_pe)",
+   "code_location": "tools/ratio_contract.py:876 (_r_pe)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "eps"
@@ -1283,11 +1283,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter owners; period price / FY EPS",
    "dependencies": [],
    "tests": {
-    "specific": 12,
+    "specific": 13,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_market_ratios_use_the_latest_quote_with_fiscal_year_per_share_figures",
      "test_calculation_engine.py::test_case_h_market_data_only_when_required",
-     "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract"
+     "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it"
     ],
     "textbook": true,
     "edge_cases": true
@@ -1331,7 +1331,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Market Price per Share \u00f7 Book Value per Share",
    "implementation": "Market Price \u00f7 BVPS (the single BVPS of Sr 46).",
-   "code_location": "tools/ratio_contract.py:872 (_r_pb)",
+   "code_location": "tools/ratio_contract.py:891 (_r_pb)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "bvps"
@@ -1340,11 +1340,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter owners; period price / closing BVPS",
    "dependencies": [],
    "tests": {
-    "specific": 5,
+    "specific": 6,
     "examples": [
+     "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
      "test_ratio_edge_cases.py::test_negative_equity_makes_equity_based_ratios_not_meaningful",
-     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[pb_ratio]",
-     "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale"
+     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[pb_ratio]"
     ],
     "textbook": true,
     "edge_cases": true
@@ -1370,7 +1370,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Market Cap \u00f7 Total Revenue",
    "implementation": "Market Cap \u00f7 Revenue from Operations.",
-   "code_location": "tools/ratio_contract.py:886 (_r_ps)",
+   "code_location": "tools/ratio_contract.py:905 (_r_ps)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "net_sales",
@@ -1380,11 +1380,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period mcap / FY revenue",
    "dependencies": [],
    "tests": {
-    "specific": 3,
+    "specific": 4,
     "examples": [
+     "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
      "test_net_sales_excise.py::test_price_to_sales_and_ev_to_sales_use_net_sales",
-     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ps_ratio]",
-     "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale"
+     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ps_ratio]"
     ],
     "textbook": true,
     "edge_cases": true
@@ -1425,7 +1425,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Dividend per Share \u00f7 Market Price per Share",
    "implementation": "DPS \u00f7 Market Price; DPS = interim/special dividend declared during the FY + final dividend recommended for the FY.",
-   "code_location": "tools/ratio_contract.py:900 (_r_dividend_yield)",
+   "code_location": "tools/ratio_contract.py:919 (_r_dividend_yield)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "dps"
@@ -1464,7 +1464,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "EPS \u00f7 Market Price per Share",
    "implementation": "Basic EPS (owners) \u00f7 Market Price (unrounded).",
-   "code_location": "tools/ratio_contract.py:1507 (_r_earnings_yield)",
+   "code_location": "tools/ratio_contract.py:1533 (_r_earnings_yield)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "eps"
@@ -1473,11 +1473,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter owners; period derived",
    "dependencies": [],
    "tests": {
-    "specific": 4,
+    "specific": 5,
     "examples": [
+     "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
      "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[earnings_yield]",
-     "test_ratio_remediation.py::test_earnings_yield_is_eps_over_price_not_100_over_rounded_pe",
-     "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale"
+     "test_ratio_remediation.py::test_earnings_yield_is_eps_over_price_not_100_over_rounded_pe"
     ],
     "textbook": true,
     "edge_cases": true
@@ -1521,7 +1521,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "(Market Cap + Debt \u2212 Cash) \u00f7 EBITDA (EBIT + D&A)",
    "implementation": "(Market Cap + Total Debt - Cash & Cash Equivalents) \u00f7 EBITDA (EBIT + D&A) - the authoritative specification, and the ONE Enterprise Value definition used by Sr 29, 51 and 52. Non-controlling interest is NOT added (corrected 2026.10.8); a separately labelled 'EV incl. NCI' reference figure is carried alongside for consolidated entities with NCI but never feeds a ratio.",
-   "code_location": "tools/ratio_contract.py:913 (_r_ev_to_ebitda)",
+   "code_location": "tools/ratio_contract.py:932 (_r_ev_to_ebitda)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "cash",
@@ -1534,11 +1534,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period closing debt/cash",
    "dependencies": [],
    "tests": {
-    "specific": 13,
+    "specific": 15,
     "examples": [
-     "test_global_audit_2026_10c.py::test_consolidated_ev_with_nci_is_a_separate_labelled_reference",
-     "test_global_audit_2026_10c.py::test_ev_is_the_same_number_in_all_three_multiples",
-     "test_global_audit_2026_10c.py::test_nci_never_changes_the_multiple_status_or_warnings"
+     "test_final_consistency_2026_10f.py::test_all_ev_multiples_use_the_same_enterprise_value",
+     "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
+     "test_global_audit_2026_10c.py::test_consolidated_ev_with_nci_is_a_separate_labelled_reference"
     ],
     "textbook": true,
     "edge_cases": true
@@ -1579,7 +1579,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Sales \u00f7 Average Net Fixed Assets (PPE + ROU + CWIP + Intangibles)",
    "implementation": "Net Sales \u00f7 Average Net Fixed Assets; Net Fixed Assets = PPE + Right-of-use assets + Capital WIP + Intangibles (goodwill excluded).",
-   "code_location": "tools/ratio_contract.py:938 (_r_fixed_asset_turnover)",
+   "code_location": "tools/ratio_contract.py:957 (_r_fixed_asset_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "net_fixed_assets",
@@ -1619,7 +1619,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "(Average Working Capital \u00f7 Revenue) \u00d7 365",
    "implementation": "(Average Working Capital \u00f7 Revenue) \u00d7 365 (authoritative spec; closing WC only when the prior year is missing).",
-   "code_location": "tools/ratio_contract.py:947 (_r_days_working_capital)",
+   "code_location": "tools/ratio_contract.py:966 (_r_days_working_capital)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "net_sales",
@@ -1659,7 +1659,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Trade Receivables \u00f7 Trade Payables",
    "implementation": "Trade Receivables \u00f7 Trade Payables.",
-   "code_location": "tools/ratio_contract.py:958 (_r_receivables_to_payables)",
+   "code_location": "tools/ratio_contract.py:977 (_r_receivables_to_payables)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "payables",
@@ -1716,7 +1716,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "(Total Debt \u2212 Cash) \u00f7 EBITDA (EBIT + D&A)",
    "implementation": "(Total Debt - Cash & Cash Equivalents) \u00f7 EBITDA.",
-   "code_location": "tools/ratio_contract.py:964 (_r_net_debt_to_ebitda)",
+   "code_location": "tools/ratio_contract.py:983 (_r_net_debt_to_ebitda)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "cash",
@@ -1774,7 +1774,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Net Operating Income (EBITDA proxy) \u00f7 (Gross Principal Repayment + Interest Due)",
    "implementation": "Net Operating Income (= EBITDA, flagged proxy) \u00f7 (gross principal repayments + interest due [Finance Costs]). Unavailable when gross principal repayments are not disclosed - never rebuilt from net financing flows.",
-   "code_location": "tools/ratio_contract.py:990 (_r_dscr)",
+   "code_location": "tools/ratio_contract.py:1009 (_r_dscr)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "borrowings_repayment",
@@ -1828,7 +1828,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Operating Cash Flow \u00f7 Total Debt",
    "implementation": "Operating Cash Flow \u00f7 Total Debt.",
-   "code_location": "tools/ratio_contract.py:1021 (_r_cash_flow_coverage)",
+   "code_location": "tools/ratio_contract.py:1040 (_r_cash_flow_coverage)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "operating_cash_flow",
@@ -1883,7 +1883,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Operating Cash Flow \u2212 Capital Expenditure",
    "implementation": "Operating Cash Flow - gross Capex (no disposal proceeds netted).",
-   "code_location": "tools/ratio_contract.py:1042 (_r_fcf)",
+   "code_location": "tools/ratio_contract.py:1061 (_r_fcf)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "capex",
@@ -1940,7 +1940,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Free Cash Flow \u00f7 Market Capitalisation",
    "implementation": "Free Cash Flow \u00f7 Market Cap.",
-   "code_location": "tools/ratio_contract.py:1052 (_r_fcf_yield)",
+   "code_location": "tools/ratio_contract.py:1071 (_r_fcf_yield)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "capex",
@@ -1996,7 +1996,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Free Cash Flow \u00f7 Revenue",
    "implementation": "Free Cash Flow \u00f7 Revenue.",
-   "code_location": "tools/ratio_contract.py:1066 (_r_fcf_margin)",
+   "code_location": "tools/ratio_contract.py:1085 (_r_fcf_margin)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "capex",
@@ -2052,7 +2052,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Operating Cash Flow \u00f7 Current Liabilities",
    "implementation": "Operating Cash Flow \u00f7 Total Current Liabilities.",
-   "code_location": "tools/ratio_contract.py:1081 (_r_ocf_ratio)",
+   "code_location": "tools/ratio_contract.py:1100 (_r_ocf_ratio)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "operating_cash_flow",
@@ -2105,7 +2105,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Capital Expenditure \u00f7 Revenue",
    "implementation": "Gross Capex \u00f7 Revenue.",
-   "code_location": "tools/ratio_contract.py:1086 (_r_capex_intensity)",
+   "code_location": "tools/ratio_contract.py:1105 (_r_capex_intensity)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "capex",
@@ -2161,7 +2161,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Operating Cash Flow \u00f7 Net Profit (whole entity)",
    "implementation": "Operating Cash Flow \u00f7 Net Profit, both whole-entity (total PAT incl. NCI).",
-   "code_location": "tools/ratio_contract.py:1105 (_r_ocf_to_net_profit)",
+   "code_location": "tools/ratio_contract.py:1124 (_r_ocf_to_net_profit)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "operating_cash_flow",
@@ -2216,7 +2216,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "NOPAT \u00f7 Invested Capital",
    "implementation": "NOPAT \u00f7 Invested Capital; NOPAT = EBIT \u00d7 (1 - effective tax rate); Invested Capital = Total Debt + Total Equity (incl. NCI) - Cash & Cash Equivalents (closing, per spec).",
-   "code_location": "tools/ratio_contract.py:1121 (_r_roic)",
+   "code_location": "tools/ratio_contract.py:1140 (_r_roic)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "cash",
@@ -2277,7 +2277,7 @@
    "category": "P&L",
    "authoritative_formula": "Tax Expense \u00f7 Profit Before Tax",
    "implementation": "Total Tax Expense \u00f7 Profit Before Tax.",
-   "code_location": "tools/ratio_contract.py:1146 (_r_effective_tax_rate)",
+   "code_location": "tools/ratio_contract.py:1165 (_r_effective_tax_rate)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "pbt",
@@ -2334,7 +2334,7 @@
    "category": "P&L",
    "authoritative_formula": "(Revenue \u2212 Variable Costs) \u00f7 Revenue",
    "implementation": "(Revenue - Variable Costs) \u00f7 Revenue. Variable costs are NOT disclosed: reconstructed from goods cost + Direct Expenses / volume-linked Other-Expenses note items. Always a flagged proxy (needs_review); unavailable when only goods cost could be identified.",
-   "code_location": "tools/ratio_contract.py:1162 (_r_contribution_margin)",
+   "code_location": "tools/ratio_contract.py:1181 (_r_contribution_margin)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "net_sales"
@@ -2373,7 +2373,7 @@
    "category": "P&L",
    "authoritative_formula": "(Current Year EPS \u00f7 Prior Year EPS) \u2212 1",
    "implementation": "(Current Basic EPS (owners) \u00f7 Prior Basic EPS (owners)) - 1.",
-   "code_location": "tools/ratio_contract.py:1209 (_r_eps_growth)",
+   "code_location": "tools/ratio_contract.py:1228 (_r_eps_growth)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "eps"
@@ -2382,11 +2382,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter owners; period YoY",
    "dependencies": [],
    "tests": {
-    "specific": 7,
+    "specific": 8,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_market_ratios_use_the_latest_quote_with_fiscal_year_per_share_figures",
-     "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract",
-     "test_ratio_corrections_2026_10b.py::test_eps_growth_formula_names_both_periods"
+     "test_final_consistency_2026_10f.py::test_eps_and_payout_follow_the_owners_perimeter",
+     "test_final_validation_regressions.py::test_bank_core_parsed_shape_runs_through_the_contract"
     ],
     "textbook": true,
     "edge_cases": true
@@ -2430,7 +2430,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Total Equity \u00f7 Number of Equity Shares Outstanding",
    "implementation": "Owners' Equity \u00f7 Equity Shares Outstanding (closing). The ONE BVPS.",
-   "code_location": "tools/ratio_contract.py:1225 (_r_bvps)",
+   "code_location": "tools/ratio_contract.py:1244 (_r_bvps)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "bvps",
@@ -2485,7 +2485,7 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "Dividends Paid to the Company's shareholders \u00f7 Net Profit (owners)",
    "implementation": "Dividends PAID (cash flow statement) \u00f7 owners' Net Profit. Declared DPS \u00d7 shares only as a flagged estimate when no paid line exists; unavailable (never 0) when neither exists.",
-   "code_location": "tools/ratio_contract.py:1236 (_r_dividend_payout)",
+   "code_location": "tools/ratio_contract.py:1255 (_r_dividend_payout)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "dividends_paid",
@@ -2543,7 +2543,7 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "1 \u2212 Dividend Payout Ratio",
    "implementation": "100% - Dividend Payout (only when payout is available).",
-   "code_location": "tools/ratio_contract.py:1486 (_r_retention)",
+   "code_location": "tools/ratio_contract.py:1512 (_r_retention)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "dividends_paid",
@@ -2603,7 +2603,7 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "Return on Equity \u00d7 Retention Ratio",
    "implementation": "ROE \u00d7 Retention (both must be available).",
-   "code_location": "tools/ratio_contract.py:1496 (_r_sgr)",
+   "code_location": "tools/ratio_contract.py:1522 (_r_sgr)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "dividends_paid",
@@ -2664,7 +2664,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Price-to-Earnings \u00f7 EPS Growth Rate",
    "implementation": "P/E \u00f7 EPS growth (%) (not meaningful when growth \u2264 0).",
-   "code_location": "tools/ratio_contract.py:1519 (_r_peg)",
+   "code_location": "tools/ratio_contract.py:1545 (_r_peg)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "eps"
@@ -2722,8 +2722,8 @@
    "label": "EV/Sales",
    "category": "Market / Valuation",
    "authoritative_formula": "Enterprise Value (Mkt Cap + Debt \u2212 Cash) \u00f7 Revenue",
-   "implementation": "Enterprise Value (Market Cap + Debt + NCI - Cash) \u00f7 Revenue.",
-   "code_location": "tools/ratio_contract.py:1546 (_r_ev_to_sales)",
+   "implementation": "Enterprise Value (Market Cap + Total Debt - Cash & Cash Equivalents; NCI is not added) \u00f7 Net Sales.",
+   "code_location": "tools/ratio_contract.py:1572 (_r_ev_to_sales)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "cash",
@@ -2735,11 +2735,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period derived",
    "dependencies": [],
    "tests": {
-    "specific": 4,
+    "specific": 7,
     "examples": [
-     "test_global_audit_2026_10c.py::test_ev_is_the_same_number_in_all_three_multiples",
-     "test_global_audit_2026_10c.py::test_net_debt_and_ev_do_not_move_with_the_cash_ratio_policy",
-     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ev_to_sales]"
+     "test_final_consistency_2026_10f.py::test_all_ev_multiples_use_the_same_enterprise_value",
+     "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
+     "test_final_consistency_2026_10f.py::test_specification_text_matches_the_calculation_for_every_ev_ratio"
     ],
     "textbook": true,
     "edge_cases": true
@@ -2779,8 +2779,8 @@
    "label": "EV/FCF",
    "category": "Market / Valuation",
    "authoritative_formula": "Enterprise Value (Mkt Cap + Debt \u2212 Cash) \u00f7 Free Cash Flow",
-   "implementation": "Enterprise Value (Market Cap + Debt + NCI - Cash) \u00f7 Free Cash Flow (not meaningful when FCF \u2264 0).",
-   "code_location": "tools/ratio_contract.py:1562 (_r_ev_to_fcf)",
+   "implementation": "Enterprise Value (Market Cap + Total Debt - Cash & Cash Equivalents; NCI is not added) \u00f7 Free Cash Flow (not meaningful when FCF \u2264 0).",
+   "code_location": "tools/ratio_contract.py:1588 (_r_ev_to_fcf)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "capex",
@@ -2796,11 +2796,11 @@
     "free_cash_flow"
    ],
    "tests": {
-    "specific": 6,
+    "specific": 9,
     "examples": [
-     "test_global_audit_2026_10c.py::test_ev_is_the_same_number_in_all_three_multiples",
-     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ev_to_fcf]",
-     "test_ratio_remediation.py::test_ev_to_fcf_with_negative_fcf_is_not_meaningful_but_keeps_the_number"
+     "test_final_consistency_2026_10f.py::test_all_ev_multiples_use_the_same_enterprise_value",
+     "test_final_consistency_2026_10f.py::test_negative_fcf_is_not_presented_as_a_meaningful_multiple",
+     "test_final_consistency_2026_10f.py::test_specification_text_matches_the_calculation_for_every_ev_ratio"
     ],
     "textbook": true,
     "edge_cases": true
@@ -2841,7 +2841,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Market Capitalisation \u00f7 Operating Cash Flow",
    "implementation": "Market Cap \u00f7 Operating Cash Flow.",
-   "code_location": "tools/ratio_contract.py:1588 (_r_ptocf)",
+   "code_location": "tools/ratio_contract.py:1614 (_r_ptocf)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "operating_cash_flow",
@@ -2851,11 +2851,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period mcap / flow",
    "dependencies": [],
    "tests": {
-    "specific": 3,
+    "specific": 4,
     "examples": [
+     "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
      "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[price_to_cash_flow]",
-     "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale",
-     "test_ratio_remediation.py::test_zero_or_negative_denominators_are_not_meaningful"
+     "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale"
     ],
     "textbook": true,
     "edge_cases": true
@@ -2896,7 +2896,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "\u221a(22.5 \u00d7 EPS \u00d7 Book Value per Share)",
    "implementation": "\u221a(22.5 \u00d7 EPS (owners) \u00d7 BVPS).",
-   "code_location": "tools/ratio_contract.py:1605 (_r_graham)",
+   "code_location": "tools/ratio_contract.py:1631 (_r_graham)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "bvps",
@@ -2954,12 +2954,12 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "1.2(WC/TA) + 1.4(RE/TA) + 3.3(EBIT/TA) + 0.6(MktCap/TL) + 1.0(Sales/TA)",
    "implementation": "1.2\u00b7WC/TA + 1.4\u00b7RE/TA + 3.3\u00b7EBIT/TA + 0.6\u00b7MktCap/Total Liabilities + 1.0\u00b7Sales/TA; Total Liabilities as reported (NCI is never booked as a liability); RE = Other Equity proxy (needs_review).",
-   "code_location": "tools/ratio_contract.py:1273 (_r_altman)",
+   "code_location": "tools/ratio_contract.py:1292 (_r_altman)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "ebit",
+    "net_sales",
     "retained_earnings",
-    "revenue",
     "shares_outstanding",
     "total_assets",
     "total_liabilities",
@@ -2969,25 +2969,24 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period closing",
    "dependencies": [],
    "tests": {
-    "specific": 6,
+    "specific": 10,
     "examples": [
-     "test_full_quant_coverage.py::test_n_altman_needs_review_on_retained_earnings_proxy",
-     "test_full_quant_coverage.py::test_n_altman_z_uses_market_cap_not_book_equity",
-     "test_global_audit_2026_10c.py::test_roa_altman_piotroski_are_documented_as_reading_no_equity_fact"
+     "test_final_consistency_2026_10f.py::test_components_and_final_score_by_hand",
+     "test_final_consistency_2026_10f.py::test_expired_memo_fetches_a_new_quote_and_every_valuation_follows_it",
+     "test_final_consistency_2026_10f.py::test_market_input_states_source_and_quote_time"
     ],
     "textbook": true,
     "edge_cases": true
    },
    "anuras_fy2026": {
-    "value": 3.5374059361941894,
-    "status": "needs_review",
-    "independent": 3.5374066316848536,
-    "rel_diff": 1.966103240553099e-07,
+    "value": 3.1543572793530426,
+    "status": "verified",
+    "independent": 3.1543579748437067,
+    "rel_diff": 2.2048564865419933e-07,
     "matrix_verdict": "NEEDS REVIEW"
    },
    "lineage_base_facts": [
     "retained_earnings",
-    "revenue",
     "shares_outstanding",
     "total_assets"
    ],
@@ -3006,9 +3005,9 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Legitimate methodology difference",
-   "history_of_fixes": null,
-   "decision_or_issue": "Retained earnings = Other-Equity proxy (always needs_review)."
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.18: exact Retained Earnings from the Other-equity note when it reconciles (else flagged proxy); net sales; quote provenance; the adapter's second formula, cache and stored-row path removed.",
+   "decision_or_issue": "2026.10.18: exact Retained Earnings from the Other-equity note when it reconciles (else flagged proxy); net sales; quote provenance; the adapter's second formula, cache and stored-row path removed."
   },
   {
    "sr_no": 56,
@@ -3017,15 +3016,15 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "Sum of 9 binary fundamental-strength tests (0-9 scale)",
    "implementation": "Nine binary tests; a score is reported only when all nine can be evaluated, otherwise insufficient_data.",
-   "code_location": "tools/ratio_contract.py:1302 (_r_piotroski)",
+   "code_location": "tools/ratio_contract.py:1321 (_r_piotroski)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "gross_profit",
     "lt_borrowings",
+    "net_sales",
     "operating_cash_flow",
     "pat",
     "pat_total",
-    "revenue",
     "shares_outstanding",
     "total_assets",
     "total_current_assets",
@@ -3036,19 +3035,19 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period two-year",
    "dependencies": [],
    "tests": {
-    "specific": 9,
+    "specific": 11,
     "examples": [
-     "test_full_quant_coverage.py::test_o_piotroski_computes_real_score_when_all_facts_present",
-     "test_full_quant_coverage.py::test_o_piotroski_insufficient_when_leverage_fact_missing",
-     "test_global_audit_2026_10c.py::test_basis_is_stamped_on_the_result"
+     "test_final_consistency_2026_10f.py::test_every_signal_is_reproducible_from_the_fixture_with_one_profit_perimeter",
+     "test_final_consistency_2026_10f.py::test_roa_signal_uses_whole_entity_profit_not_the_owners_figure",
+     "test_full_quant_coverage.py::test_o_piotroski_computes_real_score_when_all_facts_present"
     ],
     "textbook": true,
     "edge_cases": true
    },
    "anuras_fy2026": {
-    "value": 7.0,
+    "value": 6.0,
     "status": "verified",
-    "independent": 7.0,
+    "independent": 6.0,
     "rel_diff": 0.0,
     "matrix_verdict": "PASS"
    },
@@ -3056,7 +3055,6 @@
     "operating_cash_flow",
     "pat",
     "pat_total",
-    "revenue",
     "shares_outstanding",
     "total_assets",
     "total_current_assets",
@@ -3073,9 +3071,9 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against source evidence and specification",
-   "history_of_fixes": "legacy research-report Piotroski (financial_analysis.py) fixed separately - see engine inventory; the contract version was unaffected.",
-   "decision_or_issue": ""
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.18: one profit perimeter (whole entity) for all ROA/accrual signals; net sales for margin and turnover signals; every signal's inputs are exposed.",
+   "decision_or_issue": "2026.10.18: one profit perimeter (whole entity) for all ROA/accrual signals; net sales for margin and turnover signals; every signal's inputs are exposed."
   },
   {
    "sr_no": 57,
@@ -3084,18 +3082,18 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "-4.84 + 0.92\u00b7DSRI + 0.528\u00b7GMI + 0.404\u00b7AQI + 0.892\u00b7SGI + 0.115\u00b7DEPI - 0.172\u00b7SGAI + 4.679\u00b7TATA - 0.327\u00b7LVGI",
    "implementation": "8-variable M-Score; SGAI uses Other Expenses as the SG&A proxy (needs_review).",
-   "code_location": "tools/ratio_contract.py:1394 (_r_beneish)",
+   "code_location": "tools/ratio_contract.py:1420 (_r_beneish)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "depreciation",
     "gross_profit",
     "lt_borrowings",
+    "net_sales",
     "operating_cash_flow",
     "other_expenses",
     "pat_total",
     "ppe",
     "receivables",
-    "revenue",
     "total_assets",
     "total_current_assets",
     "total_current_liabilities",
@@ -3128,7 +3126,6 @@
     "pat_total",
     "ppe",
     "receivables",
-    "revenue",
     "total_assets",
     "total_current_assets",
     "total_current_liabilities"
