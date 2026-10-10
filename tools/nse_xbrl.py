@@ -3352,11 +3352,8 @@ def fetch_beta(symbol, name=None, to_date=None):
     if cached is not None:
         return cached
     base = {"symbol": sym, "ratio_name": "Beta"}
-    from tools.manual_mode import is_manual_mode
-    if is_manual_mode():
-        return _legacy_from_contract(rc.beta_result({"reason": "Beta requires a multi-year historical price series, which is "
-                                                                 "not derivable from an uploaded Annual Report/XBRL or a "
-                                                                 "single live market price."}), base)
+    # Beta is MARKET data (a price series against the benchmark), not a figure read from an uploaded document, so the manual workflow
+    # computes it exactly like the automatic one; an unavailable series is reported as such, never fabricated.
     db_row = try_db_ratio(sym, 66)
     if db_row is not None:
         return {**base, **db_row}

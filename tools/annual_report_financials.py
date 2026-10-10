@@ -5381,6 +5381,10 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
     # Turnover's COGS sum must stay exactly (a+b+c) - never silently widened.
     employee_benefit_expense = _scale(_find_row_values(pl_text, _EMPLOYEE_BENEFIT_LABELS, words=pl_words), pl_factor)
     other_expenses = _scale(_find_row_values(pl_text, _OTHER_EXPENSES_LABELS, words=pl_words), pl_factor)
+    # Excise duty printed as an EXPENSE line (after 'Total income': ITC, Reliance) means the revenue above is GROSS of it; the older layout
+    # that deducts it inside the revenue block ('Less: Excise duty', before 'Total income') already reports a net figure and must not be
+    # deducted twice, hence the `after` anchor.
+    excise_duty = _scale(_find_row_values(pl_text, ["excise duty"], after=r"total\s+income", words=pl_words), pl_factor)
     # Depreciation & Amortisation - needed (alongside COGS/Employee
     # Costs/Other Expenses) for EBIT-basis Operating Profit (Sr No 15):
     # Revenue − COGS − Employee Costs − Other Expenses − D&A.
@@ -5679,6 +5683,15 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         def _try(text, page_words=None):
             for lbl in ("total tax expense", "total tax expenses",
                         "tax expense/(credit)", "total tax expense/(credit)"):
+                if lbl == "tax expense/(credit)":
+                    # 'Tax expense / (credit)' is very often only the HEADER of the Current / Deferred block (Bharti Airtel). A header
+                    # carries no figures on its own line; reading 'the next numbers' then returns the CURRENT-tax row as if it were
+                    # the total (78,812 for 113,499 - the effective rate came out 17.4% instead of 25.1%).
+                    _hm = re.search(_fuzzy_label_re(lbl), text, re.I)
+                    if _hm:
+                        _eol = text.find("\n", _hm.end())
+                        if not re.search(r"\d", text[_hm.end():_eol if _eol != -1 else len(text)]):
+                            continue
                 total = _find_single_label_loose(text, lbl, max_skip=0, words=page_words)
                 if total is not None:
                     return total
@@ -6288,6 +6301,7 @@ def _extract_from_pdf(pdf_bytes, consolidated=True):
         "other_bank_balances_breakup": other_bank_balances_breakup,  # dict or None - Base/Net-off/Optional-Add, see comment above
         "employee_benefit_expense": employee_benefit_expense,  # (cur, prior) or None, normalised to ₹ Cr
         "other_expenses": other_expenses,  # (cur, prior) or None, normalised to ₹ Cr
+        "excise_duty": excise_duty,        # (cur, prior) expense line below 'Total income', or None
         "depreciation": depreciation,  # (cur, prior) or None, normalised to ₹ Cr
         "direct_expenses": direct_expenses,  # (cur, prior) or None, normalised to ₹ Cr - Sr No 15 manual-upload-only
         "total_expenses": total_expenses,  # (cur, prior) or None, normalised to ₹ Cr - Schedule III "Total Expenses (IV)"
@@ -6699,16 +6713,31 @@ def _bs_row_debt_items(doc, bs_idx, factor_of=None):
                     if alt is not None and abs(base_sum - v[0] + alt[0] - tot[0]) <= 0.005 * max(abs(tot[0]), 1.0):
                         chosen_alt.add(k)
                         break
+            page_sum, seen_labels = {}, set()
             for k, (n, v, alt) in enumerate(items):
                 use = alt if k in chosen_alt else v
                 if re.fullmatch(r"lease liabilit(?:y|ies)", n):
                     kind = "lease"
                 elif re.fullmatch(r"borrowings?", n):
                     kind = "borrow"
+                elif sec == "cur" and re.fullmatch(r"current (?:maturit(?:y|ies)) of (?:long[- ]?term )?(?:borrowings?|debt|loans?)", n):
+                    # a SEPARATE printed face line (L&T: 36,194.70 beside Borrowings 35,861.30): it is borrowings falling due within
+                    # a year, so it belongs to the same current-borrowings figure; dropping it understated L&T's debt by 27%
+                    kind = "borrow"
+                elif re.fullmatch(r"gold (?:on )?(?:metal )?loans?", n):
+                    # 'Gold on loan' (Titan): a separate face line of interest-bearing bank financing (1.5%-5.5%, interest expensed in
+                    # Finance costs). EBIT-to-interest ratios already carry its interest, so Total Debt carries its principal - one policy.
+                    kind = "borrow"
                 else:
                     continue
+                if kind in page_sum and n in seen_labels:      # a repeated identical label is a continuation/echo, never added twice
+                    continue
+                seen_labels.add(n)
+                a, b = page_sum.get(kind, (0.0, 0.0))
+                page_sum[kind] = (a + use[0], b + use[1])
+            for kind, (a, b) in page_sum.items():
                 if (kind, sec) not in out:
-                    out[(kind, sec)] = (round(use[0] * factor, 6), round(use[1] * factor, 6))
+                    out[(kind, sec)] = (round(a * factor, 6), round(b * factor, 6))
     return out
 
 
@@ -7274,6 +7303,11 @@ _attach_disclosed_purchases = _attach_text_disclosures   # legacy name
 # "75" - lettered note refs ("23A, 23B") and contents (dot-leader) pages are no longer read as figures / statements.
 # "74" - hyphenated page-number ranges ("431-432") in a Notes/Page-No column are no longer read as two values.
 # "73" - page unit declared as a footnote far below the table (Maruti "(in ` million ...)") is now honoured.
+# "98" - bank extraction serves uploaded (manual-upload://) reports from the PDF cache.
+# "97" - a header-only 'Tax expense / (credit)' line is not the total tax (Bharti).
+# "96" - excise duty expense line read (net sales fact).
+# "95" - gold-on-loan face line counts as borrowings (Titan).
+# "94" - current maturities of long-term borrowings printed as their own balance-sheet row join current borrowings (L&T).
 # "93" - the share-capital table heading ("authorised, issued, subscribed ...") is not the issued-shares line.
 # "92" - policy M: owners' PAT follows a continuing-operations EPS.
 # "91" - PBT caption variant "...of Associates / Joint Ventures and Tax".
@@ -7289,7 +7323,7 @@ _attach_disclosed_purchases = _attach_text_disclosures   # legacy name
 # "81" - dividends paid are split by recipient (owners vs minorities) from the notes.
 # "80" - comma-separated note-number lists ("26, 15") ahead of a figure are blanked.
 # "79" - second reference column in the line-based P&L row reader.
-_EXTRACTION_LOGIC_VERSION = "93"
+_EXTRACTION_LOGIC_VERSION = "98"
 
 
 def _document_identity_tag(symbol, fiscal_year):
@@ -8641,7 +8675,10 @@ def _get_extracted_bank_financials(symbol, name, fiscal_year, consolidated=True)
     # "_v6" cache-busts extractions cached before Employee Cost/Other
     # Opex/Other Income (Sr No 65) were added -- see the analogous
     # "_v2".."_v5" cache-key comment on `_get_extracted_financials`.
-    ckey = f"ar_bank_extract_v8_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}"
+    # manual/automatic mode and the document's identity are part of the key (as in `_get_extracted_financials`): an uploaded report
+    # and a downloaded one for the same symbol-year can differ, and a code-version change must never serve an old extraction
+    ckey = (f"ar_bank_extract_v9_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{'_manual' if is_manual_mode() else ''}"
+            f"_{_document_identity_tag(sym, fiscal_year)}")
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -8655,7 +8692,18 @@ def _get_extracted_bank_financials(symbol, name, fiscal_year, consolidated=True)
         is_nse_url = "nseindia.com" in pdf_url
         content = None
         last_exc = None
-        for attempt in range(2):
+        if pdf_url.startswith("manual-upload://"):
+            # the uploaded report is served from the on-disk PDF cache, exactly as `_get_extracted_financials` does; this path used to
+            # HTTP-GET the synthetic marker, so every bank ratio of an uploaded report failed with 'could not download'
+            _pp = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cache", "ar_pdfs",
+                                                f"{sym}_{fiscal_year}.pdf"))
+            if not os.path.exists(_pp):
+                out = {"error": f"No uploaded Annual Report PDF found for fiscal year {fiscal_year}.", "source_url": pdf_url}
+                _write_cache(ckey, out)
+                return out
+            with open(_pp, "rb") as fh:
+                content = fh.read()
+        for attempt in range(0 if content is not None else 2):
             try:
                 if is_nse_url:
                     from tools.nse_annual_reports import download_nse_pdf_bytes

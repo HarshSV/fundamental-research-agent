@@ -29,3 +29,8 @@ test('a TTM row is never presented as annual', () => {
   const s = summarizeReporting([row({ ...base, ttm: true })]);
   assert.match(reportingHeadline(s), /Includes TTM/);
 });
+
+test('a basis fallback is stated in the headline', () => {
+  const s = summarizeReporting([row({ ...base, basis_note: 'Standalone statements were requested but only consolidated exist.' })]);
+  assert.match(reportingHeadline(s), /requested but only consolidated exist/);
+});

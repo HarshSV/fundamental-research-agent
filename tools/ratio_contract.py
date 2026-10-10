@@ -38,7 +38,7 @@ silently served as current.
 
 import math
 
-FORMULA_VERSION = "2026.10.16"
+FORMULA_VERSION = "2026.10.17"
 
 # --------------------------------------------------------------------------------------------
 # Policy switches (each one a documented Navrist methodology decision)
@@ -490,6 +490,13 @@ def _ev_nci_warns(fs):
 # --------------------------------------------------------------------------------------------
 # the formulas
 # --------------------------------------------------------------------------------------------
+def _sl(fs):
+    """Label of the sales leg: 'Net Sales ...' when excise duty was deducted, otherwise the reported 'Revenue from Operations'."""
+    f = fs.get("net_sales")
+    return ("Net Sales (Revenue from Operations − Excise Duty)" if f is not None and f.source_tag == "revenue-excise_duty"
+            else "Revenue from Operations")
+
+
 def _r_inventory_turnover(fs, market, deps):
     key = "inventory_turnover"
     comps = (fs.extras or {}).get("components") or {}
@@ -519,7 +526,7 @@ def _r_inventory_turnover(fs, market, deps):
 
 
 def _r_receivables_turnover(fs, market, deps):
-    r = _two_leg(fs, "receivables_turnover", "x", "revenue", "cur", "Revenue from Operations", "receivables", "avg",
+    r = _two_leg(fs, "receivables_turnover", "x", "net_sales", "cur", _sl(fs), "receivables", "avg",
                  "Average Trade Receivables (opening + closing) ÷ 2", base_conf=0.8, base_status="needs_review",
                  warnings=("Net credit sales are not disclosed; Revenue from Operations is used as the proxy.",))
     if r["value_raw"] is not None:
@@ -561,12 +568,12 @@ def _r_payables_turnover(fs, market, deps):
 
 
 def _r_asset_turnover(fs, market, deps):
-    return _two_leg(fs, "asset_turnover", "x", "revenue", "cur", "Revenue from Operations", "total_assets", "avg",
+    return _two_leg(fs, "asset_turnover", "x", "net_sales", "cur", _sl(fs), "total_assets", "avg",
                     "Average Total Assets (opening + closing) ÷ 2", den_positive=True)
 
 
 def _r_working_capital_turnover(fs, market, deps):
-    r = _two_leg(fs, "working_capital_turnover", "x", "revenue", "cur", "Revenue from Operations", "working_capital",
+    r = _two_leg(fs, "working_capital_turnover", "x", "net_sales", "cur", _sl(fs), "working_capital",
                  "avg", "Average Working Capital (opening + closing) ÷ 2, Working Capital = Current Assets − Current Liabilities",
                  den_positive=True,
                  den_closing_label="Closing Working Capital (opening/prior-year unavailable)",
@@ -674,7 +681,7 @@ def _r_working_capital(fs, market, deps):
 def _r_gross_profit_margin(fs, market, deps):
     key = "gross_profit_margin"
     comps = (fs.extras or {}).get("components") or {}
-    rev, cogs = fs.get("revenue"), fs.get("cogs")
+    rev, cogs = fs.get("net_sales"), fs.get("cogs")
     if not comps or cogs is None or cogs.value is None:
         return _res(key, unit="%", status="not_disclosed", confidence=0.0,
                     reason="No Cost of Goods Sold line items were found - either not a goods business or not extracted; "
@@ -684,15 +691,15 @@ def _r_gross_profit_margin(fs, market, deps):
     if rev.value <= 0:
         return _res(key, unit="%", status="insufficient_data", confidence=0.0, reason="Revenue from operations is zero or negative.", facts=[rev])
     gp = rev.value - cogs.value
-    comp_out = {"Revenue from Operations": round(rev.value, 2)}
+    comp_out = {_sl(fs): round(rev.value, 2)}
     for k, v in comps.items():
         comp_out[f"less: {k}"] = round(v[0], 2)
     st, conf, est, w = _merge("verified", 0.95 if len(comps) < 3 else 1.0, False, [rev, cogs])
     return _res(key, value_raw=gp / rev.value * 100, unit="%", status=st, confidence=conf, estimated=est, facts=[rev, cogs],
                 warnings=w, num=_legd("Gross Profit (Revenue − COGS)", gp, components=comp_out,
-                                      parts=[_part("Revenue from Operations", rev.value, 1, "revenue")] +
+                                      parts=[_part(_sl(fs), rev.value, 1, "net_sales")] +
                                             [_part(k, v[0], -1, statement="Statement of Profit and Loss (expense note)") for k, v in comps.items()]),
-                den=_legd("Revenue from Operations", rev.value, "revenue"))
+                den=_legd(_sl(fs), rev.value, "net_sales"))
 
 
 def _ebit_num(fs, ebit):
@@ -713,7 +720,7 @@ def _ebit_num(fs, ebit):
 
 def _r_operating_profit_margin(fs, market, deps):
     key = "operating_profit_margin"
-    rev, ebit = fs.get("revenue"), fs.get("ebit")
+    rev, ebit = fs.get("net_sales"), fs.get("ebit")
     if rev is None or rev.value is None:
         return _unavailable(key, [rev], fs, unit="%", reason="Could not find 'Revenue from operations' row on the P&L page.")
     if ebit is None or ebit.value is None:
@@ -723,7 +730,7 @@ def _r_operating_profit_margin(fs, market, deps):
     st, conf, est, w = _merge("verified", 1.0, False, [rev, ebit])
     return _res(key, value_raw=ebit.value / rev.value * 100, unit="%", status=st, confidence=conf, estimated=est,
                 facts=[rev, ebit], warnings=w, num=_ebit_num(fs, ebit),
-                den=_legd("Revenue from Operations", rev.value, "revenue"),
+                den=_legd(_sl(fs), rev.value, "net_sales"),
                 extra={"formula": "(Profit Before Tax + Finance Costs) / Revenue from Operations x 100"})
 
 
@@ -737,7 +744,7 @@ def _r_net_profit_margin(fs, market, deps):
     label = ("Profit for the Year Attributable to Owners of the Company" if pol == "owners"
              else "Profit for the Year (whole entity, incl. NCI)")
     r = _two_leg(fs, "net_profit_margin", "%", "pat" if pol == "owners" else "pat_total", "cur", label,
-                 "revenue", "cur", "Revenue from Operations", mult=100.0, den_positive=True,
+                 "net_sales", "cur", _sl(fs), mult=100.0, den_positive=True,
                  reason_nonpositive="Revenue from operations is zero or negative.")
     if r.get("value_raw") is not None and pol == "owners" and (fs.extras or {}).get("nci_material"):
         r["warnings"].append("Perimeter: owners' profit over 100%-consolidated revenue (NCI share of profit excluded).")
@@ -878,7 +885,7 @@ def _r_pb(fs, market, deps):
 
 def _r_ps(fs, market, deps):
     key = "ps_ratio"
-    rev = fs.get("revenue")
+    rev = fs.get("net_sales")
     if market is None:
         return _no_market(key)
     mc = _mcap(fs, market)
@@ -887,7 +894,7 @@ def _r_ps(fs, market, deps):
     st, conf, est, w = _merge("verified", 1.0, False, [rev, fs.get("shares_outstanding")])
     return _res(key, value_raw=mc / rev.value, status=st, confidence=conf, estimated=est,
                 facts=[rev, fs.get("shares_outstanding")], warnings=w,
-                num=_mcap_leg(fs, market, mc), den=_legd("Revenue from Operations", rev.value, "revenue"))
+                num=_mcap_leg(fs, market, mc), den=_legd(_sl(fs), rev.value, "net_sales"))
 
 
 def _r_dividend_yield(fs, market, deps):
@@ -929,7 +936,7 @@ def _r_ev_to_ebitda(fs, market, deps):
 
 
 def _r_fixed_asset_turnover(fs, market, deps):
-    r = _two_leg(fs, "fixed_asset_turnover", "x", "revenue", "cur", "Revenue from Operations", "net_fixed_assets", "avg",
+    r = _two_leg(fs, "fixed_asset_turnover", "x", "net_sales", "cur", _sl(fs), "net_fixed_assets", "avg",
                  "Average Net Fixed Assets (opening + closing) ÷ 2", den_positive=True)
     comps = (fs.extras or {}).get("nfa_components")
     if comps and r.get("denominator"):
@@ -942,7 +949,7 @@ def _r_days_working_capital(fs, market, deps):
     if wc is None or wc.value is None:
         return _unavailable("days_working_capital", [wc], fs, unit="days")
     r = _two_leg(fs, "days_working_capital", "days", "working_capital", "avg", "Average Working Capital (opening + closing) ÷ 2",
-                 "revenue", "cur", "Revenue from Operations", mult=365.0, den_positive=True,
+                 "net_sales", "cur", _sl(fs), mult=365.0, den_positive=True,
                  reason_nonpositive="Revenue from operations is zero or negative.",
                  num_closing_label="Closing Working Capital (opening/prior-year unavailable)")
     return r
@@ -1058,7 +1065,7 @@ def _r_fcf_yield(fs, market, deps):
 
 def _r_fcf_margin(fs, market, deps):
     key = "fcf_margin"
-    fcf, rev = fs.get("fcf"), fs.get("revenue")
+    fcf, rev = fs.get("fcf"), fs.get("net_sales")
     if fcf is None or fcf.value is None:
         return _unavailable(key, [fs.get("operating_cash_flow"), fs.get("capex")], fs, unit="%")
     if rev is None or rev.value is None:
@@ -1068,7 +1075,7 @@ def _r_fcf_margin(fs, market, deps):
     st, conf, est, w = _merge("verified", 1.0, False, [fcf, rev, fs.get("operating_cash_flow"), fs.get("capex")])
     return _res(key, value_raw=fcf.value / rev.value * 100, unit="%", status=st, confidence=conf, estimated=est, facts=[fcf, rev], warnings=w,
                 num=_legd("Free Cash Flow (Operating Cash Flow − Gross Capex)", fcf.value, "fcf", components=_fcf_comps(fs)),
-                den=_legd("Revenue from Operations", rev.value, "revenue"))
+                den=_legd(_sl(fs), rev.value, "net_sales"))
 
 
 def _r_ocf_ratio(fs, market, deps):
@@ -1078,7 +1085,7 @@ def _r_ocf_ratio(fs, market, deps):
 
 def _r_capex_intensity(fs, market, deps):
     key = "capex_intensity"
-    capex, rev = fs.get("capex"), fs.get("revenue")
+    capex, rev = fs.get("capex"), fs.get("net_sales")
     if capex is None or capex.value is None:
         return _unavailable(key, [capex], fs, unit="%")
     if rev is None or rev.value is None:
@@ -1092,7 +1099,7 @@ def _r_capex_intensity(fs, market, deps):
         comps["Purchase of Intangible Assets"] = round(abs(intg.value), 2)
     return _res(key, value_raw=capex.value / rev.value * 100, unit="%", status=st, confidence=conf, estimated=est, facts=[capex, rev], warnings=w,
                 num=_legd("Capital Expenditure (gross)", capex.value, "capex", components=comps),
-                den=_legd("Revenue from Operations", rev.value, "revenue"))
+                den=_legd(_sl(fs), rev.value, "net_sales"))
 
 
 def _r_ocf_to_net_profit(fs, market, deps):
@@ -1154,7 +1161,7 @@ def _r_effective_tax_rate(fs, market, deps):
 
 def _r_contribution_margin(fs, market, deps):
     key = "contribution_margin"
-    rev = fs.get("revenue")
+    rev = fs.get("net_sales")
     if rev is None or rev.value is None:
         return _unavailable(key, [rev], fs, unit="%")
     if rev.value <= 0:
@@ -1170,7 +1177,7 @@ def _r_contribution_margin(fs, market, deps):
                            "item (freight, power & fuel, packing, commissions) was found. Goods cost alone is not the variable cost of a "
                            "business, so no contribution margin is manufactured.")
     var, parts = 0.0, {}                      # `var` stays UNROUNDED - only the displayed components are rounded
-    cparts = [_part("Revenue from Operations", rev.value, 1, "revenue")]
+    cparts = [_part(_sl(fs), rev.value, 1, "net_sales")]
     for lab in ("Cost of materials consumed", "Purchases of stock-in-trade", "Changes in inventories"):
         if lab in comps:
             parts[lab] = round(comps[lab][0], 2)
@@ -1194,7 +1201,7 @@ def _r_contribution_margin(fs, market, deps):
                 num=_legd("Contribution (Revenue - Total Variable Costs) [PROXY]", contrib, parts=cparts, parts_tol=0.011,
                           components={"Revenue from Operations": round(rev.value, 2), "less: Total Variable Costs": round(var, 2),
                                       **{f"  {k}": v for k, v in parts.items()}}),
-                den=_legd("Revenue from Operations", rev.value, "revenue"),
+                den=_legd(_sl(fs), rev.value, "net_sales"),
                 extra={"approximation": True, "formula": "(Revenue from Operations - Total Variable Costs) / Revenue from Operations x 100",
                        "variable_cost_extraction_status": "direct_expenses_only" if has_direct else "note_matched"})
 
@@ -1541,7 +1548,7 @@ def _r_ev_to_sales(fs, market, deps):
     if market is None:
         return _no_market(key)
     ev, ef = _enterprise_value(fs, market)
-    rev = fs.get("revenue")
+    rev = fs.get("net_sales")
     if ev is None:
         return _unavailable(key, ef, fs)
     if rev is None or rev.value in (None, 0):
@@ -1549,7 +1556,7 @@ def _r_ev_to_sales(fs, market, deps):
     warns = _ev_nci_warns(fs)
     st, conf, est, w = _merge("needs_review" if warns else "verified", 0.85 if warns else 1.0, bool(warns), ef + [rev], warns)
     return _res(key, value_raw=ev / rev.value, status=st, confidence=conf, estimated=est, facts=ef + [rev], warnings=w,
-                num=_ev_leg(fs, market, ev), den=_legd("Revenue from Operations", rev.value, "revenue"))
+                num=_ev_leg(fs, market, ev), den=_legd(_sl(fs), rev.value, "net_sales"))
 
 
 def _r_ev_to_fcf(fs, market, deps):
@@ -1676,6 +1683,10 @@ def reporting_context(key, fs, market=None):
         "balance_convention": "closing balance of the fiscal year; averages use the prior-year closing balance as opening (unavailable when it is missing)",
         "screener_comparable": "annual (non-TTM) statements - compare with Screener's annual column, not its TTM column",
     }
+    fb = (getattr(fs, "extras", None) or {}).get("basis_fallback")
+    if fb:
+        ctx["basis_requested"] = fs.extras.get("basis_requested")
+        ctx["basis_note"] = fb
     if key in MARKET_KEYS:
         q = (market or {}) if isinstance(market, dict) else {}
         ctx["price"] = {"kind": "latest_quote", "quoted_at": q.get("quoted_at"),

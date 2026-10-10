@@ -14,35 +14,27 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 METRICS = {
-    "revenue": ("Revenue from operations (Rs Cr)", "Revenue from operations as printed in the statement of profit and loss",
+    "revenue": ("Net sales (Rs Cr)", "Revenue from operations less an excise-duty expense line (decision AE); else as printed",
                 "Screener 'Sales' (annual, consolidated; whole crore)"),
     "net_profit_whole_entity": ("Net profit, whole entity (Rs Cr)", "Profit for the year (owners + NCI), continuing operations (policy M)",
                                 "Screener 'Net Profit' (annual, consolidated)"),
     "tax_pct": ("Effective tax rate (%)", "Tax expense / profit before tax as printed", "Screener 'Tax %' row (its own PBT, whole percent)"),
-    "debt_vs_borrowings": ("Total debt vs Screener Borrowings (Rs Cr)", "Borrowings + lease liabilities + debt-like other financial liabilities",
+    "debt_vs_borrowings": ("Total debt vs Screener Borrowings (Rs Cr)", "Borrowings (incl. current maturities) + lease liabilities + gold-on-loan + qualifying other financial liabilities",
                            "Screener 'Borrowings' (balance-sheet borrowings only)"),
 }
-VALID, EXTRACT, REVIEW = ("Valid methodology difference", "Source extraction issue", "Needs review / insufficient evidence")
-# (company-year, metric) -> (class, root cause, decision)
+VALID, EXTRACT, REVIEW = ("Legitimate methodology difference", "Source extraction issue", "Needs review")
+# (company-year, metric) -> (class, root cause, decision).  Only the comparisons that still differ appear here; every other one agrees.
 CAUSE = {
-    ("ITC:2025", "revenue"): (VALID, "Screener nets excise duty: 81,612.78 - 6,289.44 = 75,323.34 (Screener 75,323).",
-                              "Keep Revenue from operations as printed; label the difference."),
     ("ITC:2025", "net_profit_whole_entity"): (VALID, "Screener 35,052 includes the INR 15,016 Cr discontinued-operations (hotels demerger) gain; Navrist uses continuing "
-                                              "operations so profit and EPS share one perimeter (policy M).", "Keep policy M; label the difference."),
-    ("ITC:2025", "tax_pct"): (REVIEW, "Screener's tax % is computed on its own PBT (after exceptional items); Navrist uses tax / PBT as printed.",
-                              "Left as is; PBT-before/after-exceptional definition not settled."),
-    ("BHARTIARTL:2025", "tax_pct"): (REVIEW, "One-off deferred-tax and exceptional items: Screener's own PBT differs from the printed PBT.", "Needs review."),
-    ("BHARTIARTL:2026", "tax_pct"): (REVIEW, "As FY2025 (exceptional items shift Screener's PBT).", "Needs review."),
-    ("HINDUNILVR:2025", "revenue"): (VALID, "Screener 'Sales' 61,328 excludes other operating revenue (63,121 - 1,793).",
-                                     "Keep Revenue from operations as printed; label the difference."),
-    ("TITAN:2025", "debt_vs_borrowings"): (VALID, "12,967 + 'Gold on loan' 7,810 = Screener 20,777 exactly. Gold on loan is an interest-bearing metal loan that "
-                                            "Navrist does not count as debt.", "OPEN DECISION: not changed without a policy ruling; difference is reproducible."),
-    ("RELIANCE:2025", "revenue"): (VALID, "Screener nets excise duty (980,136 - 15,443 = 964,693) and further small deductions; Screener shows 962,820.",
-                                   "Keep Revenue from operations as printed; label the difference."),
-    ("RELIANCE:2025", "debt_vs_borrowings"): (VALID, "Navrist adds lease liabilities (109,313) that Screener's borrowings exclude: 347,530 + 109,313 = 456,843 "
-                                              "(Screener 374,313 also differs by other items).", "Keep leases in Total Debt (decision documented in docs/ratio_contract.md)."),
-    ("LT:2025", "debt_vs_borrowings"): (EXTRACT, "Conglomerate with a financial-services balance sheet: borrowings of the financing business sit outside the "
-                                        "lines the reader takes (96,214 vs 132,409). Flagged by the identity checks.", "Unresolved - debt-dependent ratios for L&T are not source-verified."),
+                                              "operations (20,036.47) so profit and EPS share one perimeter (policy M).", "Keep policy M; difference labelled."),
+    ("ITC:2025", "tax_pct"): (VALID, "Navrist = continuing-operations tax 6,890.47 / PBT 26,926.94 = 25.6% (same perimeter). Screener's 16% divides by a base "
+                              "that includes discontinued operations (profit before tax 42,581.6 incl. their gain) while leaving their tax out.",
+                              "Keep: numerator and denominator share one perimeter."),
+    ("HINDUNILVR:2025", "revenue"): (VALID, "Screener 'Sales' 61,328 excludes other operating revenue (63,121 - 1,793). Other operating revenue is part of Revenue "
+                                     "from operations as printed and is not deducted.", "Keep reported revenue; difference labelled."),
+    ("RELIANCE:2025", "debt_vs_borrowings"): (VALID, "Navrist adds lease liabilities (109,313) that Screener's borrowings exclude (Ind AS 116 policy): "
+                                              "347,530 + 109,313 = 456,843 against Screener 374,313 (Screener also differs by other items).",
+                                              "Keep leases in Total Debt (docs/ratio_contract.md, decision AD)."),
 }
 
 

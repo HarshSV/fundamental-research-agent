@@ -37,7 +37,7 @@ SCREENER = {
 # why a known gap is not an extraction error
 EXPLAIN = {
     ("ITC", 2025): "Screener's net profit 35,052 includes the one-off gain on the hotels demerger (discontinued operations); Navrist uses continuing operations (policy M).",
-    ("BHARTIARTL", 2025): "Screener tax 2% reflects a one-off deferred-tax credit in its own tax % row.",
+    ("HINDUNILVR", 2025): "Screener 'Sales' 61,328 excludes other operating revenue (1,793), which is part of Revenue from operations as printed.",
 }
 
 
@@ -74,7 +74,7 @@ def main():
         missed = [k for k, v in lin.items() if v.get("found") is False]
         na = [k for k, v in lin.items() if v.get("found") is None]
         g = lambda k: (fs.get(k).value if fs.get(k) is not None else None)         # noqa: E731
-        rev, ptot, pat = g("revenue"), g("pat_total"), g("pat")
+        rev, ptot, pat = g("net_sales"), g("pat_total"), g("pat")        # Screener "Sales" is net of excise duty: compare NET SALES
         tax, pbt, debt = g("tax_expense"), g("pbt"), g("total_debt")
         s_rev, s_np, s_tax, s_debt = ref
         taxp = (tax / pbt * 100) if tax is not None and pbt else None

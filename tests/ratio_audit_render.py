@@ -41,7 +41,7 @@ NOTES = {
     "altman_z_score": "Retained earnings is the Other-Equity proxy (always needs_review, policy D).",
     "beneish_m_score": "SG&A is proxied by Other expenses (no SG&A line under Ind AS) -> needs_review by design.",
     "piotroski_f_score": "Conventions documented: ROA / asset turnover use closing total assets; leverage test uses total debt / total assets (long-term debt alone not separable).",
-    "beta": "Insufficient_data by policy in the manual document mode (no price series in an uploaded filing); estimator covered by tests.",
+    "beta": "Market data, not a document figure: computed in the manual workflow too (Nifty 50, weekly closes, 2 years, sample covariance / variance, >=52 aligned returns; independently re-estimated by least-squares slope in tests/test_beta_independent.py).",
     "promoter_pledge_pct": "Found by this audit: pledge came out needs_review ('NSE endpoint, secondary') although the uploaded filing itself carries the pledged count and percentage. Fixed 2026.10.13 -> verified, cross-checked against the filing's own percentage.",
     "free_float_pct": "Found by this audit: free float was a labelled proxy although the uploaded filing states there are NO locked-in shares in any category. Fixed 2026.10.13 -> exact (100 - promoter %).",
     "total_debt": "",

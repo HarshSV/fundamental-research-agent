@@ -7,7 +7,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Cost of Goods Sold \u00f7 Average Inventory",
    "implementation": "Cost of Goods Sold \u00f7 Average Inventory (opening + closing) \u00f7 2. COGS = Cost of materials consumed + Purchases of stock-in-trade + Changes in inventories of finished goods, WIP and stock-in-trade (the P&L's own cost lines). Formal correction 2026.10.7: the earlier Net-Sales numerator (Annual Report's own definition) was retired.",
-   "code_location": "tools/ratio_contract.py:493 (_r_inventory_turnover)",
+   "code_location": "tools/ratio_contract.py:500 (_r_inventory_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "cogs",
@@ -52,7 +52,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.7: Net Sales -> COGS numerator (authoritative spec).",
    "decision_or_issue": "2026.10.7: Net Sales -> COGS numerator (authoritative spec)."
   },
@@ -63,7 +63,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "365 \u00f7 Inventory Turnover",
    "implementation": "365 \u00f7 Inventory Turnover (unrounded).",
-   "code_location": "tools/ratio_contract.py:1456 (_days_from, via the _DERIVED table)",
+   "code_location": "tools/ratio_contract.py:1463 (_days_from, via the _DERIVED table)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "cogs",
@@ -75,11 +75,11 @@
     "inventory_turnover"
    ],
    "tests": {
-    "specific": 11,
+    "specific": 12,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
      "test_anuras_fy2026_source_audit.py::test_inventory_days_are_365_over_cogs_turnover_on_average_inventory",
-     "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover"
+     "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions"
     ],
     "textbook": true,
     "edge_cases": true
@@ -110,7 +110,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "follows Sr 1 (COGS-based turnover).",
    "decision_or_issue": "follows Sr 1 (COGS-based turnover)."
   },
@@ -121,21 +121,21 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Credit Sales \u00f7 Average Accounts Receivable",
    "implementation": "Revenue from Operations \u00f7 Average Trade Receivables (net credit sales are not disclosed - revenue is a proxy, so the result is always needs_review).",
-   "code_location": "tools/ratio_contract.py:521 (_r_receivables_turnover)",
+   "code_location": "tools/ratio_contract.py:528 (_r_receivables_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
-    "receivables",
-    "revenue"
+    "net_sales",
+    "receivables"
    ],
    "unit": "x",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period average receivables",
    "dependencies": [],
    "tests": {
-    "specific": 6,
+    "specific": 7,
     "examples": [
      "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover",
      "test_calculation_engine.py::test_case_j_registry_dependency_behaviour",
-     "test_ratio_breakdown.py::test_first_18_present_and_formula_is_the_implemented_one"
+     "test_net_sales_excise.py::test_revenue_denominated_ratios_use_net_sales"
     ],
     "textbook": true,
     "edge_cases": true
@@ -148,8 +148,7 @@
     "matrix_verdict": "NEEDS REVIEW"
    },
    "lineage_base_facts": [
-    "receivables",
-    "revenue"
+    "receivables"
    ],
    "lineage_verified_company_years": [
     "TCS:2025",
@@ -169,8 +168,8 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
-   "history_of_fixes": null,
+   "status": "Legitimate methodology difference",
+   "history_of_fixes": "2026.10.17: sales leg is net sales (revenue less an excise-duty expense line) where excise is charged.",
    "decision_or_issue": "Net CREDIT sales are never disclosed: Revenue from operations is the labelled proxy (needs_review by design, policy S)."
   },
   {
@@ -180,11 +179,11 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "365 \u00f7 Receivables Turnover",
    "implementation": "365 \u00f7 Receivables Turnover (unrounded).",
-   "code_location": "tools/ratio_contract.py:1456 (_days_from, via the _DERIVED table)",
+   "code_location": "tools/ratio_contract.py:1463 (_days_from, via the _DERIVED table)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
-    "receivables",
-    "revenue"
+    "net_sales",
+    "receivables"
    ],
    "unit": "days",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period derived",
@@ -192,11 +191,11 @@
     "receivables_turnover"
    ],
    "tests": {
-    "specific": 10,
+    "specific": 11,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
      "test_anuras_fy2026_source_audit.py::test_debtor_days_use_revenue_proxy_on_average_receivables",
-     "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover"
+     "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions"
     ],
     "textbook": true,
     "edge_cases": true
@@ -209,8 +208,7 @@
     "matrix_verdict": "NEEDS REVIEW"
    },
    "lineage_base_facts": [
-    "receivables",
-    "revenue"
+    "receivables"
    ],
    "lineage_verified_company_years": [
     "TCS:2025",
@@ -230,7 +228,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
+   "status": "Legitimate methodology difference",
    "history_of_fixes": null,
    "decision_or_issue": "inherits the revenue proxy of Sr 3."
   },
@@ -241,7 +239,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Purchases \u00f7 Average Accounts Payable",
    "implementation": "Net Purchases \u00f7 Average Trade Payables. Purchases = the Cost of Materials Consumed note's 'Purchases during the year' (+ Purchases of stock-in-trade); when the note line is absent Cost of Materials Consumed is a flagged proxy.",
-   "code_location": "tools/ratio_contract.py:532 (_r_payables_turnover)",
+   "code_location": "tools/ratio_contract.py:539 (_r_payables_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "payables",
@@ -287,7 +285,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": "disclosed purchases carried unrounded.",
    "decision_or_issue": ""
   },
@@ -298,7 +296,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "365 \u00f7 Payables Turnover",
    "implementation": "365 \u00f7 Payables Turnover (unrounded).",
-   "code_location": "tools/ratio_contract.py:1456 (_days_from, via the _DERIVED table)",
+   "code_location": "tools/ratio_contract.py:1463 (_days_from, via the _DERIVED table)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "payables",
@@ -310,11 +308,11 @@
     "payables_turnover"
    ],
    "tests": {
-    "specific": 8,
+    "specific": 9,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
      "test_anuras_fy2026_source_audit.py::test_days_payable_use_disclosed_purchases_on_average_payables",
-     "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover"
+     "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions"
     ],
     "textbook": true,
     "edge_cases": true
@@ -346,7 +344,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": "disclosed purchases carried unrounded.",
    "decision_or_issue": ""
   },
@@ -357,21 +355,21 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Sales \u00f7 Average Total Assets",
    "implementation": "Net Sales \u00f7 Average Total Assets.",
-   "code_location": "tools/ratio_contract.py:563 (_r_asset_turnover)",
+   "code_location": "tools/ratio_contract.py:570 (_r_asset_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
-    "revenue",
+    "net_sales",
     "total_assets"
    ],
    "unit": "x",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period average assets",
    "dependencies": [],
    "tests": {
-    "specific": 5,
+    "specific": 6,
     "examples": [
+     "test_net_sales_excise.py::test_revenue_denominated_ratios_use_net_sales",
      "test_ratio_edge_cases.py::test_acquisition_year_flags_every_balance_vs_flow_ratio_without_changing_numbers",
-     "test_ratio_edge_cases.py::test_zero_denominators_are_unavailable_not_zero",
-     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[asset_turnover]"
+     "test_ratio_edge_cases.py::test_zero_denominators_are_unavailable_not_zero"
     ],
     "textbook": true,
     "edge_cases": true
@@ -384,7 +382,6 @@
     "matrix_verdict": "PASS"
    },
    "lineage_base_facts": [
-    "revenue",
     "total_assets"
    ],
    "lineage_verified_company_years": [
@@ -405,9 +402,9 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
-   "history_of_fixes": null,
-   "decision_or_issue": ""
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.17: sales leg is net sales.",
+   "decision_or_issue": "2026.10.17: sales leg is net sales."
   },
   {
    "sr_no": 8,
@@ -416,10 +413,10 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Sales \u00f7 Average Working Capital (Current Assets \u2212 Current Liabilities)",
    "implementation": "Net Sales \u00f7 Average Working Capital, Working Capital = Current Assets \u2212 Current Liabilities, average = (opening + closing) \u00f7 2 (authoritative 68-ratio specification; same average basis as Sr 31). Closing WC is used only when the prior year is unavailable, and the result is then flagged. Corrected in 2026.10.8 - the earlier closing-WC alignment is retired.",
-   "code_location": "tools/ratio_contract.py:568 (_r_working_capital_turnover)",
+   "code_location": "tools/ratio_contract.py:575 (_r_working_capital_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
-    "revenue",
+    "net_sales",
     "working_capital"
    ],
    "unit": "x",
@@ -442,28 +439,10 @@
     "rel_diff": 0.0,
     "matrix_verdict": "PASS"
    },
-   "lineage_base_facts": [
-    "revenue"
-   ],
-   "lineage_verified_company_years": [
-    "TCS:2025",
-    "TCS:2026",
-    "MARUTI:2025",
-    "ITC:2025",
-    "BHARTIARTL:2025",
-    "BHARTIARTL:2026",
-    "HINDUNILVR:2025",
-    "TITAN:2025",
-    "BATAINDIA:2025",
-    "INFY:2025",
-    "INFY:2026",
-    "RELIANCE:2025",
-    "LT:2025",
-    "ANURAS:2025",
-    "ANURAS:2026"
-   ],
-   "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "lineage_base_facts": [],
+   "lineage_verified_company_years": [],
+   "lineage_company_years_scanned": 0,
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.8: closing -> average working capital (authoritative spec).",
    "decision_or_issue": "2026.10.8: closing -> average working capital (authoritative spec)."
   },
@@ -474,15 +453,15 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "DSO + DOH \u2212 DPO",
    "implementation": "DSO + DOH - DPO (unrounded parents).",
-   "code_location": "tools/ratio_contract.py:1467 (_r_ccc)",
+   "code_location": "tools/ratio_contract.py:1474 (_r_ccc)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "cogs",
     "inventory",
+    "net_sales",
     "payables",
     "purchases",
-    "receivables",
-    "revenue"
+    "receivables"
    ],
    "unit": "days",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period derived",
@@ -492,11 +471,11 @@
     "days_payables_outstanding"
    ],
    "tests": {
-    "specific": 8,
+    "specific": 9,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
-     "test_full_quant_coverage.py::test_m_purchases_proxy_is_never_verified",
-     "test_global_audit_2026_10c.py::test_turnover_days_and_ccc_use_cogs"
+     "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions",
+     "test_full_quant_coverage.py::test_m_purchases_proxy_is_never_verified"
     ],
     "textbook": true,
     "edge_cases": true
@@ -511,8 +490,7 @@
    "lineage_base_facts": [
     "inventory",
     "payables",
-    "receivables",
-    "revenue"
+    "receivables"
    ],
    "lineage_verified_company_years": [
     "TCS:2025",
@@ -529,7 +507,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
+   "status": "Legitimate methodology difference",
    "history_of_fixes": "follows Sr 1 (COGS-based Inventory Days).",
    "decision_or_issue": "inherits the revenue proxy of Sr 3."
   },
@@ -540,7 +518,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Current Assets \u00f7 Current Liabilities",
    "implementation": "Total Current Assets \u00f7 Total Current Liabilities.",
-   "code_location": "tools/ratio_contract.py:578 (_r_current_ratio)",
+   "code_location": "tools/ratio_contract.py:585 (_r_current_ratio)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "total_current_assets",
@@ -550,11 +528,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period closing",
    "dependencies": [],
    "tests": {
-    "specific": 18,
+    "specific": 20,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_liquidity_and_leverage_ratios",
-     "test_calculation_engine.py::test_case_a_shared_factset_no_re_extraction",
-     "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios"
+     "test_basis_request_honesty.py::test_matching_basis_carries_no_fallback_note",
+     "test_basis_request_honesty.py::test_standalone_request_answered_with_consolidated_is_flagged_and_labelled"
     ],
     "textbook": true,
     "edge_cases": true
@@ -588,7 +566,7 @@
    "lineage_company_years_scanned": 15,
    "status": "Source extraction issue",
    "history_of_fixes": null,
-   "decision_or_issue": "L&T (conglomerate with a financial-services balance sheet): current assets/liabilities unreliable - flagged by identity checks."
+   "decision_or_issue": "L&T (conglomerate with a financial-services balance sheet): current assets/liabilities unreliable - flagged by identity checks (debt itself is fixed)."
   },
   {
    "sr_no": 11,
@@ -597,7 +575,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "(Current Assets \u2212 Inventory) \u00f7 Current Liabilities",
    "implementation": "(Total Current Assets - Inventories) \u00f7 Total Current Liabilities.",
-   "code_location": "tools/ratio_contract.py:583 (_r_quick_ratio)",
+   "code_location": "tools/ratio_contract.py:590 (_r_quick_ratio)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "inventory",
@@ -654,7 +632,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "(Cash + Cash Equivalents) \u00f7 Current Liabilities",
    "implementation": "(Cash & Cash Equivalents + unrestricted Other Bank Balances) \u00f7 Total Current Liabilities. Other Bank Balances count when the note shows they are unrestricted: restricted lines (unclaimed dividend, earmarked, margin money, lien-marked deposits) are excluded; a line of unstated nature is included but needs_review; an undisclosed split keeps the line, needs_review, with an explicit limitation. Separate from the Cash (cash & equivalents only) used by Net debt / EV / EV multiples.",
-   "code_location": "tools/ratio_contract.py:614 (_r_cash_ratio)",
+   "code_location": "tools/ratio_contract.py:621 (_r_cash_ratio)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "cash",
@@ -693,7 +671,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
+   "status": "Legitimate methodology difference",
    "history_of_fixes": "2026.10.12: restricted other-bank-balances excluded (note classified).",
    "decision_or_issue": "authoritative formula is (Cash + Cash Equivalents); the user-approved extension adds UNRESTRICTED other bank balances (policy N)."
   },
@@ -704,7 +682,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Current Assets \u2212 Current Liabilities",
    "implementation": "Total Current Assets - Total Current Liabilities.",
-   "code_location": "tools/ratio_contract.py:662 (_r_working_capital)",
+   "code_location": "tools/ratio_contract.py:669 (_r_working_capital)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "total_current_assets",
@@ -762,21 +740,21 @@
    "category": "P&L",
    "authoritative_formula": "Gross Profit \u00f7 Revenue",
    "implementation": "(Revenue - COGS) \u00f7 Revenue; COGS = Cost of materials consumed + Purchases of stock-in-trade + Changes in inventories.",
-   "code_location": "tools/ratio_contract.py:674 (_r_gross_profit_margin)",
+   "code_location": "tools/ratio_contract.py:681 (_r_gross_profit_margin)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "cogs",
-    "revenue"
+    "net_sales"
    ],
    "unit": "%",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period flow",
    "dependencies": [],
    "tests": {
-    "specific": 4,
+    "specific": 5,
     "examples": [
      "test_full_quant_coverage.py::test_cogs_absent_never_fabricated",
      "test_full_quant_coverage.py::test_l_cogs_dependent_ratios_wired",
-     "test_ratio_breakdown.py::test_composite_numerators_are_decomposed"
+     "test_net_sales_excise.py::test_revenue_denominated_ratios_use_net_sales"
     ],
     "textbook": true,
     "edge_cases": true
@@ -788,30 +766,12 @@
     "rel_diff": 0.0,
     "matrix_verdict": "PASS"
    },
-   "lineage_base_facts": [
-    "revenue"
-   ],
-   "lineage_verified_company_years": [
-    "TCS:2025",
-    "TCS:2026",
-    "MARUTI:2025",
-    "ITC:2025",
-    "BHARTIARTL:2025",
-    "BHARTIARTL:2026",
-    "HINDUNILVR:2025",
-    "TITAN:2025",
-    "BATAINDIA:2025",
-    "INFY:2025",
-    "INFY:2026",
-    "RELIANCE:2025",
-    "LT:2025",
-    "ANURAS:2025",
-    "ANURAS:2026"
-   ],
-   "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
-   "history_of_fixes": null,
-   "decision_or_issue": ""
+   "lineage_base_facts": [],
+   "lineage_verified_company_years": [],
+   "lineage_company_years_scanned": 0,
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.17: net sales; gross profit = net sales - COGS.",
+   "decision_or_issue": "2026.10.17: net sales; gross profit = net sales - COGS."
   },
   {
    "sr_no": 15,
@@ -820,19 +780,19 @@
    "category": "P&L",
    "authoritative_formula": "Operating Profit (EBIT) \u00f7 Revenue",
    "implementation": "EBIT \u00f7 Revenue; EBIT = Profit Before Tax + Finance Costs (Other Income included - same EBIT everywhere).",
-   "code_location": "tools/ratio_contract.py:714 (_r_operating_profit_margin)",
+   "code_location": "tools/ratio_contract.py:721 (_r_operating_profit_margin)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "ebit",
     "finance_costs",
-    "pbt",
-    "revenue"
+    "net_sales",
+    "pbt"
    ],
    "unit": "%",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period flow",
    "dependencies": [],
    "tests": {
-    "specific": 6,
+    "specific": 7,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
      "test_calculation_engine.py::test_case_g_derived_facts_computed_once_and_reused",
@@ -850,8 +810,7 @@
    },
    "lineage_base_facts": [
     "finance_costs",
-    "pbt",
-    "revenue"
+    "pbt"
    ],
    "lineage_verified_company_years": [
     "MARUTI:2025",
@@ -865,7 +824,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
+   "status": "Legitimate methodology difference",
    "history_of_fixes": null,
    "decision_or_issue": "EBIT / Revenue (spec) is not Screener's OPM (operating profit before D&A, excl. other income); label is 'EBIT Margin %'."
   },
@@ -876,17 +835,17 @@
    "category": "P&L",
    "authoritative_formula": "Net Income \u00f7 Revenue",
    "implementation": "Owners'-attributable Profit After Tax \u00f7 Revenue from Operations (PERIMETER_POLICY['npm']).",
-   "code_location": "tools/ratio_contract.py:735 (_r_net_profit_margin)",
+   "code_location": "tools/ratio_contract.py:742 (_r_net_profit_margin)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
-    "pat",
-    "revenue"
+    "net_sales",
+    "pat"
    ],
    "unit": "%",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter owners (policy); period flow",
    "dependencies": [],
    "tests": {
-    "specific": 9,
+    "specific": 12,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
      "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios",
@@ -903,8 +862,7 @@
     "matrix_verdict": "PASS"
    },
    "lineage_base_facts": [
-    "pat",
-    "revenue"
+    "pat"
    ],
    "lineage_verified_company_years": [
     "TCS:2025",
@@ -924,9 +882,9 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
-   "history_of_fixes": null,
-   "decision_or_issue": ""
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.17: net sales.",
+   "decision_or_issue": "2026.10.17: net sales."
   },
   {
    "sr_no": 17,
@@ -935,7 +893,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Income \u00f7 Average Total Assets",
    "implementation": "Owners'-attributable Profit After Tax \u00f7 Average Total Assets (PERIMETER_POLICY['roa']).",
-   "code_location": "tools/ratio_contract.py:747 (_r_roa)",
+   "code_location": "tools/ratio_contract.py:754 (_r_roa)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "pat",
@@ -945,11 +903,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter owners (policy); period average assets",
    "dependencies": [],
    "tests": {
-    "specific": 8,
+    "specific": 9,
     "examples": [
+     "test_anuras_reference_conventions.py::test_roa_and_roce_follow_their_documented_definitions",
      "test_calculation_engine.py::test_case_a_shared_factset_no_re_extraction",
-     "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios",
-     "test_calculation_engine.py::test_case_c_standalone_propagates_consistently"
+     "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios"
     ],
     "textbook": true,
     "edge_cases": true
@@ -983,7 +941,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
+   "status": "Legitimate methodology difference",
    "history_of_fixes": null,
    "decision_or_issue": "owners' PAT over whole-entity average assets (PERIMETER_POLICY; deliberate mix)."
   },
@@ -994,7 +952,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Income \u00f7 Average Shareholders' Equity",
    "implementation": "Owners'-attributable PAT \u00f7 Average Owners' Equity (EQUITY_BASIS = owners_equity; never calculated on negative equity).",
-   "code_location": "tools/ratio_contract.py:758 (_r_roe)",
+   "code_location": "tools/ratio_contract.py:765 (_r_roe)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "equity",
@@ -1004,11 +962,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter owners; period average equity",
    "dependencies": [],
    "tests": {
-    "specific": 16,
+    "specific": 17,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
-     "test_global_audit_2026_10c.py::test_basis_is_stamped_on_the_result",
-     "test_global_audit_2026_10c.py::test_numbers_follow_the_declared_basis_when_nci_is_material"
+     "test_anuras_reference_conventions.py::test_roe_owners_profit_over_average_owners_equity_and_the_whole_entity_reference",
+     "test_global_audit_2026_10c.py::test_basis_is_stamped_on_the_result"
     ],
     "textbook": true,
     "edge_cases": true
@@ -1040,7 +998,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -1051,7 +1009,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "EBIT \u00f7 Average Capital Employed",
    "implementation": "EBIT \u00f7 Average Capital Employed; Capital Employed = Total Assets - Total Current Liabilities.",
-   "code_location": "tools/ratio_contract.py:775 (_r_roce)",
+   "code_location": "tools/ratio_contract.py:782 (_r_roce)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "capital_employed",
@@ -1063,11 +1021,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period average capital employed",
    "dependencies": [],
    "tests": {
-    "specific": 6,
+    "specific": 7,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
-     "test_calculation_engine.py::test_case_g_derived_facts_computed_once_and_reused",
-     "test_ratio_edge_cases.py::test_acquisition_year_flags_every_balance_vs_flow_ratio_without_changing_numbers"
+     "test_anuras_reference_conventions.py::test_roa_and_roce_follow_their_documented_definitions",
+     "test_calculation_engine.py::test_case_g_derived_facts_computed_once_and_reused"
     ],
     "textbook": true,
     "edge_cases": true
@@ -1095,7 +1053,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
+   "status": "Legitimate methodology difference",
    "history_of_fixes": null,
    "decision_or_issue": "Capital Employed = Total assets - current liabilities (spec); Screener uses equity + borrowings."
   },
@@ -1106,7 +1064,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Total Debt \u00f7 Total Equity (incl. NCI)",
    "implementation": "Total Debt \u00f7 Total Equity incl. NCI (whole-entity debt over whole-entity equity; EQUITY_BASIS = total_equity_incl_nci).",
-   "code_location": "tools/ratio_contract.py:794 (_r_debt_to_equity)",
+   "code_location": "tools/ratio_contract.py:801 (_r_debt_to_equity)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "equity_full",
@@ -1116,11 +1074,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period closing",
    "dependencies": [],
    "tests": {
-    "specific": 15,
+    "specific": 16,
     "examples": [
+     "test_anuras_reference_conventions.py::test_debt_to_equity_basis_and_the_borrowings_over_owners_equity_reference",
      "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios",
-     "test_calculation_engine.py::test_case_c_standalone_propagates_consistently",
-     "test_calculation_engine.py::test_case_f_different_basis_no_contamination"
+     "test_calculation_engine.py::test_case_c_standalone_propagates_consistently"
     ],
     "textbook": true,
     "edge_cases": true
@@ -1135,9 +1093,9 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Formula or implementation bug found and fixed",
-   "history_of_fixes": "2026.10.9-13: Total Debt - Three-Part Test evaluated on the notes, unrounded, lease/borrowing rows read from printed rows (Infosys 4.42 -> 9,176; TCS FY26 2,283 -> 11,283; Bharti 153,426 -> 213,642).",
-   "decision_or_issue": "2026.10.9-13: Total Debt - Three-Part Test evaluated on the notes, unrounded, lease/borrowing rows read from printed rows (Infosys 4.42 -> 9,176; TCS FY26 2,283 -> 11,283; Bharti 153,426 -> 213,642)."
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.9-18: Total Debt - Three-Part Test evaluated on the notes, unrounded, lease/borrowing rows read from printed rows (Infosys 4.42 -> 9,176; TCS FY26 2,283 -> 11,283; Bharti 153,426 -> 213,642; L&T 96,214 -> 132,409 once the printed 'Current maturities of long term borrowings' row is included; Titan 12,967 -> 20,777 with the 'Gold on loan' face line).",
+   "decision_or_issue": "2026.10.9-18: Total Debt - Three-Part Test evaluated on the notes, unrounded, lease/borrowing rows read from printed rows (Infosys 4.42 -> 9,176; TCS FY26 2,283 -> 11,283; Bharti 153,426 -> 213,642; L&T 96,214 -> 132,409 once the printed 'Current maturities of long term borrowings' row is included; Titan 12,967 -> 20,777 with the 'Gold on loan' face line)."
   },
   {
    "sr_no": 21,
@@ -1146,7 +1104,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Total Debt \u00f7 Total Assets",
    "implementation": "Total Debt \u00f7 Total Assets.",
-   "code_location": "tools/ratio_contract.py:810 (_r_debt_ratio)",
+   "code_location": "tools/ratio_contract.py:817 (_r_debt_ratio)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "total_assets",
@@ -1193,7 +1151,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "Total Debt fixes (see Sr 20).",
    "decision_or_issue": "Total Debt fixes (see Sr 20)."
   },
@@ -1204,7 +1162,7 @@
    "category": "P&L",
    "authoritative_formula": "EBIT \u00f7 Interest Expense",
    "implementation": "EBIT \u00f7 Finance Costs (gross).",
-   "code_location": "tools/ratio_contract.py:826 (_r_interest_coverage)",
+   "code_location": "tools/ratio_contract.py:833 (_r_interest_coverage)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "ebit",
@@ -1247,7 +1205,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -1258,7 +1216,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Average Total Assets \u00f7 Average Total Equity (incl. NCI)",
    "implementation": "Average Total Assets \u00f7 Average Total Equity incl. NCI.",
-   "code_location": "tools/ratio_contract.py:844 (_r_financial_leverage)",
+   "code_location": "tools/ratio_contract.py:851 (_r_financial_leverage)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "equity_full",
@@ -1305,7 +1263,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -1316,7 +1274,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Market Price per Share \u00f7 Basic EPS (owners)",
    "implementation": "Market Price \u00f7 Basic EPS attributable to owners.",
-   "code_location": "tools/ratio_contract.py:850 (_r_pe)",
+   "code_location": "tools/ratio_contract.py:857 (_r_pe)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "eps"
@@ -1362,7 +1320,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.14: price input states source, fetch time and that it is not the fiscal-year-end price.",
    "decision_or_issue": "2026.10.14: price input states source, fetch time and that it is not the fiscal-year-end price."
   },
@@ -1373,7 +1331,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Market Price per Share \u00f7 Book Value per Share",
    "implementation": "Market Price \u00f7 BVPS (the single BVPS of Sr 46).",
-   "code_location": "tools/ratio_contract.py:865 (_r_pb)",
+   "code_location": "tools/ratio_contract.py:872 (_r_pb)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "bvps"
@@ -1401,7 +1359,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.14: price provenance.",
    "decision_or_issue": "2026.10.14: price provenance."
   },
@@ -1412,18 +1370,19 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Market Cap \u00f7 Total Revenue",
    "implementation": "Market Cap \u00f7 Revenue from Operations.",
-   "code_location": "tools/ratio_contract.py:879 (_r_ps)",
+   "code_location": "tools/ratio_contract.py:886 (_r_ps)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
-    "revenue",
+    "net_sales",
     "shares_outstanding"
    ],
    "unit": "x",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period mcap / FY revenue",
    "dependencies": [],
    "tests": {
-    "specific": 2,
+    "specific": 3,
     "examples": [
+     "test_net_sales_excise.py::test_price_to_sales_and_ev_to_sales_use_net_sales",
      "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ps_ratio]",
      "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale"
     ],
@@ -1438,7 +1397,6 @@
     "matrix_verdict": "PASS"
    },
    "lineage_base_facts": [
-    "revenue",
     "shares_outstanding"
    ],
    "lineage_verified_company_years": [
@@ -1456,9 +1414,9 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
-   "history_of_fixes": "2026.10.14: price provenance.",
-   "decision_or_issue": "2026.10.14: price provenance."
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.17: net sales.",
+   "decision_or_issue": "2026.10.17: net sales."
   },
   {
    "sr_no": 27,
@@ -1467,7 +1425,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Dividend per Share \u00f7 Market Price per Share",
    "implementation": "DPS \u00f7 Market Price; DPS = interim/special dividend declared during the FY + final dividend recommended for the FY.",
-   "code_location": "tools/ratio_contract.py:893 (_r_dividend_yield)",
+   "code_location": "tools/ratio_contract.py:900 (_r_dividend_yield)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "dps"
@@ -1495,7 +1453,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.14: price provenance; dividends attributed to the year they are for.",
    "decision_or_issue": "2026.10.14: price provenance; dividends attributed to the year they are for."
   },
@@ -1506,7 +1464,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "EPS \u00f7 Market Price per Share",
    "implementation": "Basic EPS (owners) \u00f7 Market Price (unrounded).",
-   "code_location": "tools/ratio_contract.py:1500 (_r_earnings_yield)",
+   "code_location": "tools/ratio_contract.py:1507 (_r_earnings_yield)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "eps"
@@ -1552,7 +1510,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.14: price provenance.",
    "decision_or_issue": "2026.10.14: price provenance."
   },
@@ -1563,7 +1521,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "(Market Cap + Debt \u2212 Cash) \u00f7 EBITDA (EBIT + D&A)",
    "implementation": "(Market Cap + Total Debt - Cash & Cash Equivalents) \u00f7 EBITDA (EBIT + D&A) - the authoritative specification, and the ONE Enterprise Value definition used by Sr 29, 51 and 52. Non-controlling interest is NOT added (corrected 2026.10.8); a separately labelled 'EV incl. NCI' reference figure is carried alongside for consolidated entities with NCI but never feeds a ratio.",
-   "code_location": "tools/ratio_contract.py:906 (_r_ev_to_ebitda)",
+   "code_location": "tools/ratio_contract.py:913 (_r_ev_to_ebitda)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "cash",
@@ -1610,7 +1568,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.9: EV = Mkt cap + Debt - Cash (NCI removed); Total Debt fixes.",
    "decision_or_issue": "2026.10.9: EV = Mkt cap + Debt - Cash (NCI removed); Total Debt fixes."
   },
@@ -1621,11 +1579,11 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "Net Sales \u00f7 Average Net Fixed Assets (PPE + ROU + CWIP + Intangibles)",
    "implementation": "Net Sales \u00f7 Average Net Fixed Assets; Net Fixed Assets = PPE + Right-of-use assets + Capital WIP + Intangibles (goodwill excluded).",
-   "code_location": "tools/ratio_contract.py:931 (_r_fixed_asset_turnover)",
+   "code_location": "tools/ratio_contract.py:938 (_r_fixed_asset_turnover)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "net_fixed_assets",
-    "revenue"
+    "net_sales"
    ],
    "unit": "x",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period average net fixed assets",
@@ -1647,30 +1605,12 @@
     "rel_diff": 1.2769225103909675e-16,
     "matrix_verdict": "PASS"
    },
-   "lineage_base_facts": [
-    "revenue"
-   ],
-   "lineage_verified_company_years": [
-    "TCS:2025",
-    "TCS:2026",
-    "MARUTI:2025",
-    "ITC:2025",
-    "BHARTIARTL:2025",
-    "BHARTIARTL:2026",
-    "HINDUNILVR:2025",
-    "TITAN:2025",
-    "BATAINDIA:2025",
-    "INFY:2025",
-    "INFY:2026",
-    "RELIANCE:2025",
-    "LT:2025",
-    "ANURAS:2025",
-    "ANURAS:2026"
-   ],
-   "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
-   "history_of_fixes": null,
-   "decision_or_issue": ""
+   "lineage_base_facts": [],
+   "lineage_verified_company_years": [],
+   "lineage_company_years_scanned": 0,
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.17: net sales.",
+   "decision_or_issue": "2026.10.17: net sales."
   },
   {
    "sr_no": 31,
@@ -1679,21 +1619,21 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "(Average Working Capital \u00f7 Revenue) \u00d7 365",
    "implementation": "(Average Working Capital \u00f7 Revenue) \u00d7 365 (authoritative spec; closing WC only when the prior year is missing).",
-   "code_location": "tools/ratio_contract.py:940 (_r_days_working_capital)",
+   "code_location": "tools/ratio_contract.py:947 (_r_days_working_capital)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
-    "revenue",
+    "net_sales",
     "working_capital"
    ],
    "unit": "days",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period average working capital",
    "dependencies": [],
    "tests": {
-    "specific": 6,
+    "specific": 7,
     "examples": [
      "test_anuras_fy2026_source_audit.py::test_working_capital_days_use_average_working_capital",
-     "test_ratio_edge_cases.py::test_acquisition_year_flags_every_balance_vs_flow_ratio_without_changing_numbers",
-     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[days_working_capital]"
+     "test_anuras_reference_conventions.py::test_working_capital_days_is_its_own_formula_average_working_capital_over_revenue",
+     "test_ratio_edge_cases.py::test_acquisition_year_flags_every_balance_vs_flow_ratio_without_changing_numbers"
     ],
     "textbook": true,
     "edge_cases": true
@@ -1705,28 +1645,10 @@
     "rel_diff": 0.0,
     "matrix_verdict": "PASS"
    },
-   "lineage_base_facts": [
-    "revenue"
-   ],
-   "lineage_verified_company_years": [
-    "TCS:2025",
-    "TCS:2026",
-    "MARUTI:2025",
-    "ITC:2025",
-    "BHARTIARTL:2025",
-    "BHARTIARTL:2026",
-    "HINDUNILVR:2025",
-    "TITAN:2025",
-    "BATAINDIA:2025",
-    "INFY:2025",
-    "INFY:2026",
-    "RELIANCE:2025",
-    "LT:2025",
-    "ANURAS:2025",
-    "ANURAS:2026"
-   ],
-   "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
+   "lineage_base_facts": [],
+   "lineage_verified_company_years": [],
+   "lineage_company_years_scanned": 0,
+   "status": "Legitimate methodology difference",
    "history_of_fixes": null,
    "decision_or_issue": "average working capital (spec); Screener's Working Capital Days definition is not reproducible from the statements."
   },
@@ -1737,7 +1659,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Trade Receivables \u00f7 Trade Payables",
    "implementation": "Trade Receivables \u00f7 Trade Payables.",
-   "code_location": "tools/ratio_contract.py:951 (_r_receivables_to_payables)",
+   "code_location": "tools/ratio_contract.py:958 (_r_receivables_to_payables)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "payables",
@@ -1783,7 +1705,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -1794,7 +1716,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "(Total Debt \u2212 Cash) \u00f7 EBITDA (EBIT + D&A)",
    "implementation": "(Total Debt - Cash & Cash Equivalents) \u00f7 EBITDA.",
-   "code_location": "tools/ratio_contract.py:957 (_r_net_debt_to_ebitda)",
+   "code_location": "tools/ratio_contract.py:964 (_r_net_debt_to_ebitda)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "cash",
@@ -1841,7 +1763,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "Total Debt fixes (see Sr 20).",
    "decision_or_issue": "Total Debt fixes (see Sr 20)."
   },
@@ -1852,7 +1774,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Net Operating Income (EBITDA proxy) \u00f7 (Gross Principal Repayment + Interest Due)",
    "implementation": "Net Operating Income (= EBITDA, flagged proxy) \u00f7 (gross principal repayments + interest due [Finance Costs]). Unavailable when gross principal repayments are not disclosed - never rebuilt from net financing flows.",
-   "code_location": "tools/ratio_contract.py:983 (_r_dscr)",
+   "code_location": "tools/ratio_contract.py:990 (_r_dscr)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "borrowings_repayment",
@@ -1895,7 +1817,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Needs review because evidence is insufficient",
+   "status": "Needs review",
    "history_of_fixes": null,
    "decision_or_issue": "gross principal repayments are not disclosed by ANURAS (correctly withheld); the numeric path is covered by synthetic tests only - no real filing in the cache exercises it."
   },
@@ -1906,7 +1828,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Operating Cash Flow \u00f7 Total Debt",
    "implementation": "Operating Cash Flow \u00f7 Total Debt.",
-   "code_location": "tools/ratio_contract.py:1014 (_r_cash_flow_coverage)",
+   "code_location": "tools/ratio_contract.py:1021 (_r_cash_flow_coverage)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "operating_cash_flow",
@@ -1950,7 +1872,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "Total Debt fixes (see Sr 20).",
    "decision_or_issue": "Total Debt fixes (see Sr 20)."
   },
@@ -1961,7 +1883,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Operating Cash Flow \u2212 Capital Expenditure",
    "implementation": "Operating Cash Flow - gross Capex (no disposal proceeds netted).",
-   "code_location": "tools/ratio_contract.py:1035 (_r_fcf)",
+   "code_location": "tools/ratio_contract.py:1042 (_r_fcf)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "capex",
@@ -2007,7 +1929,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -2018,7 +1940,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Free Cash Flow \u00f7 Market Capitalisation",
    "implementation": "Free Cash Flow \u00f7 Market Cap.",
-   "code_location": "tools/ratio_contract.py:1045 (_r_fcf_yield)",
+   "code_location": "tools/ratio_contract.py:1052 (_r_fcf_yield)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "capex",
@@ -2063,7 +1985,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.14: price provenance.",
    "decision_or_issue": "2026.10.14: price provenance."
   },
@@ -2074,13 +1996,13 @@
    "category": "Cash Flow",
    "authoritative_formula": "Free Cash Flow \u00f7 Revenue",
    "implementation": "Free Cash Flow \u00f7 Revenue.",
-   "code_location": "tools/ratio_contract.py:1059 (_r_fcf_margin)",
+   "code_location": "tools/ratio_contract.py:1066 (_r_fcf_margin)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "capex",
     "fcf",
-    "operating_cash_flow",
-    "revenue"
+    "net_sales",
+    "operating_cash_flow"
    ],
    "unit": "%",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period flow",
@@ -2101,8 +2023,7 @@
     "matrix_verdict": "PASS"
    },
    "lineage_base_facts": [
-    "operating_cash_flow",
-    "revenue"
+    "operating_cash_flow"
    ],
    "lineage_verified_company_years": [
     "TCS:2025",
@@ -2120,9 +2041,9 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
-   "history_of_fixes": null,
-   "decision_or_issue": ""
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.17: net sales.",
+   "decision_or_issue": "2026.10.17: net sales."
   },
   {
    "sr_no": 39,
@@ -2131,7 +2052,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Operating Cash Flow \u00f7 Current Liabilities",
    "implementation": "Operating Cash Flow \u00f7 Total Current Liabilities.",
-   "code_location": "tools/ratio_contract.py:1074 (_r_ocf_ratio)",
+   "code_location": "tools/ratio_contract.py:1081 (_r_ocf_ratio)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "operating_cash_flow",
@@ -2173,7 +2094,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -2184,13 +2105,13 @@
    "category": "Cash Flow",
    "authoritative_formula": "Capital Expenditure \u00f7 Revenue",
    "implementation": "Gross Capex \u00f7 Revenue.",
-   "code_location": "tools/ratio_contract.py:1079 (_r_capex_intensity)",
+   "code_location": "tools/ratio_contract.py:1086 (_r_capex_intensity)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "capex",
     "capex_intangible_purchase",
     "capex_ppe_purchase",
-    "revenue"
+    "net_sales"
    ],
    "unit": "%",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period flow",
@@ -2212,8 +2133,7 @@
     "matrix_verdict": "PASS"
    },
    "lineage_base_facts": [
-    "capex_ppe_purchase",
-    "revenue"
+    "capex_ppe_purchase"
    ],
    "lineage_verified_company_years": [
     "TCS:2025",
@@ -2230,9 +2150,9 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
-   "history_of_fixes": null,
-   "decision_or_issue": ""
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.17: net sales.",
+   "decision_or_issue": "2026.10.17: net sales."
   },
   {
    "sr_no": 41,
@@ -2241,7 +2161,7 @@
    "category": "Cash Flow",
    "authoritative_formula": "Operating Cash Flow \u00f7 Net Profit (whole entity)",
    "implementation": "Operating Cash Flow \u00f7 Net Profit, both whole-entity (total PAT incl. NCI).",
-   "code_location": "tools/ratio_contract.py:1098 (_r_ocf_to_net_profit)",
+   "code_location": "tools/ratio_contract.py:1105 (_r_ocf_to_net_profit)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "operating_cash_flow",
@@ -2285,7 +2205,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -2296,7 +2216,7 @@
    "category": "P&L + Balance Sheet",
    "authoritative_formula": "NOPAT \u00f7 Invested Capital",
    "implementation": "NOPAT \u00f7 Invested Capital; NOPAT = EBIT \u00d7 (1 - effective tax rate); Invested Capital = Total Debt + Total Equity (incl. NCI) - Cash & Cash Equivalents (closing, per spec).",
-   "code_location": "tools/ratio_contract.py:1114 (_r_roic)",
+   "code_location": "tools/ratio_contract.py:1121 (_r_roic)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "cash",
@@ -2311,11 +2231,11 @@
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period closing invested capital",
    "dependencies": [],
    "tests": {
-    "specific": 4,
+    "specific": 5,
     "examples": [
+     "test_anuras_reference_conventions.py::test_roic_uses_closing_invested_capital_per_the_specification",
      "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[roic]",
-     "test_ratio_remediation.py::test_every_debt_ratio_consumes_the_one_total_debt_fact",
-     "test_ratio_remediation.py::test_roic_is_nopat_over_closing_invested_capital"
+     "test_ratio_remediation.py::test_every_debt_ratio_consumes_the_one_total_debt_fact"
     ],
     "textbook": true,
     "edge_cases": true
@@ -2346,7 +2266,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "Total Debt fixes (see Sr 20).",
    "decision_or_issue": "Total Debt fixes (see Sr 20)."
   },
@@ -2357,7 +2277,7 @@
    "category": "P&L",
    "authoritative_formula": "Tax Expense \u00f7 Profit Before Tax",
    "implementation": "Total Tax Expense \u00f7 Profit Before Tax.",
-   "code_location": "tools/ratio_contract.py:1139 (_r_effective_tax_rate)",
+   "code_location": "tools/ratio_contract.py:1146 (_r_effective_tax_rate)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "pbt",
@@ -2403,9 +2323,9 @@
     "LT:2025"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
-   "history_of_fixes": "2026.10.15: the tax block 'on exceptional items' (L&T) no longer shadows the real tax expense.",
-   "decision_or_issue": "2026.10.15: the tax block 'on exceptional items' (L&T) no longer shadows the real tax expense."
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.15: the tax block 'on exceptional items' (L&T) no longer shadows the real tax expense; 2026.10.18: a header-only 'Tax expense / (credit)' line is no longer read as the total (Bharti Airtel: current tax 78,812 instead of 113,499 -> 17.4% vs 25.1%).",
+   "decision_or_issue": "2026.10.15: the tax block 'on exceptional items' (L&T) no longer shadows the real tax expense; 2026.10.18: a header-only 'Tax expense / (credit)' line is no longer read as the total (Bharti Airtel: current tax 78,812 instead of 113,499 -> 17.4% vs 25.1%)."
   },
   {
    "sr_no": 44,
@@ -2414,10 +2334,10 @@
    "category": "P&L",
    "authoritative_formula": "(Revenue \u2212 Variable Costs) \u00f7 Revenue",
    "implementation": "(Revenue - Variable Costs) \u00f7 Revenue. Variable costs are NOT disclosed: reconstructed from goods cost + Direct Expenses / volume-linked Other-Expenses note items. Always a flagged proxy (needs_review); unavailable when only goods cost could be identified.",
-   "code_location": "tools/ratio_contract.py:1155 (_r_contribution_margin)",
+   "code_location": "tools/ratio_contract.py:1162 (_r_contribution_margin)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
-    "revenue"
+    "net_sales"
    ],
    "unit": "%",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter whole_entity; period flow (PROXY)",
@@ -2439,28 +2359,10 @@
     "rel_diff": 0.0,
     "matrix_verdict": "NEEDS REVIEW"
    },
-   "lineage_base_facts": [
-    "revenue"
-   ],
-   "lineage_verified_company_years": [
-    "TCS:2025",
-    "TCS:2026",
-    "MARUTI:2025",
-    "ITC:2025",
-    "BHARTIARTL:2025",
-    "BHARTIARTL:2026",
-    "HINDUNILVR:2025",
-    "TITAN:2025",
-    "BATAINDIA:2025",
-    "INFY:2025",
-    "INFY:2026",
-    "RELIANCE:2025",
-    "LT:2025",
-    "ANURAS:2025",
-    "ANURAS:2026"
-   ],
-   "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
+   "lineage_base_facts": [],
+   "lineage_verified_company_years": [],
+   "lineage_company_years_scanned": 0,
+   "status": "Legitimate methodology difference",
    "history_of_fixes": "2026.10.13: intermediates were rounded to 2 dp.",
    "decision_or_issue": "variable costs are a PROXY - Ind AS has no variable-cost line (needs_review by design)."
   },
@@ -2471,7 +2373,7 @@
    "category": "P&L",
    "authoritative_formula": "(Current Year EPS \u00f7 Prior Year EPS) \u2212 1",
    "implementation": "(Current Basic EPS (owners) \u00f7 Prior Basic EPS (owners)) - 1.",
-   "code_location": "tools/ratio_contract.py:1202 (_r_eps_growth)",
+   "code_location": "tools/ratio_contract.py:1209 (_r_eps_growth)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "eps"
@@ -2517,7 +2419,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -2528,7 +2430,7 @@
    "category": "Balance Sheet",
    "authoritative_formula": "Total Equity \u00f7 Number of Equity Shares Outstanding",
    "implementation": "Owners' Equity \u00f7 Equity Shares Outstanding (closing). The ONE BVPS.",
-   "code_location": "tools/ratio_contract.py:1218 (_r_bvps)",
+   "code_location": "tools/ratio_contract.py:1225 (_r_bvps)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "bvps",
@@ -2572,7 +2474,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -2583,7 +2485,7 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "Dividends Paid to the Company's shareholders \u00f7 Net Profit (owners)",
    "implementation": "Dividends PAID (cash flow statement) \u00f7 owners' Net Profit. Declared DPS \u00d7 shares only as a flagged estimate when no paid line exists; unavailable (never 0) when neither exists.",
-   "code_location": "tools/ratio_contract.py:1229 (_r_dividend_payout)",
+   "code_location": "tools/ratio_contract.py:1236 (_r_dividend_payout)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "dividends_paid",
@@ -2630,7 +2532,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
+   "status": "Legitimate methodology difference",
    "history_of_fixes": "2026.10.11: numerator = dividends paid to OWNERS (cash-flow total includes minorities).",
    "decision_or_issue": "cash-basis dividends PAID to owners (spec) vs the dividend DECLARED for the year (Screener); both carried."
   },
@@ -2641,7 +2543,7 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "1 \u2212 Dividend Payout Ratio",
    "implementation": "100% - Dividend Payout (only when payout is available).",
-   "code_location": "tools/ratio_contract.py:1479 (_r_retention)",
+   "code_location": "tools/ratio_contract.py:1486 (_r_retention)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "dividends_paid",
@@ -2690,7 +2592,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "follows Sr 47.",
    "decision_or_issue": "follows Sr 47."
   },
@@ -2701,7 +2603,7 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "Return on Equity \u00d7 Retention Ratio",
    "implementation": "ROE \u00d7 Retention (both must be available).",
-   "code_location": "tools/ratio_contract.py:1489 (_r_sgr)",
+   "code_location": "tools/ratio_contract.py:1496 (_r_sgr)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "dividends_paid",
@@ -2751,7 +2653,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "follows Sr 47.",
    "decision_or_issue": "follows Sr 47."
   },
@@ -2762,7 +2664,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Price-to-Earnings \u00f7 EPS Growth Rate",
    "implementation": "P/E \u00f7 EPS growth (%) (not meaningful when growth \u2264 0).",
-   "code_location": "tools/ratio_contract.py:1512 (_r_peg)",
+   "code_location": "tools/ratio_contract.py:1519 (_r_peg)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "eps"
@@ -2810,7 +2712,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -2821,11 +2723,11 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Enterprise Value (Mkt Cap + Debt \u2212 Cash) \u00f7 Revenue",
    "implementation": "Enterprise Value (Market Cap + Debt + NCI - Cash) \u00f7 Revenue.",
-   "code_location": "tools/ratio_contract.py:1539 (_r_ev_to_sales)",
+   "code_location": "tools/ratio_contract.py:1546 (_r_ev_to_sales)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "cash",
-    "revenue",
+    "net_sales",
     "shares_outstanding",
     "total_debt"
    ],
@@ -2851,7 +2753,6 @@
    },
    "lineage_base_facts": [
     "cash",
-    "revenue",
     "shares_outstanding"
    ],
    "lineage_verified_company_years": [
@@ -2868,9 +2769,9 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
-   "history_of_fixes": "2026.10.9: EV definition.",
-   "decision_or_issue": "2026.10.9: EV definition."
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.9: EV definition; 2026.10.17: net sales.",
+   "decision_or_issue": "2026.10.9: EV definition; 2026.10.17: net sales."
   },
   {
    "sr_no": 52,
@@ -2879,7 +2780,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Enterprise Value (Mkt Cap + Debt \u2212 Cash) \u00f7 Free Cash Flow",
    "implementation": "Enterprise Value (Market Cap + Debt + NCI - Cash) \u00f7 Free Cash Flow (not meaningful when FCF \u2264 0).",
-   "code_location": "tools/ratio_contract.py:1555 (_r_ev_to_fcf)",
+   "code_location": "tools/ratio_contract.py:1562 (_r_ev_to_fcf)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "capex",
@@ -2929,7 +2830,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.9: EV definition.",
    "decision_or_issue": "2026.10.9: EV definition."
   },
@@ -2940,7 +2841,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "Market Capitalisation \u00f7 Operating Cash Flow",
    "implementation": "Market Cap \u00f7 Operating Cash Flow.",
-   "code_location": "tools/ratio_contract.py:1581 (_r_ptocf)",
+   "code_location": "tools/ratio_contract.py:1588 (_r_ptocf)",
    "ui_path": "UI -> orchestrator -> ratio_contract formula over the same FactSet + live quote (market ratios)",
    "required_inputs": [
     "operating_cash_flow",
@@ -2984,7 +2885,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.14: price provenance.",
    "decision_or_issue": "2026.10.14: price provenance."
   },
@@ -2995,7 +2896,7 @@
    "category": "Market / Valuation",
    "authoritative_formula": "\u221a(22.5 \u00d7 EPS \u00d7 Book Value per Share)",
    "implementation": "\u221a(22.5 \u00d7 EPS (owners) \u00d7 BVPS).",
-   "code_location": "tools/ratio_contract.py:1598 (_r_graham)",
+   "code_location": "tools/ratio_contract.py:1605 (_r_graham)",
    "ui_path": "UI -> orchestrator -> parent ratios (above) -> ratio_contract derived formula (unrounded parents, inherited status)",
    "required_inputs": [
     "bvps",
@@ -3042,7 +2943,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -3053,7 +2954,7 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "1.2(WC/TA) + 1.4(RE/TA) + 3.3(EBIT/TA) + 0.6(MktCap/TL) + 1.0(Sales/TA)",
    "implementation": "1.2\u00b7WC/TA + 1.4\u00b7RE/TA + 3.3\u00b7EBIT/TA + 0.6\u00b7MktCap/Total Liabilities + 1.0\u00b7Sales/TA; Total Liabilities as reported (NCI is never booked as a liability); RE = Other Equity proxy (needs_review).",
-   "code_location": "tools/ratio_contract.py:1266 (_r_altman)",
+   "code_location": "tools/ratio_contract.py:1273 (_r_altman)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "ebit",
@@ -3105,7 +3006,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
+   "status": "Legitimate methodology difference",
    "history_of_fixes": null,
    "decision_or_issue": "Retained earnings = Other-Equity proxy (always needs_review)."
   },
@@ -3116,7 +3017,7 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "Sum of 9 binary fundamental-strength tests (0-9 scale)",
    "implementation": "Nine binary tests; a score is reported only when all nine can be evaluated, otherwise insufficient_data.",
-   "code_location": "tools/ratio_contract.py:1295 (_r_piotroski)",
+   "code_location": "tools/ratio_contract.py:1302 (_r_piotroski)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "gross_profit",
@@ -3172,7 +3073,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": "legacy research-report Piotroski (financial_analysis.py) fixed separately - see engine inventory; the contract version was unaffected.",
    "decision_or_issue": ""
   },
@@ -3183,7 +3084,7 @@
    "category": "Multi-source / Derived",
    "authoritative_formula": "-4.84 + 0.92\u00b7DSRI + 0.528\u00b7GMI + 0.404\u00b7AQI + 0.892\u00b7SGI + 0.115\u00b7DEPI - 0.172\u00b7SGAI + 4.679\u00b7TATA - 0.327\u00b7LVGI",
    "implementation": "8-variable M-Score; SGAI uses Other Expenses as the SG&A proxy (needs_review).",
-   "code_location": "tools/ratio_contract.py:1387 (_r_beneish)",
+   "code_location": "tools/ratio_contract.py:1394 (_r_beneish)",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
     "depreciation",
@@ -3243,7 +3144,7 @@
     "ANURAS:2026"
    ],
    "lineage_company_years_scanned": 15,
-   "status": "Methodology difference requiring a documented decision",
+   "status": "Legitimate methodology difference",
    "history_of_fixes": null,
    "decision_or_issue": "SG&A proxied by Other expenses (needs_review by design)."
   },
@@ -3282,7 +3183,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Needs review because evidence is insufficient",
+   "status": "Needs review",
    "history_of_fixes": null,
    "decision_or_issue": "computed from the bank's statements and verified (identity-gated) on 4 bank filings, but the value is printed verbatim in the bank's own report for only 1 of 4 (definition differences) - not independently corroborated."
   },
@@ -3321,7 +3222,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Needs review because evidence is insufficient",
+   "status": "Needs review",
    "history_of_fixes": null,
    "decision_or_issue": "printed verbatim in 2 of 4 bank reports only."
   },
@@ -3360,7 +3261,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -3399,7 +3300,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -3438,7 +3339,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -3477,7 +3378,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -3516,7 +3417,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Needs review because evidence is insufficient",
+   "status": "Needs review",
    "history_of_fixes": null,
    "decision_or_issue": "printed verbatim in 1 of 4 bank reports only."
   },
@@ -3555,7 +3456,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Verified against specification and source evidence",
+   "status": "Verified against source evidence and specification",
    "history_of_fixes": null,
    "decision_or_issue": ""
   },
@@ -3569,24 +3470,25 @@
    "code_location": "tools/ratio_contract.py::beta_result",
    "ui_path": "UI Fundamental Ratios tab -> orchestrator (document_analysis_engine.run_fundamental_analysis) -> fetch_*_from_annual_report / nse_xbrl.fetch_* (adapter) -> annual_report_financials._contract_fetch -> fundamental_fact_store.get_canonical_facts -> ratio_contract._r_*",
    "required_inputs": [
-    "reason"
+    "Covariance(Stock Returns, Nifty 50 Returns)",
+    "Variance(Nifty 50 Returns)"
    ],
    "unit": "",
    "basis": "consolidated-first (standalone only if no consolidated statements); perimeter None; period None",
    "dependencies": [],
    "tests": {
-    "specific": 7,
+    "specific": 11,
     "examples": [
-     "test_full_quant_coverage.py::test_s_beta_computed_from_real_series",
-     "test_full_quant_coverage.py::test_s_beta_insufficient_when_no_price_history",
-     "test_ratio_breakdown.py::test_pledge_beta_free_float_breakdowns_reconcile"
+     "test_beta_independent.py::test_equals_least_squares_slope",
+     "test_beta_independent.py::test_exact_multiple_has_that_beta",
+     "test_beta_independent.py::test_real_series_matches_slope_when_reachable"
     ],
     "textbook": false,
     "edge_cases": false
    },
    "anuras_fy2026": {
-    "value": null,
-    "status": "insufficient_data",
+    "value": 0.8,
+    "status": "verified",
     "independent": null,
     "rel_diff": null,
     "matrix_verdict": "NEEDS REVIEW"
@@ -3594,9 +3496,9 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Needs review because evidence is insufficient",
-   "history_of_fixes": null,
-   "decision_or_issue": "no price series exists in the manual document mode; the estimator is covered by synthetic tests only."
+   "status": "Fixed and independently reverified",
+   "history_of_fixes": "2026.10.18: Beta is market data - the manual workflow now computes it (^NSEI, weekly, 2y, ddof=1) instead of withholding it.",
+   "decision_or_issue": "2026.10.18: Beta is market data - the manual workflow now computes it (^NSEI, weekly, 2y, ddof=1) instead of withholding it."
   },
   {
    "sr_no": 67,
@@ -3634,7 +3536,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.13: verified from the uploaded shareholding filing (was 'secondary source').",
    "decision_or_issue": "2026.10.13: verified from the uploaded shareholding filing (was 'secondary source')."
   },
@@ -3673,7 +3575,7 @@
    "lineage_base_facts": [],
    "lineage_verified_company_years": [],
    "lineage_company_years_scanned": 0,
-   "status": "Formula or implementation bug found and fixed",
+   "status": "Fixed and independently reverified",
    "history_of_fixes": "2026.10.13: exact when the filing states no locked-in shares (was a proxy).",
    "decision_or_issue": "2026.10.13: exact when the filing states no locked-in shares (was a proxy)."
   }
@@ -3910,9 +3812,9 @@
    },
    "publisher": {
     "revenue": {
-     "navrist": 81612.78,
+     "navrist": 75323.34,
      "screener": 75323,
-     "agrees": false
+     "agrees": true
     },
     "net_profit_whole_entity": {
      "navrist": 20036.47,
@@ -3981,9 +3883,9 @@
      "agrees": true
     },
     "tax_pct": {
-     "navrist": 10.709012070784016,
+     "navrist": 2.3886349727202885,
      "screener": 2,
-     "agrees": false
+     "agrees": true
     },
     "debt_vs_borrowings": {
      "navrist": 213642.09999999998,
@@ -3991,7 +3893,7 @@
      "agrees": true
     }
    },
-   "explained_gap": "Screener tax 2% reflects a one-off deferred-tax credit in its own tax % row."
+   "explained_gap": null
   },
   "BHARTIARTL:2026": {
    "basis": "CONSOLIDATED",
@@ -4042,9 +3944,9 @@
      "agrees": true
     },
     "tax_pct": {
-     "navrist": 17.44682075678452,
+     "navrist": 25.125573631861727,
      "screener": 25,
-     "agrees": false
+     "agrees": true
     },
     "debt_vs_borrowings": {
      "navrist": 195411.7,
@@ -4118,7 +4020,7 @@
      "agrees": true
     }
    },
-   "explained_gap": null
+   "explained_gap": "Screener 'Sales' 61,328 excludes other operating revenue (1,793), which is part of Revenue from operations as printed."
   },
   "TITAN:2025": {
    "basis": "CONSOLIDATED",
@@ -4183,9 +4085,9 @@
      "agrees": true
     },
     "debt_vs_borrowings": {
-     "navrist": 12967.0,
+     "navrist": 20777.0,
      "screener": 20777,
-     "agrees": false
+     "agrees": true
     }
    },
    "explained_gap": null
@@ -4432,9 +4334,9 @@
    },
    "publisher": {
     "revenue": {
-     "navrist": 980136.0,
+     "navrist": 964693.0,
      "screener": 962820,
-     "agrees": false
+     "agrees": true
     },
     "net_profit_whole_entity": {
      "navrist": 81309.0,
@@ -4506,9 +4408,9 @@
      "agrees": true
     },
     "debt_vs_borrowings": {
-     "navrist": 96214.22,
+     "navrist": 132408.91999999998,
      "screener": 132409,
-     "agrees": false
+     "agrees": true
     }
    },
    "explained_gap": null

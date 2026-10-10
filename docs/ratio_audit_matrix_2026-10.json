@@ -207,11 +207,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 11,
+   "tests_specific": 12,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
     "test_anuras_fy2026_source_audit.py::test_inventory_days_are_365_over_cogs_turnover_on_average_inventory",
-    "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover"
+    "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -321,13 +321,13 @@
    "reconciles": true,
    "inputs": [
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     },
     {
@@ -361,23 +361,22 @@
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
-     "receivables",
-     "revenue"
+     "net_sales",
+     "receivables"
     ],
     "baseline": 5.0,
     "withheld": [
-     "receivables",
-     "revenue"
+     "receivables"
     ],
     "unchanged": [],
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 6,
+   "tests_specific": 7,
    "tests_examples": [
     "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover",
     "test_calculation_engine.py::test_case_j_registry_dependency_behaviour",
-    "test_ratio_breakdown.py::test_first_18_present_and_formula_is_the_implemented_one"
+    "test_net_sales_excise.py::test_revenue_denominated_ratios_use_net_sales"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -444,7 +443,7 @@
     [
      "ITC:2025",
      "needs_review",
-     18.66
+     17.23
     ],
     [
      "NAZARA:2025",
@@ -459,7 +458,7 @@
     [
      "RELIANCE:2025",
      "needs_review",
-     26.58
+     26.16
     ],
     [
      "LT:2025",
@@ -499,23 +498,22 @@
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
-     "receivables",
-     "revenue"
+     "net_sales",
+     "receivables"
     ],
     "baseline": 73.0,
     "withheld": [
-     "receivables",
-     "revenue"
+     "receivables"
     ],
     "unchanged": [],
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 10,
+   "tests_specific": 11,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
     "test_anuras_fy2026_source_audit.py::test_debtor_days_use_revenue_proxy_on_average_receivables",
-    "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover"
+    "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -582,7 +580,7 @@
     [
      "ITC:2025",
      "needs_review",
-     19.55639698831482
+     21.18934084707343
     ],
     [
      "NAZARA:2025",
@@ -597,7 +595,7 @@
     [
      "RELIANCE:2025",
      "needs_review",
-     13.731964237616003
+     13.951788289124105
     ],
     [
      "LT:2025",
@@ -813,11 +811,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 8,
+   "tests_specific": 9,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
     "test_anuras_fy2026_source_audit.py::test_days_payable_use_disclosed_purchases_on_average_payables",
-    "test_ar_definition_alignment.py::test_doh_dso_dpo_ccc_use_raw_turnover"
+    "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -927,13 +925,13 @@
    "reconciles": true,
    "inputs": [
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     },
     {
@@ -966,23 +964,22 @@
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
-     "revenue",
+     "net_sales",
      "total_assets"
     ],
     "baseline": 0.5263157894736842,
     "withheld": [
-     "revenue",
      "total_assets"
     ],
     "unchanged": [],
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 5,
+   "tests_specific": 6,
    "tests_examples": [
+    "test_net_sales_excise.py::test_revenue_denominated_ratios_use_net_sales",
     "test_ratio_edge_cases.py::test_acquisition_year_flags_every_balance_vs_flow_ratio_without_changing_numbers",
-    "test_ratio_edge_cases.py::test_zero_denominators_are_unavailable_not_zero",
-    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[asset_turnover]"
+    "test_ratio_edge_cases.py::test_zero_denominators_are_unavailable_not_zero"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -1049,7 +1046,7 @@
     [
      "ITC:2025",
      "verified",
-     0.91
+     0.84
     ],
     [
      "NAZARA:2025",
@@ -1064,7 +1061,7 @@
     [
      "RELIANCE:2025",
      "verified",
-     0.53
+     0.52
     ],
     [
      "LT:2025",
@@ -1092,13 +1089,13 @@
    "reconciles": true,
    "inputs": [
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     },
     {
@@ -1151,12 +1148,11 @@
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
-     "revenue",
+     "net_sales",
      "working_capital"
     ],
     "baseline": 3.8461538461538463,
     "withheld": [
-     "revenue",
      "working_capital"
     ],
     "unchanged": [],
@@ -1234,7 +1230,7 @@
     [
      "ITC:2025",
      "verified",
-     2.87
+     2.65
     ],
     [
      "NAZARA:2025",
@@ -1249,7 +1245,7 @@
     [
      "RELIANCE:2025",
      "verified",
-     16.58
+     16.31
     ],
     [
      "LT:2025",
@@ -1293,10 +1289,10 @@
     "read": [
      "cogs",
      "inventory",
+     "net_sales",
      "payables",
      "purchases",
-     "receivables",
-     "revenue"
+     "receivables"
     ],
     "baseline": 80.60416666666669,
     "withheld": [
@@ -1304,18 +1300,17 @@
      "inventory",
      "payables",
      "purchases",
-     "receivables",
-     "revenue"
+     "receivables"
     ],
     "unchanged": [],
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 8,
+   "tests_specific": 9,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_cash_conversion_cycle_is_the_identity",
-    "test_full_quant_coverage.py::test_m_purchases_proxy_is_never_verified",
-    "test_global_audit_2026_10c.py::test_turnover_days_and_ccc_use_cogs"
+    "test_anuras_reference_conventions.py::test_navrist_days_follow_the_approved_average_balance_definitions",
+    "test_full_quant_coverage.py::test_m_purchases_proxy_is_never_verified"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -1382,7 +1377,7 @@
     [
      "ITC:2025",
      "needs_review",
-     135.9686084670009
+     137.6015523257595
     ],
     [
      "NAZARA:2025",
@@ -1397,7 +1392,7 @@
     [
      "RELIANCE:2025",
      "needs_review",
-     -3.0109952754600755
+     -2.791171223951963
     ],
     [
      "LT:2025",
@@ -1464,11 +1459,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 18,
+   "tests_specific": 20,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_liquidity_and_leverage_ratios",
-    "test_calculation_engine.py::test_case_a_shared_factset_no_re_extraction",
-    "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios"
+    "test_basis_request_honesty.py::test_matching_basis_carries_no_fallback_note",
+    "test_basis_request_honesty.py::test_standalone_request_answered_with_consolidated_is_flagged_and_labelled"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -2067,13 +2062,13 @@
    "reconciles": true,
    "inputs": [
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     },
     {
@@ -2105,22 +2100,21 @@
    "missing_input_probe": {
     "read": [
      "cogs",
-     "revenue"
+     "net_sales"
     ],
     "baseline": 55.00000000000001,
     "withheld": [
-     "cogs",
-     "revenue"
+     "cogs"
     ],
     "unchanged": [],
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 4,
+   "tests_specific": 5,
    "tests_examples": [
     "test_full_quant_coverage.py::test_cogs_absent_never_fabricated",
     "test_full_quant_coverage.py::test_l_cogs_dependent_ratios_wired",
-    "test_ratio_breakdown.py::test_composite_numerators_are_decomposed"
+    "test_net_sales_excise.py::test_revenue_denominated_ratios_use_net_sales"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -2187,7 +2181,7 @@
     [
      "ITC:2025",
      "verified",
-     60.82
+     57.54
     ],
     [
      "NAZARA:2025",
@@ -2202,7 +2196,7 @@
     [
      "RELIANCE:2025",
      "verified",
-     35.75
+     34.73
     ],
     [
      "LT:2025",
@@ -2250,13 +2244,13 @@
      "method": "annual_report_pdf"
     },
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     }
    ],
@@ -2269,13 +2263,12 @@
     "read": [
      "ebit",
      "finance_costs",
-     "pbt",
-     "revenue"
+     "net_sales",
+     "pbt"
     ],
     "baseline": 16.0,
     "withheld": [
-     "ebit",
-     "revenue"
+     "ebit"
     ],
     "unchanged": [
      "finance_costs",
@@ -2284,7 +2277,7 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 6,
+   "tests_specific": 7,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
     "test_calculation_engine.py::test_case_g_derived_facts_computed_once_and_reused",
@@ -2355,7 +2348,7 @@
     [
      "ITC:2025",
      "verified",
-     33.05
+     35.81
     ],
     [
      "NAZARA:2025",
@@ -2370,7 +2363,7 @@
     [
      "RELIANCE:2025",
      "verified",
-     13.29
+     13.51
     ],
     [
      "LT:2025",
@@ -2408,13 +2401,13 @@
      "method": "annual_report_pdf"
     },
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     }
    ],
@@ -2427,19 +2420,18 @@
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
-     "pat",
-     "revenue"
+     "net_sales",
+     "pat"
     ],
     "baseline": 10.0,
     "withheld": [
-     "pat",
-     "revenue"
+     "pat"
     ],
     "unchanged": [],
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 9,
+   "tests_specific": 12,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
     "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios",
@@ -2510,7 +2502,7 @@
     [
      "ITC:2025",
      "verified",
-     24.55
+     26.6
     ],
     [
      "NAZARA:2025",
@@ -2525,7 +2517,7 @@
     [
      "RELIANCE:2025",
      "verified",
-     7.11
+     7.22
     ],
     [
      "LT:2025",
@@ -2605,11 +2597,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 8,
+   "tests_specific": 9,
    "tests_examples": [
+    "test_anuras_reference_conventions.py::test_roa_and_roce_follow_their_documented_definitions",
     "test_calculation_engine.py::test_case_a_shared_factset_no_re_extraction",
-    "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios",
-    "test_calculation_engine.py::test_case_c_standalone_propagates_consistently"
+    "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -2768,11 +2760,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 16,
+   "tests_specific": 17,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
-    "test_global_audit_2026_10c.py::test_basis_is_stamped_on_the_result",
-    "test_global_audit_2026_10c.py::test_numbers_follow_the_declared_basis_when_nci_is_material"
+    "test_anuras_reference_conventions.py::test_roe_owners_profit_over_average_owners_equity_and_the_whole_entity_reference",
+    "test_global_audit_2026_10c.py::test_basis_is_stamped_on_the_result"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -2968,11 +2960,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 6,
+   "tests_specific": 7,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_profitability_ratios",
-    "test_calculation_engine.py::test_case_g_derived_facts_computed_once_and_reused",
-    "test_ratio_edge_cases.py::test_acquisition_year_flags_every_balance_vs_flow_ratio_without_changing_numbers"
+    "test_anuras_reference_conventions.py::test_roa_and_roce_follow_their_documented_definitions",
+    "test_calculation_engine.py::test_case_g_derived_facts_computed_once_and_reused"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -3141,11 +3133,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 15,
+   "tests_specific": 16,
    "tests_examples": [
+    "test_anuras_reference_conventions.py::test_debt_to_equity_basis_and_the_borrowings_over_owners_equity_reference",
     "test_calculation_engine.py::test_case_b_consolidated_propagates_to_all_ratios",
-    "test_calculation_engine.py::test_case_c_standalone_propagates_consistently",
-    "test_calculation_engine.py::test_case_f_different_basis_no_contamination"
+    "test_calculation_engine.py::test_case_c_standalone_propagates_consistently"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -3202,7 +3194,7 @@
     [
      "TITAN:2025",
      "verified",
-     1.12
+     1.79
     ],
     [
      "ZEEL:2025",
@@ -3232,7 +3224,7 @@
     [
      "LT:2025",
      "needs_review",
-     0.83
+     1.15
     ]
    ]
   },
@@ -3365,7 +3357,7 @@
     [
      "TITAN:2025",
      "verified",
-     0.32
+     0.51
     ],
     [
      "ZEEL:2025",
@@ -3395,7 +3387,7 @@
     [
      "LT:2025",
      "needs_review",
-     0.25
+     0.35
     ]
    ]
   },
@@ -4101,13 +4093,13 @@
      "method": "annual_report_pdf"
     },
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     }
    ],
@@ -4118,20 +4110,20 @@
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
-     "revenue",
+     "net_sales",
      "shares_outstanding"
     ],
     "baseline": 1.0,
     "withheld": [
-     "revenue",
      "shares_outstanding"
     ],
     "unchanged": [],
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 2,
+   "tests_specific": 3,
    "tests_examples": [
+    "test_net_sales_excise.py::test_price_to_sales_and_ev_to_sales_use_net_sales",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[ps_ratio]",
     "test_ratio_remediation.py::test_market_dependent_ratios_without_a_price_are_unavailable_not_stale"
    ],
@@ -4200,7 +4192,7 @@
     [
      "ITC:2025",
      "verified",
-     1.53
+     1.66
     ],
     [
      "NAZARA:2025",
@@ -4734,7 +4726,7 @@
     [
      "LT:2025",
      "needs_review",
-     3.15
+     4.32
     ]
    ]
   },
@@ -4757,13 +4749,13 @@
    "reconciles": true,
    "inputs": [
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     },
     {
@@ -4857,12 +4849,11 @@
    "missing_input_probe": {
     "read": [
      "net_fixed_assets",
-     "revenue"
+     "net_sales"
     ],
     "baseline": 1.0899182561307903,
     "withheld": [
-     "net_fixed_assets",
-     "revenue"
+     "net_fixed_assets"
     ],
     "unchanged": [],
     "fallback_flagged": [],
@@ -4939,7 +4930,7 @@
     [
      "ITC:2025",
      "verified",
-     3.18
+     2.93
     ],
     [
      "NAZARA:2025",
@@ -4954,7 +4945,7 @@
     [
      "RELIANCE:2025",
      "verified",
-     1.06
+     1.05
     ],
     [
      "LT:2025",
@@ -5022,13 +5013,13 @@
      "method": "annual_report_pdf"
     },
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     }
    ],
@@ -5041,23 +5032,22 @@
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
-     "revenue",
+     "net_sales",
      "working_capital"
     ],
     "baseline": 94.9,
     "withheld": [
-     "revenue",
      "working_capital"
     ],
     "unchanged": [],
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 6,
+   "tests_specific": 7,
    "tests_examples": [
     "test_anuras_fy2026_source_audit.py::test_working_capital_days_use_average_working_capital",
-    "test_ratio_edge_cases.py::test_acquisition_year_flags_every_balance_vs_flow_ratio_without_changing_numbers",
-    "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[days_working_capital]"
+    "test_anuras_reference_conventions.py::test_working_capital_days_is_its_own_formula_average_working_capital_over_revenue",
+    "test_ratio_edge_cases.py::test_acquisition_year_flags_every_balance_vs_flow_ratio_without_changing_numbers"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -5124,7 +5114,7 @@
     [
      "ITC:2025",
      "verified",
-     127.31
+     137.95
     ],
     [
      "NAZARA:2025",
@@ -5139,7 +5129,7 @@
     [
      "RELIANCE:2025",
      "verified",
-     22.02
+     22.37
     ],
     [
      "LT:2025",
@@ -5465,7 +5455,7 @@
     [
      "TITAN:2025",
      "verified",
-     2.03
+     3.3
     ],
     [
      "ZEEL:2025",
@@ -5495,7 +5485,7 @@
     [
      "LT:2025",
      "needs_review",
-     2.71
+     3.87
     ]
    ]
   },
@@ -5783,7 +5773,7 @@
     [
      "TITAN:2025",
      "verified",
-     -0.04
+     -0.03
     ],
     [
      "ZEEL:2025",
@@ -5813,7 +5803,7 @@
     [
      "LT:2025",
      "needs_review",
-     0.1
+     0.07
     ]
    ]
   },
@@ -6191,13 +6181,13 @@
      "method": "derived"
     },
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     }
    ],
@@ -6212,15 +6202,14 @@
     "read": [
      "capex",
      "fcf",
-     "operating_cash_flow",
-     "revenue"
+     "net_sales",
+     "operating_cash_flow"
     ],
     "baseline": -2.0,
     "withheld": [
      "capex",
      "fcf",
-     "operating_cash_flow",
-     "revenue"
+     "operating_cash_flow"
     ],
     "unchanged": [],
     "fallback_flagged": [],
@@ -6295,7 +6284,7 @@
     [
      "ITC:2025",
      "verified",
-     18.81
+     20.38
     ],
     [
      "NAZARA:2025",
@@ -6310,7 +6299,7 @@
     [
      "RELIANCE:2025",
      "verified",
-     3.95
+     4.02
     ],
     [
      "LT:2025",
@@ -6501,13 +6490,13 @@
      "method": "derived"
     },
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     }
    ],
@@ -6523,12 +6512,11 @@
      "capex",
      "capex_intangible_purchase",
      "capex_ppe_purchase",
-     "revenue"
+     "net_sales"
     ],
     "baseline": 16.0,
     "withheld": [
-     "capex",
-     "revenue"
+     "capex"
     ],
     "unchanged": [
      "capex_intangible_purchase",
@@ -6607,7 +6595,7 @@
     [
      "ITC:2025",
      "verified",
-     2.79
+     3.03
     ],
     [
      "NAZARA:2025",
@@ -6622,7 +6610,7 @@
     [
      "RELIANCE:2025",
      "verified",
-     14.28
+     14.51
     ],
     [
      "LT:2025",
@@ -6913,11 +6901,11 @@
     "fallback_flagged": [],
     "changed_unflagged": []
    },
-   "tests_specific": 4,
+   "tests_specific": 5,
    "tests_examples": [
+    "test_anuras_reference_conventions.py::test_roic_uses_closing_invested_capital_per_the_specification",
     "test_ratio_formula_oracle.py::test_each_ratio_1_to_57_matches_its_authoritative_formula[roic]",
-    "test_ratio_remediation.py::test_every_debt_ratio_consumes_the_one_total_debt_fact",
-    "test_ratio_remediation.py::test_roic_is_nopat_over_closing_invested_capital"
+    "test_ratio_remediation.py::test_every_debt_ratio_consumes_the_one_total_debt_fact"
    ],
    "tests_generic": 25,
    "cross_company": [
@@ -6974,7 +6962,7 @@
     [
      "TITAN:2025",
      "verified",
-     16.7
+     12.62
     ],
     [
      "ZEEL:2025",
@@ -7004,7 +6992,7 @@
     [
      "LT:2025",
      "needs_review",
-     10.12
+     8.57
     ]
    ]
   },
@@ -7180,13 +7168,13 @@
    "reconciles": true,
    "inputs": [
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     },
     {
@@ -7229,12 +7217,10 @@
    "delta_rel": 0.0,
    "missing_input_probe": {
     "read": [
-     "revenue"
+     "net_sales"
     ],
     "baseline": null,
-    "withheld": [
-     "revenue"
-    ],
+    "withheld": [],
     "unchanged": [],
     "fallback_flagged": [],
     "changed_unflagged": []
@@ -7310,7 +7296,7 @@
     [
      "ITC:2025",
      "needs_review",
-     59.13
+     55.72
     ],
     [
      "NAZARA:2025",
@@ -8291,13 +8277,13 @@
      "method": "annual_report_pdf"
     },
     {
-     "fact": "revenue",
+     "fact": "net_sales",
      "name": "Revenue from Operations",
      "value": 2365.455,
      "period": "FY2026",
      "basis": "consolidated",
      "page": 265,
-     "statement": "Statement of Profit and Loss",
+     "statement": null,
      "method": "annual_report_pdf"
     }
    ],
@@ -8309,14 +8295,13 @@
    "missing_input_probe": {
     "read": [
      "cash",
-     "revenue",
+     "net_sales",
      "shares_outstanding",
      "total_debt"
     ],
     "baseline": 1.51,
     "withheld": [
      "cash",
-     "revenue",
      "shares_outstanding",
      "total_debt"
     ],
@@ -8395,7 +8380,7 @@
     [
      "ITC:2025",
      "verified",
-     1.529242574631081
+     1.6569331340060065
     ],
     [
      "NAZARA:2025",
@@ -8410,12 +8395,12 @@
     [
      "RELIANCE:2025",
      "needs_review",
-     0.4955074897565236
+     0.5034396735334453
     ],
     [
      "LT:2025",
      "needs_review",
-     0.38232590951277784
+     0.5238582685672579
     ]
    ]
   },
@@ -8600,7 +8585,7 @@
     [
      "LT:2025",
      "needs_review",
-     20.619228278657417
+     28.25221350814445
     ]
    ]
   },
@@ -9902,7 +9887,7 @@
     [
      "LT:2025",
      "needs_review",
-     -2.28
+     -2.29
     ]
    ]
   },
@@ -10869,24 +10854,30 @@
    "perimeter": null,
    "period_basis": null,
    "equity_basis": null,
-   "anuras_value": null,
-   "anuras_status": "insufficient_data",
+   "anuras_value": 0.8,
+   "anuras_status": "verified",
    "inputs": [
     {
-     "name": "reason",
-     "value": null,
-     "page": null,
-     "source": "Beta requires a multi-year historical price series, which is not derivable from an uploaded Annual Report/XBRL or a single live market price."
+     "name": "Covariance(Stock Returns, Nifty 50 Returns)",
+     "value": 0.0,
+     "page": "Not available",
+     "source": "Yahoo Finance weekly prices"
+    },
+    {
+     "name": "Variance(Nifty 50 Returns)",
+     "value": 0.0,
+     "page": "Not available",
+     "source": "Yahoo Finance weekly prices (^NSEI)"
     }
    ],
-   "reason": "Beta requires a multi-year historical price series, which is not derivable from an uploaded Annual Report/XBRL or a single live market price.",
+   "reason": null,
    "warnings": [],
    "missing_input_probe": null,
-   "tests_specific": 7,
+   "tests_specific": 11,
    "tests_examples": [
-    "test_full_quant_coverage.py::test_s_beta_computed_from_real_series",
-    "test_full_quant_coverage.py::test_s_beta_insufficient_when_no_price_history",
-    "test_ratio_breakdown.py::test_pledge_beta_free_float_breakdowns_reconcile"
+    "test_beta_independent.py::test_equals_least_squares_slope",
+    "test_beta_independent.py::test_exact_multiple_has_that_beta",
+    "test_beta_independent.py::test_real_series_matches_slope_when_reachable"
    ],
    "tests_generic": 25,
    "cross_company": [

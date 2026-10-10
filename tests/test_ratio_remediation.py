@@ -650,7 +650,7 @@ class TestBetaMethodology(unittest.TestCase):                                   
     def test_manual_mode_never_fabricates_a_beta_and_engines_agree(self):
         from tools import nse_xbrl
         from tools.manual_mode import manual_mode
-        with manual_mode():
+        with manual_mode(), patch("tools.market_history.weekly_beta", return_value={"reason": "none", "n": 0}),                 patch.object(nse_xbrl, "_read_cache", lambda k: None), patch.object(nse_xbrl, "_write_cache", lambda k, v: None):
             legacy = nse_xbrl.fetch_beta("SYNTHCO")
         self.assertEqual(legacy["status"], "insufficient_data")
         self.assertIsNone(legacy["value"])

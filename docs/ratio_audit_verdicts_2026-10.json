@@ -330,7 +330,7 @@
   "beta": [
    "NEEDS REVIEW",
    [
-    "Insufficient_data by policy in the manual document mode (no price series in an uploaded filing); estimator covered by tests."
+    "Market data, not a document figure: computed in the manual workflow too (Nifty 50, weekly closes, 2 years, sample covariance / variance, >=52 aligned returns; independently re-estimated by least-squares slope in tests/test_beta_independent.py)."
    ]
   ],
   "promoter_pledge_pct": [

@@ -21,6 +21,7 @@ export function summarizeReporting(rows) {
     periodType: pick('period_type'),
     ttm: seen.some((r) => r.ttm === true),
     marketQuotedAt: priced ? priced.price.quoted_at : null,
+    basisNote: (seen.find((r) => r.basis_note) || {}).basis_note || null,
   };
 }
 
@@ -30,5 +31,6 @@ export function reportingHeadline(s) {
   bits.push(s.ttm ? 'Includes TTM values' : 'Annual statements (non-TTM)');
   if (s.fiscalYearLabel) bits.push(s.fiscalYearLabel === 'mixed' ? 'Mixed fiscal years' : s.fiscalYearLabel);
   if (s.basis) bits.push(s.basis === 'mixed' ? 'Mixed consolidated / standalone' : s.basis.charAt(0).toUpperCase() + s.basis.slice(1));
+  if (s.basisNote) bits.push(s.basisNote);
   return bits.join(' · ');
 }

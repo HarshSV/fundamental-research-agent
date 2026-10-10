@@ -18,9 +18,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 
-V, F, E, M, N = ("Verified against specification and source evidence", "Formula or implementation bug found and fixed",
-                 "Source extraction issue", "Methodology difference requiring a documented decision",
-                 "Needs review because evidence is insufficient")
+V, F, E, M, N, NA, U = ("Verified against source evidence and specification", "Fixed and independently reverified",
+                        "Source extraction issue", "Legitimate methodology difference", "Needs review", "Not applicable", "Unavailable")
 
 # status per ratio: (primary, remaining issue / decision)  - everything not listed defaults to V when the evidence gate passes
 FIXED = {
@@ -28,8 +27,9 @@ FIXED = {
     2: "follows Sr 1 (COGS-based turnover).", 9: "follows Sr 1 (COGS-based Inventory Days).",
     8: "2026.10.8: closing -> average working capital (authoritative spec).",
     12: "2026.10.12: restricted other-bank-balances excluded (note classified).",
-    20: "2026.10.9-13: Total Debt - Three-Part Test evaluated on the notes, unrounded, lease/borrowing rows read from printed rows "
-        "(Infosys 4.42 -> 9,176; TCS FY26 2,283 -> 11,283; Bharti 153,426 -> 213,642).",
+    20: "2026.10.9-18: Total Debt - Three-Part Test evaluated on the notes, unrounded, lease/borrowing rows read from printed rows "
+        "(Infosys 4.42 -> 9,176; TCS FY26 2,283 -> 11,283; Bharti 153,426 -> 213,642; L&T 96,214 -> 132,409 once the printed 'Current maturities "
+        "of long term borrowings' row is included; Titan 12,967 -> 20,777 with the 'Gold on loan' face line).",
     21: "Total Debt fixes (see Sr 20).", 29: "2026.10.9: EV = Mkt cap + Debt - Cash (NCI removed); Total Debt fixes.",
     33: "Total Debt fixes (see Sr 20).", 35: "Total Debt fixes (see Sr 20).", 42: "Total Debt fixes (see Sr 20).",
     51: "2026.10.9: EV definition.", 52: "2026.10.9: EV definition.",
@@ -41,8 +41,14 @@ FIXED = {
     48: "follows Sr 47.", 49: "follows Sr 47.",
     67: "2026.10.13: verified from the uploaded shareholding filing (was 'secondary source').",
     68: "2026.10.13: exact when the filing states no locked-in shares (was a proxy).",
-    43: "2026.10.15: the tax block 'on exceptional items' (L&T) no longer shadows the real tax expense.",
+    43: "2026.10.15: the tax block 'on exceptional items' (L&T) no longer shadows the real tax expense; 2026.10.18: a header-only "
+        "'Tax expense / (credit)' line is no longer read as the total (Bharti Airtel: current tax 78,812 instead of 113,499 -> 17.4% vs 25.1%).",
     5: "disclosed purchases carried unrounded.", 6: "disclosed purchases carried unrounded.",
+    3: "2026.10.17: sales leg is net sales (revenue less an excise-duty expense line) where excise is charged.",
+    7: "2026.10.17: sales leg is net sales.", 14: "2026.10.17: net sales; gross profit = net sales - COGS.",
+    16: "2026.10.17: net sales.", 26: "2026.10.17: net sales.", 30: "2026.10.17: net sales.", 38: "2026.10.17: net sales.",
+    40: "2026.10.17: net sales.", 51: "2026.10.9: EV definition; 2026.10.17: net sales.",
+    66: "2026.10.18: Beta is market data - the manual workflow now computes it (^NSEI, weekly, 2y, ddof=1) instead of withholding it.",
     56: "legacy research-report Piotroski (financial_analysis.py) fixed separately - see engine inventory; the contract version was unaffected.",
 }
 METHOD = {
@@ -57,16 +63,15 @@ METHOD = {
     47: "cash-basis dividends PAID to owners (spec) vs the dividend DECLARED for the year (Screener); both carried.",
     55: "Retained earnings = Other-Equity proxy (always needs_review).",
     57: "SG&A proxied by Other expenses (needs_review by design).",
-    20: "equity basis = total equity incl. NCI (policy W); Titan-type 'gold on loan' (an interest-bearing metal loan) is NOT counted in Total Debt - a debt-definition decision is open.",
+    20: "equity basis = total equity incl. NCI (policy W); Total Debt = borrowings + lease liabilities (Ind AS 116) + gold-on-loan + qualifying other financial liabilities; Screener's borrowings exclude leases (Reliance 109,313).",
 }
 EXTRACTION = {
     # remaining per-ratio extraction gaps seen in the cross-company scan (company-level, not formula-level)
-    10: "L&T (conglomerate with a financial-services balance sheet): current assets/liabilities unreliable - flagged by identity checks.",
+    10: "L&T (conglomerate with a financial-services balance sheet): current assets/liabilities unreliable - flagged by identity checks (debt itself is fixed).",
     11: "same as Sr 10.", 13: "same as Sr 10.",
 }
 INSUFFICIENT = {
     34: "gross principal repayments are not disclosed by ANURAS (correctly withheld); the numeric path is covered by synthetic tests only - no real filing in the cache exercises it.",
-    66: "no price series exists in the manual document mode; the estimator is covered by synthetic tests only.",
     58: "computed from the bank's statements and verified (identity-gated) on 4 bank filings, but the value is printed verbatim in the bank's own report for only 1 of 4 (definition differences) - not independently corroborated.",
     59: "printed verbatim in 2 of 4 bank reports only.",
     64: "printed verbatim in 1 of 4 bank reports only.",
@@ -79,13 +84,13 @@ UI_PATH = {
 }
 # why each remaining publisher gap is a definition difference or an open extraction item (not silently ignored)
 GAP_EXPLAIN = {
-    "ITC:2025": "revenue: Screener nets excise duty (81,612.78 - 6,289.44 = 75,323.34 exactly); profit: Screener 35,052 includes the INR 15,016 Cr discontinued-operations (hotels demerger) gain, Navrist uses continuing operations (policy M, EPS-consistent); tax %: Screener divides by a PBT that includes that gain.",
-    "BHARTIARTL:2025": "tax %: Screener's own row (2%) reflects one-off deferred-tax items; Navrist = tax expense / profit before tax as printed. NEEDS REVIEW (definition of PBT before/after exceptional items).",
-    "BHARTIARTL:2026": "tax %: as FY25 (Screener 25% vs Navrist 17.4%) - exceptional items; needs review.",
-    "HINDUNILVR:2025": "revenue: Screener 'Sales' 61,328 excludes other operating revenue (63,121 - 1,793); Navrist uses Revenue from operations as printed.",
-    "TITAN:2025": "debt: 12,967 + 'Gold on loan' 7,810 = Screener 20,777 exactly. Gold on loan is an interest-bearing metal loan not counted in Navrist Total Debt - OPEN DEFINITION DECISION.",
-    "RELIANCE:2025": "revenue: Screener nets excise duty (980,136 - 15,443 = 964,693; further small deductions); debt: Navrist adds lease liabilities (109,313) which Screener's borrowings exclude (347,530 + 109,313 = 456,843).",
-    "LT:2025": "debt: conglomerate with a financial-services balance sheet - borrowings of the financing business are outside the lines the reader takes (96,214 vs 132,409) - SOURCE EXTRACTION ISSUE, flagged by identity checks.",
+    "ITC:2025": "profit: Screener 35,052 includes the INR 15,016 Cr discontinued-operations (hotels demerger) gain; Navrist uses continuing operations so profit and EPS share one perimeter (policy M). tax %: Navrist = continuing-operations tax / continuing PBT = 25.6%; Screener's 16% divides by a base that includes discontinued operations while excluding their tax. Revenue now agrees: net sales 81,612.78 - excise 6,289.44 = 75,323.34.",
+    "BHARTIARTL:2025": "tax % now agrees (9,172 / 383,985 = 2.4%): the earlier gap was a Navrist extraction bug (current tax read as the total), fixed in 2026.10.18.",
+    "BHARTIARTL:2026": "tax % now agrees (113,499 / 451,727 = 25.1%): extraction bug fixed in 2026.10.18.",
+    "HINDUNILVR:2025": "revenue: Screener 'Sales' 61,328 excludes other operating revenue (63,121 - 1,793); other operating revenue is part of Revenue from operations as printed and is not deducted.",
+    "TITAN:2025": "debt: now 20,777 = borrowings + 'Gold on loan' 7,810 (interest-bearing, interest expensed in finance costs): agrees with Screener.",
+    "RELIANCE:2025": "debt: Navrist includes lease liabilities (109,313) that Screener's borrowings exclude (Ind AS 116 policy); net sales 964,693 vs Screener 962,820 after excise duty.",
+    "LT:2025": "debt: now 132,408.92 after adding the printed 'Current maturities of long term borrowings' row (36,194.70); agrees with Screener 132,409.",
 }
 BANK = {"net_interest_margin", "casa_ratio", "gross_npa_pct", "net_npa_pct", "provision_coverage_ratio", "capital_adequacy_ratio",
         "credit_to_deposit_ratio", "cost_to_income_ratio"}
@@ -191,7 +196,7 @@ def main():
     w("")
     w("## Result")
     w("")
-    for k in (V, F, E, M, N):
+    for k in (V, F, M, E, N, NA, U):
         w(f"* **{k}**: {cnt.get(k, 0)}")
     w("")
     w("A row is *verified* only when (a) a hand-written independent recompute of the authoritative formula agrees (1e-6), (b) its base inputs were "

@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # the only functions of annual_report_financials.py allowed to look at the pipeline mode: cache keys and live-source resolution
 MODE_AWARE_FUNCTIONS = {"_contract_cache_key", "_fetch_ar_evidence_excerpts", "list_annual_report_years", "_find_annual_report_pdf",
-                        "_get_extracted_financials", "_get_extracted_financials_impl"}
+                        "_get_extracted_financials", "_get_extracted_financials_impl", "_get_extracted_bank_financials"}
 
 
 class TestNoExtractionLogicIsFencedToOnePipeline(unittest.TestCase):

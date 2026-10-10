@@ -9,8 +9,8 @@ import tools.ratio_contract as rc
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATUSES = {
-    "Verified against specification and source evidence", "Formula or implementation bug found and fixed", "Source extraction issue",
-    "Methodology difference requiring a documented decision", "Needs review because evidence is insufficient",
+    "Verified against source evidence and specification", "Fixed and independently reverified", "Legitimate methodology difference",
+    "Source extraction issue", "Needs review", "Not applicable", "Unavailable",
 }
 
 
@@ -45,7 +45,7 @@ class TestGlobalAuditArtefact(unittest.TestCase):
 
     def test_no_row_is_verified_without_an_independent_recompute_that_agreed(self):
         for r in self.rows:
-            if r["status"] == "Verified against specification and source evidence" and r["sr_no"] <= 57:
+            if r["status"] == "Verified against source evidence and specification" and r["sr_no"] <= 57:
                 an = r["anuras_fy2026"]
                 self.assertIsNotNone(an["independent"], r["ratio_key"])
                 self.assertLessEqual(an["rel_diff"] or 0.0, 1e-6, r["ratio_key"])
@@ -54,9 +54,9 @@ class TestGlobalAuditArtefact(unittest.TestCase):
         decision = {3, 4, 9, 12, 15, 17, 19, 31, 44, 47, 55, 57}
         for r in self.rows:
             if r["sr_no"] in decision:
-                self.assertNotEqual(r["status"], "Verified against specification and source evidence", r["ratio_key"])
-        for sr in (34, 66):
-            self.assertEqual(next(r for r in self.rows if r["sr_no"] == sr)["status"], "Needs review because evidence is insufficient")
+                self.assertNotEqual(r["status"], "Verified against source evidence and specification", r["ratio_key"])
+        for sr in (34,):
+            self.assertEqual(next(r for r in self.rows if r["sr_no"] == sr)["status"], "Needs review")
 
     def test_matrix_names_the_source_verified_company_years_and_the_engine_inventory(self):
         sv = self.data["source_verification"]

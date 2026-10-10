@@ -230,9 +230,9 @@
   },
   "publisher": {
    "revenue": {
-    "navrist": 81612.78,
+    "navrist": 75323.34,
     "screener": 75323,
-    "agrees": false
+    "agrees": true
    },
    "net_profit_whole_entity": {
     "navrist": 20036.47,
@@ -301,9 +301,9 @@
     "agrees": true
    },
    "tax_pct": {
-    "navrist": 10.709012070784016,
+    "navrist": 2.3886349727202885,
     "screener": 2,
-    "agrees": false
+    "agrees": true
    },
    "debt_vs_borrowings": {
     "navrist": 213642.09999999998,
@@ -311,7 +311,7 @@
     "agrees": true
    }
   },
-  "explained_gap": "Screener tax 2% reflects a one-off deferred-tax credit in its own tax % row."
+  "explained_gap": null
  },
  "BHARTIARTL:2026": {
   "basis": "CONSOLIDATED",
@@ -362,9 +362,9 @@
     "agrees": true
    },
    "tax_pct": {
-    "navrist": 17.44682075678452,
+    "navrist": 25.125573631861727,
     "screener": 25,
-    "agrees": false
+    "agrees": true
    },
    "debt_vs_borrowings": {
     "navrist": 195411.7,
@@ -438,7 +438,7 @@
     "agrees": true
    }
   },
-  "explained_gap": null
+  "explained_gap": "Screener 'Sales' 61,328 excludes other operating revenue (1,793), which is part of Revenue from operations as printed."
  },
  "TITAN:2025": {
   "basis": "CONSOLIDATED",
@@ -503,9 +503,9 @@
     "agrees": true
    },
    "debt_vs_borrowings": {
-    "navrist": 12967.0,
+    "navrist": 20777.0,
     "screener": 20777,
-    "agrees": false
+    "agrees": true
    }
   },
   "explained_gap": null
@@ -752,9 +752,9 @@
   },
   "publisher": {
    "revenue": {
-    "navrist": 980136.0,
+    "navrist": 964693.0,
     "screener": 962820,
-    "agrees": false
+    "agrees": true
    },
    "net_profit_whole_entity": {
     "navrist": 81309.0,
@@ -826,9 +826,9 @@
     "agrees": true
    },
    "debt_vs_borrowings": {
-    "navrist": 96214.22,
+    "navrist": 132408.91999999998,
     "screener": 132409,
-    "agrees": false
+    "agrees": true
    }
   },
   "explained_gap": null

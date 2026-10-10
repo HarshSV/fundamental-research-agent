@@ -68,7 +68,7 @@ from tools.statement_selector import select_statement_basis, StatementSelection
 # v6 2026-10 global remediation: owners EPS, dividends paid/DPS evidence, lease
 #    liabilities, reported Total Liabilities, policy Net Fixed Assets, EBITDA =
 #    EBIT + D&A, acquisition signals, perimeter-aware PAT/equity, provenance.
-EXTRACTION_VERSION = 20
+EXTRACTION_VERSION = 22
 
 
 @dataclass(frozen=True)
@@ -107,6 +107,10 @@ class FactSet:
 
     def get(self, fact_key: str) -> Optional[CanonicalFact]:
         f = self.facts.get(fact_key)
+        if f is None and fact_key == "net_sales":
+            # Net sales = revenue from operations less excise duty. Where no excise duty is charged (or none was read) net sales IS the
+            # reported revenue; the fallback keeps the two facts one number instead of inventing a second.
+            f = self.facts.get("revenue")
         return f if isinstance(f, CanonicalFact) else None
 
 
@@ -114,6 +118,7 @@ class FactSet:
 # `parsed` dict, so reading N of them costs one extraction, not N.
 _DIRECT_FACT_MAP = {
     "revenue": "revenue",
+    "excise_duty": "excise_duty",       # expense line below 'Total income'; revenue is gross of it when present
     "pat": "pat",                       # owners-attributable
     "pat_total": "pat_total",           # whole-entity (owners + NCI), when printed
     "pbt": "pbt",
@@ -273,6 +278,14 @@ def get_canonical_facts(symbol, name, fiscal_year, lease_basis="basis1", consoli
                            "Consolidated financial statements found and used."),
     )
     is_consolidated = actual_basis == "CONSOLIDATED"
+    requested_basis = "CONSOLIDATED" if consolidated else "STANDALONE"
+    basis_fallback = None
+    if requested_basis != actual_basis:
+        # a request for one basis must never be answered with the other WITHOUT saying so
+        basis_fallback = (f"{requested_basis.capitalize()} statements were requested but the filing has no readable {requested_basis.lower()} "
+                          f"statements; the {actual_basis.lower()} figures are returned and labelled {actual_basis.lower()}.")
+        selection = StatementSelection(selected_basis=actual_basis, document_id=source_document, financial_year=fiscal_year,
+                                       selection_reason=basis_fallback)
 
     for fact_key, parsed_key in _DIRECT_FACT_MAP.items():
         facts[fact_key] = _wrap_fact(fact_key, parsed.get(parsed_key), sym, period, actual_basis,
@@ -316,7 +329,8 @@ def get_canonical_facts(symbol, name, fiscal_year, lease_basis="basis1", consoli
     nci_evaluated = (not is_consolidated) or nci_val is not None
     nci_material = bool(is_consolidated and nci_val and nci_val > 0)
     extras: Dict[str, Any] = {"nci_material": nci_material, "nci_evaluated": nci_evaluated,
-                              "is_consolidated": is_consolidated, "integrity_failures": integrity}
+                              "is_consolidated": is_consolidated, "integrity_failures": integrity,
+                              "basis_requested": requested_basis.lower(), "basis_fallback": basis_fallback}
 
     # `retained_earnings` is "exact" or an "other_equity_proxy" (Total Other Equity, a real number
     # but a different accounting concept) - a proxy is NEEDS_REVIEW so Altman Z sees it.
@@ -563,10 +577,17 @@ def get_canonical_facts(symbol, name, fiscal_year, lease_basis="basis1", consoli
             missing("ebit", "pbt+finance_costs", "Profit Before Tax / Finance Costs not found.")
             missing("ebitda", "ebit+depreciation", "EBIT unavailable.")
 
+    # ---- Net sales (revenue from operations less excise duty) ---------------------------------
+    _rev0, _ex0 = facts.get("revenue"), facts.get("excise_duty")
+    if _rev0 is not None and _rev0.value is not None and _ex0 is not None and _ex0.value and 0 < _ex0.value < _rev0.value:
+        put("net_sales", _rev0.value - _ex0.value,
+            (_rev0.prior_value - _ex0.prior_value) if _rev0.prior_value is not None and _ex0.prior_value is not None else None,
+            tag="revenue-excise_duty", page=pl_page,
+            label="Net sales = Revenue from operations less Excise duty (excise is printed as an expense, so revenue is gross of it)")
     # ---- COGS / Gross Profit / Purchases ----------------------------------------------------
     components = parsed.get("components") or {}
     extras["components"] = components
-    revenue_fact = facts.get("revenue")
+    revenue_fact = facts.get("net_sales") or facts.get("revenue")
     if components:
         cogs_cur = sum(v[0] for v in components.values())
         cogs_prior = sum(v[1] for v in components.values() if len(v) > 1 and v[1] is not None) \
