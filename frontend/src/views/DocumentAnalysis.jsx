@@ -1,3 +1,4 @@
+import { summarizeReporting, reportingHeadline } from '../lib/reportingPeriod.js';
 import React, { useEffect, useState } from 'react';
 import { authFetch } from '../lib/api.js';
 import { groupFundamentalRatios } from '../lib/ratioCategories.js';
@@ -175,8 +176,18 @@ function FundamentalTab({ symbol, query }) {
     </div>
   );
 
+  const periodSummary = summarizeReporting(results);
+  const periodHeadline = reportingHeadline(periodSummary);
   return (
     <div className="space-y-6">
+      {periodHeadline && (
+        <p data-reporting-period className="text-[12px] text-slate-300 bg-slate-800/60 border border-slate-700 rounded px-3 py-2">
+          <span className="font-bold text-blue-300">{periodHeadline}</span>
+          {periodSummary.marketQuotedAt
+            ? ` - market-priced ratios (P/E, P/B, EV multiples, yields) use the latest quote from ${String(periodSummary.marketQuotedAt).slice(0, 16).replace('T', ' ')} over fiscal-year per-share figures, not the fiscal-year-end price.`
+            : ' - market-priced ratios use the latest quote over fiscal-year per-share figures, not the fiscal-year-end price.'}
+        </p>
+      )}
       {anyStale && (
         <p className="text-[12px] text-rose-300/90 bg-rose-500/5 border border-rose-500/20 rounded px-3 py-2">
           Some ratios were computed under an older formula version and could not be refreshed automatically

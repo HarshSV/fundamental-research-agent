@@ -782,7 +782,7 @@ def _compute_pair(cur, prev, sym=None, name=None):
         "period": f"{_fy_label(cur['to_date'])} (consolidated)",
         "numerator": _res.get("numerator"), "denominator": _res.get("denominator"),
         "formula_version": _res.get("formula_version"), "methodology": _res.get("methodology"),
-        "warnings": list(_res.get("warnings") or []), "breakdown": _res.get("breakdown"),
+        "warnings": list(_res.get("warnings") or []), "breakdown": _res.get("breakdown"), "reporting": _res.get("reporting"),
         "sources": sources,
         "note": note,
     }, None
@@ -3326,7 +3326,8 @@ def _legacy_from_contract(res, base, period=None, sources=None):
            "unit": res.get("unit"), "confidence": res.get("confidence"), "estimated": bool(res.get("estimated")),
            "period": period or res.get("period"), "numerator": res.get("numerator"), "denominator": res.get("denominator"),
            "warnings": list(res.get("warnings") or []), "formula_version": res.get("formula_version"),
-           "methodology": res.get("methodology"), "perimeter": res.get("perimeter"), "breakdown": res.get("breakdown")}
+           "methodology": res.get("methodology"), "perimeter": res.get("perimeter"), "breakdown": res.get("breakdown"),
+           "reporting": res.get("reporting")}
     if sources:
         out["sources"] = sources
     if res.get("reason"):

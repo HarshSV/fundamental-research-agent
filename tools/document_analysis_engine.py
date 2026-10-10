@@ -1653,7 +1653,7 @@ def _source_file_and_type(pdf_url, sources):
 
 def _meta_from_out(out):
     keys = ("formula_version", "calculated_at", "warnings", "perimeter", "statement_basis", "period_basis",
-            "methodology", "confidence", "provenance", "estimated", "breakdown")
+            "methodology", "confidence", "provenance", "estimated", "breakdown", "reporting")
     return {k: out.get(k) for k in keys if out.get(k) not in (None, [], {})}
 
 
@@ -2003,6 +2003,8 @@ def run_fundamental_analysis(symbol, name=None):
                 meta["warnings"] = res["warnings"]
             if res.get("breakdown"):
                 meta["breakdown"] = res["breakdown"]
+            if res.get("reporting"):
+                meta["reporting"] = res["reporting"]
             meta["calculated_at"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
             if fs is not None:
                 meta["statement_basis"] = "consolidated" if fs.selection.selected_basis == "CONSOLIDATED" else "standalone"

@@ -38,7 +38,7 @@ silently served as current.
 
 import math
 
-FORMULA_VERSION = "2026.10.15"
+FORMULA_VERSION = "2026.10.16"
 
 # --------------------------------------------------------------------------------------------
 # Policy switches (each one a documented Navrist methodology decision)
@@ -1655,6 +1655,34 @@ MARKET_KEYS = {"pe_ratio", "pb_ratio", "ps_ratio", "dividend_yield", "earnings_y
                "ev_to_fcf", "fcf_yield", "price_to_cash_flow", "peg_ratio", "altman_z_score"}
 
 
+def fiscal_year_label(fy):
+    """Fiscal year 2026 (ends 31-Mar-2026) -> 'FY2025-26'. None when the year is unknown."""
+    try:
+        fy = int(fy)
+    except (TypeError, ValueError):
+        return None
+    return f"FY{fy - 1}-{str(fy)[-2:]}"
+
+
+def reporting_context(key, fs, market=None):
+    """Period policy of a displayed ratio (display metadata only - no arithmetic): every contract ratio is built from the selected fiscal
+    year's ANNUAL statements, never from quarterly or trailing-twelve-month (TTM) figures. Market-priced ratios say which price they use."""
+    sel = getattr(fs, "selection", None)
+    basis = getattr(sel, "selected_basis", None)
+    ctx = {
+        "period_type": "annual", "ttm": False,
+        "fiscal_year": getattr(fs, "fiscal_year", None), "fiscal_year_label": fiscal_year_label(getattr(fs, "fiscal_year", None)),
+        "statement_basis": basis.lower() if isinstance(basis, str) else None,
+        "balance_convention": "closing balance of the fiscal year; averages use the prior-year closing balance as opening (unavailable when it is missing)",
+        "screener_comparable": "annual (non-TTM) statements - compare with Screener's annual column, not its TTM column",
+    }
+    if key in MARKET_KEYS:
+        q = (market or {}) if isinstance(market, dict) else {}
+        ctx["price"] = {"kind": "latest_quote", "quoted_at": q.get("quoted_at"),
+                        "note": "latest market price over fiscal-year per-share figures; not the fiscal-year-end price"}
+    return ctx
+
+
 def compute_ratio(key, fs, market=None, deps=None):
     """The ONLY place a ratio's arithmetic lives. `deps` = already-computed
     parent results (see PARENTS) for derived ratios."""
@@ -1671,6 +1699,7 @@ def compute_ratio(key, fs, market=None, deps=None):
         res = _res(key, status="insufficient_data", confidence=0.0,
                    reason="A required input is missing or inconsistent, so the ratio cannot be evaluated.")
     res = _acq_guard(key, fs, res)
+    res["reporting"] = reporting_context(key, fs, market)
     if key in EQUITY_BASIS:
         res["equity_basis"] = EQUITY_BASIS[key]
     elif key in EQUITY_NOTES:

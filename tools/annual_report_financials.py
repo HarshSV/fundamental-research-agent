@@ -3185,7 +3185,7 @@ _LEGACY_RESULT_KEYS = (
     "value_raw", "tests", "max_score", "tests_evaluated", "partial_score", "variables", "components", "market_price",
     "shared_dependencies", "line_items", "other_bank_balances_cr", "other_bank_balances_breakup", "approximation",
     "formula", "averaging", "net_cash", "dividend_found", "dividend_basis", "dps_basis", "ev_cr", "derived_from",
-    "variable_cost_extraction_status", "acquisition_flag", "breakdown", "reference_ev_incl_nci", "dividend_components", "reference_declared_for_year_payout_pct", "obb_classification",
+    "variable_cost_extraction_status", "acquisition_flag", "breakdown", "reporting", "reference_ev_incl_nci", "dividend_components", "reference_declared_for_year_payout_pct", "obb_classification",
 )
 
 
