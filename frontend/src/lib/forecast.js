@@ -1,6 +1,7 @@
 // Pure helpers for the forecast overlay. No ML here: the backend returns the forecast, the
 // frontend only maps it onto chart series. Forecast data never touches the actual-candle series.
 
+import { istClock } from './marketTime.js';
 import { rowStatus } from './forecastView.js';
 
 export const FORECAST_COLORS = {
@@ -66,15 +67,19 @@ const pct = (x) => (x == null || !Number.isFinite(x) ? 'n/a' : `${(x * 100).toFi
 const px = (x) => (x == null || !Number.isFinite(x) ? 'n/a' : x.toFixed(2));
 
 // Tooltip lines for one forecast horizon. Wording never states a future price as fact.
-export function describeForecastBar(f) {
+export function describeForecastBar(f, meta = {}) {
   if (!f) return [];
   const lines = [`+${f.horizon} candle - FORECAST (not a historical value)`];
-  if (f.close != null) {
-    lines.push(`Predicted O ${px(f.open)}  H ${px(f.high)}  L ${px(f.low)}  C ${px(f.close)}`);
-    lines.push(`P(close above current close): ${pct(f.direction_probability)}`);
+  if (Number.isFinite(f.forecast_timestamp)) lines.push(`Time ${istClock(f.forecast_timestamp)} IST`);
+  const issued = f.close != null;
+  const c = issued ? f : f.median_path;
+  if (c) {
+    lines.push(`Predicted O ${px(c.open)}  H ${px(c.high)}  L ${px(c.low)}  C ${px(c.close)}`);
+    lines.push(issued ? `P(close above current close): ${pct(f.direction_probability)}` : 'Median-return path: central estimate, no directional call');
   } else {
     lines.push(f.status === 'withheld' ? 'No forecast issued' : 'No directional call (range only)');
   }
+  if (meta.model) lines.push(`Model ${meta.model}${Number.isFinite(meta.asOf) ? ` - generated ${istClock(meta.asOf)} IST` : ''}`);
   if (f.intervals) {
     for (const lv of ['50', '80', '95']) {
       if (f.intervals[lv]) lines.push(`${lv}% range: ${px(f.intervals[lv][0])} - ${px(f.intervals[lv][1])}`);

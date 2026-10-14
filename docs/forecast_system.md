@@ -76,3 +76,9 @@ re-validates every symbol (results are keyed by model_version).
 - API: `patternForecast` is added to `GET /api/chart/{symbol}/forecast` (additive). UI: "Candlestick patterns" section in `ForecastPanel`.
 - Not built: horizons beyond +5 (10/20 have no validated model), probability heatmap (only marginal quantiles exist), volume forecast.
 - Compatibility fix: artifacts pickled before `use_wicks` / `sigma_col` existed failed to load (`AttributeError`, live forecast returned ERROR); class-level defaults restore the verified original behaviour (wick models present, rv36).
+
+## Predicted-candle view (2026-10-14)
+- Candle methodology (unchanged, `forecast/labels.py`): each horizon's close is its OWN direct forecast of ln(C_h/C_0); open_h = previous horizon's forecast close (open_1 = last actual close); high/low come from median wick forecasts. OHLC is valid by construction and re-validated (`api.valid_ohlc`, `forecastView.validOhlc`); invalid candles are dropped, never repaired.
+- When the confidence gate withholds a directional call, the SAME candle is exposed as `median_path` (API `medianPath`) and labelled "median-return path"; status/confidence are untouched.
+- UI: view selector "Predicted Candles" (default when valid candles exist) / "Uncertainty Bands" (the previous fan view, unchanged); candles coloured green/red/grey, hollow; OHLC table row selection highlights the candle; tooltip shows O/H/L/C, time, model and generation time.
+- Horizons: only +1..+5 are validated; 10 and 20 are not offered because no validated model exists for them.

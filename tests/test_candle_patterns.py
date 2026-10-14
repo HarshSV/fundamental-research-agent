@@ -166,3 +166,36 @@ def test_api_payload_carries_the_pattern_block():
     payload = {"symbol": "TEST", "timeframe": "5m", "as_of_ts": T0, "status": "RANGE_ONLY", "forecasts": [], "current_candle": None}
     r = api.build_response(None, payload)
     assert r["patternForecast"]["status"] == "unavailable" and r["patternForecast"]["probability"] is None
+
+
+def test_median_path_is_used_only_when_no_directional_path_and_is_labelled():
+    med = [fc(1, 93.5, 94.4, 93.4, 94.3)]
+    r = pf.pattern_forecast(ACTUAL, [], median_candles=med)
+    assert r["status"] == "model_implied" and r["path_kind"] == "median_return_path"
+    assert r["patterns"][0]["path_kind"] == "median_return_path" and r["patterns"][0]["probability"] is None
+    d = pf.pattern_forecast(ACTUAL, med, median_candles=[fc(1, 1, 2, 0.5, 1.5)])
+    assert d["path_kind"] == "directional_path"
+
+
+def test_api_exposes_median_path_without_changing_status():
+    from forecast import api
+    payload = {"symbol": "T", "timeframe": "5m", "as_of_ts": T0, "status": "RANGE_ONLY", "current_candle": None,
+               "forecasts": [{"horizon": 1, "forecast_timestamp": T0, "status": "range_only", "close": None,
+                              "median_path": {"open": 1, "high": 2, "low": 0.5, "close": 1.5}}]}
+    r = api.build_response(None, payload)
+    assert r["status"] == "RANGE_ONLY" and r["forecastCandles"] == [] and r["medianPath"][0]["close"] == 1.5
+
+
+def test_predicted_candles_must_satisfy_ohlc_constraints():
+    from forecast import api
+    good = {"open": 10, "high": 12, "low": 9, "close": 11}
+    assert api.valid_ohlc(good)
+    for bad in ({**good, "high": 10.5}, {**good, "low": 10.5}, {**good, "low": 0}, {**good, "close": None}, {**good, "high": float("nan")}, {"open": 1}):
+        assert not api.valid_ohlc(bad)
+    payload = {"symbol": "T", "timeframe": "5m", "as_of_ts": T0, "status": "OK", "current_candle": None,
+               "forecasts": [{"horizon": 1, "forecast_timestamp": T0, "status": "ok", "confidence": "LOW", **good},
+                             {"horizon": 2, "forecast_timestamp": T0 + 300, "status": "ok", "confidence": "LOW", **{**good, "high": 1}},
+                             {"horizon": 3, "forecast_timestamp": T0 + 600, "status": "range_only", "close": None, "median_path": {**good, "low": 99}}]}
+    r = api.build_response(None, payload)
+    assert [c["horizon"] for c in r["forecastCandles"]] == [1]        # invalid issued candle dropped, not repaired
+    assert r["medianPath"] == []                                       # invalid median candle dropped

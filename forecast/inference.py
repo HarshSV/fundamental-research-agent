@@ -202,6 +202,11 @@ def forecast_payload(con, symbol, as_of_ts=None, persist=True):
              "reasons": d["reasons"] or ([] if not withheld else ["confidence_below_threshold" if dir_ok else "direction_not_validated_for_symbol"]),
              "direction_validated": bool(dir_ok and dirv.get(str(h), dirv.get(h, False))),
              "intervals": intervals, "interval_unit": "price", "confidence_components": d["comp"]}
+        if not hard and withheld:
+            # The gate withholds a DIRECTIONAL call, not the model's central estimate: expose the median-return
+            # candle separately and labelled; status/confidence are untouched.
+            r["median_path"] = {"open": b["open"], "high": b["high"], "low": b["low"], "close": b["close"],
+                                "kind": "median_return_path", "predicted_return": float(p["ret_med"][0])}
         if not hard and not withheld:
             r.update({"open": b["open"], "high": b["high"], "low": b["low"], "close": b["close"],
                       "predicted_return": float(p["ret_med"][0]), "direction_probability": float(p["p_up"][0]),

@@ -10,19 +10,34 @@ from fastapi import APIRouter, Depends, HTTPException
 from . import config, inference, pattern_forecast, pattern_stats, store, tracking
 
 
+def valid_ohlc(c):
+    """OHLC constraints every displayed predicted candle must satisfy (never repaired - invalid ones are dropped)."""
+    try:
+        o, h, l, cl = (float(c[k]) for k in ("open", "high", "low", "close"))
+    except (KeyError, TypeError, ValueError):
+        return False
+    return all(v == v and v > 0 and v != float("inf") for v in (o, h, l, cl)) and h >= max(o, cl) and l <= min(o, cl) and h >= l
+
+
 def forecast_candles(payload):
     """forecastCandles[]: only horizons that carry a full predicted candle. Range-only/withheld horizons
     contribute an `envelope` entry (no candle body) when an interval is available."""
     candles, envelope = [], []
     for f in payload["forecasts"]:
         t = f["forecast_timestamp"]
-        if f.get("close") is not None:
+        if f.get("close") is not None and valid_ohlc(f):
             candles.append({"time": t, "open": f["open"], "high": f["high"], "low": f["low"], "close": f["close"],
                             "horizon": f["horizon"], "confidence": f["confidence"], "direction_probability": f.get("direction_probability"),
                             "isForecast": True})
         if f.get("intervals"):
             envelope.append({"time": t, "horizon": f["horizon"], "intervals": f["intervals"]})
     return candles, envelope
+
+
+def median_path_candles(payload):
+    """Model median-return path for horizons whose directional call was withheld (labelled, never a signal)."""
+    return [{"time": f["forecast_timestamp"], "horizon": f["horizon"], **{k: f["median_path"][k] for k in ("open", "high", "low", "close")},
+             "isForecast": True, "kind": "median_return_path"} for f in payload["forecasts"] if f.get("median_path") and valid_ohlc(f["median_path"])]
 
 
 def build_response(con, payload, n_actual=150):
@@ -32,11 +47,12 @@ def build_response(con, payload, n_actual=150):
         rows = store.load_candles(con, payload["symbol"], config.INTERVAL, cc["time"] - n_actual * config.BAR_SECONDS * 2, cc["time"])
         actual = [{"time": r[0], "open": r[1], "high": r[2], "low": r[3], "close": r[4], "volume": r[5], "isForecast": False} for r in rows][-n_actual:]
     candles, envelope = forecast_candles(payload)
-    pf = pattern_forecast.pattern_forecast(actual, candles)
+    median = median_path_candles(payload)
+    pf = pattern_forecast.pattern_forecast(actual, candles, median_candles=median)
     stats = pattern_stats.load_stats()
     for o in pf["observed"]:
         o["historical"] = pattern_stats.historical_for(o["pattern"], stats)
-    return {"patternForecast": pf, "symbol": payload["symbol"], "timeframe": payload["timeframe"], "as_of": payload["as_of_ts"], "status": payload["status"],
+    return {"patternForecast": pf, "medianPath": median, "symbol": payload["symbol"], "timeframe": payload["timeframe"], "as_of": payload["as_of_ts"], "status": payload["status"],
             "actualCandles": actual, "forecastCandles": candles, "forecastEnvelope": envelope, "forecast": payload}
 
 

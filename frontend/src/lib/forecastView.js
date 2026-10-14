@@ -116,12 +116,16 @@ export function buildForecastChart(resp, nContext = 5) {
     .filter((c) => c.time > cc.time && [c.open, c.high, c.low, c.close].every(Number.isFinite))
     .map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }))
     .sort((a, b) => a.time - b.time);
+  const medianCandles = (resp.medianPath || [])
+    .filter((c) => c.time > cc.time && [c.open, c.high, c.low, c.close].every(Number.isFinite))
+    .map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }))
+    .sort((a, b) => a.time - b.time);
   const band = (lv) => {
     const pts = rows.filter((r) => rangeOf(r, lv)).map((r) => ({ time: r.forecast_timestamp, lo: rangeOf(r, lv)[0], hi: rangeOf(r, lv)[1], h: r.horizon }));
     return pts.length ? [{ time: origin.time, lo: origin.price, hi: origin.price, h: 0 }, ...pts] : [];
   };
   return {
-    actual, origin, candles,
+    actual, origin, candles, medianCandles, predicted: forecastCandleRows(resp),
     bands: { 95: band('95'), 80: band('80'), 50: band('50') },
     horizons: rows.map((r) => ({ time: r.forecast_timestamp, h: r.horizon })),
     key: `${f.symbol}|${f.as_of_ts}|${f.model_version}`,
@@ -137,7 +141,7 @@ export function patternView(resp) {
   const label = (s) => String(s).replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
   const items = (pf.patterns || []).map((p) => ({
     key: `${p.pattern}-${p.formation_horizon}`, name: label(p.pattern), direction: p.direction,
-    within: p.formation_horizon, evidence: p.evidence, definition: p.definition,
+    within: p.formation_horizon, pathKind: p.path_kind || null, evidence: p.evidence, definition: p.definition,
     reliability: null, // a future pattern has no measured reliability; observed-pattern statistics do not transfer
   }));
   const observed = (pf.observed || []).map((o) => {
@@ -151,4 +155,64 @@ export function patternView(resp) {
   });
   const state = pf.status === 'model_implied' ? 'model_implied' : pf.status === 'none_detected' ? 'none_detected' : 'unavailable';
   return { state, reason: pf.reason || null, items, observed, methodology: pf.methodology || null };
+}
+
+// Plain-English reading of the forecast for non-specialists. Wording only - every number comes from `summarize`.
+export function plainSummary(resp, loading = false, error = null) {
+  const s = summarize(resp, loading, error);
+  if (s.state.key === 'loading' || s.state.key === 'unavailable' || !s.reference) return null;
+  const rows = resp?.forecast?.forecasts || [];
+  const end = s.far || s.near;
+  if (!end) return null;
+  const rs = rows.find((r) => r.horizon === end.h);
+  const rupee = (x) => `₹${x.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const upto = Number.isFinite(rs?.forecast_timestamp) ? ` (by ${new Date((rs.forecast_timestamp + 300) * 1000).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata', hour12: true }).toUpperCase()})` : '';
+  const lean = s.direction.label === 'UP' ? 'The model leans slightly upward.'
+    : s.direction.label === 'DOWN' ? 'The model leans slightly downward.'
+      : 'The model sees no clear upward or downward lean.';
+  return {
+    headline: `Next ${end.h} candle${end.h > 1 ? 's' : ''}${upto}: most likely between ${rupee(end.lo)} and ${rupee(end.hi)}`,
+    now: `Now ${rupee(s.reference)}`,
+    lean,
+    odds: 'About 8 in 10 chance the price stays inside this range (measured on past data).',
+  };
+}
+
+
+// ---- predicted candles (one unified, validated list per horizon) ------------------------------------------
+export function validOhlc(c) {
+  if (!c) return false;
+  const { open: o, high: h, low: l, close: cl } = c;
+  return [o, h, l, cl].every((v) => Number.isFinite(v) && v > 0) && h >= Math.max(o, cl) && l <= Math.min(o, cl) && h >= l;
+}
+
+// One predicted candle per horizon: the model-issued candle when the confidence gate allowed it, else the model's
+// median-return candle (kind 'median'). Invalid OHLC and anything not strictly after the last actual candle is dropped -
+// nothing is ever invented to fill a gap.
+export function forecastCandleRows(resp) {
+  const f = resp?.forecast;
+  const cc = f?.current_candle;
+  if (!f || !cc) return [];
+  const out = [];
+  for (const r of f.forecasts || []) {
+    const kind = Number.isFinite(r.close) ? 'issued' : (r.median_path ? 'median' : null);
+    if (!kind) continue;
+    const src = kind === 'issued' ? r : r.median_path;
+    const c = { open: src.open, high: src.high, low: src.low, close: src.close };
+    if (!validOhlc(c) || !(r.forecast_timestamp > cc.time)) continue;
+    out.push({ h: r.horizon, time: r.forecast_timestamp, ...c, kind, status: r.status, intervals: r.intervals || null,
+      tone: c.close > c.open ? 'up' : c.close < c.open ? 'down' : 'flat' });
+  }
+  return out.sort((a, b) => a.time - b.time);
+}
+
+const TONE = { up: ['52,211,153', 'rgb(52 211 153)'], down: ['248,113,113', 'rgb(248 113 113)'], flat: ['148,163,184', 'rgb(148 163 184)'] };
+// Chart data points with per-candle colours: green up, red down, grey flat; hollow (outlined) so they never look like
+// actual candles; the selected one is filled.
+export function styledForecastCandles(rows, selectedH = null) {
+  return rows.map((r) => {
+    const [fill, edge] = TONE[r.tone];
+    return { time: r.time, open: r.open, high: r.high, low: r.low, close: r.close,
+      color: `rgba(${fill},${r.h === selectedH ? 0.65 : 0.08})`, borderColor: edge, wickColor: edge };
+  });
 }

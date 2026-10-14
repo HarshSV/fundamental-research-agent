@@ -1,13 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts';
 import { ForecastBoundary, ForecastBands } from '../lib/forecastBoundaryPrimitive.js';
-import { buildForecastChart } from '../lib/forecastView.js';
+import { buildForecastChart, styledForecastCandles } from '../lib/forecastView.js';
 import { forecastBarByTime, describeForecastBar } from '../lib/forecast.js';
 import { IST, istClock } from '../lib/marketTime.js';
 
 // Separate chart for the model projection. Left of NOW = a short actual-candle context (solid); right of NOW =
 // predicted candles (hollow, only where the backend issued one) and nested 50/80/95% uncertainty bands.
-export default function ForecastChart({ resp }) {
+export default function ForecastChart({ resp, view = 'bands', selectedH = null }) {
   const ref = useRef(null);
   const api = useRef(null);
   const respRef = useRef(null);
@@ -38,6 +38,12 @@ export default function ForecastChart({ resp }) {
       borderUpColor: 'rgb(52 211 153)', borderDownColor: 'rgb(248 113 113)',
       wickUpColor: 'rgb(52 211 153)', wickDownColor: 'rgb(248 113 113)', priceLineVisible: false, lastValueVisible: false,
     });
+    // Median-return path (no validated directional call): dashed amber outline, deliberately different from the forecast candles.
+    const median = chart.addSeries(CandlestickSeries, {
+      upColor: 'rgba(251,191,36,0.05)', downColor: 'rgba(251,191,36,0.05)', borderVisible: true,
+      borderUpColor: 'rgb(251 191 36)', borderDownColor: 'rgb(251 191 36)',
+      wickUpColor: 'rgb(251 191 36)', wickDownColor: 'rgb(251 191 36)', priceLineVisible: false, lastValueVisible: false,
+    });
     const edge = (color, style) => chart.addSeries(LineSeries, {
       color, lineWidth: 1, lineStyle: style, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
     });
@@ -50,11 +56,11 @@ export default function ForecastChart({ resp }) {
     // forecast candle series is empty (range-only state).
     actual.attachPrimitive(boundary);
     actual.attachPrimitive(bands);
-    api.current = { chart, actual, forecast, hi95, lo95, boundary, bands };
+    api.current = { chart, actual, forecast, median, hi95, lo95, boundary, bands };
     chart.subscribeCrosshairMove((p) => {
       if (p.time == null || !p.point) { setTip(null); return; }
       const f = forecastBarByTime(respRef.current, p.time);
-      if (f) { setTip({ x: p.point.x, y: p.point.y, lines: describeForecastBar(f) }); return; }
+      if (f) { setTip({ x: p.point.x, y: p.point.y, lines: describeForecastBar(f, { model: respRef.current?.forecast?.model_version, asOf: respRef.current?.forecast?.as_of_ts }) }); return; }
       const a = actualRef.current.find((c) => c.time === p.time);
       setTip(a ? { x: p.point.x, y: p.point.y, lines: ['Actual candle (market data)', `${istClock(a.time)}  O ${a.open.toFixed(2)}  H ${a.high.toFixed(2)}  L ${a.low.toFixed(2)}  C ${a.close.toFixed(2)}`] } : null);
     });
@@ -67,7 +73,7 @@ export default function ForecastChart({ resp }) {
     respRef.current = resp;
     const d = buildForecastChart(resp);
     if (!d) {
-      a.actual.setData([]); a.forecast.setData([]); a.hi95.setData([]); a.lo95.setData([]);
+      a.actual.setData([]); a.forecast.setData([]); a.median.setData([]); a.hi95.setData([]); a.lo95.setData([]);
       a.boundary.setTime(null); a.bands.setData({ 95: [], 80: [], 50: [] }, []);
       actualRef.current = [];
       lastKey.current = null;
@@ -75,17 +81,25 @@ export default function ForecastChart({ resp }) {
     }
     actualRef.current = d.actual;
     a.actual.setData(d.actual);
-    a.forecast.setData(d.candles);
-    a.hi95.setData((d.bands[95].length ? d.bands[95] : d.bands[80]).map((p) => ({ time: p.time, value: p.hi })));
-    a.lo95.setData((d.bands[95].length ? d.bands[95] : d.bands[80]).map((p) => ({ time: p.time, value: p.lo })));
+    if (view === 'candles') {
+      // Simple view: every predicted candle (issued or median), coloured by direction; no bands.
+      a.forecast.setData(styledForecastCandles(d.predicted, selectedH));
+      a.median.setData([]); a.hi95.setData([]); a.lo95.setData([]);
+      a.bands.setData({ 95: [], 80: [], 50: [] }, []);
+    } else {
+      a.forecast.setData(d.candles);
+      a.median.setData(d.medianCandles);
+      a.hi95.setData((d.bands[95].length ? d.bands[95] : d.bands[80]).map((p) => ({ time: p.time, value: p.hi })));
+      a.lo95.setData((d.bands[95].length ? d.bands[95] : d.bands[80]).map((p) => ({ time: p.time, value: p.lo })));
+      a.bands.setData(d.bands, d.horizons);
+    }
     a.boundary.setTime(d.origin.time);
-    a.bands.setData(d.bands, d.horizons);
     // Re-fit only when a NEW forecast arrives, so a user's zoom/pan isn't reset by each poll.
-    if (lastKey.current !== d.key) {
-      lastKey.current = d.key;
+    if (lastKey.current !== `${d.key}|${view}`) {
+      lastKey.current = `${d.key}|${view}`;
       a.chart.timeScale().fitContent();
     }
-  }, [resp]);
+  }, [resp, view, selectedH]);
 
   return (
     <div className="relative w-full h-full">

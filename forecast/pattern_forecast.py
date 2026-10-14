@@ -33,10 +33,15 @@ def leading_path(forecast_candles):
     return path
 
 
-def pattern_forecast(actual_candles, forecast_candles, params=None):
+def pattern_forecast(actual_candles, forecast_candles, params=None, median_candles=None):
     actual = list(actual_candles or [])
     base = {"methodology": METHODOLOGY, "probability": None, "limitations": LIMITATIONS, "patterns": [], "observed": []}
     path = leading_path(forecast_candles)
+    kind = "directional_path"
+    if not path:
+        path = leading_path(median_candles)
+        kind = "median_return_path"
+    base["path_kind"] = kind if path else None
     if not path:
         return {**base, "status": "unavailable", "reason": "No predicted candle path (range-only or withheld forecast), so no future pattern can be read."}
     need = cp.DEFAULT_PARAMS["trend_lookback"] + 3
@@ -55,7 +60,8 @@ def pattern_forecast(actual_candles, forecast_candles, params=None):
             "formation_horizon": h0, "supporting_horizons": [i - first + 1 for i in span if i >= first],
             "uses_actual_candles": [seq[i]["time"] for i in span if i < first],
             "definition": cp.DEFINITIONS[d["pattern"]], "probability": None,
-            "evidence": f"The predicted path completes a {d['pattern'].replace('_', ' ')} at +{h0} "
+            "path_kind": kind,
+            "evidence": f"The {'median-return' if kind == 'median_return_path' else 'predicted'} path completes a {d['pattern'].replace('_', ' ')} at +{h0} "
                         f"({d['bars']}-candle definition; {sum(1 for i in span if i >= first)} predicted).",
         })
     return {**base, "status": "model_implied" if patterns else "none_detected", "reason": None if patterns else "The predicted path completes no defined pattern.",
