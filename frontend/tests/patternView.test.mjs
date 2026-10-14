@@ -76,3 +76,7 @@ test('tooltip shows predicted O/H/L/C, time, model, and labels median candles', 
   const med = describeForecastBar({ horizon: 2, forecast_timestamp: 1300, close: null, status: 'range_only', median_path: { open: 1, high: 2, low: 0.5, close: 1.5 } });
   assert.ok(med.some((l) => l.includes('Median-return path'))); assert.ok(med.some((l) => l.includes('C 1.50')));
 });
+import { friendlyReason } from '../src/lib/forecastView.js';
+test('stale-data reason is shown in plain words, not as a code', () => {
+  assert.match(friendlyReason('data_not_usable: current_session_bars_stale_or_gappy'), /not up to date/);
+});

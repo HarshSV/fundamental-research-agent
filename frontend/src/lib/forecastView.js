@@ -16,6 +16,7 @@ export const SESSION_ENDED_TEXT = 'Market session ended - forecasts cover 09:20 
 export const friendlyReason = (r) => {
   if (!r) return null;
   const k = String(r).split(':')[0];
+  if (k === 'data_not_usable') return 'Latest market data is not up to date yet - the forecast service is catching up and will retry automatically';
   if (k === 'symbol_not_validated') return `Not validated for forecasting - ${String(r).slice(k.length + 1).trim()}`;
   return REASON_TEXT[k] || String(r);
 };

@@ -27,6 +27,7 @@ _attempts = {}                            # symbol -> (expected_bar_open, attemp
 _inflight = set()
 _state_lock = threading.Lock()
 _sched = None
+_last_error = [None]
 
 
 def _get_client():
@@ -98,7 +99,13 @@ def refresh_symbol(symbol, index_symbol="NIFTY 50", force=False):
             con.close()
             return {"refreshed": True, "result": res}
         except Exception as e:                                   # provider failure must never break the API
-            return {"refreshed": False, "reason": f"{type(e).__name__}: {str(e)[:120]}"}
+            # An expired / invalidated provider session would otherwise fail every later attempt forever (the client is
+            # cached for the life of the process): drop it so the next attempt logs in again.
+            global _client
+            _client = None
+            _last_error[0] = f"{type(e).__name__}: {str(e)[:120]}"
+            print(f"[live_ingest] refresh failed for {symbol}: {_last_error[0]} (provider session reset)")
+            return {"refreshed": False, "reason": _last_error[0]}
 
 
 def _tick():
