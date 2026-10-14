@@ -80,3 +80,17 @@ import { friendlyReason } from '../src/lib/forecastView.js';
 test('stale-data reason is shown in plain words, not as a code', () => {
   assert.match(friendlyReason('data_not_usable: current_session_bars_stale_or_gappy'), /not up to date/);
 });
+test('after-hours fallback is labelled with when it was made', () => {
+  const resp = { forecast: { as_of_ts: 1000, fallback: { kind: 'last_session_forecast', as_of_ts: 1791964800 }, current_candle: { time: 700, close: 100 }, status: 'RANGE_ONLY',
+    forecasts: [{ horizon: 5, forecast_timestamp: 2200, status: 'range_only', intervals: { 80: [99, 101] } }] } };
+  const p = plainSummary(resp);
+  assert.match(p.headline, /^Last forecast \(made /); assert.match(p.fallbackNote, /resume at the next market open/);
+});
+test('experimental forecast carries a loud, specific warning', () => {
+  const resp = { forecast: { experimental: { validated: false, reasons: ['data_quality: only 52% of sessions verified'] }, current_candle: { time: 700, close: 100 }, status: 'RANGE_ONLY',
+    forecasts: [{ horizon: 5, forecast_timestamp: 2200, status: 'range_only', intervals: { 80: [99, 101] } }] } };
+  const p = plainSummary(resp);
+  assert.match(p.experimentalNote, /has not passed forecast validation/); assert.match(p.experimentalNote, /52%/);
+  assert.equal(plainSummary({ forecast: { ...resp.forecast, experimental: undefined } }).experimentalNote, null);
+  assert.match(p.odds, /NOT verified/);
+});

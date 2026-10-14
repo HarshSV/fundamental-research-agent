@@ -32,6 +32,12 @@ export default function ForecastPanel({ resp, loading, error }) {
           As of {s.asOf != null ? `${istClock(s.asOf)} IST` : '-'}{s.model ? ` · model ${s.model}` : ''}
         </div>
       )}
+      {plain && plain.experimentalNote && (
+        <div className="mb-1.5 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-200" data-testid="experimental-note">{plain.experimentalNote}</div>
+      )}
+      {plain && plain.fallbackNote && (
+        <div className="mb-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200" data-testid="fallback-note">{plain.fallbackNote}</div>
+      )}
       {plain && (
         <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-3 mb-2" data-testid="plain-summary">
           <div className="text-[13px] font-semibold text-slate-100">{plain.headline}</div>

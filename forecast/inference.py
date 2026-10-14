@@ -98,7 +98,7 @@ def _withheld(symbol, as_of_ts, reasons, prod=None, **extra):
             "ensemble_version": (prod or {}).get("model_version"), "forecasts": h_rows, **extra}
 
 
-def forecast_payload(con, symbol, as_of_ts=None, persist=True):
+def forecast_payload(con, symbol, as_of_ts=None, persist=True, allow_unvalidated=False):
     """Core entry. as_of_ts = close time of the last completed candle (default: latest completed boundary)."""
     now = time.time()
     as_of_ts = int(as_of_ts if as_of_ts is not None else last_complete_boundary(now))
@@ -116,8 +116,14 @@ def forecast_payload(con, symbol, as_of_ts=None, persist=True):
     sym_state, sym_reasons = onboarding.symbol_status(con, symbol, prod, meta)
     if sym_state == "unknown":
         return _withheld(symbol, as_of_ts, ["symbol_onboarding: first-time validation for this symbol is in progress"], prod)
+    experimental = None
     if sym_state == "failed":
-        return _withheld(symbol, as_of_ts, ["symbol_not_validated: " + "; ".join(sym_reasons[:2])], prod)
+        if not allow_unvalidated:
+            return _withheld(symbol, as_of_ts, ["symbol_not_validated: " + "; ".join(sym_reasons[:2])], prod)
+        # Explicit opt-in (never the default): the pooled model's range forecast for a symbol whose own validation failed.
+        # Range only (direction stays pilot-only), never persisted, always labelled experimental.
+        experimental = {"validated": False, "reasons": list(sym_reasons[:2])}
+        persist = False
     # Directional skill was validated on the pilot universe only; other validated symbols get RANGE forecasts only.
     dir_ok = sym_state == "pilot"
     bars, issues = live_window(con, symbol, as_of_ts, meta.get("index_symbol"))
@@ -230,6 +236,8 @@ def forecast_payload(con, symbol, as_of_ts=None, persist=True):
                "disclaimer": "Probabilistic estimate from historical patterns. Not a prediction of certainty; future prices cannot be known."}
     # Only REAL forecasts are persisted. A withheld payload (stale data, etc.) is not a forecast and must not
     # occupy the (symbol, as_of, horizon, model) key that the real forecast will need moments later.
+    if experimental:
+        payload["experimental"] = experimental
     if persist and status in ("OK", "RANGE_ONLY"):
         tracking.save_forecast(con, payload)
     return payload

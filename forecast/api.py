@@ -7,7 +7,7 @@ import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from . import config, inference, pattern_forecast, pattern_stats, store, tracking
+from . import config, inference, pattern_forecast, pattern_stats, store, timeutil, tracking
 
 
 def valid_ohlc(c):
@@ -71,6 +71,38 @@ def _log_error(symbol, exc):
         pass
 
 
+def fallback_as_of(bar_timestamps):
+    """Boundary (next bar open) of the latest stored bar from which ALL horizons still fit inside the usable session."""
+    last_slot = config.USABLE_SLOTS - 1 - max(config.HORIZONS)
+    for ts in sorted(bar_timestamps, reverse=True):
+        if 0 <= timeutil.slot_of(ts) <= last_slot:
+            return ts + config.BAR_SECONDS
+    return None
+
+
+def unvalidated_only(payload):
+    return any(str(r).startswith("symbol_not_validated") for r in (payload.get("reasons") or [])) or any(
+        str(r).startswith("symbol_not_validated") for f in payload.get("forecasts") or [] for r in (f.get("reasons") or []))
+
+
+def last_session_forecast(con, sym, payload, allow_unvalidated=False):
+    """When no live forecast can exist (session ended / data catching up), return the forecast for the latest
+    boundary that does fit the session, recomputed from stored bars up to that boundary only (no look-ahead) and
+    labelled as such. Never persisted, never presented as live."""
+    if payload.get("status") != "NO_RELIABLE_FORECAST":
+        return None
+    rows = con.execute("SELECT ts FROM candles WHERE symbol=? AND interval=? ORDER BY ts DESC LIMIT 120", (sym, config.INTERVAL)).fetchall()
+    as_of = fallback_as_of([r[0] for r in rows])
+    if as_of is None:
+        return None
+    p = inference.forecast_payload(con, sym, as_of, persist=False, allow_unvalidated=allow_unvalidated)
+    if p.get("status") not in ("OK", "RANGE_ONLY"):
+        return None
+    p["fallback"] = {"kind": "last_session_forecast", "as_of_ts": as_of,
+                     "why": "Live forecasts cover 09:20 to 15:10 IST; this is the most recent forecast that fits the session."}
+    return p
+
+
 def make_router(resolve_symbol, require_session):
     r = APIRouter()
 
@@ -104,6 +136,12 @@ def make_router(resolve_symbol, require_session):
             if existing is not None:
                 payload["forecast_id"] = existing[0]
             tracking.evaluate_pending(con, sym)
+            unval = unvalidated_only(payload)
+            if unval:      # this stock failed its own validation: show a labelled EXPERIMENTAL range forecast instead of nothing
+                payload = inference.forecast_payload(con, sym, as_of, persist=False, allow_unvalidated=True)
+            fb = last_session_forecast(con, sym, payload, allow_unvalidated=unval)
+            if fb is not None:
+                payload = fb
             resp = build_response(con, payload)
             resp["refreshing"] = bool(refreshing or onboarding_running)
             return resp

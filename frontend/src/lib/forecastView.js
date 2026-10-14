@@ -171,11 +171,17 @@ export function plainSummary(resp, loading = false, error = null) {
   const lean = s.direction.label === 'UP' ? 'The model leans slightly upward.'
     : s.direction.label === 'DOWN' ? 'The model leans slightly downward.'
       : 'The model sees no clear upward or downward lean.';
+  const fb = resp?.forecast?.fallback;
+  const madeAt = fb && Number.isFinite(fb.as_of_ts) ? new Date(fb.as_of_ts * 1000).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata', hour12: true }).toUpperCase() : null;
   return {
-    headline: `Next ${end.h} candle${end.h > 1 ? 's' : ''}${upto}: most likely between ${rupee(end.lo)} and ${rupee(end.hi)}`,
+    experimentalNote: resp?.forecast?.experimental ? `Experimental: this stock has not passed forecast validation (${(resp.forecast.experimental.reasons || []).join('; ') || 'insufficient clean data'}). The range comes from the general model and has not been checked for this company - it may be too narrow or too wide.` : null,
+    fallbackNote: fb ? `Showing the last forecast made at ${madeAt} IST. Live forecasts run 09:20 to 15:10 IST and resume at the next market open.` : null,
+    headline: `${fb ? `Last forecast (made ${madeAt}): next` : 'Next'} ${end.h} candle${end.h > 1 ? 's' : ''}${upto}: most likely between ${rupee(end.lo)} and ${rupee(end.hi)}`,
     now: `Now ${rupee(s.reference)}`,
     lean,
-    odds: 'About 8 in 10 chance the price stays inside this range (measured on past data).',
+    odds: resp?.forecast?.experimental
+      ? 'Nominal 80% range from the general model - NOT verified for this stock, so the real chance may be lower.'
+      : 'About 8 in 10 chance the price stays inside this range (measured on past data).',
   };
 }
 
