@@ -68,3 +68,11 @@ re-validates every symbol (results are keyed by model_version).
 - No sector/breadth features yet (no verified source). NIFTY 50 context is used when available.
 - Dividend adjustment, symbol changes and delisted symbols are not verified.
 - Live path uses Angel (own session); the chart's actual candles come from yfinance, so the overlay is drawn only when the forecast's anchor candle equals the chart's last completed candle.
+
+## Candlestick patterns (added 2026-10-14)
+- `forecast/candle_patterns.py`: 13 deterministic definitions (doji, hammer, hanging man, inverted hammer, shooting star, bullish/bearish engulfing, piercing, dark cloud, morning/evening star, three white soldiers, three black crows) with all tolerances in `DEFAULT_PARAMS`; context-dependent patterns need a prior trend and are not reported with too little history. Reads only candles up to the pattern bar.
+- `forecast/pattern_forecast.py`: runs the detector over [recent actual + the single predicted path]. Output is labelled **model_implied** and `probability` is always `null`: the model gives marginal intervals, not a joint distribution over paths, so there is nothing to calibrate a pattern probability against. Range-only forecasts (the usual live state) report "unavailable". `aggregate_scenarios` exists for a future validated joint sampler and refuses a single path.
+- `forecast/pattern_stats.py`: reproducible leak-free outcomes of OBSERVED patterns (`docs/candle_pattern_stats_2026-10.md`). Shown in the UI only for the last actual candle and only with n >= 200.
+- API: `patternForecast` is added to `GET /api/chart/{symbol}/forecast` (additive). UI: "Candlestick patterns" section in `ForecastPanel`.
+- Not built: horizons beyond +5 (10/20 have no validated model), probability heatmap (only marginal quantiles exist), volume forecast.
+- Compatibility fix: artifacts pickled before `use_wicks` / `sigma_col` existed failed to load (`AttributeError`, live forecast returned ERROR); class-level defaults restore the verified original behaviour (wick models present, rv36).

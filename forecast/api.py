@@ -7,7 +7,7 @@ import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from . import config, inference, store, tracking
+from . import config, inference, pattern_forecast, pattern_stats, store, tracking
 
 
 def forecast_candles(payload):
@@ -32,7 +32,11 @@ def build_response(con, payload, n_actual=150):
         rows = store.load_candles(con, payload["symbol"], config.INTERVAL, cc["time"] - n_actual * config.BAR_SECONDS * 2, cc["time"])
         actual = [{"time": r[0], "open": r[1], "high": r[2], "low": r[3], "close": r[4], "volume": r[5], "isForecast": False} for r in rows][-n_actual:]
     candles, envelope = forecast_candles(payload)
-    return {"symbol": payload["symbol"], "timeframe": payload["timeframe"], "as_of": payload["as_of_ts"], "status": payload["status"],
+    pf = pattern_forecast.pattern_forecast(actual, candles)
+    stats = pattern_stats.load_stats()
+    for o in pf["observed"]:
+        o["historical"] = pattern_stats.historical_for(o["pattern"], stats)
+    return {"patternForecast": pf, "symbol": payload["symbol"], "timeframe": payload["timeframe"], "as_of": payload["as_of_ts"], "status": payload["status"],
             "actualCandles": actual, "forecastCandles": candles, "forecastEnvelope": envelope, "forecast": payload}
 
 

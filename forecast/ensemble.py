@@ -29,6 +29,7 @@ def _pinball(q_by_level, y):
 
 class Ensemble:
     family = "ensemble"
+    sigma_col = "rv36"   # class default for artifacts pickled before the attribute existed (all trained on rv36)
 
     def __init__(self, models, horizons=(1, 2, 3, 4, 5), regime_aware=False):
         self.models, self.names = models, list(models)

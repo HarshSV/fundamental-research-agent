@@ -29,6 +29,7 @@ def _train(X, y, objective, rounds=None, min_leaf=None, **extra):
 
 class GBMForecaster(CalibratedForecaster):
     family = "lightgbm"
+    use_wicks = True   # artifacts pickled before the flag existed always carried wick models (verified); keeps them loadable
 
     def __init__(self, feature_cols, horizons=(1, 2, 3, 4, 5), train_stride=2, sigma_col="rv36", use_wicks=True,
                  rounds=None, min_leaf=None):

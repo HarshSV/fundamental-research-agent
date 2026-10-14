@@ -18,6 +18,7 @@ def sigma_of(df, col="rv36"):
 class CalibratedForecaster:
     family = "base"
 
+    sigma_col = "rv36"   # class default: artifacts pickled before this attribute existed were all trained on rv36
     def __init__(self, feature_cols, horizons=config.HORIZONS, sigma_col="rv36"):
         self.cols, self.horizons, self.sigma_col = list(feature_cols), tuple(horizons), sigma_col
         self.prob_cal, self.margins = {}, {}

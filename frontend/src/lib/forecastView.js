@@ -127,3 +127,28 @@ export function buildForecastChart(resp, nContext = 5) {
     key: `${f.symbol}|${f.as_of_ts}|${f.model_version}`,
   };
 }
+
+// Candlestick-pattern section of the forecast panel. Presentation mapping only: the backend decides what was
+// detected. A model-implied pattern never carries a probability; historical statistics (observed patterns only)
+// appear only when the backend supplied enough observations.
+export function patternView(resp) {
+  const pf = resp && resp.patternForecast;
+  if (!pf) return { state: 'none', reason: 'Pattern prediction unavailable', items: [], observed: [] };
+  const label = (s) => String(s).replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+  const items = (pf.patterns || []).map((p) => ({
+    key: `${p.pattern}-${p.formation_horizon}`, name: label(p.pattern), direction: p.direction,
+    within: p.formation_horizon, evidence: p.evidence, definition: p.definition,
+    reliability: null, // a future pattern has no measured reliability; observed-pattern statistics do not transfer
+  }));
+  const observed = (pf.observed || []).map((o) => {
+    const h = o.historical && o.historical.horizons && o.historical.horizons['1'];
+    return {
+      key: `${o.pattern}-${o.time}`, name: label(o.pattern), direction: o.direction,
+      history: h ? {
+        n: h.n, pUp: h.p_up, baseUp: h.base_p_up, meanReturn: h.mean_return,
+      } : null,
+    };
+  });
+  const state = pf.status === 'model_implied' ? 'model_implied' : pf.status === 'none_detected' ? 'none_detected' : 'unavailable';
+  return { state, reason: pf.reason || null, items, observed, methodology: pf.methodology || null };
+}

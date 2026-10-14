@@ -1,6 +1,6 @@
 import React from 'react';
 import ForecastChart from './ForecastChart.jsx';
-import { summarize, rowStatus } from '../lib/forecastView.js';
+import { summarize, rowStatus, patternView } from '../lib/forecastView.js';
 import { istClock } from '../lib/marketTime.js';
 
 const px = (x) => (Number.isFinite(x) ? `₹${x.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-');
@@ -31,6 +31,7 @@ export default function ForecastPanel({ resp, loading, error }) {
   const s = summarize(resp, loading, error);
   const st = s.state;
   const rows = resp?.forecast?.forecasts || [];
+  const pv = patternView(resp);
   const showChart = st.key !== 'loading' && st.key !== 'unavailable';
   return (
     <section className="min-w-0" data-testid="forecast-panel" aria-label="Forecast">
@@ -109,6 +110,42 @@ export default function ForecastPanel({ resp, loading, error }) {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {showChart && (
+        <div className="mt-2 rounded-md border border-slate-800 bg-slate-900/50 p-3" data-testid="pattern-section">
+          <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500 mb-1">Candlestick patterns</div>
+          {pv.items.length === 0 && (
+            <div className="text-[11px] text-slate-400" data-testid="pattern-unavailable">{pv.reason || 'Pattern prediction unavailable'}</div>
+          )}
+          {pv.items.map((p) => (
+            <div key={p.key} className="mb-1.5 text-[12px]" data-testid="pattern-item">
+              <div className="text-slate-100">
+                <span title={p.definition}>{p.name}</span>
+                <span className="ml-2 rounded border border-slate-600 px-1.5 text-[10px] text-slate-300" title="One deterministic reading of the single predicted path - not a statistical probability.">model-implied</span>
+                <span className="ml-2 text-[10px] text-slate-500">{p.direction}</span>
+              </div>
+              <div className="text-[11px] text-slate-400">Expected formation: at candle +{p.within}</div>
+              <div className="text-[11px] text-slate-500">{p.evidence}</div>
+              <div className="text-[10px] text-slate-600">Reliability: not measured for future patterns.</div>
+            </div>
+          ))}
+          {pv.observed.length > 0 && (
+            <div className="mt-1 border-t border-slate-800 pt-1.5" data-testid="pattern-observed">
+              <div className="text-[10px] text-slate-500 mb-0.5">Observed on the last actual candle</div>
+              {pv.observed.map((o) => (
+                <div key={o.key} className="text-[11px] text-slate-300">
+                  {o.name} <span className="text-slate-500">({o.direction})</span>
+                  {o.history && (
+                    <span className="ml-2 text-[10px] text-slate-500" title="Historical, observed patterns only; says nothing about whether a forecast pattern will form.">
+                      history (n={o.history.n}): next-candle up {Math.round(o.history.pUp * 100)}% vs {Math.round(o.history.baseUp * 100)}% unconditional
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-1.5 text-[10px] text-slate-600">A pattern describes candle shape; it is not a trade signal.</div>
         </div>
       )}
       {showChart && <div className="mt-1.5 text-[10px] text-slate-500">{resp?.forecast?.disclaimer}</div>}
