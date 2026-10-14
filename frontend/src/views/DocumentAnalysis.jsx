@@ -544,14 +544,15 @@ function QualitativeTab({ symbol, query }) {
   // company to company (one filer discloses tenure/competitors/covenant
   // status, another doesn't), so it's noise rather than a finding. Data
   // Missing stays visible since it's actionable (names a document to
-  // upload); Not Applicable stays visible since it's itself a real,
+  // upload) - now hidden too at the user's request (the Document Coverage
+  // panel above still lists which documents are missing); Not Applicable stays visible since it's itself a real,
   // meaningful classification (e.g. "network effects don't apply to
   // this business"), not an absence of data. Pure section-heading rows
   // (no visualization_rule, no data of their own) are never subject to
   // this filter - they'd otherwise vanish entirely, since an
   // un-computed heading row also defaults to the NOT_DISCLOSED fallback
   // above.
-  const HIDDEN_STATUSES = new Set(['NOT_DISCLOSED', 'SEARCH_INCONCLUSIVE', 'NOT_FOUND', 'NOT_COMPUTED']);
+  const HIDDEN_STATUSES = new Set(['NOT_DISCLOSED', 'SEARCH_INCONCLUSIVE', 'NOT_FOUND', 'NOT_COMPUTED', 'DATA_MISSING', 'EXTERNAL_DATA_REQUIRED']);
   const visibleRows = rows.filter((row) => (
     !framework[row.subpoint_id]?.visualization_rule || !HIDDEN_STATUSES.has(row.confidence_tag)
   ));
@@ -583,7 +584,7 @@ function QualitativeTab({ symbol, query }) {
       <DocumentCoverage symbol={symbol} />
       {hiddenCount > 0 && (
         <p className="text-[11px] text-slate-600 mb-4">
-          {hiddenCount} item{hiddenCount === 1 ? '' : 's'} not disclosed in this company's Annual Report - hidden from view.
+          {hiddenCount} item{hiddenCount === 1 ? '' : 's'} not disclosed or not available from the uploaded documents - hidden from view.
         </p>
       )}
       <div className="space-y-6">
