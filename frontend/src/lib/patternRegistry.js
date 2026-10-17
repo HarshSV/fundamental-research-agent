@@ -20,11 +20,12 @@
 // registered or a registered, enabled type has no detector.
 
 import { patternType, detectChartPatterns } from './chartPatterns.js';
+import { detectOrderBlockEvents } from './orderBlocks.js';
 import { dailyDetectors as D, weeklyDetectors as W } from './higherTimeframePatterns.js';
 
 const NOT_IMPLEMENTED = 'Detector not available yet';
 
-function entry(displayName, timeframe, minBars, category, detector, definition) {
+function entry(displayName, timeframe, minBars, category, detector, definition, { optIn = false } = {}) {
   return {
     id: patternType(displayName),
     displayName,
@@ -35,6 +36,7 @@ function entry(displayName, timeframe, minBars, category, detector, definition) 
     enabled: !!detector,
     availabilityReason: detector ? null : NOT_IMPLEMENTED,
     definition,
+    optIn, // runs only when the caller asks (meta.includeOptIn); keeps default detection untouched
   };
 }
 
@@ -75,6 +77,11 @@ export const PATTERN_REGISTRY = [
   I('Wyckoff Spring', 'specialized', 'False breakdown below support closing back above (low reliability)'),
   I('Wyckoff Upthrust', 'specialized', 'False breakout above resistance closing back below (low reliability)'),
   I('Harmonic pattern (Gartley-like)', 'harmonic', 'Coarse XABCD ratio fit on the last 4 swings (low reliability)'),
+  // Order blocks (opt-in overlay; see orderBlocks.js for the exact rules)
+  entry('Bullish Order Block', 'intraday', 40, 'structure', detectOrderBlockEvents, 'Same-session close above the latest swing high (or opening-range high) with displacement; zone = the last down-close candle before that leg', { optIn: true }),
+  entry('Bearish Order Block', 'intraday', 40, 'structure', detectOrderBlockEvents, 'Same-session close below the latest swing low (or opening-range low) with displacement; zone = the last up-close candle before that leg', { optIn: true }),
+  entry('Order Block Retest', 'intraday', 40, 'structure', detectOrderBlockEvents, 'A later bar overlaps an order-block zone and closes back beyond it on the trend side', { optIn: true }),
+  entry('Order Block Broken', 'intraday', 40, 'structure', detectOrderBlockEvents, 'A bar closes beyond the order block invalidation level (a wick does not count)', { optIn: true }),
 ];
 
 const DISPLAY_ORDER = [
@@ -101,6 +108,7 @@ export function runDetectors(timeframe, bars, meta) {
   const out = [];
   for (const p of PATTERN_REGISTRY) {
     if (p.timeframe !== timeframe || !p.detector || ran.has(p.detector)) continue;
+    if (p.optIn && !meta?.includeOptIn) continue;
     ran.add(p.detector);
     for (const e of p.detector(bars, meta) || []) {
       const reg = registryById.get(e.patternType);

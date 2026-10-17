@@ -85,7 +85,9 @@ export function computeHigherTimeframeEvents({ dailyBars, weeklyBars, intradayCa
       for (const ev of runDetectors('daily', window, meta)) {
         const formDate = istDate(window[Math.min(ev.endIndex, window.length - 1)].time);
         const stamped = stampEvent(ev, window[window.length - 1]);
-        push(place(stamped, window, formDate, evalDate, idx, intradayCandles));
+        const placed = place(stamped, window, formDate, evalDate, idx, intradayCandles);
+        if (placed) placed.srcIndex = window.length - 1;       // index of the confirming bar in the DAILY series (outcome reference)
+        push(placed);
       }
     }
   }
@@ -102,7 +104,9 @@ export function computeHigherTimeframeEvents({ dailyBars, weeklyBars, intradayCa
       if (weekEnd < firstDate || weekEnd > lastDate) continue;
       const window = weekly.slice(0, j + 1);
       for (const ev of runDetectors('weekly', window)) {
-        push(place(stampEvent(ev, window[window.length - 1]), window, weekEnd, weekEnd, idx, intradayCandles));
+        const placed = place(stampEvent(ev, window[window.length - 1]), window, weekEnd, weekEnd, idx, intradayCandles);
+        if (placed) placed.srcIndex = window.length - 1;       // index of the confirming bar in the WEEKLY series
+        push(placed);
       }
     }
   }

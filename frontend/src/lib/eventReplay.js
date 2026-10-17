@@ -29,15 +29,15 @@ export const sortOldestFirst = (events) => [...events].sort((a, b) => a.time - b
 // bar indexes are re-based so they index the session candles alone. Indicator
 // warm-up and session start are different things: without warm-up, nothing
 // can be detected until MIN_CANDLES bars (~2.5h of 5m) into the session.
-export function replayDayEvents(candles, { patternsOnly = false, sessionStart = 0 } = {}) {
+export function replayDayEvents(candles, { patternsOnly = false, sessionStart = 0, meta } = {}) {
   if (!candles || candles.length < MIN_CANDLES) return [];
   const seen = new Set();
   const timeline = [];
   for (let i = Math.max(MIN_CANDLES, sessionStart + 1); i <= candles.length; i++) {
     const window = candles.slice(0, i);
     const found = patternsOnly
-      ? runDetectors('intraday', window)
-      : [...analyzeCandles(window), ...runDetectors('intraday', window)];
+      ? runDetectors('intraday', window, meta)
+      : [...analyzeCandles(window), ...runDetectors('intraday', window, meta)];
     const evalBar = window[window.length - 1];
     for (const raw of found) {
       const e = stampEvent(raw, evalBar);

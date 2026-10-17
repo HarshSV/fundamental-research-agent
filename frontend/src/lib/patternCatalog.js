@@ -16,7 +16,9 @@ export function latestOccurrence(events, type) {
 // single formation shows up as a run of consecutive events. Collapse each
 // run (same patternType, bars within `gap` of each other) to its last event,
 // which is the same event latestOccurrence() returns for the newest run.
-export function collapseRuns(events, gap = 2) {
+// `pick` chooses which event represents a run: 'last' (default, unchanged: the latest firing, what chips/markers use) or
+// 'first' (the ORIGINAL detection - what outcome tracking uses, so the reference time is the earliest knowable one).
+export function collapseRuns(events, gap = 2, pick = 'last') {
   const byType = new Map();
   for (const e of events || []) {
     if (e.kind !== 'pattern' || e.barIndex == null) continue;
@@ -36,9 +38,36 @@ export function collapseRuns(events, gap = 2) {
   for (const list of byType.values()) {
     list.sort((a, b) => a.barIndex - b.barIndex || a.time - b.time);
     list.forEach((e, i) => {
+      if (pick === 'first') {
+        const prev = list[i - 1];
+        if (!prev || !sameRun(prev, e)) out.push(e);
+        return;
+      }
       const next = list[i + 1];
       if (!next || !sameRun(e, next)) out.push(e);
     });
   }
   return out.sort((a, b) => a.barIndex - b.barIndex);
+}
+
+// Event -> the FIRST event of its formation run (same run rule as collapseRuns). The chart draws one marker per run
+// at its last firing; outcomes must be measured from the original (first) detection, so lookups go through this map.
+export function runFirstMap(events, gap = 2) {
+  const firsts = new Set(collapseRuns(events, gap, 'first'));
+  const byType = new Map();
+  for (const e of events || []) {
+    if (e.kind !== 'pattern' || e.barIndex == null) continue;
+    if (!byType.has(e.patternType)) byType.set(e.patternType, []);
+    byType.get(e.patternType).push(e);
+  }
+  const map = new Map();
+  for (const list of byType.values()) {
+    list.sort((a, b) => a.barIndex - b.barIndex || a.time - b.time);
+    let start = null;
+    for (const e of list) {
+      if (firsts.has(e) || !start) start = e;
+      map.set(e, start);
+    }
+  }
+  return map;
 }

@@ -9,9 +9,18 @@ import { stampEvent } from '../lib/eventModel.js';
 import { computeHigherTimeframeEvents } from '../lib/htfEvents.js';
 import { IST, istDate, todayISO, istClock, fmtDate, fmtTime, fmtDayMonth } from '../lib/marketTime.js';
 import { replayDayEvents, sortNewestFirst } from '../lib/eventReplay.js';
-import { latestOccurrence, collapseRuns } from '../lib/patternCatalog.js';
+import { latestOccurrence, collapseRuns, runFirstMap } from '../lib/patternCatalog.js';
 import { RangeBox } from '../lib/rangeBoxPrimitive.js';
+import { ZoneOverlay } from '../lib/zoneOverlayPrimitive.js';
+import { detectOrderBlocks, deriveSessionMeta, closedBars, zoneEvents, currentZones } from '../lib/orderBlocks.js';
 import ForecastPanel from '../components/ForecastPanel.jsx';
+import PatternOutcomePanel from '../components/PatternOutcomePanel.jsx';
+import { completedDaily, completedWeekly } from '../lib/htfEvents.js';
+import { fullHistoryEvents, toOccurrences, statsForPattern, evaluateEvent, intradaySeries } from '../lib/patternHistory.js';
+import { BIAS_STYLE, COUNT_DEFINITION, OUTCOME_STYLE, CHART_OUTCOME_COLOR, biasGlyph, chipTitle, outcomeBadge, primaryOutcome, groupMarker, setIntradayBarSeconds } from '../lib/patternOutcomeView.js';
+import { mergeConfig } from '../lib/patternOutcomes.js';
+import { biasText } from '../lib/patternClassification.js';
+import OrderBlockCard from '../components/OrderBlockCard.jsx';
 
 const KIND_LABEL = {
   momentum: 'Momentum', volatility: 'Volatility', volume: 'Volume',
@@ -32,24 +41,70 @@ const INTERVALS = [
   { key: '60m', label: '1h' },
 ];
 
-// One neutral colour for every pattern marker (the name is what identifies
-// it); amber only marks the pattern picked in the selector.
-const MARKER_COLOR = 'rgb(96 165 250)';
-const MARKER_COLOR_SELECTED = 'rgb(251 191 36)';
-const MARKER_COLOR_DIM = 'rgba(148,163,184,0.45)';
-const TARGET_GROUPS = 14; // max markers across the visible range; zoom in to split groups
-
-function EventRow({ e }) {
+// Realised-outcome badges (green/red/grey/pending) for one evaluated formation, one per configured horizon.
+function OutcomeChips({ res, tf }) {
+  if (!res || !res.outcomes) return <span className="mt-0.5 block text-[10px] italic text-slate-500">Outcome unavailable</span>;
   return (
-    <div className="flex items-start gap-2 text-[12px] flex-wrap">
-      <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${e.tone === 'pos' ? 'bg-emerald-500' : e.tone === 'neg' ? 'bg-red-500' : 'bg-slate-500'}`} />
+    <span className="mt-0.5 flex flex-wrap gap-1" data-testid="popover-outcomes">
+      {Object.entries(res.outcomes).map(([h, x]) => {
+        const b = outcomeBadge(x, tf, Number(h));
+        return <span key={h} title={b.title} data-testid={`pop-outcome-${b.state}`} className={`rounded px-1.5 py-px text-[10px] nv-num ${b.chip}`}>{b.text}</span>;
+      })}
+    </span>
+  );
+}
+
+// Colour key shared by the chart legend and the cluster popup. Marker colour = realised outcome at the first horizon.
+function OutcomeLegend({ compact = false }) {
+  const swatch = (c) => <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: c }} />;
+  return (
+    <div className="text-[10px] text-slate-400" data-testid="outcome-legend">
+      <span className="mr-2">{swatch(CHART_OUTCOME_COLOR.positive)}Positive</span>
+      <span className="mr-2">{swatch(CHART_OUTCOME_COLOR.negative)}Negative</span>
+      <span className="mr-2">{swatch(CHART_OUTCOME_COLOR.flat)}Flat</span>
+      <span className="mr-2">{swatch(CHART_OUTCOME_COLOR.pending)}Pending (horizon not complete - not Flat)</span>
+      <span className="mr-2">{swatch(CHART_OUTCOME_COLOR.not_evaluable)}n/a (cannot be evaluated)</span>
+      {!compact && <span className="mr-2">Busy bars stack one marker per outcome: +positive −negative ~flat …pending</span>}
+      <div className="text-slate-500">
+        {compact ? 'Realised price move after detection, first horizon.' : 'Marker colour = realised price move after the pattern was first detected, at the first horizon (5 bars of the pattern\u2019s own timeframe) vs a volatility-based flat band. Not the bullish/bearish bias.'}
+      </div>
+    </div>
+  );
+}
+
+const MARKER_COLOR_DIM = 'rgba(148,163,184,0.45)';
+const MARKER_COLOR_SELECTED = 'rgb(251 191 36)';
+const TARGET_GROUPS = 14; // max markers across the visible range; zoom in to split groups
+const NO_EVENTS = [];
+
+function EventRow({ e, onOpen, outcome }) {
+  const isPattern = e.kind === 'pattern' && !!outcome;
+  return (
+    <div
+      className={`flex items-start gap-2 text-[12px] flex-wrap ${onOpen ? 'cursor-pointer hover:bg-slate-800/60 rounded' : ''}`}
+      onClick={onOpen || undefined}
+      data-testid={onOpen ? 'ob-feed-row' : undefined}
+    >
+      {/* Pattern rows: neutral dot (bias is NOT an outcome). Other signals keep their tone dot. */}
+      <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${isPattern ? 'bg-slate-500' : e.tone === 'pos' ? 'bg-emerald-500' : e.tone === 'neg' ? 'bg-red-500' : 'bg-slate-500'}`} />
       <span className="text-slate-500 flex-shrink-0 nv-num">
         {e.timeframe && e.timeframe !== 'intraday'
           ? `${fmtDayMonth(e.time)} (${e.timeframe})`
           : istClock(e.time)}
       </span>
       <span className="text-slate-500 flex-shrink-0">{KIND_LABEL[e.kind] || e.kind}</span>
-      <span className={toneClass(e.tone)}>{e.text}</span>
+      <span className={isPattern ? 'text-slate-300' : toneClass(e.tone)}>{e.text}</span>
+      {isPattern && (
+        <>
+          <span className={`flex-shrink-0 ${BIAS_STYLE[outcome.classification.bias].text}`} title={`${outcome.classification.basis}. Conventional expectation, not an outcome.`} data-testid="row-bias">
+            {BIAS_STYLE[outcome.classification.bias].glyph} {biasText(outcome.classification)}
+          </span>
+          {Object.entries(outcome.outcomes).map(([h, x]) => {
+            const b = outcomeBadge(x, e.timeframe || 'intraday', Number(h));
+            return <span key={h} title={b.title} className={`flex-shrink-0 rounded px-1.5 py-px nv-num ${b.chip}`} data-testid={`row-outcome-${b.state}`}>{b.text}</span>;
+          })}
+        </>
+      )}
     </div>
   );
 }
@@ -65,7 +120,7 @@ export default function LiveChart({ symbol, name }) {
   const [events, setEvents] = useState([]);
   const markersRef = useRef(null);
   const [showPatterns, setShowPatterns] = useState(false);
-  const [tip, setTip] = useState(null); // hover micro-label: { x, y, hint }
+  const [tip, setTip] = useState(null); // hover tooltip: { x, y, lines }
   const [popover, setPopover] = useState(null); // open cluster list: { groupId, events, x, y }
   const [expanded, setExpanded] = useState({}); // pattern name -> occurrences list open
   const [focus, setFocus] = useState(null); // the one detection picked from a cluster
@@ -73,6 +128,12 @@ export default function LiveChart({ symbol, name }) {
   const groupsByIdRef = useRef(new Map());
   const displayCandlesRef = useRef([]);
   const rangeBoxRef = useRef(null);
+  const zoneRef = useRef(null);
+  const [showOb, setShowOb] = useState(false); // order-block overlay: default off, existing behaviour unchanged
+  const [showLiq, setShowLiq] = useState(true);
+  const [obCardId, setObCardId] = useState(null);
+  const [narrow, setNarrow] = useState(typeof window !== 'undefined' && window.innerWidth < 640);
+  const [warmupBars, setWarmupBars] = useState([]);
   const [visRange, setVisRange] = useState(null); // visible logical (bar-index) range
   const lastFitKeyRef = useRef('');
   // Forecast (backend-driven) lives in its OWN panel beside the live chart; the live chart shows actual candles only.
@@ -120,6 +181,7 @@ export default function LiveChart({ symbol, name }) {
       setHistoryEvents(replayDayEvents([...warmup, ...candles], { sessionStart: warmup.length }));
       setHistoryCandles(candles);
       setWarmupLen(warmup.length);
+      setWarmupBars(warmup);
       // One canonical session_date: the IST date of the loaded bars themselves.
       const sessionDate = istDate(candles[0].time);
       setLoadedDate(sessionDate);
@@ -165,6 +227,8 @@ export default function LiveChart({ symbol, name }) {
     markersRef.current = createSeriesMarkers(series, []);
     rangeBoxRef.current = new RangeBox();
     series.attachPrimitive(rangeBoxRef.current);
+    zoneRef.current = new ZoneOverlay();
+    series.attachPrimitive(zoneRef.current);
     chart.timeScale().subscribeVisibleLogicalRangeChange((r) => {
       setVisRange(r ? { from: Math.floor(r.from), to: Math.ceil(r.to) } : null);
     });
@@ -174,7 +238,8 @@ export default function LiveChart({ symbol, name }) {
     };
     chart.subscribeCrosshairMove((param) => {
       const g = hitId(param) ? groupsByIdRef.current.get(hitId(param)) : null;
-      if (containerRef.current) containerRef.current.style.cursor = g ? 'pointer' : '';
+      const overZone = !g && param.point && zoneRef.current ? zoneRef.current.hitTest(param.point.x, param.point.y) : null;
+      if (containerRef.current) containerRef.current.style.cursor = g || overZone ? 'pointer' : '';
       setTip(g && param.point ? { x: param.point.x, y: param.point.y, hint: g.hint } : null);
     });
     chart.subscribeClick((param) => {
@@ -194,7 +259,12 @@ export default function LiveChart({ symbol, name }) {
           if (dy >= -6 && dy <= 48) { g = cand; break; }
         }
       }
-      if (!g || g.id === 'focus') return;
+      if (!g) {
+        const zid = zoneRef.current ? zoneRef.current.hitTest(param.point.x, param.point.y) : null;
+        if (zid) setObCardId(zid);
+        return;
+      }
+      if (g.id === 'focus') return;
       if (g.events.length === 1) {
         setFocus(g.events[0]);
         setPopover(null);
@@ -209,7 +279,14 @@ export default function LiveChart({ symbol, name }) {
       seriesRef.current = null;
       markersRef.current = null;
       rangeBoxRef.current = null;
+      zoneRef.current = null;
     };
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth < 640);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
   // Runs the technical-analysis pass over a freshly-fetched candle series
@@ -378,10 +455,34 @@ export default function LiveChart({ symbol, name }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dailyBars, weeklyBars, mode, loadedDate, displayCandles.length, displayLast],
   );
+  // Order blocks: one deterministic forward pass over CLOSED 5m bars (orderBlocks.js). Recomputed only when a
+  // bar is added/rolled or the 5-minute clock boundary passes (the forming bar closes) - never on intra-bar ticks.
+  const obAvailable = mode === 'history' || interval === '5m';
+  const barBoundary = Math.floor(Date.now() / 300000);
+  const ob = useMemo(() => {
+    if (!showOb || !obAvailable) return null;
+    const nowSec = Date.now() / 1000;
+    const hist = mode === 'history';
+    const bars = hist ? [...warmupBars, ...historyCandles] : liveCandlesRef.current;
+    if (!bars.length) return null;
+    const offset = hist ? warmupBars.length : 0;
+    const meta = deriveSessionMeta(bars, { nowSec, date: hist ? loadedDate : null });
+    const zones = detectOrderBlocks(bars, meta);
+    const closed = closedBars(bars, nowSec);
+    const events = zoneEvents(zones, closed).map((e) => ({
+      ...stampEvent(e, { time: e.confirmedAt }),
+      barIndex: e.barIndex - offset, startIndex: e.startIndex - offset, endIndex: e.endIndex - offset,
+    }));
+    return { zones, events, offset, current: currentZones(zones) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showOb, obAvailable, mode, loadedDate, warmupBars, historyCandles, liveCandles.length, liveLast, barBoundary]);
+  const obEvents = ob ? ob.events : NO_EVENTS;
+  const obCard = ob && obCardId ? ob.zones.find((z) => z.id === obCardId) || null : null;
+
   const patternEvents = useMemo(() => {
     const src = mode === 'history' ? (historyEvents || []) : livePatternEvents;
-    return [...src.filter((e) => e.kind === 'pattern'), ...htfEvents];
-  }, [mode, historyEvents, livePatternEvents, htfEvents]);
+    return [...src.filter((e) => e.kind === 'pattern'), ...htfEvents, ...obEvents];
+  }, [mode, historyEvents, livePatternEvents, htfEvents, obEvents]);
 
   const patternCounts = useMemo(() => {
     const m = new Map();
@@ -396,6 +497,56 @@ export default function LiveChart({ symbol, name }) {
   const selectedEntry = registryById.get(selected);
   const selectedStatus = selectedEntry ? patternStatus(selectedEntry, statusCtx) : null;
   const selectedLabel = selectedEntry?.displayName;
+
+  // ---- Realised outcomes (calculated from candles AFTER detection; kept separate from the conventional bias) ----------
+  // Outcome horizons are counted in bars of the CHART's own intraday interval (history days are always 5-minute bars).
+  const outcomeBarSec = mode === 'history' ? 300 : ({ '1m': 60, '5m': 300, '15m': 900, '60m': 3600 }[interval] || 300);
+  setIntradayBarSeconds(outcomeBarSec);
+  const outcomeCfg = useMemo(() => mergeConfig({ barSeconds: { intraday: outcomeBarSec } }), [outcomeBarSec]);
+  const outcomeClock = barBoundary; // pending / closed-bar states refresh once per 5-minute boundary, not on every tick
+  const intradayOutcomeSeries = useMemo(
+    () => intradaySeries(mode === 'history' ? [...warmupBars, ...historyCandles] : liveCandlesRef.current, outcomeCfg, Date.now() / 1000),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mode, warmupBars, historyCandles, liveCandles.length, liveLast, outcomeClock, outcomeCfg],
+  );
+  const dailyOutcomeSeries = useMemo(() => completedDaily(dailyBars, Date.now() / 1000), [dailyBars, outcomeClock]); // eslint-disable-line react-hooks/exhaustive-deps
+  const weeklyOutcomeSeries = useMemo(() => completedWeekly(weeklyBars, Date.now() / 1000), [weeklyBars, outcomeClock]); // eslint-disable-line react-hooks/exhaustive-deps
+  const outcomeSeries = { intraday: intradayOutcomeSeries, daily: dailyOutcomeSeries, weekly: weeklyOutcomeSeries };
+  const rowOutcome = useMemo(() => {
+    const cache = new Map();
+    const now = Date.now() / 1000;
+    return (e) => {
+      if (e.kind !== 'pattern' || !e.patternType) return null;
+      const tf = e.timeframe || 'intraday';
+      const key = `${tf}|${e.patternType}|${e.confirmedAt}`;
+      if (!cache.has(key)) cache.set(key, evaluateEvent(e, { timeframe: tf, series: outcomeSeries[tf] || [], config: outcomeCfg, nowSec: now }));
+      return cache.get(key);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intradayOutcomeSeries, dailyOutcomeSeries, weeklyOutcomeSeries, outcomeCfg]);
+  // Outcome of the FORMATION a displayed event belongs to: measured from the run's FIRST detection (original timestamp),
+  // while the chart marker sits on the run's last firing.
+  const runFirst = useMemo(() => runFirstMap(patternEvents), [patternEvents]);
+  const formationOutcome = useMemo(() => (e) => rowOutcome(runFirst.get(e) || e), [rowOutcome, runFirst]);
+  // Daily/weekly statistics use the WHOLE available history of that timeframe (same detectors, bar by bar), computed only when a
+  // daily/weekly pattern is selected. Intraday statistics use the loaded intraday window.
+  const outcomeTf = selectedEntry ? selectedEntry.timeframe : null;
+  const htfHistory = useMemo(
+    () => (selected !== 'all' && outcomeTf && outcomeTf !== 'intraday' ? fullHistoryEvents({ dailyBars, weeklyBars }) : null),
+    [selected, outcomeTf, dailyBars, weeklyBars],
+  );
+  const patternStats = useMemo(() => {
+    if (selected === 'all' || !selectedEntry) return null;
+    const tf = selectedEntry.timeframe;
+    const series = outcomeSeries[tf];
+    if (!series || !series.length) return null;
+    const src = tf === 'intraday' ? patternEvents.filter((e) => e.timeframe === 'intraday') : (htfHistory ? htfHistory[tf].events : null);
+    if (!src) return null;
+    const nowSec = Date.now() / 1000;
+    const occ = toOccurrences(src.filter((e) => e.patternType === selected), { symbol, timeframe: tf, series, config: outcomeCfg, nowSec });
+    return statsForPattern(occ, { patternId: selected, timeframe: tf, series, config: outcomeCfg, nowSec });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, selectedEntry, patternEvents, htfHistory, intradayOutcomeSeries, dailyOutcomeSeries, weeklyOutcomeSeries, symbol, outcomeCfg]);
   const occurrence = selected === 'all' ? null : latestOccurrence(patternEvents, selected);
   const occTime = occurrence ? occurrence.time : null;
 
@@ -434,6 +585,32 @@ export default function LiveChart({ symbol, name }) {
   }, [showPatterns, selected, occurrence, patternEvents, visRange, displayCandles.length]);
 
   useEffect(() => {
+    if (!zoneRef.current) return;
+    if (!ob) { zoneRef.current.setData({ zones: [] }); return; }
+    const curIds = new Set(Object.values(ob.current).map((z) => z.id));
+    zoneRef.current.setData({
+      showLiquidity: showLiq,
+      narrow,
+      zones: ob.zones.map((z) => ({
+        id: z.id, bull: z.side === 'bull', startIdx: z.startIndex - ob.offset, endIdx: z.brokenAt != null ? z.endIndex - ob.offset : null,
+        zoneLow: z.zoneLow, zoneHigh: z.zoneHigh, z: z.z, inv: z.inv, level1: z.level1, level2: z.level2, ladder: z.ladderOpposite, rr: z.rr,
+        current: curIds.has(z.id), selected: z.id === obCardId,
+      })),
+    });
+  }, [ob, showLiq, narrow, obCardId]);
+
+  useEffect(() => { setObCardId(null); }, [symbol, mode, loadedDate, showOb]);
+
+  const openObRow = (e) => {
+    setObCardId(e.zoneId);
+    const z = ob && ob.zones.find((q) => q.id === e.zoneId);
+    if (z && chartRef.current) {
+      const from = Math.max(0, z.startIndex - ob.offset - 20);
+      chartRef.current.timeScale().setVisibleLogicalRange({ from, to: Math.min(displayCandles.length + 2, Math.max(from + 60, e.barIndex + 20)) });
+    }
+  };
+
+  useEffect(() => {
     if (!markersRef.current) return;
     const byId = new Map();
     const dimmed = !!focus;
@@ -447,15 +624,22 @@ export default function LiveChart({ symbol, name }) {
         : names.length === 2 ? names.join(' / ') : `${names.length} patterns`;
       const above = events.every((e) => e.tone === 'neg');
       const isSel = selected !== 'all';
-      byId.set(g.id, {
+      // Colour = REALISED outcome of the formation(s) at the first horizon (never the bullish/bearish bias).
+      const om = groupMarker(events.map((e) => primaryOutcome(formationOutcome(e))));
+      const entry = {
         ...g, above,
-        hint: events.length === 1 ? `Show ${names[0]}` : names.length > 2 ? `Show ${names.length} patterns` : `Show ${names.join(' / ')}`,
-      });
-      return {
-        id: g.id, time: at.time, position: above ? 'aboveBar' : 'belowBar', shape: above ? 'arrowDown' : 'arrowUp',
-        color: dimmed ? MARKER_COLOR_DIM : isSel ? MARKER_COLOR_SELECTED : MARKER_COLOR, size: isSel && !dimmed ? 2 : 1, text,
+        hint: `${events.length === 1 ? `Show ${names[0]}` : names.length > 2 ? `Show ${names.length} patterns` : `Show ${names.join(' / ')}`} - outcome: ${om.state === 'mixed' ? 'mixed' : OUTCOME_STYLE[om.state].label.toLowerCase()}`,
       };
-    });
+      // One marker per outcome present (stacked at the same bar), each coloured by its own realised outcome.
+      return om.parts.map((p, i) => {
+        const id = i === 0 ? g.id : `${g.id}#${p.state}`;
+        byId.set(id, entry);
+        return {
+          id, time: at.time, position: above ? 'aboveBar' : 'belowBar', shape: above ? 'arrowDown' : 'arrowUp',
+          color: dimmed ? MARKER_COLOR_DIM : p.color, size: isSel && !dimmed ? 2 : 1, text: i === 0 ? `${text}${p.suffix}` : p.suffix.trim(),
+        };
+      });
+    }).flat();
     if (focus) {
       const above = focus.tone === 'neg';
       markers.push({
@@ -472,7 +656,7 @@ export default function LiveChart({ symbol, name }) {
       ? { startIndex: sel.startIndex, endIndex: sel.endIndex, rangeHigh: sel.rangeHigh, rangeLow: sel.rangeLow }
       : null);
     if (!markers.length) setTip(null);
-  }, [groups, selected, focus]);
+  }, [groups, selected, focus, formationOutcome]);
 
   displayCandlesRef.current = displayCandles;
 
@@ -582,7 +766,7 @@ export default function LiveChart({ symbol, name }) {
   // Daily/weekly detections fire on every session a pattern persists; the feed
   // lists one row per formation (same unit as the chip counts).
   const htfFeed = useMemo(() => collapseRuns(htfEvents), [htfEvents]);
-  const baseFeed = [...(mode === 'history' ? (historyEvents || []) : events), ...htfFeed];
+  const baseFeed = [...(mode === 'history' ? (historyEvents || []) : events), ...htfFeed, ...obEvents];
   const feed = selected === 'all' ? baseFeed : collapseRuns(patternEvents.filter((e) => e.patternType === selected));
 
   const change = latest ? signedPct(latest.change_pct, { alreadyPercent: true }) : { text: '-', tone: 'neutral' };
@@ -704,13 +888,15 @@ export default function LiveChart({ symbol, name }) {
             </button>
           </div>
         )}
+        {obCard && <OrderBlockCard zone={obCard} onClose={() => setObCardId(null)} />}
         {popover && (
           <div
             ref={popoverRef}
-            className="absolute z-20 w-60 rounded-md border border-slate-700 bg-slate-900 shadow-lg"
+            className="absolute z-20 w-72 rounded-md border border-slate-700 bg-slate-900 shadow-lg"
+            data-testid="cluster-popover"
             style={{
-              left: Math.max(4, Math.min(popover.x - 20, (containerRef.current?.clientWidth || 600) - 244)),
-              top: Math.max(4, Math.min(popover.y + 14, (containerRef.current?.clientHeight || 420) - 270)),
+              left: Math.max(4, Math.min(popover.x - 20, (containerRef.current?.clientWidth || 600) - 292)),
+              top: Math.max(4, Math.min(popover.y + 14, (containerRef.current?.clientHeight || 420) - 300)),
             }}
           >
             <div className="flex items-center justify-between border-b border-slate-800 px-3 py-1.5">
@@ -729,6 +915,7 @@ export default function LiveChart({ symbol, name }) {
                     >
                       {t.pattern}
                       {t.evs.length > 1 && <span className="ml-1.5 text-slate-500">x{t.evs.length}</span>}
+                      <OutcomeChips res={formationOutcome(t.evs[0])} tf={t.evs[0].timeframe || 'intraday'} />
                     </button>
                     {t.evs.length > 1 && (
                       <button
@@ -747,14 +934,19 @@ export default function LiveChart({ symbol, name }) {
                       className="block w-full min-h-[32px] pl-6 pr-3 py-1 text-left text-[11px] text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors nv-num"
                     >
                       {fmtDate(e.time)}, {fmtTime(e.time)}
+                      <OutcomeChips res={formationOutcome(e)} tf={e.timeframe || 'intraday'} />
                     </button>
                   ))}
                 </div>
               ))}
             </div>
+            <div className="border-t border-slate-800 px-3 py-1.5" data-testid="popover-legend"><OutcomeLegend compact /></div>
           </div>
         )}
       </div>
+      {showPatterns && (
+        <div className="mt-1.5" data-testid="chart-outcome-legend"><OutcomeLegend /></div>
+      )}
 
       </div>
       {forecastView && <ForecastPanel resp={forecastResp} loading={forecastLoading} error={forecastError} />}
@@ -802,7 +994,29 @@ export default function LiveChart({ symbol, name }) {
           >
             All
           </button>
-          {PATTERN_REGISTRY.map((p) => {
+          <button
+            onClick={() => setShowOb((v) => !v)}
+            disabled={!obAvailable}
+            data-testid="ob-toggle"
+            title={obAvailable ? 'Order blocks and liquidity zones on closed 5-minute bars' : 'Order blocks use 5-minute bars: switch the interval to 5m'}
+            className={`flex-shrink-0 whitespace-nowrap px-2.5 py-1 text-[11px] rounded-full border transition-colors ${
+              showOb && obAvailable ? 'bg-blue-500/20 border-blue-500/50 text-blue-300 font-semibold'
+                : obAvailable ? 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500' : 'border-slate-800 text-slate-600 cursor-not-allowed'}`}
+          >
+            Order Blocks
+            {showOb && obAvailable && <span className="ml-1.5 nv-num text-blue-300">{ob ? ob.zones.length : 0}</span>}
+          </button>
+          {showOb && obAvailable && (
+            <button
+              onClick={() => setShowLiq((v) => !v)}
+              data-testid="liq-toggle"
+              className={`flex-shrink-0 whitespace-nowrap px-2.5 py-1 text-[11px] rounded-full border transition-colors ${
+                showLiq ? 'bg-blue-500/20 border-blue-500/50 text-blue-300' : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500'}`}
+            >
+              Liquidity levels
+            </button>
+          )}
+          {PATTERN_REGISTRY.filter((p) => !p.optIn).map((p) => {
             const st = patternStatus(p, statusCtx);
             const unavailable = st.state === 'unavailable';
             const tone = selected === p.id
@@ -819,9 +1033,10 @@ export default function LiveChart({ symbol, name }) {
                 key={p.id}
                 onClick={() => pickPattern(p.id)}
                 disabled={unavailable}
-                title={st.reason ? `${p.displayName}: ${st.reason}` : `${p.displayName} - ${p.timeframe} timeframe. ${p.definition}`}
+                title={st.reason ? `${p.displayName}: ${st.reason}` : chipTitle(p, st.count)}
                 className={`flex-shrink-0 whitespace-nowrap px-2.5 py-1 text-[11px] rounded-full border transition-colors ${tone}`}
               >
+                <span className={`mr-1 ${biasGlyph(p.id).text}`} data-testid={`bias-${p.id}`} aria-label={biasGlyph(p.id).label}>{biasGlyph(p.id).glyph}</span>
                 {p.displayName}
                 {(st.state === 'found' || st.state === 'zero') && (
                   <span className={`ml-1.5 nv-num ${st.state === 'found' ? 'text-blue-300' : 'text-slate-600'}`}>{st.count}</span>
@@ -830,6 +1045,19 @@ export default function LiveChart({ symbol, name }) {
             );
           })}
         </div>
+
+        <div className="mb-2 text-[10px] text-slate-500" data-testid="count-definition">
+          {COUNT_DEFINITION}{' '}
+          Glyphs show the <span className="text-slate-300">conventional bias</span> (<span className={BIAS_STYLE.bullish.text}>▲ bullish</span>, <span className={BIAS_STYLE.bearish.text}>▼ bearish</span>, <span className={BIAS_STYLE.context.text}>◆ context-dependent</span>) - a textbook expectation, not a prediction.
+          Outcome colours (realised, after detection): <span className={OUTCOME_STYLE.positive.text}>green positive</span>, <span className={OUTCOME_STYLE.negative.text}>red negative</span>, <span className={OUTCOME_STYLE.flat.text}>grey flat</span>, <span className={OUTCOME_STYLE.pending.text}>dashed blue pending</span>.
+        </div>
+
+        {showOb && obAvailable && (
+          <div className="mb-2 text-[10px] text-slate-500" data-testid="ob-note">
+            Order blocks use closed 5-minute bars from the temporary yfinance feed (no open-interest or volume-at-price data). Analytics only, not investment advice.
+            {ob && ob.zones.length === 0 && <span className="ml-1 italic">No order block formed in this session yet (a missing value is never shown as zero).</span>}
+          </div>
+        )}
 
         {selected !== 'all' && (
           <div className="mb-2 rounded-md border border-slate-800 bg-slate-900/60 px-3 py-2 text-[12px]">
@@ -869,6 +1097,10 @@ export default function LiveChart({ symbol, name }) {
           </div>
         )}
 
+        {selected !== 'all' && selectedEntry && selectedStatus && !['unavailable', 'needs-data', 'loading'].includes(selectedStatus.state) && (
+          <PatternOutcomePanel entry={selectedEntry} stats={patternStats} symbol={symbol} loading={outcomeTf !== 'intraday' && htfStatus[outcomeTf] === 'loading'} />
+        )}
+
         <div className="max-h-[260px] overflow-y-auto space-y-1.5 pr-1 border-t border-slate-800 pt-2">
           {historyLoading && (
             <div className="text-[12px] text-slate-500 italic py-2">Loading {historyDate}...</div>
@@ -887,7 +1119,7 @@ export default function LiveChart({ symbol, name }) {
             <div className="text-[12px] text-slate-500 italic py-2">No notable moves detected for {loadedDate}.</div>
           )}
           {sortNewestFirst(feed).map((e, i) => (
-            <EventRow key={`${mode}-${e.time}-${e.text}-${i}`} e={e} />
+            <EventRow key={`${mode}-${e.time}-${e.text}-${i}`} e={e} outcome={rowOutcome(e)} onOpen={e.zoneId ? () => openObRow(e) : undefined} />
           ))}
         </div>
       </div>

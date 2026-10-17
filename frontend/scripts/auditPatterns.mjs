@@ -28,7 +28,7 @@ console.log('last daily candle    :', istDate(last(daily).time), 'close', last(d
 console.log('last weekly candle   :', 'week of', istDate(last(weekly).time), 'close', last(weekly).close);
 
 function run(label, candles, sessionStart = 0, all = candles) {
-  const intradayEv = replayDayEvents(all, { patternsOnly: true, sessionStart });
+  const intradayEv = replayDayEvents(all, { patternsOnly: true, sessionStart, meta: { includeOptIn: true } });
   const htf = computeHigherTimeframeEvents({ dailyBars: daily, weeklyBars: weekly, intradayCandles: candles, nowSec: NOW });
   const events = [...intradayEv, ...htf];
   const formations = collapseRuns(events);
