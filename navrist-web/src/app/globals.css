@@ -222,3 +222,36 @@ html.light .ml {
   --on-accent: #ffffff;
   background: #f1f3f9;
 }
+
+/* ---- Search box: gradient border that moves around the box, in the brand colours ----------------
+   A conic gradient (purple -> light purple -> gold -> steel blue) whose start angle is animated via a
+   registered custom property. The blurred ::before copy gives the soft glow. */
+@property --glow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.search-glow {
+  --glow-angle: 0deg;
+  position: relative;
+  padding: 2px;
+  border-radius: 12.5px;
+  background: conic-gradient(from var(--glow-angle), #3a2e7d, #8f82f2, #e0a115, #446284, #3a2e7d);
+  animation: search-glow-spin 5s linear infinite;
+}
+.search-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: inherit;
+  filter: blur(14px);
+  opacity: 0.35;
+}
+.search-glow:focus-within { animation-duration: 2.5s; }
+.search-glow:focus-within::before { opacity: 0.6; }
+@keyframes search-glow-spin { to { --glow-angle: 360deg; } }
+@media (prefers-reduced-motion: reduce) {
+  .search-glow { animation: none; }
+}

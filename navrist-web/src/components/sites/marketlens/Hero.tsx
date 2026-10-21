@@ -94,14 +94,17 @@ export function Hero({ onSelect, onSector }: { onSelect: (stock: CompanyHit) => 
         <form className="relative mx-auto mb-10 w-full max-w-2xl" onSubmit={(e) => e.preventDefault()}>
           <div className="relative flex items-center">
             <Search className="absolute left-5 z-[2] h-5 w-5" style={{ color: "var(--text-tertiary)" }} />
-            <input
-              id="navrist-search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={`Search Equity Stocks or Sector : ${hint}`}
-              className="h-14 w-full rounded-[10.5px] border pl-[3.25rem] pr-32 text-[15px] outline-none"
-              style={{ background: "var(--surface-1)", borderColor: "var(--border-default)" }}
-            />
+            {/* moving gradient border in the brand colours; the input sits inside it */}
+            <div className="search-glow w-full">
+              <input
+                id="navrist-search"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={`Search Equity Stocks or Sector : ${hint}`}
+                className="h-14 w-full rounded-[10.5px] pl-[3.25rem] pr-32 text-[15px] outline-none"
+                style={{ background: "var(--surface-1)" }}
+              />
+            </div>
           </div>
           {q.trim() && (hits.length > 0 || searchError) && (
             <ul
