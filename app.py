@@ -640,6 +640,63 @@ def live_chart_latest(symbol: str, _: dict = Depends(auth.require_session)):
     latest["symbol"] = sym
     return latest
 
+@app.get("/api/v1/stock-overview/{symbol}")
+def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
+    """Stock-page sections that are not price data: key metrics, about text, quarterly
+    results, shareholding pattern and peers. Sourced from the Screener.in page parse
+    (tools/screener_scraper.fetch_screener_financials, cached 12h). Any value the source
+    does not provide is returned as null - never zero."""
+    sym = resolve_symbol_from_registry(symbol)
+    if not sym:
+        raise HTTPException(status_code=400, detail="Symbol required.")
+    name = next((c["name"] for c in STOCK_REGISTRY if c["symbol"] == sym), None)
+    from tools.screener_scraper import fetch_screener_financials
+    data = fetch_screener_financials(sym, name)
+    if not data:
+        return {"symbol": sym, "source": "unavailable"}
+
+    def cr(v):
+        return round(v / 1e7, 2) if isinstance(v, (int, float)) else None
+
+    info = data.get("info") or {}
+    q_grid = (data.get("financial_arrays") or {}).get("quarterly_income_stmt") or {}
+    quarterly = [
+        {
+            "period": period,  # ISO date string; chronological when sorted
+            "total_income_cr": cr(col.get("Total Revenue")),
+            "pbt_cr": cr(col.get("Pretax Income")),
+            "net_profit_cr": cr(col.get("Net Income")),
+            "eps": col.get("Diluted EPS"),
+        }
+        for period, col in sorted(q_grid.items())
+    ]
+    mcap = info.get("marketCap")
+
+    # Debt/Equity from the latest balance sheet, only when BOTH figures are reported (a reported 0
+    # borrowing is a real 0; a missing figure stays None - never zero-filled).
+    de = None
+    bs = (data.get("financial_arrays") or {}).get("balance_sheet") or {}
+    for period in sorted(bs, reverse=True):
+        col = bs[period]
+        debt, eq = col.get("Total Debt"), col.get("Stockholders Equity")
+        if isinstance(debt, (int, float)) and isinstance(eq, (int, float)) and eq > 0:
+            de = round(debt / eq, 2)
+            break
+
+    return {
+        "symbol": sym,
+        "source": "screener.in",
+        "market_cap_cr": cr(mcap),
+        "face_value": data.get("face_value"),
+        "debt_to_equity": de,
+        "pe": info.get("trailingPE"),
+        "book_value": info.get("bookValue"),
+        "about": info.get("longBusinessSummary"),
+        "quarterly": quarterly,
+        "shareholding": data.get("shareholding") or None,
+        "peers": data.get("screener_peers") or [],
+    }
+
 # Future-bar forecasting (probabilistic, validated) - see forecast/api.py. Additive: the endpoints
 # above are untouched; if the forecast package or its store is unavailable the app still starts.
 try:
@@ -647,6 +704,28 @@ try:
     app.include_router(_make_forecast_router(resolve_symbol_from_registry, auth.require_session))
 except Exception as _fc_err:  # pragma: no cover
     print(f"[HTTP WARNING] forecast API not mounted: {_fc_err}")
+
+# Pattern agent (32 rule-based chart patterns with a forming -> awaiting -> confirmed / invalidated
+# lifecycle, persisted with status history) - see patterns/. Additive and failure-isolated like the
+# forecast router above.
+try:
+    from patterns.api import make_router as _make_patterns_router
+
+    def _pattern_candles(sym, interval, period):
+        from tools.live_chart_yf import get_candles
+        return get_candles(sym, interval=interval, period=period)
+
+    app.include_router(_make_patterns_router(resolve_symbol_from_registry, auth.require_session, _pattern_candles))
+except Exception as _pt_err:  # pragma: no cover
+    print(f"[HTTP WARNING] pattern API not mounted: {_pt_err}")
+
+# Sector browsing + the Popular Screens (see screens/). The universe of metrics is built in the
+# background (POST /api/v1/screens/build) and cached on disk.
+try:
+    from screens.api import make_router as _make_screens_router
+    app.include_router(_make_screens_router(auth.require_session, _pattern_candles))
+except Exception as _sc_err:  # pragma: no cover
+    print(f"[HTTP WARNING] screens API not mounted: {_sc_err}")
 
 @app.post("/api/research")
 async def research_endpoint(request: ResearchRequest, _: dict = Depends(auth.require_session)):

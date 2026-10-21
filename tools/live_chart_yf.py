@@ -17,6 +17,7 @@ function, without changing the frontend's response shape (a list of
 """
 
 import datetime
+import time
 
 try:
     import yfinance as yf
@@ -125,9 +126,21 @@ def get_candles(symbol: str, interval: str = "5m", period: str | None = None):
     if not _HAVE_YF:
         return None
     period = period or _INTRADAY_MAX_PERIOD.get(interval, "1y")
+    # The provider (yfinance) intermittently returns an empty frame or raises under load/rate limits.
+    # One quick retry turns most of those into a normal answer instead of a blank chart; a symbol the
+    # provider genuinely has no data for still ends as None after the second attempt.
+    hist = None
+    for attempt in range(2):
+        try:
+            sym = _to_symbol(symbol)
+            hist = yf.Ticker(sym).history(period=period, interval=interval)
+            if hist is not None and not hist.empty:
+                break
+        except Exception:
+            hist = None
+        if attempt == 0:
+            time.sleep(0.4)
     try:
-        sym = _to_symbol(symbol)
-        hist = yf.Ticker(sym).history(period=period, interval=interval)
         if hist is None or hist.empty:
             return None
         candles = []

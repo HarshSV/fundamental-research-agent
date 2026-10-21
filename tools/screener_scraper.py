@@ -563,7 +563,7 @@ def fetch_screener_financials(symbol, name=None):
     12h. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    cache_key = f"fin_{sym}"
+    cache_key = f"fin2_{sym}"  # v2: payload now carries face_value (old `fin_` caches lack it)
     cached = _read_cache(cache_key)
     if cached is not None:
         return cached
@@ -659,6 +659,7 @@ def fetch_screener_financials(symbol, name=None):
             },
             "shareholding": sh or {},
             "screener_peers": peers,
+            "face_value": top.get("face value"),  # None when Screener does not list it
             "data_source": "screener_scrape",
         }
         _write_cache(cache_key, payload)
