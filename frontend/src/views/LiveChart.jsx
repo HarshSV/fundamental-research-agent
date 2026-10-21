@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { createChart, createSeriesMarkers, ColorType, CandlestickSeries } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries } from 'lightweight-charts';
 import { inr, signedPct, toneClass, isNum } from '../lib/format.js';
 import { fetchLiveChartCandles, fetchLiveChartLatest, fetchLiveChartDay, fetchChartForecast } from '../lib/api.js';
 import { analyzeCandles } from '../lib/technicalAnalysis.js';
@@ -11,13 +11,15 @@ import { IST, istDate, todayISO, istClock, fmtDate, fmtTime, fmtDayMonth } from 
 import { replayDayEvents, sortNewestFirst } from '../lib/eventReplay.js';
 import { latestOccurrence, collapseRuns, runFirstMap } from '../lib/patternCatalog.js';
 import { RangeBox } from '../lib/rangeBoxPrimitive.js';
+import { FlagLayer } from '../lib/flagPrimitive.js';
+import { lastYearWindow, shiftEventsToWindow, clusterByScreen, FLAG_STYLE, HIDDEN_BY_DEFAULT } from '../lib/flagClusters.js';
 import { ZoneOverlay } from '../lib/zoneOverlayPrimitive.js';
 import { detectOrderBlocks, deriveSessionMeta, closedBars, zoneEvents, currentZones } from '../lib/orderBlocks.js';
 import ForecastPanel from '../components/ForecastPanel.jsx';
 import PatternOutcomePanel from '../components/PatternOutcomePanel.jsx';
 import { completedDaily, completedWeekly } from '../lib/htfEvents.js';
 import { fullHistoryEvents, toOccurrences, statsForPattern, evaluateEvent, intradaySeries } from '../lib/patternHistory.js';
-import { BIAS_STYLE, COUNT_DEFINITION, OUTCOME_STYLE, CHART_OUTCOME_COLOR, biasGlyph, chipTitle, outcomeBadge, primaryOutcome, groupMarker, setIntradayBarSeconds } from '../lib/patternOutcomeView.js';
+import { BIAS_STYLE, COUNT_DEFINITION, OUTCOME_STYLE, CHART_OUTCOME_COLOR, biasGlyph, chipTitle, outcomeBadge, primaryOutcome, flagTipLines, setIntradayBarSeconds } from '../lib/patternOutcomeView.js';
 import { mergeConfig } from '../lib/patternOutcomes.js';
 import { biasText } from '../lib/patternClassification.js';
 import OrderBlockCard from '../components/OrderBlockCard.jsx';
@@ -35,6 +37,7 @@ const KIND_LABEL = {
 const POLL_MS = 5000;
 
 const INTERVALS = [
+  { key: '1d', label: '1D' },
   { key: '1m', label: '1m' },
   { key: '5m', label: '5m' },
   { key: '15m', label: '15m' },
@@ -54,27 +57,39 @@ function OutcomeChips({ res, tf }) {
   );
 }
 
-// Colour key shared by the chart legend and the cluster popup. Marker colour = realised outcome at the first horizon.
-function OutcomeLegend({ compact = false }) {
-  const swatch = (c) => <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: c }} />;
+// Small flag icon matching the chart flags (pointer up = below the candle, pointer down = above it).
+function FlagIcon({ color, up }) {
+  const d = up ? 'M1.5 6.5 H5.5 L7 3 L8.5 6.5 H12.5 V13.5 H1.5 Z' : 'M1.5 2.5 H12.5 V9.5 H8.5 L7 13 L5.5 9.5 H1.5 Z';
+  return (
+    <svg width="14" height="16" viewBox="0 0 14 16" className="mr-1 inline-block align-middle" aria-hidden="true">
+      <path d={d} fill={color} stroke="rgba(15,23,42,0.9)" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Colour key shared by the chart legend and the cluster popup. Flag colour AND side = realised outcome at the first horizon.
+function OutcomeLegend({ compact = false, showNeutral = false, onToggleNeutral = null }) {
+  const item = (st, text, up) => <span className="mr-3 whitespace-nowrap"><FlagIcon color={FLAG_STYLE[st].fill} up={up} />{text}</span>;
   return (
     <div className="text-[10px] text-slate-400" data-testid="outcome-legend">
-      <span className="mr-2">{swatch(CHART_OUTCOME_COLOR.positive)}Positive</span>
-      <span className="mr-2">{swatch(CHART_OUTCOME_COLOR.negative)}Negative</span>
-      <span className="mr-2">{swatch(CHART_OUTCOME_COLOR.flat)}Flat</span>
-      <span className="mr-2">{swatch(CHART_OUTCOME_COLOR.pending)}Pending (horizon not complete - not Flat)</span>
-      <span className="mr-2">{swatch(CHART_OUTCOME_COLOR.not_evaluable)}n/a (cannot be evaluated)</span>
-      {!compact && <span className="mr-2">Busy bars stack one marker per outcome: +positive −negative ~flat …pending</span>}
+      {item('positive', 'Positive (below candle, points up)', true)}
+      {item('negative', 'Negative (above candle, points down)', false)}
+      {item('pending', 'Pending (horizon not complete - not Flat)', true)}
+      {item('flat', 'Flat', false)}
+      {item('not_evaluable', 'Unavailable', false)}
+      {onToggleNeutral && (
+        <label className="mr-3 cursor-pointer whitespace-nowrap text-slate-300">
+          <input type="checkbox" className="mr-1 align-middle" checked={showNeutral} onChange={(e) => onToggleNeutral(e.target.checked)} data-testid="toggle-neutral-flags" />
+          Show flat &amp; unavailable flags
+        </label>
+      )}
       <div className="text-slate-500">
-        {compact ? 'Realised price move after detection, first horizon.' : 'Marker colour = realised price move after the pattern was first detected, at the first horizon (5 bars of the pattern\u2019s own timeframe) vs a volatility-based flat band. Not the bullish/bearish bias.'}
+        {compact ? 'Realised price move after detection, first horizon.' : 'Flag colour and side = realised price move after the pattern was first detected, at the first horizon (5 bars of the pattern\u2019s own timeframe) vs a volatility-based flat band - not the bullish/bearish bias. A number = several patterns with the same outcome nearby; click it to list each one. Flat and unavailable flags are hidden by default (the occurrences are kept).'}
       </div>
     </div>
   );
 }
 
-const MARKER_COLOR_DIM = 'rgba(148,163,184,0.45)';
-const MARKER_COLOR_SELECTED = 'rgb(251 191 36)';
-const TARGET_GROUPS = 14; // max markers across the visible range; zoom in to split groups
 const NO_EVENTS = [];
 
 function EventRow({ e, onOpen, outcome }) {
@@ -113,12 +128,13 @@ export default function LiveChart({ symbol, name }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
-  const [interval, setInterval_] = useState('5m');
+  const [interval, setInterval_] = useState('1d'); // default: the last year of daily candles
   const [latest, setLatest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
   const [events, setEvents] = useState([]);
-  const markersRef = useRef(null);
+  const flagRef = useRef(null);
+  const [showNeutralFlags, setShowNeutralFlags] = useState(false); // flat / unavailable flags are hidden by default
   const [showPatterns, setShowPatterns] = useState(false);
   const [tip, setTip] = useState(null); // hover tooltip: { x, y, lines }
   const [popover, setPopover] = useState(null); // open cluster list: { groupId, events, x, y }
@@ -224,7 +240,8 @@ export default function LiveChart({ symbol, name }) {
     });
     chartRef.current = chart;
     seriesRef.current = series;
-    markersRef.current = createSeriesMarkers(series, []);
+    flagRef.current = new FlagLayer();
+    series.attachPrimitive(flagRef.current);
     rangeBoxRef.current = new RangeBox();
     series.attachPrimitive(rangeBoxRef.current);
     zoneRef.current = new ZoneOverlay();
@@ -232,39 +249,25 @@ export default function LiveChart({ symbol, name }) {
     chart.timeScale().subscribeVisibleLogicalRangeChange((r) => {
       setVisRange(r ? { from: Math.floor(r.from), to: Math.ceil(r.to) } : null);
     });
-    const hitId = (param) => {
-      const id = param.hoveredInfo?.objectId ?? param.hoveredObjectId;
-      return id != null ? String(id) : null;
+    // Flags are drawn by FlagLayer (canvas), so hit-testing uses the geometry of the last paint.
+    const flagAt = (pt) => {
+      const id = pt && flagRef.current ? flagRef.current.hitTest(pt.x, pt.y) : null;
+      return id ? groupsByIdRef.current.get(id) || null : null;
     };
     chart.subscribeCrosshairMove((param) => {
-      const g = hitId(param) ? groupsByIdRef.current.get(hitId(param)) : null;
+      const g = flagAt(param.point);
       const overZone = !g && param.point && zoneRef.current ? zoneRef.current.hitTest(param.point.x, param.point.y) : null;
       if (containerRef.current) containerRef.current.style.cursor = g || overZone ? 'pointer' : '';
-      setTip(g && param.point ? { x: param.point.x, y: param.point.y, hint: g.hint } : null);
+      setTip(g && param.point ? { x: param.point.x, y: param.point.y, lines: g.tipLines } : null);
     });
     chart.subscribeClick((param) => {
       if (!param.point) return;
-      let g = hitId(param) ? groupsByIdRef.current.get(hitId(param)) : null;
-      if (!g) {
-        // Touch fallback: a tap lands near, not exactly on, a small marker.
-        const ts = chart.timeScale();
-        const candles = displayCandlesRef.current;
-        for (const cand of groupsByIdRef.current.values()) {
-          const bar = candles[cand.at.barIndex];
-          const x = ts.logicalToCoordinate(cand.at.barIndex);
-          if (!bar || x == null || Math.abs(x - param.point.x) > 14) continue;
-          const y = series.priceToCoordinate(cand.above ? bar.high : bar.low);
-          if (y == null) continue;
-          const dy = cand.above ? y - param.point.y : param.point.y - y;
-          if (dy >= -6 && dy <= 48) { g = cand; break; }
-        }
-      }
+      const g = flagAt(param.point);
       if (!g) {
         const zid = zoneRef.current ? zoneRef.current.hitTest(param.point.x, param.point.y) : null;
         if (zid) setObCardId(zid);
         return;
       }
-      if (g.id === 'focus') return;
       if (g.events.length === 1) {
         setFocus(g.events[0]);
         setPopover(null);
@@ -277,7 +280,7 @@ export default function LiveChart({ symbol, name }) {
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
-      markersRef.current = null;
+      flagRef.current = null;
       rangeBoxRef.current = null;
       zoneRef.current = null;
     };
@@ -334,6 +337,7 @@ export default function LiveChart({ symbol, name }) {
     seenRef.current = new Set();
 
     const loadCandles = (isFirst) => {
+      if (interval === '1d') return;       // 1D renders the daily history loaded below, refreshed once a minute
       fetchLiveChartCandles(symbol, interval).then((resp) => {
         if (cancelled) return;
         if (isFirst) setLoading(false);
@@ -351,6 +355,7 @@ export default function LiveChart({ symbol, name }) {
       });
     };
 
+    if (interval === '1d') setLoading(false);
     loadCandles(true);
     loadLatest();
     const id = window.setInterval(() => { loadCandles(false); loadLatest(); }, POLL_MS);
@@ -420,7 +425,28 @@ export default function LiveChart({ symbol, name }) {
     return () => { cancelled = true; };
   }, [symbol]);
 
-  const displayCandles = mode === 'history' ? historyCandles : liveCandles;
+  // 1D view: refresh the daily series once a minute so the forming candle follows the live session.
+  useEffect(() => {
+    if (!symbol || interval !== '1d') return undefined;
+    let cancelled = false;
+    const id = window.setInterval(() => {
+      fetchLiveChartCandles(symbol, '1d', '5y').then((resp) => {
+        const c = resp && resp.candles;
+        if (cancelled || !c || !c.length) return;
+        setDailyBars((prev) => {
+          const a = prev[prev.length - 1], b = c[c.length - 1];
+          const same = prev.length === c.length && a && b && a.time === b.time && a.close === b.close && a.high === b.high && a.low === b.low;
+          return same ? prev : c;
+        });
+      });
+    }, 60000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [symbol, interval]);
+
+  // Default view = the last ~12 months of REAL daily candles (whatever exists if the listing is younger; nothing is padded).
+  const dailyView = mode === 'live' && interval === '1d';
+  const oneYear = useMemo(() => (dailyView ? lastYearWindow(dailyBars, Date.now() / 1000) : { bars: [], from: 0, complete: false }), [dailyView, dailyBars]);
+  const displayCandles = mode === 'history' ? historyCandles : dailyView ? oneYear.bars : liveCandles;
 
   // Chart data follows the active mode.
   useEffect(() => {
@@ -449,12 +475,17 @@ export default function LiveChart({ symbol, name }) {
   );
   // Daily / weekly detections, computed on their own timeframe and placed on a
   // real bar of the loaded intraday dataset (live window or the loaded day).
+  const dailyLoading = dailyView && htfStatus.daily === 'loading';
   const displayLast = displayCandles.length ? displayCandles[displayCandles.length - 1].time : 0;
   const htfEvents = useMemo(
-    () => computeHigherTimeframeEvents({ dailyBars, weeklyBars, intradayCandles: displayCandles }),
+    () => (dailyView ? [] : computeHigherTimeframeEvents({ dailyBars, weeklyBars, intradayCandles: displayCandles })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dailyBars, weeklyBars, mode, loadedDate, displayCandles.length, displayLast],
+    [dailyBars, weeklyBars, mode, loadedDate, displayCandles.length, displayLast, dailyView],
   );
+  // 1D view: daily detectors over the FULL daily history (warm-up), shown on the last-year bars. srcIndex keeps pointing at the
+  // full series so realised outcomes are measured from the original detection bar.
+  const dailyFull = useMemo(() => (dailyView && dailyBars.length ? fullHistoryEvents({ dailyBars, weeklyBars: [] }) : null), [dailyView, dailyBars]);
+  const dailyViewEvents = useMemo(() => (dailyFull ? shiftEventsToWindow(dailyFull.daily.events, oneYear.from, oneYear.bars) : NO_EVENTS), [dailyFull, oneYear]);
   // Order blocks: one deterministic forward pass over CLOSED 5m bars (orderBlocks.js). Recomputed only when a
   // bar is added/rolled or the 5-minute clock boundary passes (the forming bar closes) - never on intra-bar ticks.
   const obAvailable = mode === 'history' || interval === '5m';
@@ -480,9 +511,10 @@ export default function LiveChart({ symbol, name }) {
   const obCard = ob && obCardId ? ob.zones.find((z) => z.id === obCardId) || null : null;
 
   const patternEvents = useMemo(() => {
+    if (dailyView) return dailyViewEvents;
     const src = mode === 'history' ? (historyEvents || []) : livePatternEvents;
     return [...src.filter((e) => e.kind === 'pattern'), ...htfEvents, ...obEvents];
-  }, [mode, historyEvents, livePatternEvents, htfEvents, obEvents]);
+  }, [mode, historyEvents, livePatternEvents, htfEvents, obEvents, dailyView, dailyViewEvents]);
 
   const patternCounts = useMemo(() => {
     const m = new Map();
@@ -560,29 +592,32 @@ export default function LiveChart({ symbol, name }) {
   // pattern is labelled with its name, a busier one with a count, and hover
   // lists every pattern in it. Zooming in shrinks the buckets and splits them.
   // Stable cluster id from the real detections' own bar span (not the count).
-  const groupOf = (events) => {
-    const at = events.reduce((m, e) => (e.barIndex > m.barIndex ? e : m), events[0]);
-    const first = events.reduce((m, e) => (e.barIndex < m.barIndex ? e : m), events[0]);
-    return { id: `g${first.barIndex}-${at.barIndex}-${events.length}`, events, at };
+  const stateOfEvent = (e) => {
+    const p = primaryOutcome(formationOutcome(e));
+    return p && FLAG_STYLE[p.state] ? p.state : 'not_evaluable';
   };
   const groups = useMemo(() => {
     if (!showPatterns) return [];
     if (selected !== 'all') {
-      return occurrence ? [groupOf([occurrence])] : [];
+      if (!occurrence) return [];
+      const state = stateOfEvent(occurrence);
+      return [{ state, events: [occurrence], at: occurrence, above: FLAG_STYLE[state].above, id: `sel-${state}-${occurrence.barIndex}` }];
     }
     const lastBar = displayCandles.length - 1;
     const from = visRange ? Math.max(0, visRange.from) : 0;
     const to = visRange ? Math.min(lastBar, visRange.to) : lastBar;
-    const size = Math.max(1, Math.ceil((to - from + 1) / TARGET_GROUPS));
-    const buckets = new Map();
+    const width = containerRef.current?.clientWidth || 800;
+    const pxPerBar = width / Math.max(1, to - from + 1);                 // follows zoom, panning, timeframe and resize
+    const items = [];
     for (const e of collapseRuns(patternEvents)) {
       if (e.barIndex < from || e.barIndex > to) continue;
-      const k = Math.floor((e.barIndex - from) / size);
-      if (!buckets.has(k)) buckets.set(k, []);
-      buckets.get(k).push(e);
+      const state = stateOfEvent(e);
+      if (!showNeutralFlags && HIDDEN_BY_DEFAULT.includes(state)) continue;   // hidden, not deleted: the events remain in patternEvents
+      items.push({ event: e, state });
     }
-    return [...buckets.values()].map((events) => groupOf(events));
-  }, [showPatterns, selected, occurrence, patternEvents, visRange, displayCandles.length]);
+    return clusterByScreen(items, pxPerBar).map((g) => ({ ...g, id: `${g.state}-${g.at.barIndex}-${g.events.length}` }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPatterns, selected, occurrence, patternEvents, visRange, displayCandles.length, showNeutralFlags, formationOutcome]);
 
   useEffect(() => {
     if (!zoneRef.current) return;
@@ -610,53 +645,43 @@ export default function LiveChart({ symbol, name }) {
     }
   };
 
+  // Flags: colour AND side come from the realised outcome (green below/up, red above/down, blue pending). Selection is a white
+  // outline; the fill never changes.
   useEffect(() => {
-    if (!markersRef.current) return;
+    if (!flagRef.current) return;
     const byId = new Map();
     const dimmed = !!focus;
-    const markers = groups.map((g) => {
-      const { events, at } = g;
-      const counts = new Map();
-      events.forEach((e) => counts.set(e.pattern, (counts.get(e.pattern) || 0) + 1));
-      const names = [...counts.keys()];
-      const text = names.length === 1
-        ? (events.length > 1 ? `${names[0]} x${events.length}` : names[0])
-        : names.length === 2 ? names.join(' / ') : `${names.length} patterns`;
-      const above = events.every((e) => e.tone === 'neg');
-      const isSel = selected !== 'all';
-      // Colour = REALISED outcome of the formation(s) at the first horizon (never the bullish/bearish bias).
-      const om = groupMarker(events.map((e) => primaryOutcome(formationOutcome(e))));
-      const entry = {
-        ...g, above,
-        hint: `${events.length === 1 ? `Show ${names[0]}` : names.length > 2 ? `Show ${names.length} patterns` : `Show ${names.join(' / ')}`} - outcome: ${om.state === 'mixed' ? 'mixed' : OUTCOME_STYLE[om.state].label.toLowerCase()}`,
-      };
-      // One marker per outcome present (stacked at the same bar), each coloured by its own realised outcome.
-      return om.parts.map((p, i) => {
-        const id = i === 0 ? g.id : `${g.id}#${p.state}`;
-        byId.set(id, entry);
+    const selEvent = focus || (selected !== 'all' ? groups[0]?.at : null);
+    const flags = [];
+    for (const g of groups) {
+      const bar = displayCandles[g.at.barIndex];
+      if (!bar) continue;
+      const style = FLAG_STYLE[g.state];
+      const items = g.events.map((e) => {
+        const first = runFirst.get(e) || e;
+        const res = formationOutcome(e);
         return {
-          id, time: at.time, position: above ? 'aboveBar' : 'belowBar', shape: above ? 'arrowDown' : 'arrowUp',
-          color: dimmed ? MARKER_COLOR_DIM : p.color, size: isSel && !dimmed ? 2 : 1, text: i === 0 ? `${text}${p.suffix}` : p.suffix.trim(),
+          name: e.pattern, symbol, timeframe: e.timeframe || 'intraday',
+          detected: `${fmtDate(first.confirmedAt ?? first.time)}, ${fmtTime(first.confirmedAt ?? first.time)}`,
+          bias: res?.classification ? biasText(res.classification) : 'unknown', primary: primaryOutcome(res),
         };
       });
-    }).flat();
-    if (focus) {
-      const above = focus.tone === 'neg';
-      markers.push({
-        id: 'focus', time: focus.time, position: above ? 'aboveBar' : 'belowBar', shape: above ? 'arrowDown' : 'arrowUp',
-        color: MARKER_COLOR_SELECTED, size: 2, text: focus.pattern,
+      byId.set(g.id, { ...g, tipLines: flagTipLines(items) });
+      const isSel = !!selEvent && g.events.includes(selEvent);
+      flags.push({
+        id: g.id, barIndex: g.at.barIndex, anchor: g.above ? bar.high : bar.low, above: g.above,
+        fill: style.fill, textColor: style.text, label: g.events.length > 1 ? String(g.events.length) : '',
+        selected: isSel, dim: dimmed && !isSel,
       });
     }
     groupsByIdRef.current = byId;
-    markers.sort((x, y) => x.time - y.time);
-    markersRef.current.setMarkers(markers);
+    flagRef.current.setFlags(flags);
     // Range box from the detector's own start/end/range for the emphasised detection.
-    const sel = focus || (selected !== 'all' ? groups[0]?.at : null);
-    rangeBoxRef.current?.setRange(sel && sel.rangeHigh != null && sel.rangeLow != null
-      ? { startIndex: sel.startIndex, endIndex: sel.endIndex, rangeHigh: sel.rangeHigh, rangeLow: sel.rangeLow }
+    rangeBoxRef.current?.setRange(selEvent && selEvent.rangeHigh != null && selEvent.rangeLow != null
+      ? { startIndex: selEvent.startIndex, endIndex: selEvent.endIndex, rangeHigh: selEvent.rangeHigh, rangeLow: selEvent.rangeLow }
       : null);
-    if (!markers.length) setTip(null);
-  }, [groups, selected, focus, formationOutcome]);
+    if (!flags.length) setTip(null);
+  }, [groups, selected, focus, formationOutcome, displayCandles, symbol, runFirst]);
 
   displayCandlesRef.current = displayCandles;
 
@@ -664,7 +689,7 @@ export default function LiveChart({ symbol, name }) {
   useEffect(() => {
     setFocus(null);
     setPopover(null);
-  }, [mode, symbol, loadedDate, selected, showPatterns]);
+  }, [mode, symbol, loadedDate, selected, showPatterns, interval]);
 
   // Close the cluster list on outside click / ESC.
   useEffect(() => {
@@ -856,7 +881,7 @@ export default function LiveChart({ symbol, name }) {
         </div>
       )}
       <div className="relative h-[420px]">
-        {loading && (
+        {(loading || dailyLoading) && (
           <div className="absolute inset-0 flex items-center justify-center text-[12px] text-slate-500 italic">Loading chart...</div>
         )}
         {!loading && unavailable && (
@@ -867,10 +892,10 @@ export default function LiveChart({ symbol, name }) {
         <div ref={containerRef} className="w-full h-full" />
         {tip && !popover && (
           <div
-            className="pointer-events-none absolute z-10 rounded border border-slate-700 bg-slate-900/95 px-1.5 py-0.5 text-[10px] text-slate-300"
+            className="pointer-events-none absolute z-10 rounded border border-slate-700 bg-slate-900/95 px-2 py-1 text-[10px] leading-snug whitespace-nowrap text-slate-300"
             style={{ left: tip.x + 10, top: Math.max(tip.y - 26, 0) }}
           >
-            {tip.hint}
+            {tip.lines.map((l, i) => <div key={i} className={i === 0 ? 'font-semibold text-slate-100' : ''}>{l}</div>)}
           </div>
         )}
         {focus && (
@@ -945,7 +970,7 @@ export default function LiveChart({ symbol, name }) {
         )}
       </div>
       {showPatterns && (
-        <div className="mt-1.5" data-testid="chart-outcome-legend"><OutcomeLegend /></div>
+        <div className="mt-1.5" data-testid="chart-outcome-legend"><OutcomeLegend showNeutral={showNeutralFlags} onToggleNeutral={setShowNeutralFlags} /></div>
       )}
 
       </div>

@@ -123,3 +123,25 @@ export function horizonRow(hz, timeframe) {
     warning: i.evaluable === 0 ? 'No completed observations yet.' : hz.smallSample ? `Small sample (${i.evaluable} independent observations): too few to judge reliability.` : null,
   };
 }
+
+// One-line realised-outcome text for the flag tooltip. Unavailable and pending are spelled out, never shown as 0%.
+export function outcomeLine(primary, timeframe) {
+  if (!primary) return 'Outcome: unavailable';
+  const unit = horizonLabel(timeframe, primary.horizon);
+  if (primary.state === OUTCOME.PENDING) return `Outcome: pending (${unit} horizon not complete)`;
+  if (primary.state === OUTCOME.NOT_EVALUABLE) return `Outcome: unavailable (${REASON_TEXT[primary.reason] || primary.reason || 'insufficient data'})`;
+  const s = OUTCOME_STYLE[primary.state];
+  return `Outcome: ${s ? s.label : primary.state} ${fmtReturn(primary.ret)} after ${unit}`;
+}
+
+// Tooltip lines for one flag. `items` = [{ name, symbol, detected, timeframe, bias, primary }].
+export function flagTipLines(items) {
+  if (!items.length) return [];
+  if (items.length === 1) {
+    const i = items[0];
+    return [i.name, `${i.symbol} - ${i.timeframe} timeframe`, `Detected ${i.detected}`, `Pattern bias: ${i.bias}`, outcomeLine(i.primary, i.timeframe)];
+  }
+  const shown = items.slice(0, 4).map((i) => `${i.name}: ${i.primary && [OUTCOME.POSITIVE, OUTCOME.NEGATIVE, OUTCOME.FLAT].includes(i.primary.state) ? fmtReturn(i.primary.ret) : i.primary && i.primary.state === OUTCOME.PENDING ? 'pending' : 'unavailable'}`);
+  if (items.length > 4) shown.push(`+${items.length - 4} more`);
+  return [`${items.length} patterns - same outcome`, `${items[0].symbol} - ${items[0].timeframe} timeframe`, ...shown, 'Click to list each one'];
+}
