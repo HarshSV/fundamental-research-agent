@@ -2,36 +2,19 @@
 
 import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
-import { searchSymbols, type CompanyHit } from "@/lib/api";
-import { SEARCH_HINTS, TYPED_PHRASES } from "./data";
+import type { CompanyHit } from "@/lib/api";
+import { TYPED_PHRASES } from "./data";
 import { fetchSectors, type SectorInfo } from "./screens";
+import { SearchOverlay } from "./SearchOverlay";
+import { useTyped } from "./typing";
 
-function useTyped(phrases: string[]) {
-  const [i, setI] = useState(0);
-  const [n, setN] = useState(0);
-  const [del, setDel] = useState(false);
-  useEffect(() => {
-    const full = phrases[i];
-    const t = setTimeout(
-      () => {
-        if (!del && n < full.length) setN(n + 1);
-        else if (!del) setDel(true);
-        else if (n > 0) setN(n - 1);
-        else {
-          setDel(false);
-          setI((i + 1) % phrases.length);
-        }
-      },
-      !del && n === full.length ? 1500 : del ? 35 : 80,
-    );
-    return () => clearTimeout(t);
-  }, [i, n, del, phrases]);
-  return phrases[i].slice(0, n);
-}
+const BOX_HINTS = ["IT Services", "Banks", "Pharmaceuticals", "Tata Steel"];
 
 export function Hero({ onSelect, onSector }: { onSelect: (stock: CompanyHit) => void; onSector: (name: string) => void }) {
   const [sectors, setSectors] = useState<SectorInfo[]>([]);
   const [sectorsError, setSectorsError] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [origin, setOrigin] = useState<DOMRect | null>(null);
   useEffect(() => {
     let alive = true;
     fetchSectors().then((s) => alive && setSectors(s)).catch((e: Error) => alive && setSectorsError(e.message));
@@ -40,29 +23,7 @@ export function Hero({ onSelect, onSector }: { onSelect: (stock: CompanyHit) => 
     };
   }, []);
   const typed = useTyped(TYPED_PHRASES);
-  const hint = useTyped(SEARCH_HINTS);
-  const [q, setQ] = useState("");
-  const [hits, setHits] = useState<CompanyHit[]>([]);
-  const [searchError, setSearchError] = useState("");
-
-  useEffect(() => {
-    if (!q.trim()) return;
-    const ctrl = new AbortController();
-    const t = setTimeout(() => {
-      searchSymbols(q, ctrl.signal)
-        .then((r) => {
-          setHits(r);
-          setSearchError("");
-        })
-        .catch((e: Error) => {
-          if (e.name !== "AbortError") setSearchError(e.message);
-        });
-    }, 250);
-    return () => {
-      clearTimeout(t);
-      ctrl.abort();
-    };
-  }, [q]);
+  const hint = useTyped(BOX_HINTS);
 
   return (
     <div
@@ -91,46 +52,29 @@ export function Hero({ onSelect, onSector }: { onSelect: (stock: CompanyHit) => 
           <br />
           Explore 2000+ equity stocks with customizable filters and market analytics.
         </p>
-        <form className="relative mx-auto mb-10 w-full max-w-2xl" onSubmit={(e) => e.preventDefault()}>
+
+        {/* The box is the trigger: it opens the full-screen search. */}
+        <div className="relative mx-auto mb-10 w-full max-w-2xl">
           <div className="relative flex items-center">
-            <Search className="absolute left-5 z-[2] h-5 w-5" style={{ color: "var(--text-tertiary)" }} />
-            {/* moving gradient border in the brand colours; the input sits inside it */}
+            <Search className="pointer-events-none absolute left-5 z-[2] h-5 w-5" style={{ color: "var(--text-tertiary)" }} />
             <div className="search-glow w-full">
-              <input
+              <button
                 id="navrist-search"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder={`Search Equity Stocks or Sector : ${hint}`}
-                className="h-14 w-full rounded-[10.5px] pl-[3.25rem] pr-32 text-[15px] outline-none"
-                style={{ background: "var(--surface-1)" }}
-              />
+                type="button"
+                onClick={(e) => {
+                  setOrigin(e.currentTarget.getBoundingClientRect());
+                  setSearchOpen(true);
+                }}
+                aria-label="Search stocks or sectors"
+                className="flex h-14 w-full cursor-text items-center rounded-[10.5px] pl-[3.25rem] pr-32 text-left text-[15px]"
+                style={{ background: "var(--surface-1)", color: "var(--text-tertiary)" }}
+              >
+                Search Equity Stocks or Sector :&nbsp;{hint}
+              </button>
             </div>
           </div>
-          {q.trim() && (hits.length > 0 || searchError) && (
-            <ul
-              className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-xl border text-left text-sm"
-              style={{ background: "var(--surface-1)", borderColor: "var(--border-default)", boxShadow: "var(--shadow-md)" }}
-            >
-              {searchError && (
-                <li className="px-4 py-3 text-xs" style={{ color: "#f5a9a9" }}>
-                  {searchError}
-                </li>
-              )}
-              {hits.map((h) => (
-                <li
-                  key={h.symbol}
-                  onClick={() => onSelect(h)}
-                  className="flex cursor-pointer items-center justify-between px-4 py-2.5 hover:bg-[var(--accent-surface)]"
-                >
-                  <span>{h.name ?? h.company_name ?? h.symbol}</span>
-                  <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                    {h.symbol}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </form>
+        </div>
+
         <div className="mb-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
           Browse by sector
         </div>
@@ -154,6 +98,22 @@ export function Hero({ onSelect, onSector }: { onSelect: (stock: CompanyHit) => 
           {sectorsError && <span className="text-xs" style={{ color: "#f5a9a9" }}>Could not load sectors: {sectorsError}</span>}
         </div>
       </div>
+
+      {searchOpen && (
+        <SearchOverlay
+          sectors={sectors}
+          origin={origin}
+          onClose={() => setSearchOpen(false)}
+          onSelectStock={(h) => {
+            setSearchOpen(false);
+            onSelect(h);
+          }}
+          onSelectSector={(name) => {
+            setSearchOpen(false);
+            onSector(name);
+          }}
+        />
+      )}
     </div>
   );
 }

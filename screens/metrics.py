@@ -83,7 +83,8 @@ def compute(fin: dict | None, candles: list[dict] | None) -> dict:
     return {
         "price": price,
         "eps": eps,
-        "pe": _num(info.get("trailingPE")),
+        # one P/E formula everywhere: price / trailing EPS, only when EPS is positive (else not meaningful)
+        "pe": (price / eps) if (price and eps and eps > 0) else None,
         "market_cap_cr": round(info["marketCap"] / 1e7, 2) if _num(info.get("marketCap")) else None,
         "promoter": _num(promoter),
         "div_yield": div_yield,

@@ -1,10 +1,3 @@
-export const TICKER = [
-  { name: "NIFTY BANK", value: "55,754.90", change: "+0.48%" },
-  { name: "NIFTY FIN SERVICE", value: "25,049.85", change: "+0.25%" },
-  { name: "NIFTY NEXT 50", value: "68,818.55", change: "+0.18%" },
-  { name: "NIFTY 100", value: "24,086.80", change: "+0.72%" },
-];
-
 export const SECTORS = [
   "Banks",
   "Pharmaceuticals & Biotechnology",

@@ -102,9 +102,8 @@ export function HomeScreen() {
     const start = () => {
       setStack([{ kind: "home" }]);
       setTimeout(() => {
-        const el = document.getElementById(SEARCH_INPUT_ID) as HTMLInputElement | null;
-        el?.scrollIntoView({ behavior: "smooth", block: "center" });
-        el?.focus({ preventScroll: true });
+        // the home search box opens the full-screen search overlay
+        (document.getElementById(SEARCH_INPUT_ID) as HTMLButtonElement | null)?.click();
       }, 60);
     };
     window.addEventListener(NEW_SCREEN_EVENT, start);

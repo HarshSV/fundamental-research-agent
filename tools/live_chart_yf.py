@@ -133,7 +133,10 @@ def get_candles(symbol: str, interval: str = "5m", period: str | None = None):
     for attempt in range(2):
         try:
             sym = _to_symbol(symbol)
-            hist = yf.Ticker(sym).history(period=period, interval=interval)
+            # auto_adjust=False: plain traded prices (still split/bonus-adjusted by the provider) rather than
+            # dividend-adjusted ones. Dividend adjustment silently lowers every historical price, so lows,
+            # returns and 52-week figures would not match what the exchange reports.
+            hist = yf.Ticker(sym).history(period=period, interval=interval, auto_adjust=False)
             if hist is not None and not hist.empty:
                 break
         except Exception:

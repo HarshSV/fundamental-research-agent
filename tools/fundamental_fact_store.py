@@ -68,7 +68,9 @@ from tools.statement_selector import select_statement_basis, StatementSelection
 # v6 2026-10 global remediation: owners EPS, dividends paid/DPS evidence, lease
 #    liabilities, reported Total Liabilities, policy Net Fixed Assets, EBITDA =
 #    EBIT + D&A, acquisition signals, perimeter-aware PAT/equity, provenance.
-EXTRACTION_VERSION = 23
+# v24 EPS row parser ignores a leading Note-reference column (Infosys printed "Basic 2.23 71.58 64.50").
+# v25 unit detector understands "in lacs" (was read as crore, 100x too large).
+EXTRACTION_VERSION = 25
 
 
 @dataclass(frozen=True)
@@ -838,7 +840,7 @@ def _apply_ledger_integrity(facts, integrity):
     needs_review (with the reason) so every ratio built on it inherits that status instead of presenting a suspect figure as
     verified. Run over 133 real filings (tests/universe_scan.py) these identities isolate the defects.
 
-      eps_pat       owners' profit ~ Basic EPS x shares (within 12%)
+      eps_pat       owners' profit ~ Basic EPS x shares (within 12%; up to 30% when closing shares exceed the weighted average)
       bs_identity   Total liabilities + Total equity (incl. NCI) ~ Total assets (within 1.5%)
       nci_bounds    0 <= NCI <= Total equity incl. NCI
       pat_vs_total  owners' profit <= whole-entity profit
@@ -849,7 +851,10 @@ def _apply_ledger_integrity(facts, integrity):
     pat, eps, sh = v("pat"), v("eps"), v("shares_outstanding")
     if pat and eps and sh:
         implied = eps * sh / 1e7
-        if abs(implied) > 0.05 and abs(implied - pat) > 0.12 * abs(pat):
+        # EPS uses the WEIGHTED-average share count, the balance sheet the CLOSING count: when shares were issued during
+        # the year closing > weighted, so EPS x closing legitimately exceeds profit. Allow that side up to 30%.
+        tol_up = 0.30 if (pat > 0 and implied > pat) else 0.12
+        if abs(implied) > 0.05 and abs(implied - pat) > tol_up * abs(pat):
             msg = (f"Owners' profit ({pat:,.2f} Cr) and Basic EPS x shares outstanding ({implied:,.2f} Cr) differ by more than "
                    "12%: the profit perimeter (continuing vs total, owners vs whole entity), the EPS basis or the share count is "
                    "inconsistent.")

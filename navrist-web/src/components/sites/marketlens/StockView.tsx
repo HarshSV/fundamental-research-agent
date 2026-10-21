@@ -34,11 +34,24 @@ const RANGE_DAYS: Record<string, number> = { "1M": 30, "3M": 91, "6M": 182, "1Y"
  *  LIVE keeps the same range but polls; for 1M it also switches to finer (hourly) bars. */
 interface Spec { interval: string; period: string; tf: string; everyMs: number | null; days: number | null }
 function specFor(range: Range, live: boolean): Spec {
-  if (range === "1D") return { interval: "5m", period: "1d", tf: "5m", everyMs: live ? 5000 : null, days: null };
-  if (range === "1W") return { interval: "15m", period: "5d", tf: "15m", everyMs: live ? 5000 : null, days: null };
+  // 1D uses 1-minute bars and 1W 5-minute bars (about 375 points a session, like the reference site's
+  // roughly-per-minute series). The pattern agent still runs on 5m / 15m bars; those timestamps are a
+  // subset of the finer bars, so the flags land on the same candles.
+  if (range === "1D") return { interval: "1m", period: "1d", tf: "5m", everyMs: live ? 5000 : null, days: null };
+  if (range === "1W") return { interval: "5m", period: "5d", tf: "15m", everyMs: live ? 5000 : null, days: null };
   if (range === "1M" && live) return { interval: "60m", period: "1mo", tf: "60m", everyMs: 15000, days: null };
   return { interval: "1d", period: "5y", tf: "1d", everyMs: live ? 30000 : null, days: RANGE_DAYS[range] };
 }
+const BAR_SECONDS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "60m": 3600, "1d": 86400 };
+
+/** NSE cash-market hours: Mon-Fri 09:15-15:30 IST. */
+function marketOpen(now = new Date()): boolean {
+  const ist = new Date(now.getTime() + (330 + now.getTimezoneOffset()) * 60000);
+  const day = ist.getDay();
+  const mins = ist.getHours() * 60 + ist.getMinutes();
+  return day >= 1 && day <= 5 && mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
+}
+
 const RETURNS: [string, number][] = [
   ["1 Week", 7],
   ["1 Month", 30],
@@ -121,12 +134,15 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
   const [quote, setQuote] = useState<Quote | null>(null);
   const [daily, setDaily] = useState<Candle[] | null>(null);
   const [bars, setBars] = useState<{ key: string; data: Candle[] } | null>(null);
+  const [ticks, setTicks] = useState<{ key: string; data: Candle[] }>({ key: "", data: [] });
   const [todayBars, setTodayBars] = useState<Candle[] | null>(null);
   const [pickedRange, setRange] = useState<Range>("6M");
   const [live, setLive] = useState(false);
   const [liveAt, setLiveAt] = useState<Date | null>(null);
   const [error, setError] = useState("");
   const [overview, setOverview] = useState<Overview | null>(null);
+  // Basic (non-TTM) EPS from the latest Annual Report. undefined = still loading, null eps = not available.
+  const [annualEps, setAnnualEps] = useState<{ eps: number | null; period: string | null } | undefined>(undefined);
   const [showPatterns, setShowPatterns] = useState(true);
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
   // Until it has some history, longer ranges fall back to the intraday 1D view (and say so).
@@ -140,8 +156,19 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
 
   useEffect(() => {
     let live = true;
+    let epsTimer: ReturnType<typeof setTimeout> | undefined;
     const fail = (e: Error) => live && setError(e.message);
     getJson<Overview>(`/api/v1/stock-overview/${sym}`).then((o) => live && setOverview(o)).catch(fail);
+    // First read of a company's Annual Report can take minutes: the backend answers `pending` and we poll.
+    const pollEps = (tries: number) =>
+      getJson<{ eps: number | null; period: string | null; pending?: boolean }>(`/api/v1/stock-eps/${sym}`)
+        .then((e) => {
+          if (!live) return;
+          if (e.pending && tries < 120) epsTimer = setTimeout(() => pollEps(tries + 1), 5000);
+          else setAnnualEps({ eps: e.eps, period: e.period });
+        })
+        .catch(() => live && setAnnualEps({ eps: null, period: null }));
+    pollEps(0);
     getJson<Quote>(`/api/quote?symbol=${sym}`).then((q) => live && setQuote((prev) => (q.ltp != null ? q : prev ?? q))).catch(fail);
     // Never replace data we already have with an empty answer.
     getCandles(sym, "1d", "5y").then((c) => live && setDaily((prev) => (c.length ? c : prev ?? c))).catch(fail);
@@ -149,6 +176,7 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
     getCandles(sym, "5m", "1d").then((c) => live && setTodayBars(c)).catch(() => {});
     return () => {
       live = false;
+      clearTimeout(epsTimer);
     };
   }, [sym, reloadTick]);
 
@@ -171,7 +199,26 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
   useEffect(() => {
     let alive = true;
     const load = () => {
-      if (live) getJson<Quote>(`/api/quote?symbol=${sym}`).then((q) => alive && q.ltp != null && setQuote(q)).catch(() => {});
+      if (live) {
+        getJson<Quote>(`/api/quote?symbol=${sym}`)
+          .then((q) => {
+            if (!alive || q.ltp == null) return;
+            setQuote(q);
+            // LIVE on an intraday range: keep every distinct price we see, stamped to the second, so the
+            // chart (and its hover) gets finer than the candles. Only while the market is open - after the
+            // close the quote does not change and a stamp would claim a trade at a time none happened.
+            if (spec.days === null && marketOpen()) {
+              const price = q.ltp;
+              const nowSec = Math.floor(Date.now() / 1000);
+              setTicks((prev) => {
+                const base = prev.key === specKey ? prev.data : [];
+                if (base.length && base[base.length - 1].close === price) return prev.key === specKey ? prev : { key: specKey, data: base };
+                return { key: specKey, data: [...base, { time: nowSec, open: price, high: price, low: price, close: price, tick: true as const }].slice(-1500) };
+              });
+            }
+          })
+          .catch(() => {});
+      }
       getCandles(sym, spec.interval, spec.period)
         .then((c) => {
           if (!alive) return;
@@ -260,11 +307,28 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
 
   const isIntraday = spec.days === null;
   const series = useMemo(() => {
-    if (isIntraday) return bars?.key === specKey ? bars.data : null;
+    if (isIntraday) {
+      const b = bars?.key === specKey ? bars.data : null;
+      if (!b || !live || ticks.key !== specKey || !ticks.data.length) return b;
+      // live ticks that fall after the last candle's bucket extend the line with second-level points
+      const after = (b[b.length - 1]?.time ?? 0) + BAR_SECONDS[spec.interval];
+      const extra = ticks.data.filter((t) => t.time > after);
+      return extra.length ? [...b, ...extra] : b;
+    }
     if (!daily) return null;
     const cutoff = daily.length ? daily[daily.length - 1].time - (spec.days as number) * DAY : 0;
     return daily.filter((c) => c.time >= cutoff);
-  }, [isIntraday, bars, specKey, daily, spec.days]);
+  }, [isIntraday, bars, specKey, daily, spec.days, live, ticks, spec.interval]);
+
+  // While a new range loads, keep the previous chart on screen (with a spinner) so the switch can morph
+  // from the old shape to the new one instead of flashing a blank "Loading…" box. This is React's
+  // "adjust state while rendering" pattern: guarded, so it settles in one extra pass.
+  const seriesKey = isIntraday ? specKey : `d${spec.days}`;
+  const [held, setHeld] = useState<{ key: string; data: Candle[] } | null>(null);
+  if (series && series !== held?.data) setHeld({ key: seriesKey, data: series });
+  const shown = series ?? held?.data ?? null;
+  const shownKey = series ? seriesKey : held?.key ?? seriesKey;
+  const switching = series === null && held !== null;
 
   const returns = useMemo(() => {
     if (!daily?.length) return null;
@@ -287,21 +351,21 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
     return { low: Math.min(...win.map((c) => c.low)), high: Math.max(...win.map((c) => c.high)) };
   }, [daily]);
 
-  const allTime = useMemo(() => {
-    if (!daily?.length) return null;
-    return { low: Math.min(...daily.map((c) => c.low)), high: Math.max(...daily.map((c) => c.high)) };
-  }, [daily]);
-
-  // TTM EPS = sum of the last four reported quarters, only when all four are known.
-  const ttmEps = useMemo(() => {
-    const last4 = (overview?.quarterly ?? []).slice(-4);
-    if (last4.length < 4 || last4.some((q) => q.eps == null)) return null;
-    return last4.reduce((a, q) => a + (q.eps as number), 0);
-  }, [overview]);
+  // All-time extremes come from the backend's FULL price history (split/bonus-adjusted, not
+  // dividend-adjusted), not from the 5-year chart window.
+  const allTime =
+    overview?.all_time_high && overview?.all_time_low
+      ? { low: overview.all_time_low.price, high: overview.all_time_high.price }
+      : null;
 
   const pct = quote?.change_pct;
   const up = (pct ?? 0) >= 0;
   const ltp = quote?.ltp ?? null;
+  // P/E = live price / Basic EPS (non-TTM) from the latest audited Annual Report, only when that EPS is positive
+  // (negative or unknown earnings give "—", never a made-up number).
+  const annEps = annualEps?.eps ?? null;
+  const pe = annEps != null && annEps > 0 && ltp ? ltp / annEps : null;
+  const arYear = annualEps?.period?.slice(-4);
 
   return (
     <div className="w-full">
@@ -430,11 +494,13 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
               </span>
             )}
           </div>
-          {series === null ? (
+          {shown === null ? (
             <div className="flex h-[320px] items-center justify-center text-sm" style={{ color: "var(--text-tertiary)" }}>Loading chart…</div>
-          ) : series.length > 1 ? (
+          ) : shown.length > 1 ? (
+            <div className="relative">
             <PriceChart
-              candles={series}
+              candles={shown}
+              dataKey={shownKey}
               intraday={isIntraday}
               live={live}
               occs={showPatterns ? shownOccs : []}
@@ -442,6 +508,15 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
               selectedId={selectedId}
               onSelect={setSelectedId}
             />
+            {switching && (
+              <span
+                className="pointer-events-none absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 animate-spin rounded-full border-2"
+                style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
+                role="status"
+                aria-label="Loading chart"
+              />
+            )}
+            </div>
           ) : (
             <div className="flex h-[320px] flex-col items-center justify-center gap-3 text-sm" style={{ color: "var(--text-tertiary)" }}>
               <span>No chart data came back for this range. This is usually a temporary hiccup from the data provider.</span>
@@ -479,8 +554,8 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
           <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
             {[
               ["Market Cap", overview?.market_cap_cr != null ? `₹${fmt(overview.market_cap_cr)} Cr` : null],
-              ["P/E Ratio", overview?.pe != null ? fmt(overview.pe) : null],
-              ["EPS (TTM)", ttmEps != null ? `₹${fmt(ttmEps)}` : null],
+              ["P/E Ratio", annualEps === undefined ? "…" : pe != null ? fmt(pe) : null],
+              [arYear ? `EPS (FY${arYear.slice(-2)})` : "EPS (annual)", annualEps === undefined ? "…" : annEps != null ? `₹${fmt(annEps)}` : null],
               ["Face Value", overview?.face_value != null ? `₹${fmt(overview.face_value, overview.face_value % 1 ? 2 : 0)}` : null],
               ["All Time High", allTime ? inr(allTime.high) : null],
               ["All Time Low", allTime ? inr(allTime.low) : null],
@@ -492,9 +567,6 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
               </Card>
             ))}
           </div>
-          <p className="mt-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
-            All-time range is over the available 5-year history. “—” means the backend feed for that value is not connected yet.
-          </p>
         </div>
       </section>
 

@@ -28,6 +28,9 @@ export interface Overview {
   source: string;
   market_cap_cr?: number | null;
   face_value?: number | null;
+  eps_ttm?: number | null;
+  all_time_high?: { price: number; time: number } | null;
+  all_time_low?: { price: number; time: number } | null;
   debt_to_equity?: number | null;
   pe?: number | null;
   about?: string | null;

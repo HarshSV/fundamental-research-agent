@@ -1,5 +1,6 @@
 """Popular-screens logic. Synthetic companies only - never a real company."""
 import os
+import pytest
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -91,3 +92,24 @@ def test_debt_equity_needs_both_figures_and_positive_equity():
     assert metrics.compute(fin, _candles(50))["debt_equity"] == 0.5
     fin["financial_arrays"]["balance_sheet"]["2025-03-31"]["Stockholders Equity"] = -10.0
     assert metrics.compute(fin, _candles(50))["debt_equity"] is None
+
+
+def test_pe_is_price_over_trailing_eps_and_none_when_earnings_are_not_positive():
+    def fin(eps_each):
+        q = {f"2025-0{i}-30": {"Diluted EPS": eps_each} for i in range(1, 5)}
+        return {"info": {"trailingPE": 56.9}, "financial_arrays": {"quarterly_income_stmt": q}}
+
+    c = _candles(60)  # last close is the price
+    price = c[-1]["close"]
+    assert metrics.compute(fin(2.5), c)["pe"] == pytest.approx(price / 10.0)
+    # negative trailing earnings: not meaningful. The provider's own P/E (56.9) must NOT be used instead.
+    assert metrics.compute(fin(-1.0), c)["pe"] is None
+
+
+def test_eps_row_ignores_a_leading_note_reference_column():
+    from tools.annual_report_financials import _find_eps_row
+    txt = ("Earnings per equity share Equity shares of par value 5/- each Basic (`) 2.23 71.58 64.50 "
+           "Diluted (`) 2.23 71.46 64.34 Weighted average equity shares")
+    assert _find_eps_row(txt) == (71.58, 64.5)
+    plain = "Earnings per equity share Basic (`) 71.58 64.50 Diluted (`) 71.46 64.34"
+    assert _find_eps_row(plain) == (71.58, 64.5)

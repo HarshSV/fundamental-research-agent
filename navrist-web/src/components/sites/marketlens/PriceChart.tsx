@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   OUTCOME_COLOR, OUTCOME_LABEL, STATUS_COLOR, STATUS_LABEL, displayName, markerOf,
   type CatalogueEntry, type MarkerKind, type PatternOcc,
@@ -13,6 +13,7 @@ export interface Candle {
   low: number;
   close: number;
   volume?: number;
+  tick?: true; // a live price tick (real timestamp, to the second) rather than a candle
 }
 
 const DAY = 86400;
@@ -54,10 +55,38 @@ interface Group {
   items: PatternOcc[];
 }
 
+const MORPH_MS = 1500;
+
+/** CSS cubic-bezier(.25,.1,.25,1) ("ease", also Recharts' default) as a function of time fraction. */
+function easeFn(t: number): number {
+  const [x1, y1, x2, y2] = [0.25, 0.1, 0.25, 1];
+  const bez = (a: number, b: number, c: number, u: number) => 3 * a * (1 - u) * (1 - u) * u + 3 * b * (1 - u) * u * u + u * u * u * c;
+  let u = t;
+  for (let i = 0; i < 8; i++) {
+    const x = bez(x1, x2, 1, u) - t;
+    const dx = 3 * x1 * (1 - u) * (1 - u) + 6 * (x2 - x1) * (1 - u) * u + 3 * (1 - x2) * u * u;
+    if (Math.abs(x) < 1e-5 || Math.abs(dx) < 1e-6) break;
+    u -= x / dx;
+  }
+  return bez(y1, y2, 1, Math.min(1, Math.max(0, u)));
+}
+
+/** Resample a polyline's y-values to n points (linear), so two different-length series can be morphed. */
+function resample(ys: number[], n: number): number[] {
+  if (ys.length === n) return ys;
+  return Array.from({ length: n }, (_, i) => {
+    const pos = (i * (ys.length - 1)) / Math.max(n - 1, 1);
+    const lo = Math.floor(pos);
+    const hi = Math.min(lo + 1, ys.length - 1);
+    return ys[lo] + (ys[hi] - ys[lo]) * (pos - lo);
+  });
+}
+
 export function PriceChart({
-  candles, intraday, live, occs, catalogue, selectedId, onSelect,
+  candles, dataKey, intraday, live, occs, catalogue, selectedId, onSelect,
 }: {
   candles: Candle[];
+  dataKey: string; // changes when the DATASET changes (range switch), not on live updates: triggers the morph
   intraday: boolean;
   live: boolean;
   occs: PatternOcc[];
@@ -87,6 +116,58 @@ export function PriceChart({
   const yc = (v: number) => Math.min(H - PAD_B, Math.max(2, y(v))); // clamp levels outside the visible range
   const line = closes.map((c, i) => `${x(i)},${y(c)}`).join(" ");
   const area = `${PAD_L},${H - PAD_B} ${line} ${w},${H - PAD_B}`;
+  const ys = closes.map((c) => y(c));
+
+  // ---- range-switch morph: the line and its fill glide from the previous shape to the new one --------
+  const lineRef = useRef<SVGPolylineElement>(null);
+  const areaRef = useRef<SVGPolygonElement>(null);
+  const overlayRef = useRef<SVGGElement>(null);
+  const prevYs = useRef<number[] | null>(null);
+  const lastKey = useRef(dataKey);
+  const raf = useRef(0);
+
+  // Runs after every render but only acts when the dataset key changed. It executes before paint, so the
+  // new final shape React just committed is replaced by the first morph frame without a visible flash.
+  useLayoutEffect(() => {
+    if (lastKey.current === dataKey) return;
+    lastKey.current = dataKey;
+    const from = prevYs.current;
+    const lineEl = lineRef.current;
+    const areaEl = areaRef.current;
+    const overlay = overlayRef.current;
+    if (!from || !lineEl || !areaEl || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const start = resample(from, ys.length);
+    const xs = ys.map((_, i) => x(i));
+    const draw = (e: number) => {
+      const pts = ys.map((yy, i) => `${xs[i]},${start[i] + (yy - start[i]) * e}`).join(" ");
+      lineEl.setAttribute("points", pts);
+      areaEl.setAttribute("points", `${PAD_L},${H - PAD_B} ${pts} ${w},${H - PAD_B}`);
+    };
+    cancelAnimationFrame(raf.current);
+    draw(0);
+    if (overlay) {
+      overlay.style.transition = "none";
+      overlay.style.opacity = "0"; // markers wait until the line has settled
+    }
+    let t0: number | null = null; // taken from the first frame's own timestamp
+    const frame = (now: number) => {
+      if (t0 === null) t0 = now;
+      const t = Math.min(1, (now - t0) / MORPH_MS);
+      draw(easeFn(t));
+      if (t < 1) raf.current = requestAnimationFrame(frame);
+      else if (overlay) {
+        overlay.style.transition = "opacity 300ms ease-out";
+        overlay.style.opacity = "1";
+      }
+    };
+    raf.current = requestAnimationFrame(frame);
+  }, [dataKey, ys, w]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // remember what was last drawn (the morph's starting shape) once the commit is done
+  useEffect(() => {
+    prevYs.current = ys;
+  });
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
   const ticks = [0, 1, 2, 3, 4].map((k) => min + (span * k) / 4);
   const labelIdx = [0, 1, 2, 3, 4].map((k) => Math.round((k / 4) * (candles.length - 1)));
   const shortSpan = candles[candles.length - 1].time - candles[0].time < 2 * DAY;
@@ -153,10 +234,11 @@ export function PriceChart({
   };
   const hc = hover != null ? candles[hover] : null;
   const hx = hover != null ? x(hover) : 0;
-  const tip = (t: number) => {
-    const d = new Date(t * 1000);
+  const tip = (c: Candle) => {
+    const d = new Date(c.time * 1000);
+    // live ticks carry a real timestamp, so show the seconds; candles are minute/5-minute buckets
     return intraday
-      ? d.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })
+      ? d.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", ...(c.tick ? { second: "2-digit" } : {}), hour12: false })
       : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
   };
 
@@ -182,7 +264,7 @@ export function PriceChart({
             </text>
           </g>
         ))}
-        <polygon points={area} fill="url(#areaFill)" />
+        <polygon ref={areaRef} points={area} fill="url(#areaFill)" />
 
         {outline && sel && (
           <g pointerEvents="none">
@@ -210,7 +292,7 @@ export function PriceChart({
           </g>
         )}
 
-        <polyline points={line} fill="none" stroke="#b7b4e7" strokeWidth="2" strokeLinejoin="round" />
+        <polyline ref={lineRef} points={line} fill="none" stroke="#b7b4e7" strokeWidth="2" strokeLinejoin="round" />
 
         {outline && (
           <g pointerEvents="none">
@@ -231,6 +313,7 @@ export function PriceChart({
           </text>
         ))}
 
+        <g ref={overlayRef}>
         {groups.map((g) => {
           const cx = x(g.i);
           const cy = y(candles[g.i].close);
@@ -268,6 +351,8 @@ export function PriceChart({
             </g>
           );
         })}
+
+        </g>
 
         {live && (
           <g>
@@ -330,7 +415,7 @@ export function PriceChart({
           className="pointer-events-none absolute top-6 z-10 rounded-lg border px-3 py-2 text-sm"
           style={{ left: hx > w - 190 ? hx - 170 : hx + 14, background: "var(--surface-1)", borderColor: "var(--border-default)", boxShadow: "var(--shadow-md)" }}
         >
-          <div className="font-medium">{tip(hc.time)}</div>
+          <div className="font-medium">{tip(hc)}</div>
           <div style={{ color: "var(--accent)" }}>Price : ₹{fmt(hc.close)}</div>
         </div>
       )}

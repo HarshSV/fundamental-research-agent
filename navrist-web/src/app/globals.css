@@ -144,6 +144,7 @@
   --accent-border: #635ec8;
   --btn-primary-bg: #3a2e7d;
   --gain: #66d696;
+  --loss: #f5a9a9;
   --gold: #f7bc28;
   --shadow-md: 0 4px 14px #00000059;
   --shadow-accent: 0 4px 12px #635ec840;
@@ -155,6 +156,7 @@
   --crosshair: rgba(255, 255, 255, 0.5);
   --brand-text: #8f82f2;
   --on-accent: #101019;
+  --backdrop: rgba(8, 8, 14, 0.62);
   font-family: var(--font-poppins), system-ui, sans-serif;
   background: var(--surface-0);
   color: var(--text-primary);
@@ -162,7 +164,7 @@
 }
 .ml .no-scrollbar { scrollbar-width: none; }
 .ml .no-scrollbar::-webkit-scrollbar { display: none; }
-@keyframes ml-ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
 
 /* Styles used by the vendored Navrist live chart */
 .nv-num { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
@@ -210,6 +212,7 @@ html.light .ml {
   --btn-primary-bg: #3a2e7d;
   --btn-primary-hover: #4b3fa0;
   --gain: #00b69b;
+  --loss: #f93c65;
   --gold: #e65c1b;
   --shadow-md: 0 4px 24px #0000000f;
   --shadow-accent: 0 4px 16px #3a2e7d26;
@@ -220,6 +223,7 @@ html.light .ml {
   --crosshair: rgba(32, 34, 36, 0.55);
   --brand-text: #3a2e7d;
   --on-accent: #ffffff;
+  --backdrop: rgba(32, 34, 36, 0.32);
   background: #f1f3f9;
 }
 
@@ -255,3 +259,18 @@ html.light .ml {
 @media (prefers-reduced-motion: reduce) {
   .search-glow { animation: none; }
 }
+
+/* ---- Search overlay: staged fade-ins (timings measured from the reference page) -------------------- */
+@keyframes ov-fade { from { opacity: 0; } to { opacity: 1; } }
+.ov-content { animation: ov-fade 300ms cubic-bezier(0.25, 0.1, 0.35, 1) both; }
+.ov-hint { animation: ov-fade 350ms ease-in-out both; }
+.ov-late { animation: ov-fade 350ms ease-out 260ms both; }
+@media (prefers-reduced-motion: reduce) {
+  .ov-content, .ov-hint, .ov-late { animation: none; }
+}
+
+/* ---- Index ticker ---------------------------------------------------------------------------------- */
+@keyframes ml-ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.ticker-track { animation: ml-ticker 28s linear infinite; }
+.ticker-track:hover { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .ticker-track { animation: none; } }

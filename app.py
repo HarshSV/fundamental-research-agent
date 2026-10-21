@@ -443,7 +443,16 @@ def search_symbols(q: str = "", _: dict = Depends(auth.require_session)):
     # curated seed list. Bounded so a slow/failed fetch still serves what we have.
     _REGISTRY_READY.wait(timeout=15)
     _ensure_universe_fresh()
-    return _company_index().search(q, limit=10)
+    hits = _company_index().search(q, limit=10)
+    # Add the NSE sector where we have one (None for companies outside the sector-mapped universe),
+    # so the search list can show the industry under each name.
+    try:
+        from tools.nse_sector_map import get_nse_sector
+        for h in hits:
+            h["sector"] = get_nse_sector(h.get("symbol"))
+    except Exception:  # pragma: no cover - the sector is only a display nicety
+        pass
+    return hits
 
 # Define request schemas
 class ResearchRequest(BaseModel):
@@ -640,6 +649,58 @@ def live_chart_latest(symbol: str, _: dict = Depends(auth.require_session)):
     latest["symbol"] = sym
     return latest
 
+_EPS_JOBS: dict = {}  # symbol -> Future of the annual-report EPS extraction (a first read can take minutes)
+_EPS_POOL = None
+
+
+def _annual_eps_result(sym, name):
+    out = {"symbol": sym, "eps": None, "period": None, "basis": None, "reason": None, "pending": False}
+    try:
+        from tools.nse_xbrl import fetch_eps
+        r = fetch_eps(sym, name)
+    except Exception as e:  # pragma: no cover
+        print(f"[HTTP] annual-report EPS failed for {sym}: {e}")
+        out["reason"] = "Annual-report EPS could not be computed right now."
+        return out
+    out["period"] = r.get("selected_period")
+    out["basis"] = r.get("statement_basis") or r.get("period")
+    if (r.get("applicable") and isinstance(r.get("value"), (int, float))
+            and r.get("status") == "verified" and not r.get("estimated")):
+        out["eps"] = r["value"]
+    else:
+        out["reason"] = r.get("reason") or "No verified Basic EPS in the latest Annual Report."
+    return out
+
+
+@app.get("/api/v1/stock-eps/{symbol}")
+def stock_eps(symbol: str, _: dict = Depends(auth.require_session)):
+    """Basic EPS (non-TTM, owners-attributable, consolidated-first) from the company's own latest audited Annual
+    Report - discovered and read automatically for ANY listed company, no upload needed (same engine as the ratio
+    suite; cached/DB-backed after the first read). A first read can take minutes, so it runs in the background:
+    the answer is `pending: true` until it finishes and the caller polls. Only an extractor-verified value is
+    returned; anything else is null with the reason - never zero. P/E = live price / this EPS (caller side)."""
+    global _EPS_POOL
+    from concurrent.futures import ThreadPoolExecutor
+    sym = resolve_symbol_from_registry(symbol)
+    if not sym:
+        raise HTTPException(status_code=400, detail="Symbol required.")
+    name = next((c["name"] for c in STOCK_REGISTRY if c["symbol"] == sym), None)
+    if _EPS_POOL is None:
+        _EPS_POOL = ThreadPoolExecutor(max_workers=3)
+    fut = _EPS_JOBS.get(sym)
+    if fut is None:
+        fut = _EPS_JOBS[sym] = _EPS_POOL.submit(_annual_eps_result, sym, name)
+    if not fut.done():
+        try:
+            return fut.result(timeout=6)  # fast path: already cached/DB-backed
+        except Exception:
+            return {"symbol": sym, "eps": None, "period": None, "basis": None, "reason": None, "pending": True}
+    res = fut.result()
+    if res["eps"] is None:
+        _EPS_JOBS.pop(sym, None)  # a miss is retried on the next visit; a verified value stays memoised
+    return res
+
+
 @app.get("/api/v1/stock-overview/{symbol}")
 def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     """Stock-page sections that are not price data: key metrics, about text, quarterly
@@ -650,10 +711,24 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     if not sym:
         raise HTTPException(status_code=400, detail="Symbol required.")
     name = next((c["name"] for c in STOCK_REGISTRY if c["symbol"] == sym), None)
+    # All-time high / low over the FULL price history (split/bonus-adjusted, not dividend-adjusted).
+    ath = atl = None
+    try:
+        from tools.live_chart_yf import get_candles
+        hist = get_candles(sym, interval="1d", period="max")
+        if hist:
+            hi = max(hist, key=lambda c: c["high"])
+            lo = min(hist, key=lambda c: c["low"])
+            ath = {"price": hi["high"], "time": hi["time"]}
+            atl = {"price": lo["low"], "time": lo["time"]}
+    except Exception:  # pragma: no cover - extremes are a display nicety; absent -> null
+        pass
+
     from tools.screener_scraper import fetch_screener_financials
     data = fetch_screener_financials(sym, name)
     if not data:
-        return {"symbol": sym, "source": "unavailable"}
+        # fundamentals source down: price-derived extremes are still real
+        return {"symbol": sym, "source": "unavailable", "all_time_high": ath, "all_time_low": atl}
 
     def cr(v):
         return round(v / 1e7, 2) if isinstance(v, (int, float)) else None
@@ -683,13 +758,24 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
             de = round(debt / eq, 2)
             break
 
+    # Trailing-twelve-month EPS = sum of the last four reported quarters (all four must be known). P/E is
+    # price / that EPS and only when it is positive - negative or missing earnings give None ("not
+    # meaningful"), never a made-up number.
+    q_eps = [r["eps"] for r in quarterly][-4:]
+    eps_ttm = sum(q_eps) if len(q_eps) == 4 and all(isinstance(x, (int, float)) for x in q_eps) else None
+    price = info.get("currentPrice")
+    pe = round(price / eps_ttm, 2) if (eps_ttm and eps_ttm > 0 and price) else None
+
     return {
         "symbol": sym,
         "source": "screener.in",
         "market_cap_cr": cr(mcap),
         "face_value": data.get("face_value"),
         "debt_to_equity": de,
-        "pe": info.get("trailingPE"),
+        "eps_ttm": eps_ttm,
+        "all_time_high": ath,
+        "all_time_low": atl,
+        "pe": pe,
         "book_value": info.get("bookValue"),
         "about": info.get("longBusinessSummary"),
         "quarterly": quarterly,
@@ -718,6 +804,13 @@ try:
     app.include_router(_make_patterns_router(resolve_symbol_from_registry, auth.require_session, _pattern_candles))
 except Exception as _pt_err:  # pragma: no cover
     print(f"[HTTP WARNING] pattern API not mounted: {_pt_err}")
+
+@app.get("/api/v1/market-indices")
+def market_indices(_: dict = Depends(auth.require_session)):
+    """Headline index levels for the site ticker (cached ~60s; indices without data are omitted)."""
+    from tools.market_indices import get_indices
+    return {"indices": get_indices(), "source": "yfinance"}
+
 
 # Sector browsing + the Popular Screens (see screens/). The universe of metrics is built in the
 # background (POST /api/v1/screens/build) and cached on disk.

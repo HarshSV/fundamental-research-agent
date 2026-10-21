@@ -4476,7 +4476,7 @@ def fetch_eps(symbol, name=None, to_date=None):
     # "_v4" bump: this cache wraps `fetch_eps_from_annual_report` (bumped
     # "_v2"->"_v3") which wraps `_get_extracted_financials` (bumped
     # "v18"->"v19") - this outermost layer must move with both.
-    ckey = f"eps_v4_{sym}_{to_date or 'latest'}_{_doc_tag_for_cache(sym, to_date)}"
+    ckey = f"eps_v6_{sym}_{to_date or 'latest'}_{_doc_tag_for_cache(sym, to_date)}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached

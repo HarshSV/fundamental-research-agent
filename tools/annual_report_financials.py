@@ -559,7 +559,17 @@ def _find_eps_row(text):
         lm = re.search(_fuzzy_label_re(label), window, re.I)
         if not lm:
             continue
-        nums = re.findall(eps_num_re, window[lm.end():lm.end() + 150])
+        seg = window[lm.end():lm.end() + 150]
+        dm = re.search(r"diluted", seg, re.I)
+        nums = re.findall(eps_num_re, seg[:dm.start()] if dm else seg)
+        # A Note-reference column ("Basic (₹) 2.23 71.58 64.50") puts a third figure BEFORE current/prior.
+        # It is a note number, not EPS, when the Diluted row repeats the very same leading figure.
+        if dm and len(nums) == 3:
+            dnums = re.findall(eps_num_re, seg[dm.end():dm.end() + 80])
+            if dnums and dnums[0] == nums[0]:
+                nums = nums[1:]
+        if not dm:
+            nums = re.findall(eps_num_re, seg)
         if len(nums) >= 2:
             a, b = _parse_num(nums[0]), _parse_num(nums[1])
             if a is not None and b is not None:
@@ -2232,7 +2242,8 @@ def _unit_factor(text):
         return 1e-4
     if re.search(r"\bmillion", text, re.I):
         return 0.1
-    if re.search(r"\blakh", text, re.I):
+    # "lac"/"lacs" is the other common spelling ("(` in lacs)", Tilaknagar) - tight on purpose: only after "in"
+    if re.search(r"\blakh", text, re.I) or re.search(r"\bin\s+lacs?\b", text, re.I):
         return 0.01
     return 1.0
 
@@ -3229,7 +3240,8 @@ def _contract_to_legacy(res, fs, fiscal_year):
 def _contract_cache_key(kind, sym, fiscal_year, consolidated, lease_basis):
     from tools.ratio_contract import FORMULA_VERSION
     from tools.ratio_breakdown import BREAKDOWN_VERSION
-    return (f"ar_contract_{kind}_{FORMULA_VERSION}b{BREAKDOWN_VERSION}_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}"
+    from tools.fundamental_fact_store import EXTRACTION_VERSION  # extraction fixes must invalidate these caches too
+    return (f"ar_contract_{kind}_{FORMULA_VERSION}b{BREAKDOWN_VERSION}x{EXTRACTION_VERSION}_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}_{lease_basis}"
             f"{'_manual' if is_manual_mode() else ''}_{_document_identity_tag(sym, fiscal_year)}")
 
 
@@ -7379,7 +7391,8 @@ _attach_disclosed_purchases = _attach_text_disclosures   # legacy name
 # "81" - dividends paid are split by recipient (owners vs minorities) from the notes.
 # "80" - comma-separated note-number lists ("26, 15") ahead of a figure are blanked.
 # "79" - second reference column in the line-based P&L row reader.
-_EXTRACTION_LOGIC_VERSION = "200"
+# "201" - unit detector understands "in lacs"; EPS row parser ignores a leading Note-reference column.
+_EXTRACTION_LOGIC_VERSION = "202"
 
 
 def _document_identity_tag(symbol, fiscal_year):
@@ -7479,7 +7492,7 @@ def _get_extracted_financials(symbol, name, fiscal_year, consolidated=True):
     # freshness. Falls back to "" when the file doesn't exist yet (nothing
     # to distinguish from) - never blocks a first-time fetch.
     doc_tag = _document_identity_tag(sym, fiscal_year)
-    ckey = f"ar_extract_v29_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
+    ckey = f"ar_extract_v31_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
@@ -7665,7 +7678,7 @@ def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True)
     # acquiring the lock would look up a different key than the one this
     # function is about to write).
     doc_tag = _document_identity_tag(sym, fiscal_year)
-    ckey = f"ar_extract_v29_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
+    ckey = f"ar_extract_v31_{sym}_{fiscal_year}_{'C' if consolidated else 'S'}{suffix}_{doc_tag}"
     cached = _read_cache(ckey)
     if cached is not None:
         return cached
