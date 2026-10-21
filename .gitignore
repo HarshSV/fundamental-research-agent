@@ -28,3 +28,16 @@ _audit_final_table.txt
 
 # forecasting system: local market data store and model artifacts
 data/forecast/
+
+# generated / rebuildable data (pattern agent store, screening universe)
+data/patterns/
+data/screens/
+
+# raw third-party crawl output (HTML, markdown, screenshots of an external site) - not ours to publish
+orderblock-research/scrape/
+
+# Next.js app: dependencies, build output, local env
+navrist-web/node_modules/
+navrist-web/.next/
+navrist-web/.env.local
+navrist-web/tsconfig.tsbuildinfo
