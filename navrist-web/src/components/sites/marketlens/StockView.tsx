@@ -2,10 +2,10 @@
 
 import { ArrowLeft, Eye, EyeOff, TrendingDown, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchJson, type CompanyHit } from "@/lib/api";
+import { fetchJson, searchSymbols, type CompanyHit } from "@/lib/api";
 import { ActiveSetups } from "./ActiveSetups";
 import { Dropdown } from "./Dropdown";
-import { About, PeerTable, QuarterlyResults, ShareholdingPattern, Unavailable, type Overview } from "./OverviewSections";
+import { About, PeerTable, QuarterlyResults, ShareholdingPattern, Unavailable, type FinTab, type Overview, type Profile } from "./OverviewSections";
 import {
   STATUS_COLOR, STATUS_LABEL, displayName, fetchCatalogue, fetchPatterns,
   type CatalogueEntry, type PatternOcc, type PatternStatus, type PatternsResponse,
@@ -21,6 +21,7 @@ interface Quote {
   low?: number | null;
   close?: number | null;
   volume?: number | null;
+  avg_price?: number | null; // exchange-computed day VWAP (average traded price)
 }
 
 const RANGES = ["1D", "1W", "1M", "3M", "6M", "1Y", "5Y"] as const;
@@ -52,14 +53,15 @@ function marketOpen(now = new Date()): boolean {
   return day >= 1 && day <= 5 && mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
 }
 
-const RETURNS: [string, number][] = [
-  ["1 Week", 7],
-  ["1 Month", 30],
-  ["3 Months", 91],
-  ["6 Months", 182],
-  ["1 Year", 365],
-  ["3 Years", 1096],
-  ["5 Years", 1826],
+// label shown -> key of the backend's return_bases
+const RETURNS: [string, string][] = [
+  ["1 Week", "1W"],
+  ["1 Month", "1M"],
+  ["3 Months", "3M"],
+  ["6 Months", "6M"],
+  ["1 Year", "1Y"],
+  ["3 Years", "3Y"],
+  ["5 Years", "5Y"],
 ];
 
 const GAIN = "var(--gain)";
@@ -128,9 +130,22 @@ function RangeBar({ low, high, now, lowLabel, highLabel, title }: { low: number 
   );
 }
 
-export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => void }) {
+export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; onBack: () => void; onOpenStock?: (s: CompanyHit) => void }) {
   const sym = encodeURIComponent(stock.symbol);
   const name = stock.name ?? stock.company_name ?? stock.symbol;
+  // Peer Comparison: clicking a peer opens that company's own page. The peer table carries short names, so look the
+  // company up by symbol for its full record (falls back to the short name if the lookup fails).
+  const openPeer = async (p: { symbol: string; name: string }) => {
+    if (!onOpenStock) return;
+    let hit: CompanyHit = { symbol: p.symbol, name: p.name };
+    try {
+      const found = (await searchSymbols(p.symbol)).find((h) => h.symbol.toUpperCase() === p.symbol.toUpperCase());
+      if (found) hit = found;
+    } catch {
+      /* keep the short record */
+    }
+    onOpenStock(hit);
+  };
   const [quote, setQuote] = useState<Quote | null>(null);
   const [daily, setDaily] = useState<Candle[] | null>(null);
   const [bars, setBars] = useState<{ key: string; data: Candle[] } | null>(null);
@@ -141,8 +156,10 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
   const [liveAt, setLiveAt] = useState<Date | null>(null);
   const [error, setError] = useState("");
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [finTab, setFinTab] = useState<FinTab>("results");
+  const [profile, setProfile] = useState<Profile | null>(null);
   // Basic (non-TTM) EPS from the latest Annual Report. undefined = still loading, null eps = not available.
-  const [annualEps, setAnnualEps] = useState<{ eps: number | null; period: string | null } | undefined>(undefined);
+  const [annualEps, setAnnualEps] = useState<{ eps: number | null; period: string | null; basis?: string | null } | undefined>(undefined);
   const [showPatterns, setShowPatterns] = useState(true);
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
   // Until it has some history, longer ranges fall back to the intraday 1D view (and say so).
@@ -159,13 +176,14 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
     let epsTimer: ReturnType<typeof setTimeout> | undefined;
     const fail = (e: Error) => live && setError(e.message);
     getJson<Overview>(`/api/v1/stock-overview/${sym}`).then((o) => live && setOverview(o)).catch(fail);
+    getJson<Profile>(`/api/v1/stock-profile/${sym}`).then((p) => live && setProfile(p)).catch(() => {});
     // First read of a company's Annual Report can take minutes: the backend answers `pending` and we poll.
     const pollEps = (tries: number) =>
-      getJson<{ eps: number | null; period: string | null; pending?: boolean }>(`/api/v1/stock-eps/${sym}`)
+      getJson<{ eps: number | null; period: string | null; basis?: string | null; pending?: boolean }>(`/api/v1/stock-eps/${sym}`)
         .then((e) => {
           if (!live) return;
           if (e.pending && tries < 120) epsTimer = setTimeout(() => pollEps(tries + 1), 5000);
-          else setAnnualEps({ eps: e.eps, period: e.period });
+          else setAnnualEps({ eps: e.eps, period: e.period, basis: e.basis });
         })
         .catch(() => live && setAnnualEps({ eps: null, period: null }));
     pollEps(0);
@@ -180,8 +198,9 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
     };
   }, [sym, reloadTick]);
 
-  // VWAP of today's session = sum(typical price x volume) / sum(volume), only from bars that carry volume.
-  const vwap = useMemo(() => {
+  // VWAP: the exchange's own average traded price when the quote carries it; otherwise an approximation from today's
+  // bars = sum(typical price x volume) / sum(volume), only from bars that carry volume.
+  const barVwap = useMemo(() => {
     let pv = 0;
     let v = 0;
     for (const b of todayBars ?? []) {
@@ -192,6 +211,7 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
     }
     return v > 0 ? pv / v : null;
   }, [todayBars]);
+  const vwap = quote?.avg_price ?? barVwap;
 
   // Bars for the selected range. Intraday ranges load their own bars; daily ranges slice `daily`.
   // LIVE re-fetches on a timer (the backend has no push feed, so this polls) and refreshes the
@@ -330,18 +350,18 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
   const shownKey = series ? seriesKey : held?.key ?? seriesKey;
   const switching = series === null && held !== null;
 
-  const returns = useMemo(() => {
-    if (!daily?.length) return null;
-    const last = daily[daily.length - 1];
-    const first = daily[0].time;
-    return RETURNS.map(([label, days]) => {
-      const target = last.time - days * DAY;
-      // Only report a return when history actually reaches back that far.
-      if (target < first - 5 * DAY) return { label, pct: null as number | null };
-      const base = [...daily].reverse().find((c) => c.time <= target) ?? daily[0];
-      return { label, pct: ((last.close - base.close) / base.close) * 100 };
+  // Returns = live price / the close on the latest trading day on or before (today - period), minus 1 - the exchange's
+  // Market Lens definition. The base closes come from the backend's full history (calendar arithmetic); a period the
+  // history does not reach is "—", never extrapolated.
+  const returns = (() => {
+    const bases = overview?.return_bases;
+    if (!bases) return null;
+    const end = quote?.ltp ?? daily?.[daily.length - 1]?.close ?? null;
+    return RETURNS.map(([label, key]) => {
+      const b = bases[key];
+      return { label, pct: end != null && b ? (end / b.price - 1) * 100 : null };
     });
-  }, [daily]);
+  })();
 
   const week52 = useMemo(() => {
     if (!daily?.length) return null;
@@ -555,7 +575,7 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
             {[
               ["Market Cap", overview?.market_cap_cr != null ? `₹${fmt(overview.market_cap_cr)} Cr` : null],
               ["P/E Ratio", annualEps === undefined ? "…" : pe != null ? fmt(pe) : null],
-              [arYear ? `EPS (FY${arYear.slice(-2)})` : "EPS (annual)", annualEps === undefined ? "…" : annEps != null ? `₹${fmt(annEps)}` : null],
+              [`${arYear ? `EPS (FY${arYear.slice(-2)}` : "EPS (annual"}${annualEps?.basis === "standalone" ? ", standalone" : ""})`, annualEps === undefined ? "…" : annEps != null ? `₹${fmt(annEps)}` : null],
               ["Face Value", overview?.face_value != null ? `₹${fmt(overview.face_value, overview.face_value % 1 ? 2 : 0)}` : null],
               ["All Time High", allTime ? inr(allTime.high) : null],
               ["All Time Low", allTime ? inr(allTime.low) : null],
@@ -616,8 +636,8 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
             {overview === null ? <Loading /> : overview.shareholding ? <ShareholdingPattern data={overview.shareholding} /> : <Unavailable what="Shareholding pattern" />}
           </Card>
           <Card className="p-6">
-            <SectionTitle>Financial Result (Amount in ₹ Lakhs)</SectionTitle>
-            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} /> : <Unavailable what="Quarterly financial results" />}
+            <SectionTitle>{finTab === "results" ? "Financial Result (Amount in ₹ Lakhs)" : "Financial Result"}</SectionTitle>
+            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} tab={finTab} onTab={setFinTab} /> : <Unavailable what="Quarterly financial results" />}
           </Card>
         </div>
       </section>
@@ -625,14 +645,14 @@ export function StockView({ stock, onBack }: { stock: CompanyHit; onBack: () => 
       <section className="border-t py-10" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
           <SectionTitle>About {name}</SectionTitle>
-          {overview === null ? <Loading /> : overview.about ? <About text={overview.about} /> : <Unavailable what="Company profile" />}
+          {overview === null && profile === null ? <Loading /> : <About profile={profile} fallbackText={overview?.about ?? null} />}
         </div>
       </section>
 
       <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
           <SectionTitle>Peer Comparison</SectionTitle>
-          {overview === null ? <Loading /> : overview.peers?.length ? <PeerTable peers={overview.peers} current={stock.symbol} /> : <Card><Unavailable what="Peer comparison" /></Card>}
+          {overview === null ? <Loading /> : overview.peers?.length ? <PeerTable peers={overview.peers} current={stock.symbol} onSelect={onOpenStock ? openPeer : undefined} /> : <Card><Unavailable what="Peer comparison" /></Card>}
         </div>
       </section>
     </div>

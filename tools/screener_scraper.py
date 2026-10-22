@@ -271,7 +271,7 @@ def fetch_concall_list(symbol, name=None):
 
 
 # Known renames/demergers where the NSE symbol no longer matches Screener's slug.
-_SYMBOL_MAP = {"TATAMOTORS": "TMCV", "M&M": "M_M", "BAJAJ-AUTO": "BAJAJ_AUTO"}
+_SYMBOL_MAP = {"TATAMOTORS": "TMCV"}  # NSE symbol -> Screener slug where they differ (M&M and BAJAJ-AUTO now resolve as-is)
 
 
 def _parse_peers_table(html):

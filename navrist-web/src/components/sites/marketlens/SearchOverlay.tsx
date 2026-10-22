@@ -3,6 +3,7 @@
 import { ArrowUpRight, Search, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { searchSymbols, type CompanyHit } from "@/lib/api";
+import { addRecent, loadRecents } from "./recent";
 import type { SectorInfo } from "./screens";
 import { useTyped } from "./typing";
 
@@ -52,6 +53,7 @@ export function SearchOverlay({
 }) {
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
+  const [recents] = useState(loadRecents);
   const [result, setResult] = useState<{ for: string; hits: CompanyHit[]; error: string } | null>(null);
   const hint = useTyped(HINTS);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -137,7 +139,15 @@ export function SearchOverlay({
   const pending = !!query && (!result || result.for !== query);
   const error = result && result.for === query ? result.error : "";
 
-  const choose = (r: Row) => (r.kind === "sector" ? onSelectSector(r.sector.name) : onSelectStock(r.hit));
+  const pickStock = (hit: CompanyHit) => {
+    addRecent({ kind: "stock", symbol: hit.symbol, name: hit.name ?? hit.company_name ?? hit.symbol });
+    onSelectStock(hit);
+  };
+  const pickSector = (name: string) => {
+    addRecent({ kind: "sector", name });
+    onSelectSector(name);
+  };
+  const choose = (r: Row) => (r.kind === "sector" ? pickSector(r.sector.name) : pickStock(r.hit));
 
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") return close();
@@ -214,12 +224,27 @@ export function SearchOverlay({
                 </span>
                 <div className="h-px flex-1" style={{ background: "var(--border-subtle)" }} />
               </div>
+              {recents.length > 0 && (
+                <div className="ov-late mb-6 flex flex-wrap gap-2">
+                  {recents.map((r) => (
+                    <button
+                      key={r.kind === "stock" ? `r-${r.symbol}` : `r-s-${r.name}`}
+                      onClick={() => (r.kind === "stock" ? pickStock({ symbol: r.symbol, name: r.name }) : pickSector(r.name))}
+                      title={r.kind === "stock" ? r.symbol : "Sector"}
+                      className="rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors hover:border-[var(--accent-border)] hover:bg-[var(--accent-surface)] hover:text-[var(--accent)]"
+                      style={{ background: "var(--surface-2, var(--surface-1))", borderColor: "var(--border-default)", color: "var(--text-primary)" }}
+                    >
+                      {r.name}
+                    </button>
+                  ))}
+                </div>
+              )}
               <h3 className="mb-3 text-base font-semibold">Browse Sectors</h3>
               <div className="ov-late flex flex-wrap gap-2">
                 {sectors.map((s) => (
                   <button
                     key={s.name}
-                    onClick={() => onSelectSector(s.name)}
+                    onClick={() => pickSector(s.name)}
                     className="rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors hover:border-[var(--accent-border)] hover:bg-[var(--accent-surface)] hover:text-[var(--accent)]"
                     style={{ background: "var(--surface-2, var(--surface-1))", borderColor: "var(--border-default)", color: "var(--text-primary)" }}
                   >

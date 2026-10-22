@@ -113,3 +113,42 @@ def test_eps_row_ignores_a_leading_note_reference_column():
     assert _find_eps_row(txt) == (71.58, 64.5)
     plain = "Earnings per equity share Basic (`) 71.58 64.50 Diluted (`) 71.46 64.34"
     assert _find_eps_row(plain) == (71.58, 64.5)
+
+
+def test_bank_consolidated_profit_row_prefers_the_group_share_after_minority_interest():
+    from tools import bank_extractor as be
+    rows = [("Consolidated net profit for the year before minority interest", [79219.46, 73440.17]),
+            ("Less : Minority interest", [3193.49, 2647.92]),
+            ("Consolidated net profit for the year attributable to the group", [76025.97, 70792.25])]
+    hit = be.find_row(rows, r"^(?:consolidated )?net profit(?: for the (?:year|period))? attributable to (?:the )?"
+                            r"(?:group|owners|equity shareholders|shareholders)(?: of the (?:bank|company))?$")
+    assert hit is not None and hit[2][0] == 76025.97
+
+
+def test_eps_row_ignores_row_enumerators_before_the_diluted_label():
+    from tools.annual_report_financials import _find_eps_row
+    txt = "Earnings per equity share: (1) Basic 48.37 43.51 (2) Diluted 48.37 43.51 See accompanying notes"
+    assert _find_eps_row(txt) == (48.37, 43.51)
+
+
+def test_return_bases_use_calendar_periods_and_skip_unreached_history():
+    import datetime as dt
+    from app import _return_bases
+    ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+    today = dt.datetime.now(ist).date()
+    def bar(d, close):
+        return {"time": int(dt.datetime(d.year, d.month, d.day, tzinfo=ist).timestamp()), "close": close}
+    # a year and a bit of daily bars, close = 100 + day index
+    start = today - dt.timedelta(days=400)
+    hist = [bar(start + dt.timedelta(days=i), 100.0 + i) for i in range(401)]
+    b = _return_bases(hist)
+    assert "1Y" in b and "3Y" not in b and "5Y" not in b          # history shorter than 3Y/5Y: never extrapolated
+    assert b["1W"]["date"] == (today - dt.timedelta(days=7)).isoformat()
+
+
+def test_profile_description_is_split_into_plain_text_paragraphs():
+    from tools.company_profile import _paragraphs
+    raw = ("ACME LTD is a listed company.<br/><br/> Registered office: Pune, Email: "
+           "<a target='_blank' href='mailto:a@b.com'>a@b.com</a>. <br/><br/>Auditors: X &amp; Co")
+    assert _paragraphs(raw) == ["ACME LTD is a listed company.", "Registered office: Pune, Email: a@b.com.", "Auditors: X & Co"]
+    assert _paragraphs(None) == [] and _paragraphs("") == []

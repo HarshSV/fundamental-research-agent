@@ -653,22 +653,165 @@ _EPS_JOBS: dict = {}  # symbol -> Future of the annual-report EPS extraction (a 
 _EPS_POOL = None
 
 
-def _annual_eps_result(sym, name):
-    out = {"symbol": sym, "eps": None, "period": None, "basis": None, "reason": None, "pending": False}
+def _verified(r):
+    return bool(r and r.get("applicable") and isinstance(r.get("value"), (int, float))
+                and r.get("status") == "verified" and not r.get("estimated"))
+
+
+def _annual_eps_from_report(sym, name):
+    """EPS for the latest audited Annual Report year. Displayed EPS = owners' Profit After Tax / equity shares
+    outstanding (closing) - the basis Screener and most data vendors use, so figures agree across tools. The
+    statutory Basic EPS (weighted-average shares, Ind AS 33) is returned alongside as `eps_reported`.
+    Consolidated first, standalone fallback (same rule as the ratio suite). Only extractor-verified inputs are
+    used; anything else is null with the reason - never zero."""
+    out = {"symbol": sym, "eps": None, "eps_reported": None, "period": None, "basis": None, "reason": None,
+           "pending": False, "adjusted_for": None}
+    bank = None
     try:
         from tools.nse_xbrl import fetch_eps
-        r = fetch_eps(sym, name)
+        from tools import annual_report_financials as arf
+        rep = fetch_eps(sym, name)
+        out["period"] = rep.get("selected_period")
+        out["basis"] = rep.get("statement_basis") or rep.get("period")
+        if _verified(rep):
+            out["eps_reported"] = rep["value"]
+        try:
+            fy = int(str(out["period"]).split("-")[-1])
+        except Exception:
+            fy = None
+        # An EPS from an OLDER report than the latest filed one (the extractor walks back year by year when the newest
+        # cannot be read) must never be paired with today's price: treat it as unknown.
+        try:
+            from tools.company_profile import latest_annual_report
+            latest = (latest_annual_report(sym, name) or {}).get("year")
+        except Exception:
+            latest = None
+        if fy and latest and fy < latest:
+            out["eps_reported"] = None
+            out["reason"] = f"The latest Annual Report (FY{latest}) could not be read; the newest readable one is FY{fy}."
+            return out
+        bank = arf.bank_consolidated_eps_inputs(sym, fy, name) if fy else None
+        if bank and bank[0] and bank[1] > 0:
+            out["eps"], out["basis"] = round(bank[0] * 1e7 / bank[1], 2), "consolidated"
+        elif fy:
+            # Use the basis the statutory EPS itself came from; never mix a consolidated EPS with standalone inputs.
+            order = {"consolidated": (True,), "standalone": (False,)}.get(str(out["basis"]).lower(), (True, False))
+            for consolidated in order:
+                pat = arf._contract_fact_fetch("pat", "PAT", "cr", sym, name, fy, consolidated)
+                sh = arf._contract_fact_fetch("shares_outstanding", "Shares", "shares", sym, name, fy, consolidated)
+                if _verified(pat) and _verified(sh) and pat["value"] is not None and sh["value"] > 0:
+                    out["eps"] = round(pat["value"] * 1e7 / sh["value"], 2)
+                    out["basis"] = "consolidated" if consolidated else "standalone"
+                    break
+        if out["eps"] is None and out["eps_reported"] is not None:
+            out["eps"] = out["eps_reported"]  # inputs unavailable: fall back to the statutory figure
+        # Splits / bonus issues AFTER the report year: the live price is already adjusted, the report's EPS is not. Scale
+        # the EPS by (shares at the report date / shares today). Today's share count = market cap / price (Screener).
+        # Applied only when that ratio snaps to a clean corporate-action ratio (1:2 bonus -> 1.5, 1:1 -> 2, 10->1 split
+        # -> 10 ...), so rounding noise, buybacks and ESOPs never trigger it.
+        if out["eps"] is not None and fy:
+            order2 = {"consolidated": (True,), "standalone": (False,)}.get(str(out["basis"]).lower(), (True, False))
+            closing = None
+            if bank and bank[1] > 0:
+                closing = bank[1]
+            else:
+                for consolidated in order2:
+                    sh = arf._contract_fact_fetch("shares_outstanding", "Shares", "shares", sym, name, fy, consolidated)
+                    if _verified(sh) and sh["value"] > 0:
+                        closing = sh["value"]
+                        break
+            from tools.screener_scraper import fetch_screener_financials
+            info = ((fetch_screener_financials(sym, name) or {}).get("info")) or {}
+            mc, px = info.get("marketCap"), info.get("currentPrice")
+            if closing and isinstance(mc, (int, float)) and isinstance(px, (int, float)) and mc > 0 and px > 0:
+                ratio = (mc / px) / closing                      # shares today / shares at the report date
+                snaps = (1.25, 1.5, 2, 2.5, 3, 4, 5, 10, 20, 50, 1 / 2, 1 / 5, 1 / 10)
+                snap = next((c for c in snaps if abs(ratio / c - 1) <= 0.04), None)
+                if snap and snap != 1:
+                    out["eps"] = round(out["eps"] / snap, 2)
+                    out["adjusted_for"] = f"{snap:g}x shares since the report date (split/bonus)"
+        if out["eps"] is None:
+            out["reason"] = rep.get("reason") or "No verified EPS in the latest Annual Report."
     except Exception as e:  # pragma: no cover
         print(f"[HTTP] annual-report EPS failed for {sym}: {e}")
         out["reason"] = "Annual-report EPS could not be computed right now."
-        return out
-    out["period"] = r.get("selected_period")
-    out["basis"] = r.get("statement_basis") or r.get("period")
-    if (r.get("applicable") and isinstance(r.get("value"), (int, float))
-            and r.get("status") == "verified" and not r.get("estimated")):
-        out["eps"] = r["value"]
-    else:
-        out["reason"] = r.get("reason") or "No verified Basic EPS in the latest Annual Report."
+    return out
+
+
+def _screener_annual_eps(sym, name):
+    """(EPS, period 'DD-Mon-YYYY') of the latest full financial year on Screener (consolidated page when the company has
+    one), or None. Used to corroborate or - when the Annual Report cannot be read - stand in for the report's EPS."""
+    try:
+        import calendar
+        import math
+        from tools.screener_scraper import fetch_screener_financials
+        inc = ((fetch_screener_financials(sym, name) or {}).get("financial_arrays") or {}).get("income_stmt") or {}
+        keys = [k for k in sorted(inc) if k != "TTM" and len(k) >= 7 and k[:4].isdigit()]
+        if not keys:
+            return None
+        k = keys[-1]
+        eps = inc[k].get("Diluted EPS")
+        if not isinstance(eps, (int, float)) or isinstance(eps, bool) or math.isnan(eps):
+            return None
+        y, m = int(k[:4]), int(k[5:7])
+        return float(eps), f"{calendar.monthrange(y, m)[1]:02d}-{calendar.month_abbr[m]}-{y}"
+    except Exception:
+        return None
+
+
+def _annual_eps_result(sym, name):
+    """EPS for the latest financial year - one answer for every company, from two independent sources that must agree:
+      * the audited Annual Report's own figures (see `_annual_eps_from_report`), and
+      * Screener's latest annual EPS.
+    The report's figure is shown only when it agrees with Screener within 1% (or when Screener is unavailable and the
+    extractor verified it). Whenever the report could not be read, failed the extractor's cross-checks, or disagrees
+    with Screener beyond that tolerance (an extraction slip, a standalone-vs-consolidated mix-up, a share-count
+    problem), Screener's figure is used and labelled `source: "screener"`. With neither: unknown (None + reason) -
+    never zero."""
+    res = _annual_eps_from_report(sym, name)
+    sc = _screener_annual_eps(sym, name)
+    res["screener_eps"] = sc[0] if sc else None
+    use_sc = False
+    if sc:
+        if res["eps"] is None:
+            use_sc = True
+        else:
+            tol = max(0.01 * abs(sc[0]), 0.02)
+            use_sc = abs(res["eps"] - sc[0]) > tol
+    if use_sc:
+        res["eps_rejected"] = res["eps"]  # what the report-based path produced, kept for diagnostics
+        res.update(eps=round(sc[0], 2), period=sc[1], basis="screener", reason=None, adjusted_for=None)
+    res["source"] = ("screener" if use_sc else "annual_report") if res["eps"] is not None else None
+    return res
+
+
+def _return_bases(hist):
+    """Base closes for the Returns Performance cards, the way the exchange's Market Lens defines them: the close on the
+    latest trading day ON OR BEFORE the calendar date (today - 1 week / 1 / 3 / 6 months / 1 / 3 / 5 years), so the card is
+    live price / that close - 1. A period the history does not reach back to is omitted (never extrapolated)."""
+    import calendar
+    import datetime as _dt
+    ist = _dt.timezone(_dt.timedelta(hours=5, minutes=30))
+    day = lambda c: _dt.datetime.fromtimestamp(c["time"], ist).date()
+    today = _dt.datetime.now(ist).date()
+
+    def months_back(d, m):
+        y, mo = d.year, d.month - m
+        while mo <= 0:
+            y, mo = y - 1, mo + 12
+        return _dt.date(y, mo, min(d.day, calendar.monthrange(y, mo)[1]))
+
+    targets = {"1W": today - _dt.timedelta(days=7), "1M": months_back(today, 1), "3M": months_back(today, 3),
+               "6M": months_back(today, 6), "1Y": months_back(today, 12), "3Y": months_back(today, 36),
+               "5Y": months_back(today, 60)}
+    days = [(day(c), c) for c in hist]
+    out = {}
+    for label, tgt in targets.items():
+        if not days or days[0][0] > tgt + _dt.timedelta(days=5):
+            continue
+        base = next((c for d, c in reversed(days) if d <= tgt), None)
+        if base and base.get("close"):
+            out[label] = {"price": base["close"], "date": day(base).isoformat()}
     return out
 
 
@@ -694,11 +837,23 @@ def stock_eps(symbol: str, _: dict = Depends(auth.require_session)):
         try:
             return fut.result(timeout=6)  # fast path: already cached/DB-backed
         except Exception:
-            return {"symbol": sym, "eps": None, "period": None, "basis": None, "reason": None, "pending": True}
+            return {"symbol": sym, "eps": None, "eps_reported": None, "period": None, "basis": None, "reason": None, "pending": True}
     res = fut.result()
     if res["eps"] is None:
         _EPS_JOBS.pop(sym, None)  # a miss is retried on the next visit; a verified value stays memoised
     return res
+
+
+@app.get("/api/v1/stock-profile/{symbol}")
+def stock_profile(symbol: str, _: dict = Depends(auth.require_session)):
+    """About-section content: description paragraphs, headquarters, year of incorporation, MD / CEO, website and the
+    latest Annual Report link (see tools/company_profile.py). Missing fields are null - never placeholders."""
+    sym = resolve_symbol_from_registry(symbol)
+    if not sym:
+        raise HTTPException(status_code=400, detail="Symbol required.")
+    name = next((c["name"] for c in STOCK_REGISTRY if c["symbol"] == sym), None)
+    from tools.company_profile import get_profile
+    return {"symbol": sym, **get_profile(sym, name)}
 
 
 @app.get("/api/v1/stock-overview/{symbol}")
@@ -713,6 +868,7 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     name = next((c["name"] for c in STOCK_REGISTRY if c["symbol"] == sym), None)
     # All-time high / low over the FULL price history (split/bonus-adjusted, not dividend-adjusted).
     ath = atl = None
+    return_bases = {}
     try:
         from tools.live_chart_yf import get_candles
         hist = get_candles(sym, interval="1d", period="max")
@@ -721,6 +877,7 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
             lo = min(hist, key=lambda c: c["low"])
             ath = {"price": hi["high"], "time": hi["time"]}
             atl = {"price": lo["low"], "time": lo["time"]}
+            return_bases = _return_bases(hist)
     except Exception:  # pragma: no cover - extremes are a display nicety; absent -> null
         pass
 
@@ -728,17 +885,34 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     data = fetch_screener_financials(sym, name)
     if not data:
         # fundamentals source down: price-derived extremes are still real
-        return {"symbol": sym, "source": "unavailable", "all_time_high": ath, "all_time_low": atl}
+        return {"symbol": sym, "source": "unavailable", "all_time_high": ath, "all_time_low": atl, "return_bases": return_bases}
 
     def cr(v):
         return round(v / 1e7, 2) if isinstance(v, (int, float)) else None
 
     info = data.get("info") or {}
     q_grid = (data.get("financial_arrays") or {}).get("quarterly_income_stmt") or {}
+    def real_date(period):
+        # the scraper's period keys use day 31 as an end-of-month marker ("2026-06-31"): make it a real date
+        import calendar
+        try:
+            y, m = int(period[:4]), int(period[5:7])
+            return f"{y:04d}-{m:02d}-{calendar.monthrange(y, m)[1]:02d}"
+        except Exception:
+            return period
+
+    def total_income(col):
+        # exchange definition: Total Income = revenue from operations + other income. Unknown other income -> unknown
+        # total (never revenue alone presented as the total, never a zero-filled gap).
+        rev, oth = col.get("Total Revenue"), col.get("Other Income")
+        # Screener's "Other Income" also carries exceptional items; a NEGATIVE figure is an exceptional loss, which the
+        # exchange's Total Income does not include, so only a positive other income is added.
+        return rev + max(oth, 0.0) if isinstance(rev, (int, float)) and isinstance(oth, (int, float)) else None
+
     quarterly = [
         {
-            "period": period,  # ISO date string; chronological when sorted
-            "total_income_cr": cr(col.get("Total Revenue")),
+            "period": real_date(period),
+            "total_income_cr": cr(total_income(col)),
             "pbt_cr": cr(col.get("Pretax Income")),
             "net_profit_cr": cr(col.get("Net Income")),
             "eps": col.get("Diluted EPS"),
@@ -774,6 +948,7 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
         "debt_to_equity": de,
         "eps_ttm": eps_ttm,
         "all_time_high": ath,
+        "return_bases": return_bases,
         "all_time_low": atl,
         "pe": pe,
         "book_value": info.get("bookValue"),
@@ -806,8 +981,9 @@ except Exception as _pt_err:  # pragma: no cover
     print(f"[HTTP WARNING] pattern API not mounted: {_pt_err}")
 
 @app.get("/api/v1/market-indices")
-def market_indices(_: dict = Depends(auth.require_session)):
-    """Headline index levels for the site ticker (cached ~60s; indices without data are omitted)."""
+def market_indices():
+    """Headline index levels for the site ticker (cached ~60s; indices without data are omitted). Public on purpose:
+    index levels are public market data and the ticker is shown above the login screen too."""
     from tools.market_indices import get_indices
     return {"indices": get_indices(), "source": "yfinance"}
 

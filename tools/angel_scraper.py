@@ -508,6 +508,8 @@ class AngelDataScraper:
                                 'open': d.get('open'), 'high': d.get('high'),
                                 'low': d.get('low'), 'close': d.get('close'),
                                 'volume': d.get('tradeVolume') or d.get('volume'),
+                                # exchange-computed day VWAP (average traded price); None when not provided - never 0
+                                'avg_price': d.get('avgPrice') or None,
                                 'source': 'angel'
                             }
             except Exception as e:

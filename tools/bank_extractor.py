@@ -442,6 +442,18 @@ def extract_nbfc(doc):
 _FACE_VALUE_RE = re.compile(r"shares?\s+of\s+(?:[`₹]|rs\.?|inr|[CHKJ])\s*(\d+(?:\.\d+)?)\s*(?:/-)?\s*each", re.I)
 
 
+def _wrapped_group_profit(rows):
+    """The group's profit when the caption wraps onto two lines and the figures sit on the second: "Consolidated profit
+    for the year attributable to the" (no figures) followed by "group" / "owners" / "equity shareholders" (with figures)."""
+    for k in range(1, len(rows)):
+        label, nums = rows[k]
+        if len(nums) >= 2 and _norm(label) in ("group", "the group", "owners", "equity shareholders", "shareholders"):
+            prev = _norm(rows[k - 1][0])
+            if "profit" in prev and re.search(r"attributable to( the)?$", prev):
+                return k, label, nums
+    return None
+
+
 def extract_bank_core(doc, r):
     """From an `extract_bank` result: Net profit, Basic EPS, Capital, Reserves & surplus, Total assets, face value and the
     share count (= Capital / face value) of the bank's standalone statements. Every figure comes from its printed row;
@@ -467,7 +479,13 @@ def extract_bank_core(doc, r):
     if pl_p:
         pl_rows, pl_text = rows_of(doc[pl_p - 1]), " ".join(" ".join(t) for t in page_lines(doc[pl_p - 1]))
         f_pl = _unit_factor_to_crore(pl_text)
-        np_ = find_row(pl_rows, r"^net profit(?:/)?(?: loss)?( for the (year|period))?( i ii)?$|^profit for the (year|period)$")
+        # consolidated statements print the group's share after minority interest ("Consolidated net profit for the year
+        # attributable to the group" / "Net profit for the group"): that is the owners' profit, so it wins when present
+        np_ = (find_row(pl_rows, r"^(?:consolidated )?net profit(?: for the (?:year|period))? attributable to (?:the )?"
+                                 r"(?:group|owners|equity shareholders|shareholders)(?: of the (?:bank|company))?$"
+                                 r"|^(?:consolidated )?net profit for the group$")
+               or _wrapped_group_profit(pl_rows)
+               or find_row(pl_rows, r"^net profit(?:/)?(?: loss)?( for the (year|period))?( i ii)?$|^profit for the (year|period)$"))
         if np_:
             out["pat"] = {"cur": np_[2][0] * f_pl, "prior": np_[2][1] * f_pl, "page": pl_p}
         eps = find_row(pl_rows, r"^basic$|^basic eps$")

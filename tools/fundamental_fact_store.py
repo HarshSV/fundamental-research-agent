@@ -70,7 +70,7 @@ from tools.statement_selector import select_statement_basis, StatementSelection
 #    EBIT + D&A, acquisition signals, perimeter-aware PAT/equity, provenance.
 # v24 EPS row parser ignores a leading Note-reference column (Infosys printed "Basic 2.23 71.58 64.50").
 # v25 unit detector understands "in lacs" (was read as crore, 100x too large).
-EXTRACTION_VERSION = 25
+EXTRACTION_VERSION = 26
 
 
 @dataclass(frozen=True)
@@ -425,6 +425,11 @@ def get_canonical_facts(symbol, name, fiscal_year, lease_basis="basis1", consoli
             if implied_o and implied_t and abs(e_tot.value - implied_t) < abs(e_tot.value - implied_o):
                 warn, st, est = (("The only printed Basic EPS tracks whole-entity profit (incl. NCI), not owners' "
                                   "profit - owners' EPS could not be read."),), "NEEDS_REVIEW", True
+        # a per-share figure that is a whole number in 1900..2100 is a YEAR header ("2025 2024") that the row reader took
+        # for the figures, not an EPS - flag it instead of presenting it as verified
+        if st == "VERIFIED" and any(isinstance(x, (int, float)) and float(x).is_integer() and 1900 <= abs(x) <= 2100
+                                    for x in (e_tot.value, e_tot.prior_value)):
+            warn, st, est = (("The EPS read from the statement looks like a year header, not a per-share figure."),), "NEEDS_REVIEW", True
         put("eps", e_tot.value, e_tot.prior_value, unit="INR_PER_SHARE", tag="eps_total(ind_as_33_default)",
             page=pl_page, method="annual_report_pdf", perimeter="owners", status=st, estimated=est,
             confidence=0.8 if est else None, warnings=warn,

@@ -148,6 +148,16 @@ TTL = 12 * 3600
 _lock = threading.Lock()
 
 
+def _logic_tag():
+    """Tag used when no document is stored locally (the usual automatic path): the extraction-logic version, so a
+    shared-extraction fix invalidates these wrapper caches instead of leaving results from the old logic forever."""
+    try:
+        from tools.annual_report_financials import _EXTRACTION_LOGIC_VERSION
+        return f"L{_EXTRACTION_LOGIC_VERSION}"
+    except Exception:
+        return ""
+
+
 def _doc_tag_for_cache(symbol, to_date=None):
     """Document-identity tag for THIS module's own "latest" wrapper caches
     (keyed on `to_date or 'latest'`, not a fixed fiscal_year - these
@@ -178,10 +188,10 @@ def _doc_tag_for_cache(symbol, to_date=None):
             years = manual_cached_years(symbol)
             year = years[0] if years else None
         if year is None:
-            return ""
-        return _document_identity_tag(symbol, year)
+            return _logic_tag()
+        return _document_identity_tag(symbol, year) or _logic_tag()
     except Exception:
-        return ""
+        return _logic_tag()
 
 # Manual Document Upload override - a user-uploaded XBRL filing, keyed by
 # symbol, that fetch_filings()/_fetch_parsed() below check BEFORE the live

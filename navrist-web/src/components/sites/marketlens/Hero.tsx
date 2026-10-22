@@ -1,27 +1,14 @@
 "use client";
 
 import { Search } from "lucide-react";
-import { useEffect, useState } from "react";
-import type { CompanyHit } from "@/lib/api";
+import { openSearch } from "./searchEvents";
 import { TYPED_PHRASES } from "./data";
-import { fetchSectors, type SectorInfo } from "./screens";
-import { SearchOverlay } from "./SearchOverlay";
+import type { SectorInfo } from "./screens";
 import { useTyped } from "./typing";
 
 const BOX_HINTS = ["IT Services", "Banks", "Pharmaceuticals", "Tata Steel"];
 
-export function Hero({ onSelect, onSector }: { onSelect: (stock: CompanyHit) => void; onSector: (name: string) => void }) {
-  const [sectors, setSectors] = useState<SectorInfo[]>([]);
-  const [sectorsError, setSectorsError] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [origin, setOrigin] = useState<DOMRect | null>(null);
-  useEffect(() => {
-    let alive = true;
-    fetchSectors().then((s) => alive && setSectors(s)).catch((e: Error) => alive && setSectorsError(e.message));
-    return () => {
-      alive = false;
-    };
-  }, []);
+export function Hero({ sectors, sectorsError, onSector }: { sectors: SectorInfo[]; sectorsError: string; onSector: (name: string) => void }) {
   const typed = useTyped(TYPED_PHRASES);
   const hint = useTyped(BOX_HINTS);
 
@@ -61,10 +48,7 @@ export function Hero({ onSelect, onSector }: { onSelect: (stock: CompanyHit) => 
               <button
                 id="navrist-search"
                 type="button"
-                onClick={(e) => {
-                  setOrigin(e.currentTarget.getBoundingClientRect());
-                  setSearchOpen(true);
-                }}
+                onClick={(e) => openSearch(e.currentTarget)}
                 aria-label="Search stocks or sectors"
                 className="flex h-14 w-full cursor-text items-center rounded-[10.5px] pl-[3.25rem] pr-32 text-left text-[15px]"
                 style={{ background: "var(--surface-1)", color: "var(--text-tertiary)" }}
@@ -99,21 +83,6 @@ export function Hero({ onSelect, onSector }: { onSelect: (stock: CompanyHit) => 
         </div>
       </div>
 
-      {searchOpen && (
-        <SearchOverlay
-          sectors={sectors}
-          origin={origin}
-          onClose={() => setSearchOpen(false)}
-          onSelectStock={(h) => {
-            setSearchOpen(false);
-            onSelect(h);
-          }}
-          onSelectSector={(name) => {
-            setSearchOpen(false);
-            onSector(name);
-          }}
-        />
-      )}
     </div>
   );
 }

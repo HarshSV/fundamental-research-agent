@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CompanyHit } from "@/lib/api";
 import { NEW_SCREEN_EVENT } from "./Header";
+import { OPEN_SEARCH_EVENT } from "./searchEvents";
+import { SearchOverlay } from "./SearchOverlay";
 import { Hero } from "./Hero";
 import { PopularScreens } from "./PopularScreens";
 import {
-  fetchScreen, fetchSector, type ScreenResult, type SectorResult,
+  fetchScreen, fetchSector, fetchSectors, type ScreenResult, type SectorInfo, type SectorResult,
 } from "./screens";
 import { StockList } from "./StockList";
 import { StockView } from "./StockView";
@@ -97,6 +99,25 @@ export function HomeScreen() {
   }, []);
   const openStock = useCallback((stock: CompanyHit) => push({ kind: "stock", stock }), [push]);
 
+  // One full-screen search for the whole page: opened from the hero box or the header search bar.
+  const [sectors, setSectors] = useState<SectorInfo[]>([]);
+  const [sectorsError, setSectorsError] = useState("");
+  const [search, setSearch] = useState<{ open: boolean; origin: DOMRect | null }>({ open: false, origin: null });
+  useEffect(() => {
+    let alive = true;
+    fetchSectors().then((x) => alive && setSectors(x)).catch((e: Error) => alive && setSectorsError(e.message));
+    const open = (e: Event) => setSearch({ open: true, origin: (e as CustomEvent<{ rect: DOMRect | null }>).detail?.rect ?? null });
+    window.addEventListener(OPEN_SEARCH_EVENT, open);
+    return () => {
+      alive = false;
+      window.removeEventListener(OPEN_SEARCH_EVENT, open);
+    };
+  }, []);
+  // the header search bar is hidden on the home view (the hero already has the big box)
+  useEffect(() => {
+    document.documentElement.dataset.view = view.kind;
+  }, [view.kind]);
+
   // "New Screen" (header button): back to the screener home with the cursor in the search box.
   useEffect(() => {
     const start = () => {
@@ -110,15 +131,36 @@ export function HomeScreen() {
     return () => window.removeEventListener(NEW_SCREEN_EVENT, start);
   }, []);
 
-  if (view.kind === "stock") return <StockView stock={view.stock} onBack={pop} />;
-  if (view.kind === "sector") return <SectorPage name={view.name} onBack={pop} onSelect={openStock} />;
-  if (view.kind === "screen") return <ScreenPage id={view.id} onBack={pop} onSelect={openStock} />;
+  const page =
+    view.kind === "stock" ? <StockView key={view.stock.symbol} stock={view.stock} onBack={pop} onOpenStock={openStock} />
+    : view.kind === "sector" ? <SectorPage name={view.name} onBack={pop} onSelect={openStock} />
+    : view.kind === "screen" ? <ScreenPage id={view.id} onBack={pop} onSelect={openStock} />
+    : (
+      <>
+        <Hero sectors={sectors} sectorsError={sectorsError} onSector={(name) => push({ kind: "sector", name })} />
+        <div className="mx-auto w-full max-w-7xl px-4 py-10">
+          <PopularScreens onOpen={(id) => push({ kind: "screen", id })} />
+        </div>
+      </>
+    );
   return (
     <>
-      <Hero onSelect={openStock} onSector={(name) => push({ kind: "sector", name })} />
-      <div className="mx-auto w-full max-w-7xl px-4 py-10">
-        <PopularScreens onOpen={(id) => push({ kind: "screen", id })} />
-      </div>
+      {page}
+      {search.open && (
+        <SearchOverlay
+          sectors={sectors}
+          origin={search.origin}
+          onClose={() => setSearch({ open: false, origin: null })}
+          onSelectStock={(h) => {
+            setSearch({ open: false, origin: null });
+            openStock(h);
+          }}
+          onSelectSector={(name) => {
+            setSearch({ open: false, origin: null });
+            push({ kind: "sector", name });
+          }}
+        />
+      )}
     </>
   );
 }

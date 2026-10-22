@@ -1,7 +1,8 @@
 "use client";
 
-import { Moon, Plus, Sun } from "lucide-react";
+import { Moon, Plus, Search, Sun } from "lucide-react";
 import { useSyncExternalStore } from "react";
+import { openSearch } from "./searchEvents";
 import { Ticker } from "./Ticker";
 
 export const THEME_KEY = "navrist_theme";
@@ -58,6 +59,17 @@ export function Header() {
               Terminal
             </span>
           </a>
+          {/* search bar (as on the exchange's stock page): opens the same full-screen search; hidden on the home view */}
+          <button
+            type="button"
+            onClick={(e) => openSearch(e.currentTarget)}
+            aria-label="Search equity stocks or sectors"
+            className="hdr-search hidden min-w-0 max-w-[360px] flex-1 items-center gap-2.5 rounded-xl border px-4 py-2.5 text-left text-sm transition-colors hover:border-[var(--accent-border)] md:flex"
+            style={{ background: "var(--surface-1)", borderColor: "var(--border-default)", color: "var(--text-tertiary)" }}
+          >
+            <Search className="h-4 w-4 shrink-0" />
+            <span className="truncate">Search equity stocks , sectors ....</span>
+          </button>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <button
               type="button"

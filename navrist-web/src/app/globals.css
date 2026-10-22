@@ -274,3 +274,6 @@ html.light .ml {
 .ticker-track { animation: ml-ticker 28s linear infinite; }
 .ticker-track:hover { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) { .ticker-track { animation: none; } }
+
+/* header search bar: the home view already shows the big hero search box */
+[data-view="home"] .hdr-search { display: none !important; }

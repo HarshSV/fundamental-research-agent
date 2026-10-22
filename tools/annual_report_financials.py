@@ -561,15 +561,18 @@ def _find_eps_row(text):
             continue
         seg = window[lm.end():lm.end() + 150]
         dm = re.search(r"diluted", seg, re.I)
-        nums = re.findall(eps_num_re, seg[:dm.start()] if dm else seg)
+        # drop row-enumerator fragments such as "(1)" / "(2)" that precede the "Diluted" label - an EPS is always printed
+        # with decimals, a bare "(2)" is never a figure
+        _clean = lambda xs: [x for x in xs if not re.fullmatch(r"\(\d\)", x)]
+        nums = _clean(re.findall(eps_num_re, seg[:dm.start()] if dm else seg))
         # A Note-reference column ("Basic (₹) 2.23 71.58 64.50") puts a third figure BEFORE current/prior.
         # It is a note number, not EPS, when the Diluted row repeats the very same leading figure.
         if dm and len(nums) == 3:
-            dnums = re.findall(eps_num_re, seg[dm.end():dm.end() + 80])
+            dnums = _clean(re.findall(eps_num_re, seg[dm.end():dm.end() + 80]))
             if dnums and dnums[0] == nums[0]:
                 nums = nums[1:]
         if not dm:
-            nums = re.findall(eps_num_re, seg)
+            nums = _clean(re.findall(eps_num_re, seg))
         if len(nums) >= 2:
             a, b = _parse_num(nums[0]), _parse_num(nums[1])
             if a is not None and b is not None:
@@ -7392,7 +7395,7 @@ _attach_disclosed_purchases = _attach_text_disclosures   # legacy name
 # "80" - comma-separated note-number lists ("26, 15") ahead of a figure are blanked.
 # "79" - second reference column in the line-based P&L row reader.
 # "201" - unit detector understands "in lacs"; EPS row parser ignores a leading Note-reference column.
-_EXTRACTION_LOGIC_VERSION = "202"
+_EXTRACTION_LOGIC_VERSION = "204"
 
 
 def _document_identity_tag(symbol, fiscal_year):
@@ -7538,6 +7541,43 @@ def _bank_core_parsed(content, fiscal_year):
         "shares_outstanding": shares,
         "bs_page": cap["page"], "pl_page": core["pat"]["page"], "bank_statements": True,
     }
+
+
+def bank_consolidated_eps_inputs(symbol, fiscal_year, name=None):
+    """For an RBI-format bank: (owners' consolidated Net Profit in Rs Cr, shares outstanding, page) read from the
+    consolidated statements of its own Annual Report PDF, or None when the document is not a readable bank filing or any
+    figure cannot be proven. The bank ratio suite stays on STANDALONE statements (see tools/bank_extractor.py); this is
+    only for the per-share valuation figures, which are quoted on the group's consolidated profit."""
+    try:
+        import os
+        import fitz
+        from tools import bank_extractor as be
+        sym = symbol.strip().upper().replace(".NS", "")
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "ar_pdfs", f"{sym}_{fiscal_year}.pdf")
+        if os.path.exists(path):
+            doc = fitz.open(path)
+        else:
+            # not stored yet: fetch it through the shared downloader (which also stores it for next time)
+            from tools.ar_table_extractor import download_ar_pdf_bytes
+            url = _find_annual_report_pdf(sym, name, fiscal_year)
+            content = download_ar_pdf_bytes(sym, name, fiscal_year, pdf_url=url) if url else None
+            if not content or len(content) < 50000:
+                return None
+            doc = fitz.open(stream=content, filetype="pdf")
+        rs = be.extract_bank(doc, "standalone")
+        if "deposits" not in rs or "advances" not in rs:
+            return None
+        fv = be.extract_bank_core(doc, rs).get("face_value")
+        rc = be.extract_bank(doc, "consolidated")
+        if rc.get("basis") != "consolidated" or "deposits" not in rc:
+            return None
+        core = be.extract_bank_core(doc, rc)
+        if not (fv and core.get("pat") and core.get("capital")):
+            return None
+        return core["pat"]["cur"], core["capital"]["cur"] * 1e7 / fv, core["pat"]["page"]
+    except Exception as e:
+        print(f"[annual_report_financials] bank consolidated EPS inputs skipped for {symbol}: {e}")
+        return None
 
 
 def _get_extracted_financials_impl(symbol, name, fiscal_year, consolidated=True):
