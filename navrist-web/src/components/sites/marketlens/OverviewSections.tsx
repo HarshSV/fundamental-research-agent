@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 export interface Quarter {
   period: string;
@@ -189,12 +189,14 @@ export function QuarterlyResults({ quarters, tab, onTab }: { quarters: Quarter[]
   );
 }
 
-const SH_COLORS: Record<string, string> = { promoter: "#14b8a6", fii: "#8b5cf6", dii: "#3b82f6", public: "#ea580c" };
+const SH_COLORS: Record<string, string> = { promoter: "#14b8a6", fii: "#ec4899", dii: "#3b82f6", public: "#f97316" };
 const SH_LABELS: Record<string, string> = { promoter: "Promoter & Promoter Group", fii: "FII", dii: "DII", public: "Public" };
 
 export function ShareholdingPattern({ data }: { data: Shareholding }) {
   const idxs = data.quarters.map((_, i) => i).slice(-5).reverse();
   const [sel, setSel] = useState(idxs[0]);
+  const [tip, setTip] = useState<{ k: string; x: number; y: number } | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const keys = ["promoter", "fii", "dii", "public"] as const;
   const parts = keys.map((k) => ({ k, v: data[k][sel] }));
   const known = parts.filter((p): p is { k: (typeof keys)[number]; v: number } => p.v != null && p.v > 0);
@@ -226,20 +228,46 @@ export function ShareholdingPattern({ data }: { data: Shareholding }) {
         ))}
       </div>
       <div className="flex justify-center py-4">
-        <svg width="220" height="220" viewBox="0 0 220 220">
-          <g transform="translate(110 110) rotate(-90)">
-            {known.map((p) => {
-              const len = (p.v / total) * C;
-              const el = (
-                <circle key={p.k} r={R} fill="none" stroke={SH_COLORS[p.k]} strokeWidth="28" strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-acc}>
-                  <title>{`${SH_LABELS[p.k]}: ${num(p.v)}%`}</title>
-                </circle>
-              );
-              acc += len;
-              return el;
-            })}
-          </g>
-        </svg>
+        <div ref={wrapRef} className="relative" onMouseLeave={() => setTip(null)}>
+          <svg width="220" height="220" viewBox="0 0 220 220">
+            <g transform="translate(110 110) rotate(-90)">
+              {known.map((p) => {
+                const len = (p.v / total) * C;
+                const on = tip?.k === p.k;
+                const el = (
+                  <circle
+                    key={p.k}
+                    r={R}
+                    fill="none"
+                    stroke={SH_COLORS[p.k]}
+                    strokeWidth="28"
+                    strokeDasharray={`${len} ${C - len}`}
+                    strokeDashoffset={-acc}
+                    style={{ opacity: tip && !on ? 0.4 : 1, transition: "opacity 150ms ease", cursor: "pointer" }}
+                    onMouseMove={(e) => {
+                      const r = wrapRef.current?.getBoundingClientRect();
+                      if (r) setTip({ k: p.k, x: e.clientX - r.left, y: e.clientY - r.top });
+                    }}
+                  />
+                );
+                acc += len;
+                return el;
+              })}
+            </g>
+          </svg>
+          {tip && (
+            <div
+              className="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs shadow-lg"
+              style={{ left: tip.x + 14, top: tip.y - 44, background: "#ffffff", color: "#1f2937", boxShadow: "0 6px 20px rgba(0,0,0,0.35)" }}
+            >
+              <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "#6b7280" }}>
+                <span className="h-2 w-2 rounded-full" style={{ background: SH_COLORS[tip.k] }} />
+                {SH_LABELS[tip.k]}
+              </div>
+              <div className="text-sm font-semibold">{num(data[tip.k as (typeof keys)[number]][sel])}%</div>
+            </div>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-4 border-t pt-4 text-sm md:grid-cols-4" style={{ borderColor: "var(--border-subtle)" }}>
         {parts.map((p) => (

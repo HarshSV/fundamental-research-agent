@@ -4,6 +4,7 @@ import { ArrowUpRight, Search, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { searchSymbols, type CompanyHit } from "@/lib/api";
 import { addRecent, loadRecents } from "./recent";
+import type { CatalogueEntry } from "./patterns";
 import type { SectorInfo } from "./screens";
 import { useTyped } from "./typing";
 
@@ -21,6 +22,7 @@ const SPRING =
   "1.001 86.36%, 1.0008 88.64%, 1 90.91%, 1 100%)";
 
 type Row =
+  | { kind: "pattern"; pattern: CatalogueEntry }
   | { kind: "sector"; sector: SectorInfo }
   | { kind: "stock"; hit: CompanyHit };
 
@@ -43,9 +45,11 @@ function Highlight({ text, q }: { text: string; q: string }) {
  * industry shown). Arrow keys + Enter navigate, Esc or a backdrop click closes.
  */
 export function SearchOverlay({
-  sectors, origin, onClose, onSelectStock, onSelectSector,
+  sectors, patterns, origin, onClose, onSelectStock, onSelectSector, onSelectPattern,
 }: {
   sectors: SectorInfo[];
+  patterns: CatalogueEntry[];
+  onSelectPattern: (id: string) => void;
   origin: DOMRect | null; // the search box it was opened from: the panel springs up out of it
   onClose: () => void;
   onSelectStock: (hit: CompanyHit) => void;
@@ -131,10 +135,15 @@ export function SearchOverlay({
   const rows = useMemo<Row[]>(() => {
     if (!query) return [];
     const lq = query.toLowerCase();
+    const pats = patterns.filter((p) => p.name.toLowerCase().includes(lq)).slice(0, 4);
     const sec = sectors.filter((s) => s.name.toLowerCase().includes(lq)).slice(0, 4);
     const hits = result && result.for === query ? result.hits : [];
-    return [...sec.map((sector): Row => ({ kind: "sector", sector })), ...hits.map((hit): Row => ({ kind: "stock", hit }))];
-  }, [query, sectors, result]);
+    return [
+      ...pats.map((pattern): Row => ({ kind: "pattern", pattern })),
+      ...sec.map((sector): Row => ({ kind: "sector", sector })),
+      ...hits.map((hit): Row => ({ kind: "stock", hit })),
+    ];
+  }, [query, sectors, patterns, result]);
 
   const pending = !!query && (!result || result.for !== query);
   const error = result && result.for === query ? result.error : "";
@@ -147,7 +156,7 @@ export function SearchOverlay({
     addRecent({ kind: "sector", name });
     onSelectSector(name);
   };
-  const choose = (r: Row) => (r.kind === "sector" ? pickSector(r.sector.name) : pickStock(r.hit));
+  const choose = (r: Row) => (r.kind === "pattern" ? onSelectPattern(r.pattern.id) : r.kind === "sector" ? pickSector(r.sector.name) : pickStock(r.hit));
 
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") return close();
@@ -239,28 +248,29 @@ export function SearchOverlay({
                   ))}
                 </div>
               )}
-              <h3 className="mb-3 text-base font-semibold">Browse Sectors</h3>
+              <h3 className="mb-3 text-base font-semibold">Browse Patterns</h3>
               <div className="ov-late flex flex-wrap gap-2">
-                {sectors.map((s) => (
+                {patterns.map((p) => (
                   <button
-                    key={s.name}
-                    onClick={() => pickSector(s.name)}
+                    key={p.id}
+                    onClick={() => onSelectPattern(p.id)}
+                    title={p.category}
                     className="rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors hover:border-[var(--accent-border)] hover:bg-[var(--accent-surface)] hover:text-[var(--accent)]"
                     style={{ background: "var(--surface-2, var(--surface-1))", borderColor: "var(--border-default)", color: "var(--text-primary)" }}
                   >
-                    {s.name}
+                    {p.name}
                   </button>
                 ))}
-                {sectors.length === 0 && <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>Loading sectors…</span>}
+                {patterns.length === 0 && <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>Loading patterns…</span>}
               </div>
             </div>
           ) : rows.length > 0 ? (
             rows.map((r, i) => {
-              const name = r.kind === "sector" ? r.sector.name : r.hit.name ?? r.hit.company_name ?? r.hit.symbol;
-              const sub = r.kind === "sector" ? `${r.sector.count} stocks` : (r.hit.sector as string | null | undefined) ?? "";
+              const name = r.kind === "pattern" ? r.pattern.name : r.kind === "sector" ? r.sector.name : r.hit.name ?? r.hit.company_name ?? r.hit.symbol;
+              const sub = r.kind === "pattern" ? `${r.pattern.category} pattern` : r.kind === "sector" ? `${r.sector.count} stocks` : (r.hit.sector as string | null | undefined) ?? "";
               return (
                 <button
-                  key={r.kind === "sector" ? `s-${r.sector.name}` : `c-${r.hit.symbol}`}
+                  key={r.kind === "pattern" ? `p-${r.pattern.id}` : r.kind === "sector" ? `s-${r.sector.name}` : `c-${r.hit.symbol}`}
                   onMouseEnter={() => setActive(i)}
                   onClick={() => choose(r)}
                   className="group flex w-full items-start gap-3 border-b px-5 py-3.5 text-left transition-colors duration-150 last:border-b-0"

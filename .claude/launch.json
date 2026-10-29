@@ -43,6 +43,29 @@
       "env": {
         "TEST_STUB_AGENT": "1"
       }
+    },
+    {
+      "name": "navrist-api",
+      "runtimeExecutable": "venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "app.py"
+      ],
+      "port": 8000,
+      "autoPort": false
+    },
+    {
+      "name": "navrist-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3100"
+      ],
+      "cwd": "navrist-web",
+      "port": 3100,
+      "autoPort": false
     }
   ]
 }

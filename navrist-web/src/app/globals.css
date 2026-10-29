@@ -275,5 +275,5 @@ html.light .ml {
 .ticker-track:hover { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) { .ticker-track { animation: none; } }
 
-/* header search bar: the home view already shows the big hero search box */
-[data-view="home"] .hdr-search { display: none !important; }
+/* header search bar: hidden before sign-in (no page yet) and on the home view (the hero has the big box) */
+html:not([data-view]) .hdr-search, [data-view="home"] .hdr-search { display: none !important; }

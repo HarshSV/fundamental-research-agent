@@ -980,6 +980,13 @@ try:
 except Exception as _pt_err:  # pragma: no cover
     print(f"[HTTP WARNING] pattern API not mounted: {_pt_err}")
 
+# Pattern scanner: which stocks currently show a given chart pattern, with index / market-cap / EMA / DMA / sector filters.
+try:
+    from patterns.scan_api import make_router as _make_scan_router
+    app.include_router(_make_scan_router(auth.require_session))
+except Exception as _sc_err:  # pragma: no cover
+    print(f"[HTTP WARNING] pattern scan API not mounted: {_sc_err}")
+
 @app.get("/api/v1/market-indices")
 def market_indices():
     """Headline index levels for the site ticker (cached ~60s; indices without data are omitted). Public on purpose:
@@ -3007,7 +3014,9 @@ if __name__ == '__main__':
     #   RELOAD - "1" for local auto-reload dev; off in production
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "8000"))
-    reload = os.getenv("RELOAD", "1").strip() in ("1", "true", "True", "yes")
+    # Default OFF: the file watcher has to scan the whole project, including the website's node_modules, and made
+    # startup take minutes. Set RELOAD=1 for auto-reload while editing backend code.
+    reload = os.getenv("RELOAD", "0").strip() in ("1", "true", "True", "yes")
     print(f"Starting Navrist Research Terminal backend on {host}:{port} (reload={reload})...")
     # Exclude the data-cache tree from the reload file-watcher: every ratio/
     # document-analysis computation writes JSON files under cache/ (often
@@ -3020,5 +3029,8 @@ if __name__ == '__main__':
     # abort handling) even though the JWT itself never expired. Source code
     # changes still trigger a reload as normal - only the cache/ output
     # directory is excluded.
-    reload_kwargs = {"reload_excludes": ["cache/*", "cache/**", "**/cache/**"]} if reload else {}
+    # Also ignore the website's node_modules / build output and the virtualenv: they hold tens of thousands of files
+    # that never change the backend, and watching them makes startup take minutes.
+    reload_kwargs = {"reload_excludes": ["cache/*", "cache/**", "**/cache/**", "**/node_modules/**", "**/.next/**",
+                                         "navrist-web/*", "venv/*", "**/venv/**", "data/*"]} if reload else {}
     uvicorn.run("app:app", host=host, port=port, reload=reload, **reload_kwargs)

@@ -3,12 +3,12 @@
 import { Search } from "lucide-react";
 import { openSearch } from "./searchEvents";
 import { TYPED_PHRASES } from "./data";
-import type { SectorInfo } from "./screens";
+import type { CatalogueEntry } from "./patterns";
 import { useTyped } from "./typing";
 
 const BOX_HINTS = ["IT Services", "Banks", "Pharmaceuticals", "Tata Steel"];
 
-export function Hero({ sectors, sectorsError, onSector }: { sectors: SectorInfo[]; sectorsError: string; onSector: (name: string) => void }) {
+export function Hero({ patterns, patternsError, onPattern }: { patterns: CatalogueEntry[]; patternsError: string; onPattern: (id: string) => void }) {
   const typed = useTyped(TYPED_PHRASES);
   const hint = useTyped(BOX_HINTS);
 
@@ -60,14 +60,14 @@ export function Hero({ sectors, sectorsError, onSector }: { sectors: SectorInfo[
         </div>
 
         <div className="mb-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
-          Browse by sector
+          Browse by pattern
         </div>
         <div className="flex flex-wrap justify-center gap-2">
-          {sectors.map((s) => (
+          {patterns.map((p) => (
             <button
-              key={s.name}
-              onClick={() => onSector(s.name)}
-              title={`${s.count} companies`}
+              key={p.id}
+              onClick={() => onPattern(p.id)}
+              title={`${p.category}: ${p.definition}`}
               className="rounded-full border px-3.5 py-1.5 text-xs transition-all duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--accent-surface)] hover:text-[var(--accent)]"
               style={{
                 background: "var(--surface-1)",
@@ -75,11 +75,11 @@ export function Hero({ sectors, sectorsError, onSector }: { sectors: SectorInfo[
                 color: "var(--text-secondary)",
               }}
             >
-              {s.name}
-              <span className="ml-1.5" style={{ color: "var(--text-tertiary)" }}>{s.count}</span>
+              {p.name}
             </button>
           ))}
-          {sectorsError && <span className="text-xs" style={{ color: "#f5a9a9" }}>Could not load sectors: {sectorsError}</span>}
+          {patterns.length === 0 && !patternsError && <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>Loading patterns…</span>}
+          {patternsError && <span className="text-xs" style={{ color: "#f5a9a9" }}>Could not load patterns: {patternsError}</span>}
         </div>
       </div>
 

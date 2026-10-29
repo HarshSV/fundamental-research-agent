@@ -32,6 +32,7 @@ data/forecast/
 # generated / rebuildable data (pattern agent store, screening universe)
 data/patterns/
 data/screens/
+data/pattern_scan/
 
 # raw third-party crawl output (HTML, markdown, screenshots of an external site) - not ours to publish
 orderblock-research/scrape/
