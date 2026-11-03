@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Eye, EyeOff, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowLeft, ChartCandlestick, ChartLine, Check, Eye, EyeOff, TrendingDown, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson, searchSymbols, type CompanyHit } from "@/lib/api";
 import { ActiveSetups } from "./ActiveSetups";
@@ -10,7 +10,10 @@ import {
   STATUS_COLOR, STATUS_LABEL, displayName, fetchCatalogue, fetchPatterns,
   type CatalogueEntry, type PatternOcc, type PatternStatus, type PatternsResponse,
 } from "./patterns";
-import { Detail as PatternDetail, PriceChart, type Candle } from "./PriceChart";
+import { marketOpen } from "./marketHours";
+import type { ScanContext } from "./patternScan";
+import { Detail as PatternDetail, type Candle } from "./PriceChart";
+import { StockChart, type ChartStyle, type ScanOverlay } from "./StockChart";
 
 interface Quote {
   ltp: number | null;
@@ -24,34 +27,28 @@ interface Quote {
   avg_price?: number | null; // exchange-computed day VWAP (average traded price)
 }
 
-const RANGES = ["1D", "1W", "1M", "3M", "6M", "1Y", "5Y"] as const;
+const RANGES = ["1D", "1W", "1M", "3M", "6M", "1Y", "3Y", "5Y", "All"] as const;
 type Range = (typeof RANGES)[number];
 
 const DAY = 86400;
-const RANGE_DAYS: Record<string, number> = { "1M": 30, "3M": 91, "6M": 182, "1Y": 365, "5Y": 1826 };
+const RANGE_DAYS: Record<string, number> = { "1M": 30, "3M": 91, "6M": 182, "1Y": 365, "3Y": 1096, "5Y": 1826 };
 
 /** What to load for a range. `tf` is the pattern-agent timeframe that matches the bars drawn, so the
  *  flags always sit on the same candles. `days` = daily bars sliced to that many days (null = intraday).
  *  LIVE keeps the same range but polls; for 1M it also switches to finer (hourly) bars. */
-interface Spec { interval: string; period: string; tf: string; everyMs: number | null; days: number | null }
+interface Spec { interval: string; period: string; tf: string; everyMs: number | null; days: number | null; intraday: boolean }
 function specFor(range: Range, live: boolean): Spec {
   // 1D uses 1-minute bars and 1W 5-minute bars (about 375 points a session, like the reference site's
   // roughly-per-minute series). The pattern agent still runs on 5m / 15m bars; those timestamps are a
   // subset of the finer bars, so the flags land on the same candles.
-  if (range === "1D") return { interval: "1m", period: "1d", tf: "5m", everyMs: live ? 5000 : null, days: null };
-  if (range === "1W") return { interval: "5m", period: "5d", tf: "15m", everyMs: live ? 5000 : null, days: null };
-  if (range === "1M" && live) return { interval: "60m", period: "1mo", tf: "60m", everyMs: 15000, days: null };
-  return { interval: "1d", period: "5y", tf: "1d", everyMs: live ? 30000 : null, days: RANGE_DAYS[range] };
+  if (range === "1D") return { interval: "1m", period: "1d", tf: "5m", everyMs: live ? 5000 : null, days: null, intraday: true };
+  if (range === "1W") return { interval: "5m", period: "5d", tf: "15m", everyMs: live ? 5000 : null, days: null, intraday: true };
+  if (range === "1M" && live) return { interval: "60m", period: "1mo", tf: "60m", everyMs: 15000, days: null, intraday: true };
+  // "All": the stock's whole daily history (loaded on its own; the daily set kept for the page is five years)
+  if (range === "All") return { interval: "1d", period: "max", tf: "1d", everyMs: live ? 30000 : null, days: null, intraday: false };
+  return { interval: "1d", period: "5y", tf: "1d", everyMs: live ? 30000 : null, days: RANGE_DAYS[range], intraday: false };
 }
 const BAR_SECONDS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "60m": 3600, "1d": 86400 };
-
-/** NSE cash-market hours: Mon-Fri 09:15-15:30 IST. */
-function marketOpen(now = new Date()): boolean {
-  const ist = new Date(now.getTime() + (330 + now.getTimezoneOffset()) * 60000);
-  const day = ist.getDay();
-  const mins = ist.getHours() * 60 + ist.getMinutes();
-  return day >= 1 && day <= 5 && mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
-}
 
 // label shown -> key of the backend's return_bases
 const RETURNS: [string, string][] = [
@@ -130,7 +127,9 @@ function RangeBar({ low, high, now, lowLabel, highLabel, title }: { low: number 
   );
 }
 
-export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; onBack: () => void; onOpenStock?: (s: CompanyHit) => void }) {
+export function StockView({
+  stock, onBack, onOpenStock, scan,
+}: { stock: CompanyHit; onBack: () => void; onOpenStock?: (s: CompanyHit) => void; scan?: ScanContext }) {
   const sym = encodeURIComponent(stock.symbol);
   const name = stock.name ?? stock.company_name ?? stock.symbol;
   // Peer Comparison: clicking a peer opens that company's own page. The peer table carries short names, so look the
@@ -152,7 +151,18 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
   const [ticks, setTicks] = useState<{ key: string; data: Candle[] }>({ key: "", data: [] });
   const [todayBars, setTodayBars] = useState<Candle[] | null>(null);
   const [pickedRange, setRange] = useState<Range>("6M");
-  const [live, setLive] = useState(false);
+  // live from the start while the market is open (Mon-Fri 09:15-15:30 IST, not on exchange holidays)
+  const [live, setLive] = useState(() => marketOpen());
+  // Is the exchange open right now (Mon-Fri 09:15-15:30 IST, not on holidays)? Re-checked every 30s; LIVE switches itself off at the close.
+  const [open, setOpen] = useState(() => marketOpen());
+  useEffect(() => {
+    const t = setInterval(() => {
+      const m = marketOpen();
+      setOpen(m);
+      if (!m) setLive(false);
+    }, 30000);
+    return () => clearInterval(t);
+  }, []);
   const [liveAt, setLiveAt] = useState<Date | null>(null);
   const [error, setError] = useState("");
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -160,7 +170,10 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
   const [profile, setProfile] = useState<Profile | null>(null);
   // Basic (non-TTM) EPS from the latest Annual Report. undefined = still loading, null eps = not available.
   const [annualEps, setAnnualEps] = useState<{ eps: number | null; period: string | null; basis?: string | null } | undefined>(undefined);
-  const [showPatterns, setShowPatterns] = useState(true);
+  // Patterns are off unless the page was opened from a scanner for that pattern, then its marking is shown straight away.
+  const [showPatterns, setShowPatterns] = useState(Boolean(scan?.pattern));
+  const [chartStyle, setChartStyle] = useState<ChartStyle>("candles");
+  const [showVolume, setShowVolume] = useState(false);
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
   // Until it has some history, longer ranges fall back to the intraday 1D view (and say so).
   const MIN_DAILY_BARS = 5;
@@ -175,8 +188,15 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
     let live = true;
     let epsTimer: ReturnType<typeof setTimeout> | undefined;
     const fail = (e: Error) => live && setError(e.message);
-    getJson<Overview>(`/api/v1/stock-overview/${sym}`).then((o) => live && setOverview(o)).catch(fail);
-    getJson<Profile>(`/api/v1/stock-profile/${sym}`).then((p) => live && setProfile(p)).catch(() => {});
+    getJson<Overview>(`/api/v1/stock-overview/${sym}`)
+      .then((o) => live && setOverview(o))
+      .catch((e: Error) => {
+        fail(e);
+        if (live) setOverview((prev) => prev ?? { source: "unavailable" }); // nothing came back: say so instead of "Loading…"
+      });
+    getJson<Profile>(`/api/v1/stock-profile/${sym}`)
+      .then((p) => live && setProfile(p))
+      .catch(() => live && setProfile((prev) => prev ?? { paragraphs: [], headquarters: null, incorporation_year: null, leader: null, website: null, annual_report: null }));
     // First read of a company's Annual Report can take minutes: the backend answers `pending` and we poll.
     const pollEps = (tries: number) =>
       getJson<{ eps: number | null; period: string | null; basis?: string | null; pending?: boolean }>(`/api/v1/stock-eps/${sym}`)
@@ -227,7 +247,7 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
             // LIVE on an intraday range: keep every distinct price we see, stamped to the second, so the
             // chart (and its hover) gets finer than the candles. Only while the market is open - after the
             // close the quote does not change and a stamp would claim a trade at a time none happened.
-            if (spec.days === null && marketOpen()) {
+            if (spec.intraday && marketOpen()) {
               const price = q.ltp;
               const nowSec = Math.floor(Date.now() / 1000);
               setTicks((prev) => {
@@ -278,7 +298,7 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
   const [statusOn, setStatusOn] = useState<Record<PatternStatus, boolean>>({
     forming: true, awaiting_breakout: true, confirmed: true, invalidated: false,
   });
-  const [patternFilter, setPatternFilter] = useState("all");
+  const [patternFilter, setPatternFilter] = useState(scan?.pattern ?? "all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -306,11 +326,11 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
       run();
     }
     // LIVE on an intraday timeframe: pick up newly closed bars once a minute.
-    const timer = live && spec.days === null ? setInterval(run, 60000) : null;
+    const timer = live && spec.intraday ? setInterval(run, 60000) : null;
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [sym, spec.tf, spec.days, live]);
+  }, [sym, spec.tf, spec.intraday, live]);
 
   const shownOccs = useMemo<PatternOcc[]>(
     () => (patterns?.occurrences ?? []).filter((o) => statusOn[o.status] && (patternFilter === "all" || o.pattern === patternFilter)),
@@ -325,9 +345,10 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
     [patterns],
   );
 
-  const isIntraday = spec.days === null;
+  const isIntraday = spec.intraday;
+  const ownBars = spec.days === null; // intraday ranges and "All" load their own bars; the rest slice the daily set
   const series = useMemo(() => {
-    if (isIntraday) {
+    if (ownBars) {
       const b = bars?.key === specKey ? bars.data : null;
       if (!b || !live || ticks.key !== specKey || !ticks.data.length) return b;
       // live ticks that fall after the last candle's bucket extend the line with second-level points
@@ -338,12 +359,12 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
     if (!daily) return null;
     const cutoff = daily.length ? daily[daily.length - 1].time - (spec.days as number) * DAY : 0;
     return daily.filter((c) => c.time >= cutoff);
-  }, [isIntraday, bars, specKey, daily, spec.days, live, ticks, spec.interval]);
+  }, [ownBars, bars, specKey, daily, spec.days, live, ticks, spec.interval]);
 
   // While a new range loads, keep the previous chart on screen (with a spinner) so the switch can morph
   // from the old shape to the new one instead of flashing a blank "Loading…" box. This is React's
   // "adjust state while rendering" pattern: guarded, so it settles in one extra pass.
-  const seriesKey = isIntraday ? specKey : `d${spec.days}`;
+  const seriesKey = ownBars ? specKey : `d${spec.days}`;
   const [held, setHeld] = useState<{ key: string; data: Candle[] } | null>(null);
   if (series && series !== held?.data) setHeld({ key: seriesKey, data: series });
   const shown = series ?? held?.data ?? null;
@@ -377,6 +398,8 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
     overview?.all_time_high && overview?.all_time_low
       ? { low: overview.all_time_low.price, high: overview.all_time_high.price }
       : null;
+
+  const scanOverlay: ScanOverlay | null = scan ? { occurrence: scan.occurrence, resistance: scan.showResistance ? scan.resistance : null } : null;
 
   const pct = quote?.change_pct;
   const up = (pct ?? 0) >= 0;
@@ -419,28 +442,26 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
           <SectionTitle
             aside={
               <div className="flex gap-1 rounded-full p-1" style={{ background: "var(--surface-1)" }}>
-                <button
-                  onClick={() => setLive((v) => !v)}
-                  title={live ? "Live updates on — click to turn off" : "Turn on live updates for the selected range"}
-                  className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors"
-                  style={{ background: live ? "#dc2626" : "transparent", color: live ? "#fff" : "var(--text-secondary)" }}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${live ? "animate-pulse" : ""}`} style={{ background: live ? "#fff" : "#ef4444" }} />
-                  LIVE
-                </button>
-                {RANGES.map((r) => {
-                  const active = range === r;
-                  return (
-                    <button
-                      key={r}
-                      onClick={() => setRange(r)}
-                      className="rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors"
-                      style={{ background: active ? "#b7b4e7" : "transparent", color: active ? "var(--on-accent)" : "var(--text-secondary)" }}
-                    >
-                      {r}
-                    </button>
-                  );
-                })}
+                {open ? (
+                  <button
+                    onClick={() => setLive((v) => !v)}
+                    title={live ? "Live updates on — click to turn off" : "Turn on live updates for the selected range"}
+                    className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors"
+                    style={{ background: live ? "#dc2626" : "transparent", color: live ? "#fff" : "var(--text-secondary)" }}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${live ? "animate-pulse" : ""}`} style={{ background: live ? "#fff" : "#ef4444" }} />
+                    LIVE
+                  </button>
+                ) : (
+                  <span
+                    className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold"
+                    style={{ color: "var(--text-tertiary)" }}
+                    title="NSE trades Monday to Friday, 9:15 am to 3:30 pm IST. Prices shown are from the last session."
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--text-tertiary)" }} />
+                    Market closed
+                  </span>
+                )}
               </div>
             }
           >
@@ -514,19 +535,20 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
               </span>
             )}
           </div>
-          {shown === null ? (
+          {shown === null && !error ? (
             <div className="flex h-[320px] items-center justify-center text-sm" style={{ color: "var(--text-tertiary)" }}>Loading chart…</div>
-          ) : shown.length > 1 ? (
+          ) : shown && shown.length > 1 ? (
             <div className="relative">
-            <PriceChart
+            <StockChart
               candles={shown}
               dataKey={shownKey}
               intraday={isIntraday}
-              live={live}
+              chartStyle={chartStyle}
+              showVolume={showVolume}
               occs={showPatterns ? shownOccs : []}
-              catalogue={catalogue}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              scan={scanOverlay}
             />
             {switching && (
               <span
@@ -552,6 +574,47 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
               </button>
             </div>
           )}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Chart range">
+              {RANGES.map((r) => {
+                const active = range === r;
+                return (
+                  <button
+                    key={r}
+                    onClick={() => setRange(r)}
+                    aria-pressed={active}
+                    className="rounded-full border px-4 py-1.5 text-sm font-medium transition-colors"
+                    style={{
+                      borderColor: active ? "var(--text-primary)" : "var(--border-default)",
+                      color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                      background: active ? "var(--overlay)" : "transparent",
+                    }}
+                  >
+                    {r}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setChartStyle((c) => (c === "candles" ? "line" : "candles"))}
+                title={chartStyle === "candles" ? "Switch to a line chart" : "Switch to a candlestick chart"}
+                aria-label={chartStyle === "candles" ? "Switch to a line chart" : "Switch to a candlestick chart"}
+                className="ml-1 flex h-9 w-9 items-center justify-center rounded-full border transition-colors hover:border-[var(--accent-border)] hover:text-[var(--accent)]"
+                style={{ borderColor: "var(--border-default)", color: "var(--gain)" }}
+              >
+                {chartStyle === "candles" ? <ChartLine className="h-4 w-4" /> : <ChartCandlestick className="h-4 w-4" />}
+              </button>
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+              <span
+                className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border"
+                style={{ borderColor: showVolume ? "#b7b4e7" : "var(--border-default)", background: showVolume ? "#b7b4e7" : "transparent" }}
+              >
+                {showVolume && <Check className="h-3 w-3" strokeWidth={3} style={{ color: "var(--on-accent)" }} />}
+              </span>
+              <input type="checkbox" className="sr-only" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} />
+              Volume
+            </label>
+          </div>
           {showPatterns && selectedOcc && (
             <Card className="mt-4">
               <div className="flex items-start justify-between gap-3">
@@ -574,8 +637,8 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
           <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
             {[
               ["Market Cap", overview?.market_cap_cr != null ? `₹${fmt(overview.market_cap_cr)} Cr` : null],
-              ["P/E Ratio", annualEps === undefined ? "…" : pe != null ? fmt(pe) : null],
-              [`${arYear ? `EPS (FY${arYear.slice(-2)}` : "EPS (annual"}${annualEps?.basis === "standalone" ? ", standalone" : ""})`, annualEps === undefined ? "…" : annEps != null ? `₹${fmt(annEps)}` : null],
+              ["P/E Ratio", annualEps === undefined ? (overview?.pe != null ? `${fmt(overview.pe)} (TTM)` : "…") : pe != null ? fmt(pe) : null],
+              [`${arYear ? `EPS (FY${arYear.slice(-2)}` : "EPS (annual"}${annualEps?.basis === "standalone" ? ", standalone" : ""})`, annualEps === undefined ? (overview?.eps_ttm != null ? `₹${fmt(overview.eps_ttm)} (TTM)` : "…") : annEps != null ? `₹${fmt(annEps)}` : null],
               ["Face Value", overview?.face_value != null ? `₹${fmt(overview.face_value, overview.face_value % 1 ? 2 : 0)}` : null],
               ["All Time High", allTime ? inr(allTime.high) : null],
               ["All Time Low", allTime ? inr(allTime.low) : null],
@@ -652,7 +715,23 @@ export function StockView({ stock, onBack, onOpenStock }: { stock: CompanyHit; o
       <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
           <SectionTitle>Peer Comparison</SectionTitle>
-          {overview === null ? <Loading /> : overview.peers?.length ? <PeerTable peers={overview.peers} current={stock.symbol} onSelect={onOpenStock ? openPeer : undefined} /> : <Card><Unavailable what="Peer comparison" /></Card>}
+          {overview === null ? <Loading /> : overview.peers?.length ? (
+            <>
+              <PeerTable peers={overview.peers} current={stock.symbol} onSelect={onOpenStock ? openPeer : undefined} />
+              {overview.peers_source === "sector" && (
+                <p className="mt-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                  Screener.in has no peer table for this company, so these are companies in the same NSE sector closest in market cap. ROCE is not available for them.
+                </p>
+              )}
+            </>
+          ) : (
+            <Card>
+              <Unavailable what="Peer comparison" />
+              <p className="px-4 pb-4 text-center text-xs" style={{ color: "var(--text-tertiary)" }}>
+                Peers come from Screener.in and our NSE sector list; this company is in neither yet (usually a very recent listing).
+              </p>
+            </Card>
+          )}
         </div>
       </section>
     </div>

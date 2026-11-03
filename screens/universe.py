@@ -22,6 +22,8 @@ STALE_SECONDS = 24 * 3600
 WORKERS = 2  # kept low on purpose: four parallel workers got the Screener site timing out on us
 
 _lock = threading.Lock()
+_FUNDAMENTAL_KEYS = ("eps", "pe", "market_cap_cr", "promoter", "div_yield", "payout", "cover", "debt_equity",
+                     "net_profit_cr", "eps_growth", "fund_ok")
 _state = {"building": False, "done": 0, "total": 0, "started": None, "finished": None, "errors": 0}
 _cache: dict | None = None
 
@@ -76,7 +78,20 @@ def status() -> dict:
 def _build_one(sym: str, name: str | None, fetch_candles) -> tuple[str, dict | None]:
     try:
         from tools.screener_scraper import fetch_screener_financials
-        fin = fetch_screener_financials(sym, name)
+        fin = None
+        for attempt in range(3):               # Screener throttles under load: retry before recording "no fundamentals"
+            fin = fetch_screener_financials(sym, name)
+            if fin and fin.get("info"):
+                break
+            time.sleep(1.5 * (attempt + 1))
+        if not (fin and fin.get("info")):
+            # Banks / some companies have no income-statement layout the full parser accepts; their headline ratios
+            # (P/E, dividend yield) are still on the page.
+            from tools.screener_scraper import fetch_screener_moat_data
+            top = fetch_screener_moat_data(sym, name) or {}
+            if top.get("pe") is not None or top.get("dividend_yield") is not None:
+                dy = top.get("dividend_yield")
+                fin = {"info": {"trailingPE": top.get("pe"), "dividendYield": dy / 100.0 if dy is not None else None}}
         candles = fetch_candles(sym, "1d", "5y")
         if not fin and not candles:
             return sym, None
@@ -102,7 +117,7 @@ def build(fetch_candles, force: bool = False) -> bool:
             names = _names()
             syms = universe_symbols()
             now = time.time()
-            todo = [s for s in syms if force or s not in data or now - data[s].get("as_of", 0) > STALE_SECONDS]
+            todo = [s for s in syms if force or s not in data or not data[s].get("fund_ok") or now - data[s].get("as_of", 0) > STALE_SECONDS]
             _state["total"] = len(todo)
             since_save = 0
             with ThreadPoolExecutor(max_workers=WORKERS) as ex:
@@ -111,6 +126,11 @@ def build(fetch_candles, force: bool = False) -> bool:
                     if m is None:
                         _state["errors"] += 1
                     else:
+                        old = data.get(sym) or {}
+                        if not m.get("fund_ok") and old.get("fund_ok"):
+                            # Screener failed this time: keep the last good fundamentals rather than blanking them
+                            for k in _FUNDAMENTAL_KEYS:
+                                m[k] = old.get(k)
                         data[sym] = m
                     since_save += 1
                     if since_save >= 20:

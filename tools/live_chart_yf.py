@@ -17,6 +17,7 @@ function, without changing the frontend's response shape (a list of
 """
 
 import datetime
+import math
 import time
 
 try:
@@ -103,15 +104,37 @@ def _to_symbol(symbol: str) -> str:
         return cands[0]
     if base in _TICKER_CACHE:
         return _TICKER_CACHE[base]
-    for c in cands:
-        if _have_yf() and _has_data(c):
-            _TICKER_CACHE[base] = c
-            return c
+    for k, c in enumerate(cands):
+        # The provider throttles under load and answers "no data" for a perfectly good NSE ticker; one such blip must not
+        # push a company onto its thinly traded BSE line for the rest of the session, so each candidate gets two tries
+        # and the first (NSE) one is not cached as a loser on the strength of a single miss.
+        for attempt in range(2):
+            if _have_yf() and _has_data(c):
+                _TICKER_CACHE[base] = c
+                return c
+            time.sleep(0.5)
+        if k == 0:
+            return c        # NSE did not answer twice: stay on it (honest "unavailable"/retry) instead of switching to BSE
     found = _search_by_name(name) if (name and _have_yf()) else None
     if found:
         _TICKER_CACHE[base] = found
         return found
     return cands[0]  # nothing verified: the first candidate, so the failure is an honest "unavailable"
+
+
+def _finite(*vals) -> bool:
+    """True when every value is a real number (the provider returns NaN for an unfinished/holiday bar)."""
+    for v in vals:
+        try:
+            if v is None or not math.isfinite(float(v)):
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def _vol(v) -> float:
+    return float(v) if _finite(v) else 0.0
 
 
 def _have_yf() -> bool:
@@ -138,6 +161,8 @@ def get_candles(symbol: str, interval: str = "5m", period: str | None = None):
             # returns and 52-week figures would not match what the exchange reports.
             hist = yf.Ticker(sym).history(period=period, interval=interval, auto_adjust=False)
             if hist is not None and not hist.empty:
+                if interval == "1d" and len(hist) < 5 and period not in ("1d", "5d"):
+                    print(f"[live_chart] {sym} {interval} {period}: provider returned only {len(hist)} rows", flush=True)
                 break
         except Exception:
             hist = None
@@ -147,9 +172,11 @@ def get_candles(symbol: str, interval: str = "5m", period: str | None = None):
         if hist is None or hist.empty:
             return None
         candles = []
+        gaps = []                                   # daily rows the provider left empty (typically the newest session)
         for ts, row in hist.iterrows():
             o, h, l, c = row.get("Open"), row.get("High"), row.get("Low"), row.get("Close")
-            if o is None or h is None or l is None or c is None:
+            if not _finite(o, h, l, c):
+                gaps.append(ts)
                 continue
             candles.append({
                 "time": int(ts.timestamp()),
@@ -157,21 +184,54 @@ def get_candles(symbol: str, interval: str = "5m", period: str | None = None):
                 "high": float(h),
                 "low": float(l),
                 "close": float(c),
-                "volume": float(row.get("Volume") or 0),
+                "volume": _vol(row.get("Volume")),
             })
+        if candles and interval == "1d" and gaps and gaps[-1] == hist.index[-1]:
+            filled = _daily_from_intraday(sym, gaps[-1])
+            if filled and filled["time"] > candles[-1]["time"]:
+                candles.append(filled)
+        if candles and interval == "1d":
+            from tools.price_adjust import adjust_for_demergers
+            candles = adjust_for_demergers(candles, symbol)
         return candles or None
     except Exception:
         return None
 
 
 _IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+
+def _daily_from_intraday(sym: str, day_ts):
+    """The provider's daily row for the newest session is sometimes empty while its 5-minute bars exist. Rebuild that day's
+    bar from them (open of the first, high/low across, close of the last, volume summed). None when there are none - a bar
+    is never invented."""
+    try:
+        m = yf.Ticker(sym).history(period="5d", interval="5m", auto_adjust=False)
+        if m is None or m.empty:
+            return None
+        day = day_ts.date()
+        rows = [(ts, r) for ts, r in m.iterrows() if ts.date() == day and _finite(r.get("Open"), r.get("High"), r.get("Low"), r.get("Close"))]
+        if not rows:
+            return None
+        return {
+            "time": int(day_ts.timestamp()),
+            "open": float(rows[0][1]["Open"]),
+            "high": max(float(r["High"]) for _, r in rows),
+            "low": min(float(r["Low"]) for _, r in rows),
+            "close": float(rows[-1][1]["Close"]),
+            "volume": sum(_vol(r.get("Volume")) for _, r in rows),
+        }
+    except Exception:
+        return None
+
+
 _WARMUP_LOOKBACK_DAYS = 10   # calendar days; enough for several prior sessions
 _WARMUP_MAX_BARS = 300       # prior-session bars handed to the detectors
 
 
 def _row_to_candle(ts, row):
     o, h, l, c = row.get("Open"), row.get("High"), row.get("Low"), row.get("Close")
-    if o is None or h is None or l is None or c is None:
+    if not _finite(o, h, l, c):
         return None
     return {
         "time": int(ts.timestamp()),
@@ -179,7 +239,7 @@ def _row_to_candle(ts, row):
         "high": float(h),
         "low": float(l),
         "close": float(c),
-        "volume": float(row.get("Volume") or 0),
+        "volume": _vol(row.get("Volume")),
     }
 
 

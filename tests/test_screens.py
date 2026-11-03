@@ -101,9 +101,18 @@ def test_pe_is_price_over_trailing_eps_and_none_when_earnings_are_not_positive()
 
     c = _candles(60)  # last close is the price
     price = c[-1]["close"]
-    assert metrics.compute(fin(2.5), c)["pe"] == pytest.approx(price / 10.0)
-    # negative trailing earnings: not meaningful. The provider's own P/E (56.9) must NOT be used instead.
-    assert metrics.compute(fin(-1.0), c)["pe"] is None
+    # Screener's own Stock P/E is the figure investors compare against, so it wins when present ...
+    assert metrics.compute(fin(2.5), c)["pe"] == pytest.approx(56.9)
+    # ... and without it the P/E is price / trailing EPS
+    no_pe = fin(2.5)
+    no_pe["info"] = {}
+    assert metrics.compute(no_pe, c)["pe"] == pytest.approx(price / 10.0)
+    # Screener shows no P/E for loss-making companies: neither do we, and it is never derived from negative EPS
+    loss = fin(-1.0)
+    loss["info"] = {"trailingPE": None}
+    assert metrics.compute(loss, c)["pe"] is None
+    loss["info"] = {}
+    assert metrics.compute(loss, c)["pe"] is None
 
 
 def test_eps_row_ignores_a_leading_note_reference_column():

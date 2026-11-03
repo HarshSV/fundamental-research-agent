@@ -1,3 +1,4 @@
+import html
 import os
 import re
 import sys
@@ -339,7 +340,12 @@ def _rebuild_company_universe():
             code = row.get("bse_code") or row.get("bse_scrip_code")
             if code:
                 item["bse_code"] = str(code)
-        listed = _NSE_LISTED | _CURATED_SYMBOLS
+        try:        # every company of the NSE Nifty Total Market list trades on NSE, whatever the live scrip master returned
+            from tools.nse_sector_map import all_symbols_by_sector
+            nse_index = {x for v in all_symbols_by_sector().values() for x in v}
+        except Exception:
+            nse_index = set()
+        listed = _NSE_LISTED | _CURATED_SYMBOLS | nse_index
         for sym in order:
             item = base[sym]
             item["exchanges"] = (["NSE"] if sym in listed else []) + (["BSE"] if item.get("bse_code") else [])
@@ -856,6 +862,32 @@ def stock_profile(symbol: str, _: dict = Depends(auth.require_session)):
     return {"symbol": sym, **get_profile(sym, name)}
 
 
+
+def _sector_peers(sym, limit=6):
+    """Peer rows from our own scanned universe (same NSE sector, closest by market cap) for when Screener has no peer table
+    (not listed there yet / unreachable). Shaped like Screener's peers; ROCE is not in our data, so it stays null."""
+    try:
+        from tools.nse_sector_map import get_nse_sector
+        from patterns import scan as _scan
+        sector = get_nse_sector(sym)
+        rows = _scan._load_all()
+        me = rows.get(sym)
+        if not sector or not me:
+            return []
+        same = [r for r in rows.values() if r.get("sector") == sector and isinstance(r.get("market_cap_cr"), (int, float))]
+        base = me.get("market_cap_cr") or 0
+        same.sort(key=lambda r: abs(r["market_cap_cr"] - base))
+        pick = same[: limit + 1]
+        if me not in pick:
+            pick = [me] + pick[:limit]
+        pick.sort(key=lambda r: -r["market_cap_cr"])
+        return [{"name": r.get("name") or r["symbol"], "symbol": r["symbol"], "rank": i + 1, "metrics": {
+                    "currentPrice": {"value": r.get("price")}, "priceToEarning": {"value": r.get("pe")},
+                    "marketCapitalization": {"value": r.get("market_cap_cr")}, "returnOnCapitalEmployed": {"value": None}}}
+                for i, r in enumerate(pick)]
+    except Exception:
+        return []
+
 @app.get("/api/v1/stock-overview/{symbol}")
 def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     """Stock-page sections that are not price data: key metrics, about text, quarterly
@@ -882,10 +914,19 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
         pass
 
     from tools.screener_scraper import fetch_screener_financials
-    data = fetch_screener_financials(sym, name)
+    # Bounded wait: a company Screener does not know yet (a fresh listing) or an unreachable Screener must not hold the page
+    # for minutes - answer with what price data gives, and the page shows "unavailable" for the rest.
+    _pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        data = _pool.submit(fetch_screener_financials, sym, name).result(timeout=25)
+    except Exception:
+        data = None
+    finally:
+        _pool.shutdown(wait=False)
     if not data:
         # fundamentals source down: price-derived extremes are still real
-        return {"symbol": sym, "source": "unavailable", "all_time_high": ath, "all_time_low": atl, "return_bases": return_bases}
+        return {"symbol": sym, "source": "unavailable", "all_time_high": ath, "all_time_low": atl, "return_bases": return_bases,
+                "peers": _sector_peers(sym), "peers_source": "sector"}
 
     def cr(v):
         return round(v / 1e7, 2) if isinstance(v, (int, float)) else None
@@ -923,14 +964,10 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
 
     # Debt/Equity from the latest balance sheet, only when BOTH figures are reported (a reported 0
     # borrowing is a real 0; a missing figure stays None - never zero-filled).
-    de = None
-    bs = (data.get("financial_arrays") or {}).get("balance_sheet") or {}
-    for period in sorted(bs, reverse=True):
-        col = bs[period]
-        debt, eq = col.get("Total Debt"), col.get("Stockholders Equity")
-        if isinstance(debt, (int, float)) and isinstance(eq, (int, float)) and eq > 0:
-            de = round(debt / eq, 2)
-            break
+    from screens.metrics import debt_equity, is_financial, screener_pe
+    from tools.nse_sector_map import get_nse_sector
+    de = None if is_financial(get_nse_sector(sym)) else debt_equity(data)
+    de = round(de, 2) if de is not None else None
 
     # Trailing-twelve-month EPS = sum of the last four reported quarters (all four must be known). P/E is
     # price / that EPS and only when it is positive - negative or missing earnings give None ("not
@@ -938,7 +975,7 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     q_eps = [r["eps"] for r in quarterly][-4:]
     eps_ttm = sum(q_eps) if len(q_eps) == 4 and all(isinstance(x, (int, float)) for x in q_eps) else None
     price = info.get("currentPrice")
-    pe = round(price / eps_ttm, 2) if (eps_ttm and eps_ttm > 0 and price) else None
+    pe = screener_pe(info) or (round(price / eps_ttm, 2) if (eps_ttm and eps_ttm > 0 and price) else None)
 
     return {
         "symbol": sym,
@@ -955,7 +992,9 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
         "about": info.get("longBusinessSummary"),
         "quarterly": quarterly,
         "shareholding": data.get("shareholding") or None,
-        "peers": data.get("screener_peers") or [],
+        "peers_source": "screener" if data.get("screener_peers") else "sector",
+        "peers": [dict(p, name=html.unescape(str(p.get("name") or "")), symbol=html.unescape(str(p.get("symbol") or "")).upper())
+                  for p in (data.get("screener_peers") or [])] or _sector_peers(sym),
     }
 
 # Future-bar forecasting (probabilistic, validated) - see forecast/api.py. Additive: the endpoints
@@ -984,6 +1023,9 @@ except Exception as _pt_err:  # pragma: no cover
 try:
     from patterns.scan_api import make_router as _make_scan_router
     app.include_router(_make_scan_router(auth.require_session))
+    if os.environ.get("NAVRIST_AUTOSCAN", "1") == "1":
+        from patterns import scan as _scan_mod
+        threading.Thread(target=_scan_mod.autoscan_loop, daemon=True, name="pattern-autoscan").start()
 except Exception as _sc_err:  # pragma: no cover
     print(f"[HTTP WARNING] pattern scan API not mounted: {_sc_err}")
 

@@ -2,7 +2,7 @@
 
 import { CandlestickSeries, ColorType, HistogramSeries, LineSeries, LineStyle, createChart, type Time } from "lightweight-charts";
 import { useEffect, useRef } from "react";
-import type { ScanOccurrence } from "./patternScan";
+import type { Resistance, ScanOccurrence } from "./patternScan";
 
 type Bar = [number, number, number, number, number, number]; // t, o, h, l, c, v
 
@@ -17,7 +17,9 @@ const css = (name: string, fallback: string) =>
  * drawn lines, and dashed breakout / invalidation levels. Not scrollable or zoomable on purpose (it sits inside a
  * scrolling page); the full interactive chart is one click away on the stock page.
  */
-export function TvChart({ bars, occurrence, height = 300 }: { bars: Bar[]; occurrence: ScanOccurrence; height?: number }) {
+export function TvChart({
+  bars, occurrence, resistance, height = 300,
+}: { bars: Bar[]; occurrence: ScanOccurrence | null; resistance?: Resistance | null; height?: number }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,15 +50,15 @@ export function TvChart({ bars, occurrence, height = 300 }: { bars: Bar[]; occur
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     volume.setData(bars.map(([t, o, , , c, v]) => ({ time: day(t), value: v, color: (c >= o ? gain : loss) + "66" })));
 
-    if (occurrence.breakout != null)
+    if (occurrence?.breakout != null)
       candles.createPriceLine({ price: occurrence.breakout, color: "#f59e0b", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "Breakout" });
-    if (occurrence.invalidation != null)
+    if (occurrence?.invalidation != null)
       candles.createPriceLine({ price: occurrence.invalidation, color: loss, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "Invalid" });
 
     // the pattern's own lines (neckline, trendlines...), clipped to the visible window
     const t0 = bars[0][0];
     const t1 = bars[bars.length - 1][0];
-    for (const ln of occurrence.lines) {
+    for (const ln of occurrence?.lines ?? []) {
       if (ln.ts1 === ln.ts0) continue;
       const slope = (ln.y1 - ln.y0) / (ln.ts1 - ln.ts0);
       const a = Math.max(ln.ts0, t0);
@@ -68,6 +70,16 @@ export function TvChart({ bars, occurrence, height = 300 }: { bars: Bar[]; occur
       s.setData([{ time: day(a), value: ya }, { time: day(b), value: yb }]);
     }
 
+    // horizontal resistance: a solid red line across the chart at the level the highs keep failing at
+    if (resistance) {
+      const from = Math.max(resistance.first_ts, t0);
+      if (t1 > from) {
+        const line = chart.addSeries(LineSeries, { color: "#ef4444", lineWidth: 3, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+        line.setData([{ time: day(from), value: resistance.level }, { time: day(t1), value: resistance.level }]);
+        candles.createPriceLine({ price: resistance.level, color: "#ef4444", lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: `Resistance ×${resistance.touches}` });
+      }
+    }
+
     chart.timeScale().fitContent();
     const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
     ro.observe(el);
@@ -75,7 +87,7 @@ export function TvChart({ bars, occurrence, height = 300 }: { bars: Bar[]; occur
       ro.disconnect();
       chart.remove();
     };
-  }, [bars, occurrence, height]);
+  }, [bars, occurrence, resistance, height]);
 
   return <div ref={ref} style={{ height }} />;
 }

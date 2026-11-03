@@ -1,18 +1,24 @@
-"""HTTP surface for the pattern scanner (see patterns/scan.py). Mounted from app.py next to the pattern agent router."""
+"""HTTP surface for the market scanner (see patterns/scan.py and patterns/screen_engine.py). Mounted from app.py next to the
+pattern agent router."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from . import scan
 from .registry import BY_NAME
+from .screen_engine import SPECIAL
 
 
 def make_router(require_session):
     r = APIRouter()
 
+    def _check(pattern: str) -> None:
+        if pattern not in BY_NAME and pattern not in SPECIAL:
+            raise HTTPException(status_code=404, detail=f"Unknown pattern {pattern!r}.")
+
     @r.get("/api/v1/pattern-scan/options")
     def scan_options(_: dict = Depends(require_session)):
-        """What the filter popup offers: index list, sectors, MA periods, statuses and the market-cap bounds."""
+        """What the filter popup offers: indices, sectors, moving-average periods, statuses, bounds and rotation options."""
         return scan.options()
 
     @r.get("/api/v1/pattern-scan/status")
@@ -28,12 +34,20 @@ def make_router(require_session):
     @r.post("/api/v1/pattern-scan/{pattern}/search")
     def scan_search(pattern: str, include_candles: bool = False, filters: dict = Body(default_factory=dict),
                     _: dict = Depends(require_session)):
-        """Stocks currently showing `pattern`, narrowed by the filters:
-        indices / sectors / status: {values: [...]} (a stock matches when it has at least one ticked option);
-        mcap: {min, max} in Rs crore; ema / dma: {periods: [...], side: "above"|"below"}; q: name or ticker text;
-        page, page_size, sort ("status" | "market_cap" | "name")."""
-        if pattern not in BY_NAME:
-            raise HTTPException(status_code=404, detail=f"Unknown pattern {pattern!r}.")
+        """Stocks currently showing `pattern` ("all" = no pattern requirement, "horizontal-resistance" = stocks at a horizontal
+        resistance), narrowed by the filters. List filters: indices / sectors / status: {values: [...]}; ema / dma: {periods,
+        side}. Range filters {min, max}: mcap (Rs crore), price, rs, pct_52w_low, pct_52w_high, pct_ath, free_float, turnover,
+        avg_volume, pe, eps_growth, debt_equity, promoter, div_yield, net_profit, volatility, ret_1m..ret_5y. Others: near_high
+        {sessions}, ma_order {kind, periods}, ma_uptrend {period, months}, adr {days, min}, rrg {quadrants, timeframe,
+        benchmark}, resistance {require, states}; q (name or ticker), page, page_size, sort."""
+        _check(pattern)
         return scan.search(pattern, filters, include_candles=include_candles)
+
+    @r.post("/api/v1/pattern-scan/{pattern}/backtest")
+    def scan_backtest(pattern: str, filters: dict = Body(default_factory=dict), _: dict = Depends(require_session)):
+        """What happened after `pattern` confirmed in the past, over the stocks that pass the stock-level filters. Extra keys:
+        horizon (5/10/20/40/60 bars), page, page_size (the trade list)."""
+        _check(pattern)
+        return scan.backtest(pattern, filters)
 
     return r

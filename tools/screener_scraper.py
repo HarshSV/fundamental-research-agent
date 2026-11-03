@@ -10,6 +10,7 @@ Design: curl_cffi (real-browser TLS), disk cache (12h), never raises.
 """
 
 import os
+import html as html_lib
 import re
 import json
 import time
@@ -71,7 +72,13 @@ def _write_cache(key, payload):
         pass
 
 
+_DOWN_UNTIL = 0.0   # circuit breaker: after a connection failure, skip Screener for a few minutes instead of waiting 20s a call
+
+
 def _get(url):
+    global _DOWN_UNTIL
+    if time.time() < _DOWN_UNTIL:
+        return None
     try:
         if _HAVE_CFFI:
             s = _http.Session(impersonate="chrome")
@@ -83,6 +90,8 @@ def _get(url):
             return r.text
     except Exception as e:
         print(f"[screener] GET failed ({url}): {e}")
+        if "connect" in str(e).lower() or "timed out" in str(e).lower():
+            _DOWN_UNTIL = time.time() + 180
     return None
 
 
@@ -290,10 +299,10 @@ def _parse_peers_table(html):
         if not link:
             continue  # header row or the trailing "Median" row (no company link)
         cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
-        cells = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", c)).strip() for c in cells]
+        cells = [html_lib.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", c)).strip()) for c in cells]
         if len(cells) < 11:
             continue
-        sym = link.group(1).upper()
+        sym = html_lib.unescape(link.group(1)).upper()
         out.append({
             "name": cells[1],
             "symbol": sym,
@@ -959,3 +968,55 @@ if __name__ == "__main__":
     c = fetch_concall_text(arg)
     print("url:", c["url"], "| chars:", len(c["text"]))
     print(c["text"][:500])
+
+
+def fetch_screener_52w(symbol, name=None):
+    """(52-week high, 52-week low) exactly as Screener shows them (corporate-action adjusted), or None. Cached 12h."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    key = f"hilo_{sym}"
+    cached = _read_cache(key)
+    if cached is not None:
+        return tuple(cached) if cached else None
+    slug = _SYMBOL_MAP.get(sym, sym)
+    html = _get(f"https://www.screener.in/company/{slug}/consolidated/")
+    if not html or 'id="top-ratios"' not in html:
+        html = _get(f"https://www.screener.in/company/{slug}/")
+    m = re.search(r'id="top-ratios".*?</ul>', html or "", re.S)
+    if not m:
+        return None
+    for li in re.findall(r"<li[^>]*>(.*?)</li>", m.group(0), re.S):
+        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", li))
+        if "high / low" in text.lower():
+            nums = [_num(x) for x in re.findall(r"[\d,]+\.?\d*", text.split("Low", 1)[-1])]
+            nums = [n for n in nums if n is not None]
+            if len(nums) >= 2 and nums[0] >= nums[1] > 0:
+                _write_cache(key, [nums[0], nums[1]])
+                return nums[0], nums[1]
+    return None
+
+
+def fetch_screener_price_history(symbol, name=None):
+    """Screener's own price history [(YYYY-MM-DD, price)], oldest first - corporate-action adjusted (splits, bonuses,
+    demergers). Sampled weekly/monthly for long spans. None when unavailable. Cached 12h."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    key = f"pricehist_{sym}"
+    cached = _read_cache(key)
+    if cached is not None:
+        return [tuple(x) for x in cached] or None
+    slug = _SYMBOL_MAP.get(sym, sym)
+    html = _get(f"https://www.screener.in/company/{slug}/consolidated/")
+    if not html or "data-company-id" not in html:
+        html = _get(f"https://www.screener.in/company/{slug}/")
+    m = re.search(r'data-company-id="(\d+)"', html or "")
+    if not m:
+        return None
+    try:
+        import json as _json
+        txt = _get(f"https://www.screener.in/api/company/{m.group(1)}/chart/?q=Price&days=10000&consolidated=true")
+        vals = _json.loads(txt)["datasets"][0]["values"] if txt else []
+        out = [(d, float(v)) for d, v in vals if v is not None]
+    except Exception:
+        return None
+    if out:
+        _write_cache(key, [list(x) for x in out])
+    return out or None

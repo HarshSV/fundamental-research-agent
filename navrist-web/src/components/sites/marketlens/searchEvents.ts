@@ -1,4 +1,5 @@
 export const OPEN_SEARCH_EVENT = "navrist-open-search";
+export const OPEN_SCREENER_EVENT = "navrist-open-screener"; // the header's Create Screener button
 
 /** Ask the page to open the full-screen search; `from` is the element it springs out of. */
 export function openSearch(from: Element | null) {

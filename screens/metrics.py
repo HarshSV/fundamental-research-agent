@@ -35,6 +35,37 @@ def _eps_cagr(income: dict) -> float | None:
     return ((pts[-1][1] / pts[0][1]) ** (1.0 / years) - 1.0) * 100.0
 
 
+# Debt/Equity is not a meaningful measure for lenders / insurers (their "debt" is the business itself) - Screener omits it too.
+_FINANCIAL_WORDS = ("bank", "nbfc", "insurance", "capital markets", "financ")
+
+
+def is_financial(sector: str | None) -> bool:
+    s = (sector or "").lower()
+    return any(w in s for w in _FINANCIAL_WORDS)
+
+
+def screener_pe(info: dict) -> float | None:
+    """Screener's own "Stock P/E" (consolidated, trailing twelve months) - the figure investors compare against.
+    Not meaningful (None) when earnings are not positive."""
+    v = _num((info or {}).get("trailingPE"))
+    return v if v and v > 0 else None
+
+
+def debt_equity(fin: dict | None) -> float | None:
+    """Total debt / equity from the latest balance sheet where BOTH are reported; not meaningful (None) when equity is
+    not positive (negative book value) - a ratio there would be misleading."""
+    info = (fin or {}).get("info") or {}
+    bv = _num(info.get("bookValue"))
+    if bv is not None and bv <= 0:
+        return None
+    bs = ((fin or {}).get("financial_arrays") or {}).get("balance_sheet") or {}
+    for period in sorted(bs, reverse=True):
+        debt, eq = bs[period].get("Total Debt"), bs[period].get("Stockholders Equity")
+        if isinstance(debt, (int, float)) and isinstance(eq, (int, float)) and eq > 0:
+            return debt / eq
+    return None
+
+
 def compute(fin: dict | None, candles: list[dict] | None) -> dict:
     info = (fin or {}).get("info") or {}
     arrays = (fin or {}).get("financial_arrays") or {}
@@ -54,13 +85,7 @@ def compute(fin: dict | None, candles: list[dict] | None) -> dict:
     payout = (dps / eps * 100.0) if (dps and eps and eps > 0) else None
     cover = (eps / dps) if (dps and eps and eps > 0) else None
 
-    de = None
-    bs = arrays.get("balance_sheet") or {}
-    for period in sorted(bs, reverse=True):
-        debt, eq = bs[period].get("Total Debt"), bs[period].get("Stockholders Equity")
-        if isinstance(debt, (int, float)) and isinstance(eq, (int, float)) and eq > 0:
-            de = debt / eq
-            break
+    de = debt_equity(fin)
 
     inc = arrays.get("income_stmt") or {}
     latest = inc[max(inc)] if inc else {}
@@ -83,8 +108,11 @@ def compute(fin: dict | None, candles: list[dict] | None) -> dict:
     return {
         "price": price,
         "eps": eps,
-        # one P/E formula everywhere: price / trailing EPS, only when EPS is positive (else not meaningful)
-        "pe": (price / eps) if (price and eps and eps > 0) else None,
+        # Screener's Stock P/E when it has one; otherwise price / trailing EPS, only when EPS is positive (else not meaningful)
+        # Screener's Stock P/E is authoritative: when its page was read and shows no P/E (loss-making / not meaningful) there is none.
+        # Only when the page could not be read at all is it computed as price / trailing EPS (positive EPS only).
+        "pe": (screener_pe(info) if "trailingPE" in info else ((price / eps) if (price and eps and eps > 0) else None)),
+        "fund_ok": bool(info),
         "market_cap_cr": round(info["marketCap"] / 1e7, 2) if _num(info.get("marketCap")) else None,
         "promoter": _num(promoter),
         "div_yield": div_yield,

@@ -1,15 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CompanyHit } from "@/lib/api";
-import { NEW_SCREEN_EVENT } from "./Header";
-import { OPEN_SEARCH_EVENT } from "./searchEvents";
+import { OPEN_SCREENER_EVENT, OPEN_SEARCH_EVENT } from "./searchEvents";
 import { SearchOverlay } from "./SearchOverlay";
 import { Hero } from "./Hero";
 import { PatternFilterModal } from "./PatternFilterModal";
 import { PatternScanPage } from "./PatternScanPage";
 import { fetchCatalogue, type CatalogueEntry } from "./patterns";
-import { EMPTY_FILTERS, fetchScanOptions, type ScanFilters, type ScanOptions } from "./patternScan";
+import { RESISTANCE_ID, SCREENER_ID, emptyFilters, fetchScanOptions, loadSaved, withDefaults, type ScanContext, type ScanFilters, type ScanOptions } from "./patternScan";
 import { PopularScreens } from "./PopularScreens";
 import {
   fetchScreen, fetchSector, fetchSectors, type ScreenResult, type SectorInfo, type SectorResult,
@@ -21,7 +20,7 @@ export const SEARCH_INPUT_ID = "navrist-search";
 
 type View =
   | { kind: "home" }
-  | { kind: "stock"; stock: CompanyHit }
+  | { kind: "stock"; stock: CompanyHit; scan?: ScanContext }
   | { kind: "patternScan"; pattern: string; filters: ScanFilters }
   | { kind: "sector"; name: string }
   | { kind: "screen"; id: string };
@@ -102,7 +101,8 @@ export function HomeScreen() {
     setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
     window.scrollTo({ top: 0 });
   }, []);
-  const openStock = useCallback((stock: CompanyHit) => push({ kind: "stock", stock }), [push]);
+  // `scan` is set when the stock is opened from a scanner row: its chart then shows that scan's pattern and resistance
+  const openStock = useCallback((stock: CompanyHit, scan?: ScanContext) => push({ kind: "stock", stock, scan }), [push]);
 
   // One full-screen search for the whole page: opened from the hero box or the header search bar.
   const [sectors, setSectors] = useState<SectorInfo[]>([]);
@@ -119,6 +119,12 @@ export function HomeScreen() {
   }, []);
   // Patterns: the catalogue feeds the "Browse by pattern" chips; picking one opens the filter popup, Apply opens the results.
   const [catalogue, setCatalogue] = useState<CatalogueEntry[]>([]);
+  // scanners that are not one chart pattern: the plain screener and the horizontal-resistance scan
+  const scanners = useMemo<CatalogueEntry[]>(() => [
+    { id: SCREENER_ID, name: "Create Screener", category: "screener", maturity: "standard", definition: "Filter every scanned stock by technicals, fundamentals and more, then see the list or the charts." },
+    { id: RESISTANCE_ID, name: "Horizontal Resistance", category: "scanner", maturity: "standard", definition: "Stocks pressing on a price level that at least three separate highs have touched, with the price just under it or just through it." },
+  ], []);
+  const entries = useMemo(() => [...scanners, ...catalogue], [scanners, catalogue]);
   const [patternsError, setPatternsError] = useState("");
   const [scanOptions, setScanOptions] = useState<ScanOptions | null>(null);
   const [modal, setModal] = useState<{ pattern: string; initial: ScanFilters; edit: boolean } | null>(null);
@@ -134,7 +140,9 @@ export function HomeScreen() {
   }, []);
   const openPattern = useCallback((id: string) => {
     setSearch({ open: false, origin: null });
-    setModal({ pattern: id, initial: EMPTY_FILTERS, edit: false });
+    // a filter saved as the default for this scanner opens pre-filled
+    const def = loadSaved().find((s) => s.isDefault && s.pattern === id);
+    setModal({ pattern: id, initial: def ? withDefaults(def.filters) : emptyFilters(), edit: false });
   }, []);
   const applyFilters = (f: ScanFilters) => {
     if (!modal) return;
@@ -149,27 +157,21 @@ export function HomeScreen() {
     document.documentElement.dataset.view = view.kind;
   }, [view.kind]);
 
-  // "New Screen" (header button): back to the screener home with the cursor in the search box.
+  // "Create Screener" (header button): the screener's filter popup, from any page
   useEffect(() => {
-    const start = () => {
-      setStack([{ kind: "home" }]);
-      setTimeout(() => {
-        // the home search box opens the full-screen search overlay
-        (document.getElementById(SEARCH_INPUT_ID) as HTMLButtonElement | null)?.click();
-      }, 60);
-    };
-    window.addEventListener(NEW_SCREEN_EVENT, start);
-    return () => window.removeEventListener(NEW_SCREEN_EVENT, start);
-  }, []);
+    const start = () => openPattern(SCREENER_ID);
+    window.addEventListener(OPEN_SCREENER_EVENT, start);
+    return () => window.removeEventListener(OPEN_SCREENER_EVENT, start);
+  }, [openPattern]);
 
   const page =
-    view.kind === "stock" ? <StockView key={view.stock.symbol} stock={view.stock} onBack={pop} onOpenStock={openStock} />
+    view.kind === "stock" ? <StockView key={view.stock.symbol} stock={view.stock} onBack={pop} onOpenStock={openStock} scan={view.scan} />
     : view.kind === "sector" ? <SectorPage name={view.name} onBack={pop} onSelect={openStock} />
     : view.kind === "screen" ? <ScreenPage id={view.id} onBack={pop} onSelect={openStock} />
-    : view.kind === "patternScan" && catalogue.find((c) => c.id === view.pattern) ? (
+    : view.kind === "patternScan" && entries.find((c) => c.id === view.pattern) ? (
       <PatternScanPage
         key={view.pattern}
-        pattern={catalogue.find((c) => c.id === view.pattern) as CatalogueEntry}
+        pattern={entries.find((c) => c.id === view.pattern) as CatalogueEntry}
         filters={view.filters}
         options={scanOptions}
         onBack={pop}
@@ -205,10 +207,10 @@ export function HomeScreen() {
           }}
         />
       )}
-      {modal && catalogue.find((c) => c.id === modal.pattern) && (
+      {modal && entries.find((c) => c.id === modal.pattern) && (
         <PatternFilterModal
           key={`${modal.pattern}-${modal.edit}`}
-          pattern={catalogue.find((c) => c.id === modal.pattern) as CatalogueEntry}
+          pattern={entries.find((c) => c.id === modal.pattern) as CatalogueEntry}
           options={scanOptions}
           initial={modal.initial}
           onApply={applyFilters}

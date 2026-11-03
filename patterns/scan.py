@@ -1,9 +1,11 @@
-"""Pattern scanner: which stocks are forming / about to break out of / have just confirmed a given chart pattern.
+"""Market scanner: the data behind the pattern pages, the screener and the backtests.
 
 A background build analyses every stock in the universe (the Nifty Total Market list in tools/nse_sector_map) once on its
 daily chart: it runs the pattern engine (results persist in the pattern store), then saves ONE small file per stock with
-what the screen needs - current pattern occurrences, EMA/SMA levels, returns, market cap, NSE index membership and the
-last ~160 daily candles for the chart view. Searching then only reads those files, so filtering is instant.
+what the screens need - current pattern occurrences, technical measures (moving averages, 52-week / all-time distances,
+average daily range, turnover, relative-strength input, returns), any horizontal resistance, every historical confirmed
+pattern as a backtest trade, the NSE index membership, the market cap and the last ~160 candles for the chart view.
+Searching (patterns/screen_engine.py) only reads those files, so filtering is instant.
 
 Nothing is guessed: a value that cannot be computed (too few bars, market cap unavailable, not in any NSE index) is
 None and never satisfies a filter on it - it is shown as "-" and is never treated as zero."""
@@ -17,11 +19,16 @@ import threading
 import time
 from concurrent.futures import ProcessPoolExecutor
 
+from .features import _ema, _sma, metrics, resistance, resistance_trades, trades  # noqa: F401  (_ema/_sma re-exported for callers and tests)
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.environ.get("PATTERN_SCAN_DIR", os.path.join(ROOT, "data", "pattern_scan"))
 SYMBOL_DIR = os.path.join(DATA_DIR, "symbols")
 INDEX_FILE = os.path.join(DATA_DIR, "indices.json")
+BENCH_FILE = os.path.join(DATA_DIR, "benchmarks.json")
+FUNDAMENTALS_FILE = os.path.join(ROOT, "data", "screens", "universe.json")
 IST_OFFSET = 19800
+DAY = 86400
 
 # official NSE index constituent lists = the "index" filter (large / mid / small / micro cap)
 INDEX_URLS = {
@@ -32,12 +39,15 @@ INDEX_URLS = {
 }
 INDEX_LABEL = {"large": "Large Cap (Nifty 100)", "mid": "Mid Cap (Nifty Midcap 150)",
                "small": "Small Cap (Nifty Smallcap 250)", "micro": "Micro Cap (Nifty Microcap 250)"}
+BENCHMARKS = {"nifty50": "^NSEI", "nifty500": "^CRSLDX"}          # what a sector's strength is measured against
 MA_PERIODS = (10, 20, 50, 100, 200)
 CONFIRMED_WINDOW_BARS = 10          # a confirmation counts as "recent" for this many bars
 CHART_BARS = 160
+CLOSE_BARS = 520                    # closes kept per stock (about 2 years) for sector rotation
+PATTERN_YEARS = 5                   # the pattern engine's window
 
 _lock = threading.Lock()
-_mem: dict = {"mtime": 0.0, "rows": {}}
+_mem: dict = {"stamp": None, "rows": {}}
 
 
 # ------------------------------------------------------------------ universe + index membership
@@ -93,26 +103,30 @@ def index_membership(max_age_days: int = 7) -> dict:
         return {}
 
 
+def refresh_benchmarks() -> None:
+    """Daily closes (about 2 years) of the benchmark indices, for the sector-rotation (RRG) filter."""
+    try:
+        import yfinance as yf
+        out = {}
+        for key, ticker in BENCHMARKS.items():
+            h = yf.Ticker(ticker).history(period="3y", interval="1d")
+            rows = [[int(ts.timestamp()), round(float(c), 2)] for ts, c in zip(h.index, h["Close"]) if c == c]
+            if rows:
+                out[key] = rows[-CLOSE_BARS:]
+        if out:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(BENCH_FILE, "w", encoding="utf-8") as fh:
+                json.dump(out, fh)
+    except Exception as e:
+        print(f"[pattern_scan] benchmark refresh failed: {e}")
+
+
 # ------------------------------------------------------------------ per-stock analysis
-def _ema(vals: list[float], n: int) -> float | None:
-    if len(vals) < n:
-        return None
-    k = 2.0 / (n + 1)
-    e = sum(vals[:n]) / n
-    for v in vals[n:]:
-        e = v * k + e * (1 - k)
-    return e
-
-
-def _sma(vals: list[float], n: int) -> float | None:
-    return sum(vals[-n:]) / n if len(vals) >= n else None
-
-
 def _market_cap_cr(symbol: str, price: float | None) -> float | None:
     """Market cap in Rs crore: the Screener figure the stock page shows when known, else Yahoo's share count x the latest
     close. None when neither is available."""
     try:
-        with open(os.path.join(ROOT, "data", "screens", "universe.json"), encoding="utf-8") as fh:
+        with open(FUNDAMENTALS_FILE, encoding="utf-8") as fh:
             v = (json.load(fh).get(symbol) or {}).get("market_cap_cr")
         if isinstance(v, (int, float)) and v > 0:
             return float(v)
@@ -155,28 +169,25 @@ def scan_one(item: dict) -> dict:
     sym = item["symbol"]
     try:
         from patterns import service
-        from screens.metrics import _return
         from tools.live_chart_yf import get_candles
-        candles = get_candles(sym, interval="1d", period="5y")
-        if not candles or len(candles) < 60:
+        full = get_candles(sym, interval="1d", period="max")      # all-time measures need the whole history
+        if not full or len(full) < 60:
             return {"symbol": sym, "ok": False, "reason": "not enough price history"}
-        res = service.get_patterns(sym, "1d", lambda *_: candles)
-        closes = [c["close"] for c in candles]
-        times = [c["time"] for c in candles]
-        last = candles[-1]
-        year_ago = last["time"] - 365 * 86400
-        hi52 = max((c["high"] for c in candles if c["time"] >= year_ago), default=None)
-        has_year = candles[0]["time"] <= year_ago + 7 * 86400
+        last = full[-1]
+        # the pattern engine works on the last five years only (that window also tells it whether the listing date is known)
+        window = [c for c in full if c["time"] >= last["time"] - int(PATTERN_YEARS * 365.25 * DAY)]
+        res = service.get_patterns(sym, "1d", lambda *_: window)
+        times = [c["time"] for c in window]
         row = {
             "symbol": sym, "name": item["name"], "sector": item["sector"], "index": item.get("index"),
-            "as_of": last["time"], "price": last["close"], "market_cap_cr": _market_cap_cr(sym, last["close"]),
-            "ret_1m": _return(candles, 30), "ret_3m": _return(candles, 91),
-            "pct_from_52w_high": ((hi52 - last["close"]) / hi52 * 100.0) if (hi52 and has_year) else None,
-            "ema": {str(n): _ema(closes, n) for n in MA_PERIODS},
-            "sma": {str(n): _sma(closes, n) for n in MA_PERIODS},
+            "as_of": last["time"], "market_cap_cr": _market_cap_cr(sym, last["close"]),
+            **metrics(full),
+            "resistance": resistance(full),
             "occurrences": _current(res.get("occurrences") or [], times),
+            "trades": trades(res.get("occurrences") or [], window) + resistance_trades(full),
+            "closes": [[c["time"], round(c["close"], 2)] for c in full[-CLOSE_BARS:]],
             "candles": [[c["time"], round(c["open"], 2), round(c["high"], 2), round(c["low"], 2), round(c["close"], 2),
-                         round(c.get("volume") or 0)] for c in candles[-CHART_BARS:]],
+                         round(c.get("volume") or 0)] for c in full[-CHART_BARS:]],
             "scanned_at": int(time.time()),
         }
         os.makedirs(SYMBOL_DIR, exist_ok=True)
@@ -209,7 +220,7 @@ def _run_scan(force: bool, workers: int | None, only: list[str] | None) -> None:
     idx = index_membership()
     items = [dict(u, index=idx.get(u["symbol"])) for u in universe() if not only or u["symbol"] in only]
     if not force:
-        fresh = {s for s, r in _load_all().items() if time.time() - r.get("scanned_at", 0) < 12 * 3600}
+        fresh = {s for s, r in _load_all().items() if time.time() - r.get("scanned_at", 0) < 12 * 3600 and "trades" in r}
         items = [i for i in items if i["symbol"] not in fresh]
     total, done, errors = len(items), 0, 0
     _write_progress(building=True, total=total, done=0, errors=0, started=started, finished=None)
@@ -222,6 +233,7 @@ def _run_scan(force: bool, workers: int | None, only: list[str] | None) -> None:
                 print(f"[pattern_scan] {r['symbol']}: {r.get('reason')}", flush=True)
             if done % 5 == 0 or done == total:
                 _write_progress(building=True, total=total, done=done, errors=errors, started=started, finished=None)
+    refresh_benchmarks()
     _write_progress(building=False, total=total, done=done, errors=errors, started=started, finished=int(time.time()))
 
 
@@ -233,11 +245,39 @@ def status() -> dict:
     except Exception:
         pass
     running = _proc is not None and _proc.poll() is None
-    if prog.get("building") and not running:   # the scan process died: do not claim it is still working
+    if prog.get("building") and not running and _proc is not None:   # the scan process died: do not claim it is still working
         prog["building"] = False
     return {"building": bool(prog.get("building")), "done": prog.get("done", 0), "total": prog.get("total", 0),
             "errors": prog.get("errors", 0), "started": prog.get("started"), "finished": prog.get("finished"),
             "have": len(_load_all()), "universe": len(universe())}
+
+
+def refresh_resistance(workers: int = 8) -> int:
+    """Recompute only the horizontal-resistance field of every scanned stock (after a change of the rule), without a full rescan."""
+    from concurrent.futures import ThreadPoolExecutor
+    from tools.live_chart_yf import get_candles
+
+    def one(f):
+        path = os.path.join(SYMBOL_DIR, f)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                row = json.load(fh)
+            candles = get_candles(row["symbol"], interval="1d", period="max")
+            if not candles or len(candles) < 60:
+                return 0
+            row["resistance"] = resistance(candles[-520:])
+            row["trades"] = [t for t in (row.get("trades") or []) if t[0] != "horizontal-resistance"] + resistance_trades(candles)
+            with open(path + ".tmp", "w", encoding="utf-8") as fh:
+                json.dump(row, fh)
+            os.replace(path + ".tmp", path)
+            return 1
+        except Exception as e:
+            print(f"[pattern_scan] resistance {f}: {e}", flush=True)
+            return 0
+
+    files = [f for f in os.listdir(SYMBOL_DIR) if f.endswith(".json")]
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return sum(ex.map(one, files))
 
 
 def build(force: bool = False, workers: int | None = None, only: list[str] | None = None) -> bool:
@@ -256,118 +296,82 @@ def build(force: bool = False, workers: int | None = None, only: list[str] | Non
             cmd += ["--workers", str(workers)]
         if only:
             cmd += ["--only", ",".join(only)]
-        log = open(os.path.join(DATA_DIR, "scan.log"), "a", encoding="utf-8") if os.path.isdir(DATA_DIR) else subprocess.DEVNULL
+        os.makedirs(DATA_DIR, exist_ok=True)
+        log = open(os.path.join(DATA_DIR, "scan.log"), "a", encoding="utf-8")
         _proc = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
         return True
 
 
-# ------------------------------------------------------------------ reading + filtering
+# ------------------------------------------------------------------ reading
+def _fundamentals() -> dict:
+    try:
+        with open(FUNDAMENTALS_FILE, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
 def _load_all() -> dict:
-    """{symbol: row}, re-read only when the folder changed."""
+    """{symbol: row}: the per-stock files joined with the Screener fundamentals and a relative-strength rating, re-built
+    only when the files changed."""
     try:
         files = [f for f in os.listdir(SYMBOL_DIR) if f.endswith(".json")]
-        mt = max((os.path.getmtime(os.path.join(SYMBOL_DIR, f)) for f in files), default=0.0)
+        stamp = (len(files), max((os.path.getmtime(os.path.join(SYMBOL_DIR, f)) for f in files), default=0.0),
+                 os.path.getmtime(FUNDAMENTALS_FILE) if os.path.exists(FUNDAMENTALS_FILE) else 0.0)
     except FileNotFoundError:
         return {}
-    if mt == _mem["mtime"] and len(_mem["rows"]) == len(files):
+    if stamp == _mem["stamp"]:
         return _mem["rows"]
+    funda = _fundamentals()
     rows = {}
     for f in files:
         try:
             with open(os.path.join(SYMBOL_DIR, f), encoding="utf-8") as fh:
                 r = json.load(fh)
-            rows[r["symbol"]] = r
         except Exception:
             continue
-    _mem["mtime"], _mem["rows"] = mt, rows
+        fd = funda.get(r["symbol"]) or {}
+        for k in ("pe", "eps", "eps_growth", "debt_equity", "promoter", "div_yield", "payout", "net_profit_cr", "volatility"):
+            v = fd.get(k)
+            r[k] = v if isinstance(v, (int, float)) else None
+        from screens.metrics import is_financial
+        if is_financial(r.get("sector")):
+            r["debt_equity"] = None
+        r["free_float"] = (100.0 - r["promoter"]) if isinstance(r.get("promoter"), (int, float)) else None
+        rows[r["symbol"]] = r
+    raws = sorted(r["rs_raw"] for r in rows.values() if isinstance(r.get("rs_raw"), (int, float)))
+    for r in rows.values():                      # RS rating 1-99: where the stock's performance ranks among all scanned stocks
+        v = r.get("rs_raw")
+        if isinstance(v, (int, float)) and len(raws) > 1:
+            import bisect
+            r["rs"] = max(1, min(99, round(bisect.bisect_left(raws, v) / (len(raws) - 1) * 98 + 1)))
+        else:
+            r["rs"] = None
+    _mem["stamp"], _mem["rows"] = stamp, rows
     return rows
 
 
+def benchmarks() -> dict:
+    try:
+        with open(BENCH_FILE, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
 def options() -> dict:
-    uni = universe()
-    sectors = sorted({u["sector"] for u in uni})
-    caps = [r["market_cap_cr"] for r in _load_all().values() if isinstance(r.get("market_cap_cr"), (int, float))]
-    return {
-        "indices": [{"id": k, "label": v} for k, v in INDEX_LABEL.items()],
-        "sectors": sectors,
-        "ma_periods": list(MA_PERIODS),
-        "statuses": [{"id": "forming", "label": "Forming"}, {"id": "awaiting_breakout", "label": "Awaiting breakout"},
-                     {"id": "confirmed", "label": "Confirmed (last %d sessions)" % CONFIRMED_WINDOW_BARS}],
-        "market_cap_cr": {"min": min(caps) if caps else None, "max": max(caps) if caps else None},
-    }
+    from . import screen_engine as eng
+    return eng.options()
 
 
-def _match(values: list, have: list) -> bool:
-    """values = what the user ticked; have = what the stock offers. A stock matches when it has at least one ticked option;
-    nothing ticked means no restriction."""
-    return not values or any(v in set(have) for v in values)
+def search(pattern, f: dict, include_candles: bool = False) -> dict:
+    from . import screen_engine as eng
+    return eng.search(pattern, f, include_candles=include_candles)
 
 
-def _ma_ok(row: dict, kind: str, spec: dict) -> bool:
-    periods = [str(p) for p in (spec or {}).get("periods") or []]
-    if not periods:
-        return True
-    price = row.get("price")
-    side = (spec or {}).get("side", "above")
-    ok = []
-    for p in periods:
-        v = (row.get(kind) or {}).get(p)
-        ok.append(isinstance(v, (int, float)) and isinstance(price, (int, float)) and (price > v if side == "above" else price < v))
-    return any(ok)
-
-
-_STATUS_RANK = {"awaiting_breakout": 0, "forming": 1, "confirmed": 2}
-
-
-def search(pattern: str, f: dict, include_candles: bool = False) -> dict:
-    rows = _load_all()
-    mc = f.get("mcap") or {}
-    lo, hi = mc.get("min"), mc.get("max")
-    ind, sec, stat = f.get("indices") or {}, f.get("sectors") or {}, f.get("status") or {}
-    q = (f.get("q") or "").strip().lower()
-    out = []
-    for r in rows.values():
-        occ = [o for o in r["occurrences"] if o["pattern"] == pattern]
-        if not occ:
-            continue
-        if stat.get("values") and not _match(stat["values"], [o["status"] for o in occ]):
-            continue
-        if stat.get("values"):
-            occ = [o for o in occ if o["status"] in stat["values"]] or occ
-        if ind.get("values") and not _match(ind["values"], [r.get("index")] if r.get("index") else []):
-            continue
-        if sec.get("values") and not _match(sec["values"], [r.get("sector")]):
-            continue
-        cap = r.get("market_cap_cr")
-        if (lo is not None or hi is not None) and not isinstance(cap, (int, float)):
-            continue
-        if lo is not None and cap < lo:
-            continue
-        if hi is not None and cap > hi:
-            continue
-        if not _ma_ok(r, "ema", f.get("ema")) or not _ma_ok(r, "sma", f.get("dma")):
-            continue
-        if q and q not in r["symbol"].lower() and q not in (r.get("name") or "").lower():
-            continue
-        best = sorted(occ, key=lambda o: (_STATUS_RANK.get(o["status"], 9), -(o.get("end_ts") or 0)))[0]
-        row = {k: r.get(k) for k in ("symbol", "name", "sector", "index", "price", "market_cap_cr", "ret_1m", "ret_3m",
-                                      "pct_from_52w_high", "as_of")}
-        row["occurrence"] = best
-        row["occurrence_count"] = len(occ)
-        if include_candles:
-            row["candles"] = r["candles"]
-        out.append(row)
-    sort = f.get("sort") or "status"
-    if sort == "market_cap":
-        out.sort(key=lambda x: -(x["market_cap_cr"] or -1))
-    elif sort == "name":
-        out.sort(key=lambda x: x["name"] or x["symbol"])
-    else:
-        out.sort(key=lambda x: (_STATUS_RANK.get(x["occurrence"]["status"], 9), -(x["market_cap_cr"] or -1)))
-    page = max(1, int(f.get("page") or 1))
-    size = min(100, max(1, int(f.get("page_size") or 50)))
-    return {"pattern": pattern, "total": len(out), "page": page, "page_size": size,
-            "rows": out[(page - 1) * size: page * size], "scan": status()}
+def backtest(pattern: str, f: dict) -> dict:
+    from . import screen_engine as eng
+    return eng.backtest(pattern, f)
 
 
 if __name__ == "__main__":
@@ -378,7 +382,40 @@ if __name__ == "__main__":
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--workers", type=int, default=None)
     ap.add_argument("--only", default="")
+    ap.add_argument("--refresh-resistance", action="store_true")
     a = ap.parse_args()
-    if a.run:
+    if a.refresh_resistance:
+        print("[pattern_scan] resistance refreshed for", refresh_resistance(), "stocks", flush=True)
+    elif a.run:
         os.makedirs(DATA_DIR, exist_ok=True)
         _run_scan(a.force, a.workers, [x for x in a.only.split(",") if x] or None)
+
+
+# ------------------------------------------------------------------ keeping the data current
+AUTOSCAN_AFTER_HOURS = 18
+_funda_proc = None
+
+
+def autoscan_loop(poll_seconds: int = 1800) -> None:
+    """Background thread of the web server: when the scanned prices are older than AUTOSCAN_AFTER_HOURS, start a rescan
+    (it skips stocks already scanned in the last 12 hours), then top up missing Screener fundamentals. The scan itself
+    runs in its own processes, so the server stays responsive."""
+    import subprocess
+    import sys
+    time.sleep(120)                                    # let the server finish starting first
+    while True:
+        try:
+            rows = _load_all()
+            newest = max((r.get("scanned_at", 0) for r in rows.values()), default=0)
+            stale = time.time() - newest > AUTOSCAN_AFTER_HOURS * 3600
+            if (stale or not rows) and not status().get("building"):
+                build()
+            funda = _fundamentals()
+            if len(funda) < len(rows) or any(not (funda.get(s) or {}).get("fund_ok", False) for s in rows):
+                global _funda_proc
+                if not status().get("building") and (_funda_proc is None or _funda_proc.poll() is not None):
+                    _funda_proc = subprocess.Popen([sys.executable, "-m", "screens.build_cli"], cwd=ROOT,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        except Exception as e:
+            print(f"[pattern_scan] autoscan: {e}", flush=True)
+        time.sleep(poll_seconds)

@@ -1,12 +1,11 @@
 "use client";
 
-import { Moon, Plus, Search, Sun } from "lucide-react";
+import { Moon, Search, SlidersHorizontal, Sun } from "lucide-react";
 import { useSyncExternalStore } from "react";
-import { openSearch } from "./searchEvents";
+import { OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
 import { Ticker } from "./Ticker";
 
 export const THEME_KEY = "navrist_theme";
-export const NEW_SCREEN_EVENT = "navrist-new-screen";
 const THEME_EVENT = "navrist-theme-change";
 
 // The <html class="light"> flag is the single source of truth (set before paint by the inline script in
@@ -84,13 +83,13 @@ export function Header() {
             </button>
             <button
               type="button"
-              onClick={() => window.dispatchEvent(new Event(NEW_SCREEN_EVENT))}
-              title="Start a new screen: search a stock or a sector"
+              onClick={() => window.dispatchEvent(new Event(OPEN_SCREENER_EVENT))}
+              title="Create a screener: filter every stock by technicals, fundamentals and horizontal resistance"
               className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-white transition-colors hover:bg-[var(--btn-primary-hover)] sm:px-5"
               style={{ background: "var(--btn-primary-bg)", boxShadow: "var(--shadow-accent)" }}
             >
-              <Plus className="h-4 w-4" />
-              <span>New Screen</span>
+              <SlidersHorizontal className="h-4 w-4" />
+              <span>Create Screener</span>
             </button>
           </div>
         </div>

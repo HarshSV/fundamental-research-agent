@@ -38,6 +38,7 @@ export interface Overview {
   quarterly?: Quarter[];
   shareholding?: Shareholding | null;
   peers?: Peer[];
+  peers_source?: "screener" | "sector";
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
