@@ -11,6 +11,8 @@ import {
   type CatalogueEntry, type PatternOcc, type PatternStatus, type PatternsResponse,
 } from "./patterns";
 import { marketOpen } from "./marketHours";
+import { ForecastCard } from "./ForecastCard";
+import { fetchForecast, forecastLevels, type Forecast } from "./forecast";
 import type { ScanContext } from "./patternScan";
 import { Detail as PatternDetail, type Candle } from "./PriceChart";
 import { StockChart, type ChartStyle, type ScanOverlay } from "./StockChart";
@@ -173,6 +175,9 @@ export function StockView({
   // Patterns are off unless the page was opened from a scanner for that pattern, then its marking is shown straight away.
   const [showPatterns, setShowPatterns] = useState(Boolean(scan?.pattern));
   const [chartStyle, setChartStyle] = useState<ChartStyle>("candles");
+  // Forecast: outlook odds, one trade plan or "No trade", replay odds, evidence. Re-read every minute while the market is open.
+  const [forecast, setForecast] = useState<{ sym: string; data: Forecast | null; error: boolean } | null>(null);
+  const [showForecastLevels, setShowForecastLevels] = useState(false);
   const [showVolume, setShowVolume] = useState(false);
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
   // Until it has some history, longer ranges fall back to the intraday 1D view (and say so).
@@ -278,6 +283,21 @@ export function StockView({
       if (timer) clearInterval(timer);
     };
   }, [sym, spec, specKey, live, reloadTick]);
+
+  useEffect(() => {
+    let alive = true;
+    const run = () =>
+      fetchForecast(sym)
+        .then((d) => alive && setForecast({ sym, data: d, error: false }))
+        .catch(() => alive && setForecast((prev) => (prev?.sym === sym && prev.data ? prev : { sym, data: null, error: true })));
+    run();
+    const t = open ? setInterval(run, 60000) : null;
+    return () => {
+      alive = false;
+      if (t) clearInterval(t);
+    };
+  }, [sym, open]);
+  const forecastData = forecast?.sym === sym ? forecast : null;
 
   // Pattern agent (backend): occurrences with their status lifecycle, per timeframe. The first run
   // for a stock/timeframe replays its history and can take ~10-30s; later requests come from the store.
@@ -549,6 +569,7 @@ export function StockView({
               selectedId={selectedId}
               onSelect={setSelectedId}
               scan={scanOverlay}
+              levels={showForecastLevels ? forecastLevels(forecastData?.data ?? null) : undefined}
             />
             {switching && (
               <span
@@ -628,6 +649,18 @@ export function StockView({
             </Card>
           )}
           {showPatterns && <ActiveSetups occs={activeOccs} catalogue={catalogue} ltp={ltp} selectedId={selectedId} onSelect={setSelectedId} />}
+        </div>
+      </section>
+
+      <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
+        <div className="mx-auto w-full max-w-7xl px-4">
+          <SectionTitle>Forecast</SectionTitle>
+          <ForecastCard
+            data={forecastData?.data ?? null}
+            error={Boolean(forecastData?.error)}
+            showLevels={showForecastLevels}
+            onToggleLevels={() => setShowForecastLevels((v) => !v)}
+          />
         </div>
       </section>
 

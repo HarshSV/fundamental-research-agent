@@ -1019,6 +1019,13 @@ try:
 except Exception as _pt_err:  # pragma: no cover
     print(f"[HTTP WARNING] pattern API not mounted: {_pt_err}")
 
+# Setup layer: opening-range breakout / oversold bounce / horizontal resistance per stock.
+try:
+    from setups.api import make_router as _make_setups_router
+    app.include_router(_make_setups_router(auth.require_session, resolve_symbol_from_registry))
+except Exception as _su_err:  # pragma: no cover
+    print(f"[HTTP WARNING] setups API not mounted: {_su_err}")
+
 # Pattern scanner: which stocks currently show a given chart pattern, with index / market-cap / EMA / DMA / sector filters.
 try:
     from patterns.scan_api import make_router as _make_scan_router

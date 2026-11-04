@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertHost } from "./AlertHost";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CompanyHit } from "@/lib/api";
 import { OPEN_SCREENER_EVENT, OPEN_SEARCH_EVENT } from "./searchEvents";
@@ -190,6 +191,7 @@ export function HomeScreen() {
   return (
     <>
       {page}
+      <AlertHost />
       {search.open && (
         <SearchOverlay
           sectors={sectors}

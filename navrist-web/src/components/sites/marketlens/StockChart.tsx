@@ -63,7 +63,7 @@ function toBars(cs: Candle[], intraday: boolean) {
  * the stock was opened from a scanner, that scan's pattern lines, levels and horizontal resistance.
  */
 export function StockChart({
-  candles, dataKey, intraday, chartStyle, showVolume, occs, selectedId, onSelect, scan, height = 440,
+  candles, dataKey, intraday, chartStyle, showVolume, occs, selectedId, onSelect, scan, levels, height = 440,
 }: {
   candles: Candle[];
   dataKey: string; // changes when the DATASET changes (range switch), not on live updates: refits the view
@@ -74,6 +74,7 @@ export function StockChart({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   scan?: ScanOverlay | null;
+  levels?: { price: number; title: string; color: string; dashed?: boolean }[];
   height?: number;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -300,7 +301,8 @@ export function StockChart({
       addLine(Math.max(r.first_ts, t0), r.level, t1, r.level, "#ef4444", 3);
       level(r.level, "#ef4444", `Resistance ×${r.touches}`, LineStyle.Solid);
     }
-  }, [data, occs, selectedId, scan, chartStyle, showVolume, intraday, height]);
+    for (const lv of levels ?? []) level(lv.price, lv.color, lv.title, lv.dashed ? LineStyle.Dashed : LineStyle.Solid);
+  }, [data, occs, selectedId, scan, levels, chartStyle, showVolume, intraday, height]);
 
   const last = data.bars[data.bars.length - 1];
   const shown = hover ?? last ?? null;
