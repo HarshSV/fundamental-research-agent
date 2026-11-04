@@ -102,3 +102,33 @@ def test_empty_newest_daily_row_is_rebuilt_from_intraday_bars(monkeypatch):
     assert len(c) == 2
     last = c[-1]
     assert (last["open"], last["high"], last["low"], last["close"], last["volume"]) == (10.6, 11.2, 10.5, 11.0, 18.0)
+
+
+def test_screener_financials_cache_is_short_lived_and_can_be_bypassed(tmp_path, monkeypatch):
+    import os
+    import time
+    from tools import screener_scraper as ss
+    monkeypatch.setattr(ss, "CACHE_DIR", str(tmp_path))
+    ss._write_cache("k", {"a": 1})
+    assert ss._read_cache("k") == {"a": 1}
+    old = time.time() - 3 * 3600
+    os.utime(ss._cache_path("k"), (old, old))
+    assert ss._read_cache("k") == {"a": 1}                      # the general 12h cache still serves a 3h-old copy ...
+    assert ss._read_cache("k", ss.FIN_TTL) is None              # ... the financials page (2h) does not
+    assert ss.FIN_TTL < ss.TTL
+
+
+def test_a_company_with_a_consolidated_page_is_never_read_from_its_standalone_page(monkeypatch):
+    from tools import screener_scraper as ss
+    calls = []
+    standalone = '<html><div id="profit-loss"></div><a href="/company/ABC/consolidated/">Consolidated</a></html>'
+
+    def fake_get(url):
+        calls.append(url)
+        return standalone if url.endswith("/company/ABC/") else None        # the consolidated request keeps failing (throttled)
+
+    monkeypatch.setattr(ss, "_get", fake_get)
+    monkeypatch.setattr(ss.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ss, "_read_cache", lambda *a, **k: None)
+    assert ss.fetch_screener_financials("ABC", None, fresh=True) is None
+    assert sum(1 for c in calls if c.endswith("/consolidated/")) == 4         # one first try and three retries

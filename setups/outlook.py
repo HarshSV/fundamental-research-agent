@@ -24,8 +24,7 @@ SIMS = 10_000
 SEED = 19
 MIN_HISTORY = 250           # daily bars needed before a daily-horizon call is made
 MIN_STATE_SAMPLES = 30      # past days in the same state needed to use the state; else the stock's whole history
-EDGE_P = 0.45               # a side needs at least this probability ...
-EDGE_LEAD = 0.10            # ... and to lead the other side by at least this much to be called
+STRONG, MODERATE, EVEN = 0.25, 0.12, 0.03     # lead of the likelier side over the other (as a share): strong / moderate / slight; under EVEN it is even
 HORIZONS = (("session", None), ("week", 5), ("month", 20))
 SLOTS = 75                  # 5-minute bars in a session
 
@@ -65,6 +64,15 @@ def _states(daily: list[dict]):
     return closes, out
 
 
+def lean(up: float, down: float) -> dict:
+    """The verdict: the likelier side, and how strongly (strong / moderate / slight by the gap between the two)."""
+    gap = abs(up - down)
+    if gap < EVEN:
+        return {"call": "even", "conviction": None}
+    return {"call": "up" if up > down else "down",
+            "conviction": "strong" if gap >= STRONG else "moderate" if gap >= MODERATE else "slight"}
+
+
 def horizon_outlook(daily: list[dict], h: int) -> dict:
     """Odds that the close h sessions ahead is clearly up / flat / clearly down, from this stock's own past days in the same
     state. 'Clearly' is a move of more than a quarter of the typical h-session swing."""
@@ -85,10 +93,7 @@ def horizon_outlook(daily: list[dict], h: int) -> dict:
         return float(np.percentile(a, q)) * 100.0
     up = sum(1 for x in use if x > band) / len(use)
     down = sum(1 for x in use if x < -band) / len(use)
-    d = None
-    if max(up, down) >= EDGE_P and abs(up - down) >= EDGE_LEAD:
-        d = "up" if up > down else "down"
-    return {"call": d or "none", "up": round(up * 100), "flat": round((1 - up - down) * 100), "down": round(down * 100),
+    return {**lean(up, down), "up": round(up * 100), "flat": round((1 - up - down) * 100), "down": round(down * 100),
             "p10": round(pct(use, 10), 1), "median": round(pct(use, 50), 1), "p90": round(pct(use, 90), 1),
             "samples": len(use), "basis": basis, "flat_band_pct": round(band * 100, 2)}
 
@@ -350,11 +355,47 @@ def build(symbol: str, intraday: list[dict] | None, daily: list[dict] | None, ro
 
     # ---------------- intraday plan (only while the session is live and the 15-minute range exists)
     orb = next(s for s in base["setups"] if s["id"] == "orb")
-    out["today"] = _today_block(orb, open_now, bars, sessions, day, daily, adr, trend)
+    out["today"] = _today_block(orb, open_now, bars, sessions, day, daily, adr, trend, hs[0].get("call"), hs[1].get("call"))
 
     # ---------------- swing plan from the daily setups
-    out["swing"] = _swing_block(base["setups"], daily, adr, next(h for h in hs if h["id"] == "week"))
+    out["swing"] = _swing_block(base["setups"], daily, adr, hs[1], hs[2], trend)
+
+    # ---------------- price ranges for each horizon, key levels, and a reference stop for sizing
+    if price:
+        for h in hs:
+            if h.get("p10") is not None:
+                h["price_low"], h["price_mid"], h["price_high"] = (round(price * (1 + h[k] / 100), 2) for k in ("p10", "median", "p90"))
+    out["levels"] = key_levels(daily, price, hs[0])
+    ref = _trend_plan(daily, len(daily) - 1, adr) if daily else None
+    out["sizing"] = ({"entry": ref["entry"], "stop": ref["stop"], "risk_per_share": ref["risk_per_share"], "basis": ref["stop_basis"]} if ref else None)
     return out
+
+
+def key_levels(daily: list[dict], price: float | None, session: dict) -> list[dict]:
+    """The prices a trader watches: where the stock is expected to finish, the last session's range, the nearest swing high above
+    and swing low below, the 52-week extremes. Resistance is shown red, support green."""
+    rows: list[dict] = []
+    if not daily or not price:
+        return rows
+    if session.get("price_low") is not None:
+        rows.append({"label": session["label"] + ", likely range", "value": f"₹{session['price_low']:,.2f} to ₹{session['price_high']:,.2f}", "tone": None})
+    last = daily[-1]
+    rows.append({"label": "Last session's high and low", "value": f"₹{last['high']:,.2f} / ₹{last['low']:,.2f}", "tone": None})
+    w = daily[-120:]
+    hi = [b["high"] for b in w]
+    pivots_hi = [hi[i] for i in range(3, len(w) - 3) if hi[i] == max(hi[i - 3:i + 4]) and hi[i] > price]
+    lo = [b["low"] for b in w]
+    pivots_lo = [lo[i] for i in range(3, len(w) - 3) if lo[i] == min(lo[i - 3:i + 4]) and lo[i] < price]
+    if pivots_hi:
+        r = min(pivots_hi)
+        rows.append({"label": "Nearest resistance (recent swing high)", "value": f"₹{r:,.2f} ({(r / price - 1) * 100:+.1f}%)", "tone": "bad"})
+    if pivots_lo:
+        sup = max(pivots_lo)
+        rows.append({"label": "Nearest support (recent swing low)", "value": f"₹{sup:,.2f} ({(sup / price - 1) * 100:+.1f}%)", "tone": "good"})
+    year = daily[-252:]
+    if len(year) >= 200:
+        rows.append({"label": "52-week high / low", "value": f"₹{max(b['high'] for b in year):,.2f} / ₹{min(b['low'] for b in year):,.2f}", "tone": None})
+    return rows
 
 
 def _session_outlook(daily, sessions, day, bars, open_now) -> dict:
@@ -375,88 +416,147 @@ def _session_outlook(daily, sessions, day, bars, open_now) -> dict:
             up = float((price > p0 * (1 + band)).mean())
             down = float((price < p0 * (1 - band)).mean())
             r = (price / p0 - 1) * 100
-            d = None
-            if max(up, down) >= EDGE_P and abs(up - down) >= EDGE_LEAD:
-                d = "up" if up > down else "down"
-            return {"call": d or "none", "up": round(up * 100), "flat": round((1 - up - down) * 100), "down": round(down * 100),
+            return {**lean(up, down), "up": round(up * 100), "flat": round((1 - up - down) * 100), "down": round(down * 100),
                     "p10": round(float(np.percentile(r, 10)), 1), "median": round(float(np.percentile(r, 50)), 1),
                     "p90": round(float(np.percentile(r, 90)), 1), "samples": len(sessions) - 1, "basis": "sessions",
                     "flat_band_pct": h.get("flat_band_pct")}
     return h
 
 
-def _today_block(orb, open_now, bars, sessions, day, daily, adr, trend) -> dict:
+def _side_for(calls: list, trend: str | None, daily: list[dict]) -> str:
+    """The side to trade: the first horizon that leans one way decides; if all are level, the trend; if there is none, the 200-day average."""
+    for c in calls:
+        if c == "up":
+            return "long"
+        if c == "down":
+            return "short"
+    if trend:
+        return trend
+    cl = [b["close"] for b in daily[-200:]]
+    return "long" if cl and cl[-1] >= sum(cl) / len(cl) else "short"
+
+
+def _edge_view(odds: dict | None, r: float, rep: dict | None = None) -> dict | None:
+    """What the plan is worth per unit of risk: target% x reward - stop%, from the simulation and (when there are at least 10 past
+    trades) from the replay. The lower of the two is reported, so a plan is never flattered by its better number."""
+    vals = []
+    if odds and odds.get("target") is not None:
+        vals.append((odds["target"] * r - odds["stop"]) / 100.0)
+    if rep:
+        n = rep.get("trades") or rep.get("n") or 0
+        if n >= 10 and rep.get("target") is not None and rep.get("stop") is not None:
+            vals.append((rep["target"] * r - rep["stop"]) / n)
+    if not vals:
+        return None
+    v = min(vals)
+    return {"value": round(v, 2), "label": "favourable" if v >= 0.05 else "against" if v <= -0.05 else "even"}
+
+
+def _session_plan(entry: float, adr: float, side: str) -> dict | None:
+    """A same-session plan from the stock's own typical range: stop half a typical day away, targets at 1x and 2x that risk."""
+    risk = entry * 0.5 * adr / 100.0
+    if risk <= 0:
+        return None
+    sign = 1.0 if side == "long" else -1.0
+    return {"side": side, "entry": round(entry, 2), "stop": round(entry - sign * risk, 2), "risk_per_share": round(risk, 2),
+            "risk_pct": round(risk / entry * 100, 2),
+            "targets": [{"r": 1.0, "price": round(entry + sign * risk, 2)}, {"r": 2.0, "price": round(entry + sign * 2 * risk, 2)}],
+            "first_target_r": 1.0, "stop_basis": "half of the stock's typical daily range",
+            "exit_rule": "Flat by 15:25 IST either way.", "warnings": []}
+
+
+def _one_bar(b: dict, side: str, stop: float, target: float) -> str:
+    if side == "long":
+        return "stop" if b["low"] <= stop else "target" if b["high"] >= target else "open"
+    return "stop" if b["high"] >= stop else "target" if b["low"] <= target else "open"
+
+
+def replay_session(daily: list[dict], side: str, adr_fn) -> dict:
+    """The same plan on every past day in today's trend state: bought at the previous close, did the day reach the target, the stop, or neither."""
+    closes, states = _states(daily)
+    today = states[-1]
+    idx = [i for i in range(200, len(daily)) if states[i] is not None and (today is None or states[i] == today)]
+    if len(idx) < MIN_STATE_SAMPLES:
+        idx = list(range(200, len(daily)))
+    c = {"target": 0, "stop": 0, "open": 0}
+    n = 0
+    for i in idx:
+        a = adr_fn(daily[:i])
+        p = _session_plan(daily[i - 1]["close"], a, side) if a else None
+        if not p:
+            continue
+        c[_one_bar(daily[i], side, p["stop"], p["targets"][0]["price"])] += 1
+        n += 1
+    return {"sessions": n, "trades": n, "target": c["target"], "stop": c["stop"], "open": c["open"], "session_rule": True}
+
+
+def _today_block(orb, open_now, bars, sessions, day, daily, adr, trend, session_call, week_call) -> dict:
     blk = {"setup": {k: orb.get(k) for k in ("state", "direction", "range_high", "range_low", "range_pct", "range_vs_adr",
                                                "trigger_price", "trigger_time", "trigger_volume_vs_avg", "last_price", "last_time", "reason")}}
-    if not open_now:
-        blk["decision"] = {"action": "No trade", "reason": "The market is closed. Today's plan is worked out from 09:30 once the opening range exists."}
-        return blk
-    if orb["state"] == "forming":
-        blk["decision"] = {"action": "No trade", "reason": "The first 15 minutes are still forming; the plan appears at 09:30."}
-        return blk
-    if orb["state"] == "failed":
-        blk["decision"] = {"action": "No trade", "reason": "The breakout closed back through its level, so the setup has failed for today."}
-        return blk
-    if orb["state"] == "no_breakout":
-        blk["decision"] = {"action": "No trade", "reason": "Price stayed inside the opening range all session."}
-        return blk
-    plans = plan_for(orb, daily, adr) or []
-    if orb["state"] == "triggered":
-        side = "long" if orb["direction"] == "bullish" else "short"
+    note = None
+    if open_now and orb["state"] in ("waiting", "triggered"):
+        plans = plan_for(orb, daily, adr) or []
+        side = ("long" if orb["direction"] == "bullish" else "short") if orb["state"] == "triggered" else _side_for([session_call, week_call], trend, daily)
+        plan = next((p for p in plans if p["side"] == side), None)
+        px = bars[-1]["close"]
+        if plan and not (orb["state"] == "triggered" and abs(px - plan["entry"]) > 0.5 * plan["risk_per_share"]):
+            odds = simulate(side, plan["entry"], plan["stop"], _tp(plan), px, intraday_steps(sessions, day, len(bars)))
+            rep = replay_orb(sessions, day, side)
+            ok, why = _edge(odds, plan["first_target_r"])
+            if ok and not (rep["trades"] >= 10 and rep["target"] * plan["first_target_r"] <= rep["stop"]):
+                blk.update({"odds": odds, "replay": rep, "plan": _plan_view(plan, orb["state"]), "basis": "orb",
+                            "edge": _edge_view(odds, plan["first_target_r"], rep)})
+                blk["decision"] = {"action": blk["plan"]["action"], "reason": None}
+                return blk
+            note = "The opening-range breakout does not have the odds on its side, so this plan uses the stock's typical daily range."
+        else:
+            note = "The opening-range level is too far behind the price, so this plan uses the stock's typical daily range."
+    elif open_now and orb["state"] == "failed":
+        note = "The opening-range breakout closed back through its level, so this plan uses the stock's typical daily range."
+    elif open_now and orb["state"] == "no_breakout":
+        note = "Price stayed inside the opening range, so this plan uses the stock's typical daily range."
+    elif open_now:
+        note = "The opening range is still forming (09:15 to 09:30); this plan uses the stock's typical daily range."
     else:
-        side = trend
-    if side is None:
-        blk["decision"] = {"action": "No trade", "reason": "The stock is between its 50- and 200-day averages, so neither side of the range has the trend behind it."}
+        note = "The market is closed; this is the plan for the next session, from the last close."
+    if len(daily) < MIN_HISTORY or not adr:
+        blk["decision"] = {"action": "No trade", "reason": "There is not enough price history to set a stop and target for this stock."}
         return blk
-    plan = next((p for p in plans if p["side"] == side), None)
-    if not plan:
-        blk["decision"] = {"action": "No trade", "reason": "A stop and target could not be set from the range."}
-        return blk
-    tgt = _tp(plan)
-    px = bars[-1]["close"]
-    if orb["state"] == "triggered" and abs(px - plan["entry"]) > 0.5 * plan["risk_per_share"]:
-        moved = (px / plan["entry"] - 1) * 100
-        blk["decision"] = {"action": "No trade", "reason": f"The breakout was at {plan['entry']:.2f}; the price is now {px:.2f} ({moved:+.1f}%), too far from the entry to take it with this stop."}
-        return blk
-    first = len(bars)
-    steps = intraday_steps(sessions, day, first)
-    odds = simulate(side, plan["entry"], plan["stop"], tgt, bars[-1]["close"], steps)
-    rep = replay_orb(sessions, day, side)
-    blk["odds"], blk["replay"] = odds, rep
-    ok, why = _edge(odds, plan["first_target_r"])
-    if ok and rep["trades"] >= 10 and rep["target"] * plan["first_target_r"] <= rep["stop"]:
-        ok, why = False, f"On the stock's past sessions this rule hit its stop {rep['stop']} times against {rep['target']} for the target."
-    why = None if ok else why
-    if why:
-        blk["decision"] = {"action": "No trade", "reason": why}
-        blk["plan"] = None
-        return blk
-    blk["plan"] = _plan_view(plan, orb["state"])
+    side = _side_for([session_call, week_call], trend, daily)
+    px = bars[-1]["close"] if open_now and bars else daily[-1]["close"]
+    plan = _session_plan(px, adr, side)
+    steps = intraday_steps(sessions, day, len(bars)) if open_now and bars else daily_steps(daily, 1)
+    odds = simulate(side, plan["entry"], plan["stop"], _tp(plan), px, steps)
+    rep = replay_session(daily, side, engine.adr_pct)
+    blk.update({"plan": _plan_view(plan, "triggered"), "odds": odds, "replay": rep,
+                "basis": "range", "note": note, "edge": _edge_view(odds, plan["first_target_r"], rep)})
     blk["decision"] = {"action": blk["plan"]["action"], "reason": None}
     return blk
 
 
-def _trend_plan(daily: list[dict], i: int, adr: float | None, target_r: float = 2.0) -> dict | None:
-    """Long trade at the close of bar i: stop under the lowest low of the last 5 sessions, kept between half a and one-and-a-half
+def _trend_plan(daily: list[dict], i: int, adr: float | None, target_r: float = 2.0, side: str = "long") -> dict | None:
+    """Trade at the close of bar i: stop beyond the extreme of the last 5 sessions, kept between half a and one-and-a-half
     typical daily ranges so it is neither inside the noise nor reckless; first target at target_r times the risk."""
     if i < 5 or not adr:
         return None
     entry = daily[i]["close"]
-    swing = min(b["low"] for b in daily[i - 4:i + 1])
-    lo, hi = entry * (1 - 1.5 * adr / 100), entry * (1 - 0.5 * adr / 100)
-    stop = min(max(swing, lo), hi)
-    risk = entry - stop
+    sign = 1.0 if side == "long" else -1.0
+    swing = min(b["low"] for b in daily[i - 4:i + 1]) if side == "long" else max(b["high"] for b in daily[i - 4:i + 1])
+    near, far = entry * (1 - sign * 0.5 * adr / 100), entry * (1 - sign * 1.5 * adr / 100)
+    stop = min(max(swing, far), near) if side == "long" else max(min(swing, far), near)
+    risk = abs(entry - stop)
     if risk <= 0:
         return None
-    return {"side": "long", "entry": round(entry, 2), "stop": round(stop, 2), "risk_per_share": round(risk, 2),
+    return {"side": side, "entry": round(entry, 2), "stop": round(stop, 2), "risk_per_share": round(risk, 2),
             "risk_pct": round(risk / entry * 100, 2),
-            "targets": [{"r": 1.0, "price": round(entry + risk, 2)}, {"r": target_r, "price": round(entry + risk * target_r, 2)}],
-            "first_target_r": target_r, "stop_basis": "the lowest low of the last 5 sessions, kept within the stock's normal daily range",
+            "targets": [{"r": 1.0, "price": round(entry + sign * risk, 2)}, {"r": target_r, "price": round(entry + sign * risk * target_r, 2)}],
+            "first_target_r": target_r,
+            "stop_basis": ("the lowest low" if side == "long" else "the highest high") + " of the last 5 sessions, kept within the stock's normal daily range",
             "exit_rule": "Out after 10 sessions if neither level is hit.", "warnings": []}
 
 
-def replay_trend(daily: list[dict], adr_fn) -> dict:
-    """The same trend-continuation rule on this stock's past days in today's trend state: target, stop or neither in 10 sessions."""
+def replay_trend(daily: list[dict], adr_fn, side: str = "long") -> dict:
+    """The same trend rule on this stock's past days in today's trend state: target, stop or neither in 10 sessions."""
     closes, states = _states(daily)
     today = states[-1]
     idx = [i for i in range(200, len(daily) - 10) if states[i] is not None and (today is None or states[i] == today)]
@@ -465,53 +565,40 @@ def replay_trend(daily: list[dict], adr_fn) -> dict:
     c = {"target": 0, "stop": 0, "open": 0}
     n = 0
     for i in idx[::2]:                                   # every second day: neighbouring days overlap and would be counted twice
-        p = _trend_plan(daily, i, adr_fn(daily[: i + 1]))
+        p = _trend_plan(daily, i, adr_fn(daily[: i + 1]), side=side)
         if not p:
             continue
-        r = _walk(daily, i, "long", p["stop"], p["targets"][-1]["price"])
+        r = _walk(daily, i, side, p["stop"], p["targets"][-1]["price"])
         c[r if r in c else "open"] += 1
         n += 1
     return {"n": n, "target": c["target"], "stop": c["stop"], "open": c["open"], "horizon": 10, "trend_rule": True}
 
 
-def _swing_block(setups, daily, adr, week) -> dict:
+def _swing_block(setups, daily, adr, week, month, trend) -> dict:
     blk: dict = {}
-    if week.get("call") != "up":
-        blk["decision"] = {"action": "No trade", "reason": "Over the next 5 sessions the stock's own history gives no clear upward edge." if week.get("call") in ("none", None)
-                           else "Over the next 5 sessions the stock's own history leans down, so no long trade is set."}
+    if len(daily) < MIN_HISTORY or not adr:
+        blk["decision"] = {"action": "No trade", "reason": "There is not enough price history to set a stop and target for this stock."}
         return blk
-    cand = [s for s in setups if s["id"] in ("resistance", "oversold") and s["state"] in ("waiting", "triggered")]
-    if not cand:
-        plan = _trend_plan(daily, len(daily) - 1, adr)
+    side = _side_for([week.get("call"), month.get("call")], trend, daily)
+    plan, state = None, "triggered"
+    setup = {"id": "trend", "label": "Trend continuation" if side == "long" else "Trend continuation (short)"}
+    if side == "long":
+        cand = [s for s in setups if s["id"] in ("resistance", "oversold") and s["state"] in ("waiting", "triggered")]
+        if cand:
+            plan = next(iter(plan_for(cand[0], daily, adr) or []), None)
+            if plan:
+                setup = {k: cand[0].get(k) for k in ("id", "label", "state", "level", "touches", "distance_pct", "rsi", "reason")}
+                state = cand[0]["state"]
+    if plan:
+        rep = replay_daily(daily, setup["id"])
+    else:
+        plan = _trend_plan(daily, len(daily) - 1, adr, side=side)
         if not plan:
             blk["decision"] = {"action": "No trade", "reason": "A stop and target could not be set from the recent range."}
             return blk
-        odds = simulate("long", plan["entry"], plan["stop"], _tp(plan), daily[-1]["close"], daily_steps(daily, 10))
-        rep = replay_trend(daily, engine.adr_pct)
-        blk.update({"setup": {"id": "trend", "label": "Trend continuation"}, "odds": odds, "replay": rep})
-        ok, why = _edge(odds, plan["first_target_r"])
-        if not ok:
-            blk["decision"] = {"action": "No trade", "reason": why}
-            return blk
-        if rep["n"] >= 20 and rep["target"] * plan["first_target_r"] <= rep["stop"]:
-            blk["decision"] = {"action": "No trade", "reason": f"On the stock's past days in this state the same rule hit its stop {rep['stop']} times against {rep['target']} for the target."}
-            return blk
-        blk["plan"] = _plan_view(plan, "triggered")
-        blk["decision"] = {"action": blk["plan"]["action"], "reason": None}
-        return blk
-    s = cand[0]
-    plan = next(iter(plan_for(s, daily, adr) or []), None)
-    if not plan:
-        blk["decision"] = {"action": "No trade", "reason": "A stop and target could not be set for this setup."}
-        return blk
-    steps = daily_steps(daily, 10)
-    odds = simulate("long", plan["entry"], plan["stop"], _tp(plan), daily[-1]["close"], steps)
-    rep = replay_daily(daily, s["id"])
-    blk.update({"setup": {k: s.get(k) for k in ("id", "label", "state", "level", "touches", "distance_pct", "rsi", "reason")}, "odds": odds, "replay": rep})
-    ok, why = _edge(odds, plan["first_target_r"])
-    if not ok:
-        blk["decision"] = {"action": "No trade", "reason": why}
-        return blk
-    blk["plan"] = _plan_view(plan, s["state"])
+        rep = replay_trend(daily, engine.adr_pct, side)
+    odds = simulate(side, plan["entry"], plan["stop"], _tp(plan), daily[-1]["close"], daily_steps(daily, 10))
+    blk.update({"setup": setup, "odds": odds, "replay": rep, "plan": _plan_view(plan, state), "edge": _edge_view(odds, plan["first_target_r"], rep),
+                "note": "A short held over several days needs futures." if side == "short" else None})
     blk["decision"] = {"action": blk["plan"]["action"], "reason": None}
     return blk

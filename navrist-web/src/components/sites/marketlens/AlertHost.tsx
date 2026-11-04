@@ -2,24 +2,37 @@
 
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { ALERTS_EVENT, checkAlerts, loadAlerts, type Alert } from "./alerts";
+import { ALERTS_EVENT, fetchAlerts, type Alert } from "./alerts";
 
-/** Mounted once for the whole site: checks the saved alerts every 20 seconds and shows a plain message when one fires. */
+const SEEN = "navrist_alerts_seen";
+
+/** Mounted once for the whole site: asks the server for fired alerts every 20 seconds and shows a plain message for new ones.
+ *  (Telegram messages are sent by the server itself, whether or not this page is open.) */
 export function AlertHost() {
   const [toasts, setToasts] = useState<Alert[]>([]);
   const busy = useRef(false);
   useEffect(() => {
     const run = async () => {
-      if (busy.current || !loadAlerts().some((a) => !a.fired)) return;
+      if (busy.current) return;
       busy.current = true;
       try {
-        const fired = await checkAlerts();
-        if (fired.length) {
-          setToasts((t) => [...t, ...fired]);
+        const { alerts } = await fetchAlerts();
+        let seen: string[] = [];
+        try {
+          seen = JSON.parse(localStorage.getItem(SEEN) ?? "[]");
+        } catch {
+          /* nothing seen yet */
+        }
+        const fresh = alerts.filter((a) => a.fired && Date.now() / 1000 - a.fired < 6 * 3600 && !seen.includes(a.id));
+        if (fresh.length) {
+          localStorage.setItem(SEEN, JSON.stringify([...seen, ...fresh.map((a) => a.id)].slice(-200)));
+          setToasts((t) => [...t, ...fresh]);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            for (const a of fired) new Notification("Navrist alert", { body: a.message });
+            for (const a of fresh) new Notification("Navrist alert", { body: a.message });
           }
         }
+      } catch {
+        /* not signed in or the server is busy: try again at the next tick */
       } finally {
         busy.current = false;
       }

@@ -1,12 +1,16 @@
 import { fetchJson } from "@/lib/api";
 
-export type Call = "up" | "down" | "none" | null;
+export type Call = "up" | "down" | "even" | null;
 
 /** Odds for one horizon, from the stock's own history. */
 export interface Horizon {
   id: "session" | "week" | "month";
   label: string;
   call: Call;
+  conviction?: "strong" | "moderate" | "slight" | null;
+  price_low?: number;
+  price_mid?: number;
+  price_high?: number;
   up?: number;
   flat?: number;
   down?: number;
@@ -53,10 +57,15 @@ export interface Replay {
   median?: number | null;
   avg?: number | null;
   horizon?: number;
+  trend_rule?: boolean;
+  session_rule?: boolean;
 }
 
 export interface TradeBlock {
   decision: { action: string; reason: string | null };
+  edge?: { value: number; label: "favourable" | "against" | "even" } | null;
+  note?: string | null;
+  basis?: "orb" | "range";
   plan?: Plan | null;
   odds?: Odds | null;
   replay?: Replay | null;
@@ -100,7 +109,8 @@ export interface Forecast {
   today: TradeBlock;
   swing: TradeBlock;
   evidence: EvidenceRow[];
-  events?: Events;
+  levels?: { label: string; value: string; tone: "good" | "bad" | null }[];
+  sizing?: { entry: number; stop: number; risk_per_share: number; basis: string } | null;
   liquidity: { turnover_cr: number | null; max_position_inr: number | null };
   source?: string;
 }

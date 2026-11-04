@@ -1026,6 +1026,21 @@ try:
 except Exception as _su_err:  # pragma: no cover
     print(f"[HTTP WARNING] setups API not mounted: {_su_err}")
 
+# Alerts: stored on the server, checked every 30s by a worker, delivered to Telegram (TELEGRAM_BOT_TOKEN in .env).
+try:
+    from notify.api import make_router as _make_notify_router
+    app.include_router(_make_notify_router(auth.require_session))
+    if os.environ.get("NAVRIST_ALERTS_WORKER", "1") == "1":
+        from notify import worker as _alert_worker
+
+        def _alert_price(sym):
+            q = live_quote(sym, {})
+            return q.get("ltp") if isinstance(q, dict) else None
+
+        threading.Thread(target=_alert_worker.loop, args=(_alert_price,), daemon=True, name="alerts-worker").start()
+except Exception as _al_err:  # pragma: no cover
+    print(f"[HTTP WARNING] alerts not mounted: {_al_err}")
+
 # Pattern scanner: which stocks currently show a given chart pattern, with index / market-cap / EMA / DMA / sector filters.
 try:
     from patterns.scan_api import make_router as _make_scan_router

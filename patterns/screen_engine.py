@@ -5,6 +5,7 @@ option; nothing ticked means no restriction. A range filter ({min, max}) with ei
 value is unknown - an unknown value is not treated as zero."""
 from __future__ import annotations
 
+import time
 import statistics
 from datetime import datetime, timezone
 
@@ -148,6 +149,11 @@ def rrg_quadrants(rows: dict, timeframe: str = "daily", benchmark: str = "nifty5
 
 
 # ------------------------------------------------------------------ options for the filter UI
+def _median(vals):
+    vals = sorted(vals)
+    return vals[len(vals) // 2] if vals else None
+
+
 def options() -> dict:
     rows = scan._load_all()
     uni = scan.universe()
@@ -172,6 +178,9 @@ def options() -> dict:
                 "available": bool(scan.benchmarks())},
         "resistance_states": [{"id": "near", "label": "Near (up to 5% below)"}, {"id": "breakout", "label": "Breakout (last 3 sessions)"}],
         "fundamentals_have": sum(1 for r in rows.values() if _num(r.get("pe"))),
+        "fundamentals_yahoo": sum(1 for r in rows.values() if r.get("fund_src") == "yahoo"),
+        "fundamentals_as_of": _median([r["fund_at"] for r in rows.values() if _num(r.get("fund_at"))]),
+        "fundamentals_stale": sum(1 for r in rows.values() if not _num(r.get("fund_at")) or time.time() - r["fund_at"] > 48 * 3600),
     }
 
 

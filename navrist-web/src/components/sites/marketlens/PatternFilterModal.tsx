@@ -493,7 +493,7 @@ export function PatternFilterModal({
             )}
 
             {tab === "fundamentals" && (
-              <Section title="Fundamentals" hint={`From Screener.in. Known for ${options?.fundamentals_have ?? 0} scanned stocks; a stock without a value is left out when you filter on it.`}>
+              <Section title="Fundamentals" hint={fundamentalsHint(options)}>
                 <RangeList tab="fundamentals" f={f} set={setRange} />
               </Section>
             )}
@@ -571,3 +571,18 @@ export function PatternFilterModal({
 }
 
 export { SCREENER_ID };
+
+
+/** The note above the Fundamentals filters: where they come from, for how many stocks, and how recent they are. */
+function fundamentalsHint(o: ScanOptions | null): string {
+  const have = o?.fundamentals_have ?? 0;
+  let age = "";
+  if (o?.fundamentals_as_of) {
+    const d = new Date(o.fundamentals_as_of * 1000);
+    const hrs = (Date.now() - d.getTime()) / 3600000;
+    age = ` Updated ${d.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}${hrs > 36 ? " (refresh under way)" : ""}.`;
+  }
+  const stale = o?.fundamentals_stale ? ` ${o.fundamentals_stale} stocks are being refreshed and may show last results.` : "";
+  const yahoo = o?.fundamentals_yahoo ? ` ${o.fundamentals_yahoo} stocks use Yahoo Finance for P/E and dividend yield (Screener had no figures for them).` : "";
+  return `From Screener.in, refreshed daily. Known for ${have} scanned stocks; a stock without a value is left out when you filter on it.${age}${stale}${yahoo}`;
+}

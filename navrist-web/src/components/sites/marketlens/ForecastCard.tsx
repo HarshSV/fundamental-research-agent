@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ALERTS_EVENT, alertsForPlan, loadAlerts, saveAlerts, type Alert } from "./alerts";
+import { useEffect, useRef, useState } from "react";
+import { Newspaper } from "lucide-react";
+import { fetchJson } from "@/lib/api";
+import {
+  ALERTS_EVENT, alertsForPlan, connectTelegram, fetchAlerts, removeAlerts, saveAlertsFor, testTelegram,
+  type Alert, type TelegramStatus,
+} from "./alerts";
 import type { Events, Forecast, Horizon, Odds, Plan, Replay, TradeBlock } from "./forecast";
 
 const GAIN = "var(--gain)";
@@ -18,31 +23,115 @@ function Label({ children }: { children: React.ReactNode }) {
   return <div className="mb-3 text-xs font-medium uppercase tracking-wider" style={{ color: MUTED }}>{children}</div>;
 }
 
-function Outlook({ h }: { h: Horizon }) {
-  const word = h.call === "up" ? "Up" : h.call === "down" ? "Down" : h.call === "none" ? "No clear edge" : "No call";
+/** True once the element has scrolled into view (once). */
+function useInView<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || seen) return;
+    if (typeof IntersectionObserver === "undefined") {
+      const t = setTimeout(() => setSeen(true), 0);
+      return () => clearTimeout(t);
+    }
+    const io = new IntersectionObserver((e) => e[0]?.isIntersecting && setSeen(true), { threshold: 0.25 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seen]);
+  return { ref, seen };
+}
+
+const reduced = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+/** Counts from 0 up to `target` once `play` turns true (after `delay` ms). */
+function useCountUp(target: number, play: boolean, delay: number, dur = 850) {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    if (!play) return;
+    if (reduced()) {
+      const t = setTimeout(() => setV(target), 0);
+      return () => clearTimeout(t);
+    }
+    let raf = 0;
+    const t0 = performance.now() + delay;
+    const tick = (now: number) => {
+      const p = Math.min(1, Math.max(0, (now - t0) / dur));
+      setV(Math.round(target * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, play, delay, dur]);
+  return v;
+}
+
+const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+
+/** One label / value line of the facts list; never split across columns. */
+function Fact({ label, value, tone }: { label: string; value: string; tone: "good" | "bad" | null }) {
+  return (
+    <div className="flex justify-between gap-4 break-inside-avoid py-1 text-sm">
+      <span style={{ color: MUTED }}>{label}</span>
+      <span className="nv-num text-right font-medium" style={{ color: tone === "good" ? GAIN : tone === "bad" ? LOSS : "var(--text-primary)" }}>{value}</span>
+    </div>
+  );
+}
+
+/** A small on/off switch. */
+function Switch({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) {
+  return (
+    <button role="switch" aria-checked={on} onClick={onChange} className="flex items-center gap-2 text-sm" style={{ color: SOFT }}>
+      <span className="relative h-5 w-9 rounded-full transition-colors" style={{ background: on ? GAIN : "var(--overlay)" }}>
+        <span className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all" style={{ left: on ? 18 : 2 }} />
+      </span>
+      {label}
+    </button>
+  );
+}
+
+function Outlook({ h, index }: { h: Horizon; index: number }) {
+  const { ref, seen } = useInView<HTMLDivElement>();
+  const delay = index * 220;
+  const up = useCountUp(h.up ?? 0, seen, delay + 200);
+  const flat = useCountUp(h.flat ?? 0, seen, delay + 200);
+  const down = useCountUp(h.down ?? 0, seen, delay + 200);
+  const fade = (extra: number): React.CSSProperties => ({
+    opacity: seen ? 1 : 0, transform: seen ? "none" : "translateY(10px)",
+    transition: reduced() ? "none" : `opacity 600ms ${EASE} ${delay + extra}ms, transform 600ms ${EASE} ${delay + extra}ms`,
+  });
+  const word = h.call === "up" ? "Up" : h.call === "down" ? "Down" : h.call === "even" ? "Even" : "No call";
   const color = h.call === "up" ? GAIN : h.call === "down" ? LOSS : SOFT;
   return (
-    <div className="border-t py-4 first:border-t-0 first:pt-0" style={{ borderColor: "var(--border-subtle)" }}>
+    <div ref={ref} className="border-t py-4 first:border-t-0 first:pt-0" style={{ borderColor: "var(--border-subtle)" }}>
       <div className="flex items-baseline justify-between gap-3">
         <span className="font-medium">{h.label}</span>
-        <span className="text-lg font-semibold" style={{ color }}>{word}</span>
+        <span className="text-lg font-semibold" style={{ color, ...fade(450) }}>
+          {word}
+          {h.conviction && <span className="ml-2 text-xs font-normal" style={{ color: MUTED }}>{h.conviction} lean</span>}
+        </span>
       </div>
       {h.up == null ? (
         <p className="mt-1 text-sm" style={{ color: MUTED }}>{h.reason ?? "Not enough history to measure."}</p>
       ) : (
         <>
-          <div className="mt-2 flex h-1.5 overflow-hidden rounded-full" role="img" aria-label={`Up ${h.up}%, flat ${h.flat}%, down ${h.down}%`}>
-            <div style={{ width: `${h.up}%`, background: "var(--gain)" }} />
-            <div style={{ width: `${h.flat}%`, background: "var(--overlay)" }} />
-            <div style={{ width: `${h.down}%`, background: "var(--loss)" }} />
+          <div className="relative mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: "var(--overlay)" }} role="img" aria-label={`Up ${h.up}%, flat ${h.flat}%, down ${h.down}%`}>
+            <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: seen ? `${h.up}%` : 0, background: "var(--gain)", transition: reduced() ? "none" : `width 1100ms ${EASE} ${delay}ms` }} />
+            <div className="absolute inset-y-0 right-0 rounded-full" style={{ width: seen ? `${h.down}%` : 0, background: "var(--loss)", transition: reduced() ? "none" : `width 1100ms ${EASE} ${delay}ms` }} />
           </div>
-          <div className="mt-2 flex justify-between text-sm">
-            <span style={{ color: GAIN }}>Up {h.up}%</span>
-            <span style={{ color: MUTED }}>Flat {h.flat}%</span>
-            <span style={{ color: LOSS }}>Down {h.down}%</span>
+          <div className="mt-2 flex justify-between text-sm" style={fade(500)}>
+            <span style={{ color: GAIN }}>Up {up}%</span>
+            <span style={{ color: MUTED }}>Flat {flat}%</span>
+            <span style={{ color: LOSS }}>Down {down}%</span>
           </div>
-          <p className="mt-1.5 text-xs" style={{ color: MUTED }}>
-            Typical move {sgn(h.p10)} to {sgn(h.p90)} (middle {sgn(h.median)}), from {h.samples?.toLocaleString("en-IN")}{" "}
+          {h.price_low != null && (
+            <p className="mt-2 text-sm" style={fade(700)}>
+              <span style={{ color: MUTED }}>Likely price </span>
+              <b className="nv-num">{inr(h.price_low)} to {inr(h.price_high)}</b>
+              <span style={{ color: MUTED }}> · middle {inr(h.price_mid)}</span>
+            </p>
+          )}
+          <p className="mt-1 text-xs" style={{ color: MUTED, ...fade(800) }}>
+            Typical move {sgn(h.p10)} to {sgn(h.p90)}, from {h.samples?.toLocaleString("en-IN")}{" "}
             {h.basis === "state" ? "past days in the same trend state" : h.basis === "sessions" ? "past sessions at this time of day" : "past days"}
           </p>
         </>
@@ -64,14 +153,16 @@ function OddsLine({ odds, replay, daily }: { odds?: Odds | null; replay?: Replay
       )}
       {replay && !daily && replay.trades != null && (
         <p>
-          <span style={{ color: MUTED }}>Same rule on the last {replay.sessions} sessions ({replay.trades} trades): </span>
+          <span style={{ color: MUTED }}>{replay.session_rule ? `The same plan on this stock's past ${replay.sessions} days in this state: ` : `Same rule on the last ${replay.sessions} sessions (${replay.trades} trades): `}</span>
           target <b style={{ color: GAIN }}>{replay.target}</b>, stop <b style={{ color: LOSS }}>{replay.stop}</b>, neither <b>{replay.open}</b>
         </p>
       )}
       {replay && daily && replay.n != null && (
         <p>
-          <span style={{ color: MUTED }}>This setup has appeared {replay.n} times before: </span>
-          {replay.win == null ? (
+          <span style={{ color: MUTED }}>{replay.trend_rule ? "The same rule on this stock's past days in this state" : "This setup has appeared"} ({replay.n}): </span>
+          {replay.target != null ? (
+            <>target <b style={{ color: GAIN }}>{replay.target}</b>, stop <b style={{ color: LOSS }}>{replay.stop}</b>, neither <b>{replay.open}</b></>
+          ) : replay.win == null ? (
             <span style={{ color: MUTED }}>too few to measure</span>
           ) : (
             <>
@@ -85,10 +176,22 @@ function OddsLine({ odds, replay, daily }: { odds?: Odds | null; replay?: Replay
   );
 }
 
+function EdgeLine({ b }: { b: TradeBlock }) {
+  if (!b.edge) return null;
+  const v = b.edge.value;
+  const color = b.edge.label === "favourable" ? GAIN : b.edge.label === "against" ? LOSS : SOFT;
+  const word = b.edge.label === "favourable" ? "Odds favour this trade" : b.edge.label === "against" ? "Odds are against this trade" : "Odds are about even";
+  return (
+    <p className="mt-3 text-sm">
+      <b style={{ color }}>{word}</b>
+      <span style={{ color: MUTED }}> · {v > 0 ? "+" : ""}{n(v)} for every 1 of risk</span>
+    </p>
+  );
+}
+
 function Trade({ title, b, daily, onAlert, hasAlerts }: { title: string; b: TradeBlock; daily: boolean; onAlert: () => void; hasAlerts: boolean }) {
   const p: Plan | null | undefined = b.plan;
-  const t1 = p?.targets.find((t) => t.r === p.first_target_r) ?? p?.targets[0];
-  const t2 = p?.targets.find((t) => t.r > p.first_target_r);
+  const t1 = p?.targets[0];
   return (
     <div className="border-t py-4 first:border-t-0 first:pt-0" style={{ borderColor: "var(--border-subtle)" }}>
       <div className="flex items-baseline justify-between gap-3">
@@ -105,20 +208,19 @@ function Trade({ title, b, daily, onAlert, hasAlerts }: { title: string; b: Trad
               <div className="nv-num font-semibold" style={{ color: LOSS }}>{inr(p.stop)}</div>
               <div className="text-xs" style={{ color: MUTED }}>{n(p.risk_pct)}% · {inr(p.risk_per_share)} a share</div>
             </div>
-            <div>
-              <div className="text-xs" style={{ color: MUTED }}>Target</div>
-              <div className="nv-num font-semibold" style={{ color: GAIN }}>{inr(t1.price)}</div>
-              <div className="text-xs" style={{ color: MUTED }}>{t1.r}× the risk</div>
-            </div>
-            <div>
-              <div className="text-xs" style={{ color: MUTED }}>Second target</div>
-              <div className="nv-num font-semibold" style={{ color: GAIN }}>{t2 ? inr(t2.price) : "—"}</div>
-              <div className="text-xs" style={{ color: MUTED }}>{t2 ? `${t2.r}× the risk` : ""}</div>
-            </div>
+            {p.targets.slice(0, 2).map((t) => (
+              <div key={t.r}>
+                <div className="text-xs" style={{ color: MUTED }}>Target</div>
+                <div className="nv-num font-semibold" style={{ color: GAIN }}>{inr(t.price)}</div>
+                <div className="text-xs" style={{ color: MUTED }}>{t.r}× the risk</div>
+              </div>
+            ))}
           </div>
-          <p className="mt-3 text-xs" style={{ color: MUTED }}>
+          <EdgeLine b={b} />
+          <p className="mt-2 text-xs" style={{ color: MUTED }}>
             Stop at {p.stop_basis}. {p.exit_rule}
           </p>
+          {b.note && <p className="mt-1 text-xs" style={{ color: MUTED }}>{b.note}</p>}
           {p.warnings.map((w) => (
             <p key={w} className="mt-1 text-xs" style={{ color: LOSS }}>{w}</p>
           ))}
@@ -138,127 +240,166 @@ function Trade({ title, b, daily, onAlert, hasAlerts }: { title: string; b: Trad
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const day = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}`;
 
-/** Filings (NSE / BSE) and headlines (Google News) for the company, newest first. Nothing is scored or interpreted. */
-function News({ ev }: { ev: Events }) {
-  const down = Object.entries(ev.sources).filter(([, v]) => v === "unavailable").map(([k]) => k);
+/** A small "News" button that opens a light popover with the company's filings (NSE / BSE) and headlines (Google News). It reads
+ *  them only when first opened. Nothing is scored or interpreted. */
+function News({ symbol }: { symbol: string }) {
+  const [open, setOpen] = useState(false); // mounted
+  const [shown, setShown] = useState(false); // fade/slide state
+  const [ev, setEv] = useState<Events | null>(null);
+  const [failed, setFailed] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const loaded = useRef(false);
+  const close = () => {
+    setShown(false);
+    setTimeout(() => setOpen(false), 200);
+  };
+  const toggle = () => {
+    if (open) return close();
+    setOpen(true);
+    requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
+    if (!loaded.current) {
+      loaded.current = true;
+      fetchJson<Events>(`/api/v1/events/${symbol}`, { retries: 1 }).then(setEv).catch(() => setFailed(true));
+    }
+  };
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => box.current && !box.current.contains(e.target as Node) && close();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && close();
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  });
+  const down = ev ? Object.entries(ev.sources).filter(([, v]) => v === "unavailable").map(([k]) => k) : [];
   return (
-    <div>
-      <Label>News and filings</Label>
-      {ev.upcoming.length > 0 && (
-        <p className="mb-3 text-sm">
-          <span style={{ color: MUTED }}>Next board meeting: </span>
-          <b>{day(ev.upcoming[0].date)}</b>
-          <span style={{ color: SOFT }}> — {ev.upcoming[0].purpose}</span>
+    <div ref={box}>
+      <button onClick={toggle} aria-expanded={open} className="flex items-center gap-1.5 text-sm hover:opacity-80" style={{ color: SOFT }}>
+        <Newspaper className="h-4 w-4" aria-hidden />
+        News
+      </button>
+      {open && (
+        <div
+          className="absolute inset-x-0 top-full z-30 mt-2 max-h-[26rem] overflow-y-auto overflow-x-hidden sm:left-auto sm:right-0 sm:w-[23rem] rounded-lg border p-3 text-xs shadow-xl"
+          style={{
+            background: "var(--surface-1)", borderColor: "var(--border-default)",
+            opacity: shown ? 1 : 0, transform: shown ? "none" : "translateY(-6px) scale(0.98)", transformOrigin: "top right",
+            transition: reduced() ? "none" : `opacity 220ms ${EASE}, transform 220ms ${EASE}`,
+          }}
+        >
+          {failed ? (
+            <p style={{ color: MUTED }}>News could not be read right now.</p>
+          ) : !ev ? (
+            <div className="h-12 animate-pulse rounded" style={{ background: "var(--overlay-weak)" }} />
+          ) : (
+            <>
+              {ev.upcoming.length > 0 && (
+                <p className="mb-2.5">
+                  <span style={{ color: MUTED }}>Board meeting </span>
+                  <b>{day(ev.upcoming[0].date)}</b>
+                  <span style={{ color: SOFT }}> · {ev.upcoming[0].purpose}</span>
+                </p>
+              )}
+              {ev.items.length === 0 ? (
+                <p style={{ color: MUTED }}>Nothing in the last 30 days.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {ev.items.map((i) => (
+                    <li key={i.source + i.ts + i.title} className="flex gap-2.5">
+                      <span className="w-12 shrink-0 whitespace-nowrap" style={{ color: MUTED }}>{day(i.ts)}</span>
+                      <span className="min-w-0 flex-1 leading-snug">
+                        {i.link ? <a href={i.link} target="_blank" rel="noopener noreferrer" className="hover:underline">{i.title}</a> : i.title}
+                        <span className="ml-1.5" style={{ color: MUTED }}>{i.source === "News" ? i.category : i.source}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {down.length > 0 && <p className="mt-2.5" style={{ color: MUTED }}>Could not be read: {down.join(", ")}.</p>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Telegram link status and the alerts set for this stock. */
+function Alerts({ symbol, alerts, tg }: { symbol: string; alerts: Alert[]; tg: TelegramStatus | null }) {
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const run = async (f: () => Promise<unknown>) => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const r = (await f()) as { connected?: boolean; reason?: string } | undefined;
+      if (r && r.connected === false) setMsg(r.reason ?? "Not connected yet.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "That did not work.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="border-t pt-4 text-sm" style={{ borderColor: "var(--border-subtle)" }}>
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="font-medium">Your alerts</span>
+        {alerts.length > 0 && <button className="text-xs underline" style={{ color: MUTED }} onClick={() => removeAlerts(symbol)}>Remove all</button>}
+      </div>
+      {alerts.map((a) => (
+        <div key={a.id} className="flex justify-between py-0.5">
+          <span style={{ color: SOFT }}>{a.kind === "exit" ? "Close the trade" : a.kind === "entry" ? "Entry reached" : a.kind === "stop" ? "Stop hit" : "Target hit"}</span>
+          <span className="nv-num" style={{ color: a.kind === "stop" ? LOSS : a.kind === "target" ? GAIN : undefined }}>{a.price != null ? `${a.dir === "above" ? "at or above" : "at or below"} ${inr(a.price)}` : "15:25"}</span>
+        </div>
+      ))}
+      {tg?.configured && !tg.connected && (
+        <div className="mt-2 text-xs" style={{ color: MUTED }}>
+          {tg.bot ? <>Open <a className="underline" href={`https://t.me/${tg.bot}`} target="_blank" rel="noopener noreferrer">@{tg.bot}</a> in Telegram and press Start, then </> : "Press Start on your bot in Telegram, then "}
+          <button disabled={busy} onClick={() => run(connectTelegram)} className="underline" style={{ color: SOFT }}>connect</button>.
+        </div>
+      )}
+      {tg?.connected && (
+        <p className="mt-2 text-xs" style={{ color: MUTED }}>
+          Alerts are also sent to your Telegram, even when this site is closed.{" "}
+          <button disabled={busy} onClick={() => run(testTelegram)} className="underline" style={{ color: SOFT }}>Send a test message</button>
         </p>
       )}
-      {ev.items.length === 0 ? (
-        <p className="text-sm" style={{ color: MUTED }}>No filings or headlines in the last 30 days.</p>
-      ) : (
-        <ul className="space-y-2.5 text-sm">
-          {ev.items.map((i) => (
-            <li key={i.source + i.ts + i.title} className="flex gap-3">
-              <span className="w-14 shrink-0 text-xs leading-5" style={{ color: MUTED }}>{day(i.ts)}</span>
-              <span className="min-w-0 flex-1">
-                {i.link ? (
-                  <a href={i.link} target="_blank" rel="noopener noreferrer" className="hover:underline">{i.title}</a>
-                ) : (
-                  i.title
-                )}
-                <span className="ml-2 text-xs" style={{ color: MUTED }}>{i.source === "News" ? i.category : `${i.source} · ${i.category}`}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {down.length > 0 && (
-        <p className="mt-3 text-xs" style={{ color: MUTED }}>Could not be read right now: {down.join(", ")}.</p>
-      )}
+      {msg && <p className="mt-1 text-xs" style={{ color: LOSS }}>{msg}</p>}
     </div>
   );
 }
 
-const KEY = "navrist_position_inputs";
-
-/** Position size for a plan from the user's own account size and loss limit, capped by what the stock trades in a day. */
-function Size({ f }: { f: Forecast }) {
-  const [capital, setCapital] = useState("");
-  const [maxLoss, setMaxLoss] = useState("");
-  useEffect(() => {
-    try {
-      const s = JSON.parse(localStorage.getItem(KEY) ?? "{}");
-      if (s.capital) setCapital(String(s.capital)); // eslint-disable-line react-hooks/set-state-in-effect
-      if (s.maxLoss) setMaxLoss(String(s.maxLoss));
-    } catch {
-      /* no saved inputs */
-    }
-  }, []);
-  const save = (c: string, m: string) => localStorage.setItem(KEY, JSON.stringify({ capital: c, maxLoss: m }));
-  const plan = f.today.plan ?? f.swing.plan ?? null;
-  const cap = Number(capital);
-  const loss = Number(maxLoss);
-  const ok = plan && cap > 0 && loss > 0;
-  let shares = 0;
-  let limit = "";
-  if (ok) {
-    const byRisk = Math.floor(loss / plan.risk_per_share);
-    const byCash = Math.floor(cap / plan.entry);
-    const byLiq = f.liquidity.max_position_inr ? Math.floor(f.liquidity.max_position_inr / plan.entry) : Infinity;
-    shares = Math.max(0, Math.min(byRisk, byCash, byLiq));
-    limit = shares === byLiq && byLiq < Math.min(byRisk, byCash) ? "limited by what the stock trades in a day" : shares === byCash && byCash < byRisk ? "limited by your capital" : "limited by your loss limit";
-  }
-  const t1 = plan?.targets.find((t) => t.r === plan.first_target_r) ?? plan?.targets[0];
-  const input = "w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus:border-[var(--accent-border)]";
-  return (
-    <div>
-      <Label>Position size</Label>
-      <div className="grid grid-cols-2 gap-3">
-        <label className="text-xs" style={{ color: MUTED }}>
-          Capital (₹)
-          <input inputMode="numeric" className={`${input} mt-1`} style={{ borderColor: "var(--border-default)" }} value={capital}
-            onChange={(e) => { setCapital(e.target.value); save(e.target.value, maxLoss); }} placeholder="e.g. 500000" />
-        </label>
-        <label className="text-xs" style={{ color: MUTED }}>
-          Most you will lose on a trade (₹)
-          <input inputMode="numeric" className={`${input} mt-1`} style={{ borderColor: "var(--border-default)" }} value={maxLoss}
-            onChange={(e) => { setMaxLoss(e.target.value); save(capital, e.target.value); }} placeholder="e.g. 2500" />
-        </label>
-      </div>
-      {!plan ? (
-        <p className="mt-3 text-sm" style={{ color: MUTED }}>There is no trade to size right now.</p>
-      ) : !ok ? (
-        <p className="mt-3 text-sm" style={{ color: MUTED }}>Enter both figures to see the size for {plan.action.toLowerCase()} {inr(plan.entry)}.</p>
-      ) : shares === 0 ? (
-        <p className="mt-3 text-sm" style={{ color: LOSS }}>Even one share breaks a limit ({limit}).</p>
-      ) : (
-        <dl className="mt-3 space-y-1.5 text-sm">
-          <div className="flex justify-between"><dt style={{ color: MUTED }}>Shares</dt><dd className="nv-num font-semibold">{shares.toLocaleString("en-IN")}</dd></div>
-          <div className="flex justify-between"><dt style={{ color: MUTED }}>Amount</dt><dd className="nv-num">{inr(shares * plan.entry, 0)}</dd></div>
-          <div className="flex justify-between"><dt style={{ color: MUTED }}>Lost if the stop is hit</dt><dd className="nv-num" style={{ color: LOSS }}>{inr(shares * plan.risk_per_share, 0)}</dd></div>
-          {t1 && <div className="flex justify-between"><dt style={{ color: MUTED }}>Gained at the target</dt><dd className="nv-num" style={{ color: GAIN }}>{inr(shares * Math.abs(t1.price - plan.entry), 0)}</dd></div>}
-          <p className="pt-1 text-xs" style={{ color: MUTED }}>Size is {limit}.</p>
-        </dl>
-      )}
-    </div>
-  );
-}
-
-/** The one Forecast section on the stock page: outlook, trade plan with replay odds, evidence and position size. */
+/** The one Forecast section on the stock page: outlook, trade plan with replay odds, levels, evidence and position size. */
 export function ForecastCard({
   data, error, showLevels, onToggleLevels,
 }: { data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [tg, setTg] = useState<TelegramStatus | null>(null);
   const sym = data?.symbol;
   useEffect(() => {
-    const read = () => setAlerts(loadAlerts().filter((a) => a.sym === sym && !a.fired));
+    if (!sym) return;
+    let alive = true;
+    const read = () =>
+      fetchAlerts()
+        .then((r) => {
+          if (!alive) return;
+          setAlerts(r.alerts.filter((a) => a.sym === sym && !a.fired));
+          setTg(r.telegram);
+        })
+        .catch(() => {});
     read();
     window.addEventListener(ALERTS_EVENT, read);
-    return () => window.removeEventListener(ALERTS_EVENT, read);
+    return () => {
+      alive = false;
+      window.removeEventListener(ALERTS_EVENT, read);
+    };
   }, [sym]);
   const setFor = (plan: Plan, sameDay: boolean) => {
     if (!data) return;
     if (typeof Notification !== "undefined" && Notification.permission === "default") Notification.requestPermission().catch(() => {});
-    const fresh = alertsForPlan(data.symbol, data.symbol, plan, data.price, sameDay);
-    saveAlerts([...loadAlerts().filter((a) => a.fired || a.sym !== data.symbol), ...fresh]);
+    saveAlertsFor(alertsForPlan(data.symbol, data.symbol, plan, data.price, sameDay)).catch(() => {});
   };
   if (error) return <p className="text-sm" style={{ color: MUTED }}>The forecast could not be worked out for this stock right now.</p>;
   if (data === null) return <div className="h-40 animate-pulse rounded-lg" style={{ background: "var(--overlay-weak)" }} aria-label="Working out the forecast" />;
@@ -266,63 +407,38 @@ export function ForecastCard({
   const hasLevels = Boolean(data.today.setup?.range_high != null || data.today.plan || data.swing.plan);
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" style={{ color: MUTED }}>
+      <div className="relative mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" style={{ color: MUTED }}>
         <span>{data.market_open ? "Market open" : "Market closed"}</span>
         {data.segment && <span>{data.segment}</span>}
         {data.adr20_pct != null && <span>Typical daily range {n(data.adr20_pct)}%</span>}
-        {hasLevels && (
-          <button onClick={onToggleLevels} aria-pressed={showLevels} className="ml-auto rounded-full border px-3 py-1 text-sm font-medium hover:border-[var(--accent-border)]"
-            style={{ borderColor: "var(--border-default)", color: showLevels ? "var(--text-primary)" : SOFT }}>
-            {showLevels ? "Hide levels on chart" : "Show levels on chart"}
-          </button>
-        )}
+        <span className="ml-auto flex items-center gap-5">
+          <News symbol={data.symbol} />
+          {hasLevels && <Switch on={showLevels} onChange={onToggleLevels} label="Levels on chart" />}
+        </span>
       </div>
-      <div className="grid gap-x-12 gap-y-10 md:grid-cols-2">
+      <div className="grid items-start gap-x-14 gap-y-10 md:grid-cols-2">
         <div>
           <Label>Outlook</Label>
-          {data.outlook.map((h) => <Outlook key={h.id} h={h} />)}
+          {data.outlook.map((h, i) => <Outlook key={data.symbol + h.id} h={h} index={i} />)}
         </div>
         <div>
           <Label>Trade plan</Label>
-          <Trade title="Today" b={data.today} daily={false} hasAlerts={alerts.length > 0} onAlert={() => data.today.plan && setFor(data.today.plan, true)} />
+          <Trade title={data.market_open ? "Today" : "Next session"} b={data.today} daily={false} hasAlerts={alerts.length > 0} onAlert={() => data.today.plan && setFor(data.today.plan, true)} />
           <Trade title="Swing, up to 10 sessions" b={data.swing} daily hasAlerts={alerts.length > 0} onAlert={() => data.swing.plan && setFor(data.swing.plan, false)} />
-          {alerts.length > 0 && (
-            <div className="border-t pt-4 text-sm" style={{ borderColor: "var(--border-subtle)" }}>
-              <div className="mb-2 flex items-baseline justify-between">
-                <span className="font-medium">Your alerts</span>
-                <button className="text-xs underline" style={{ color: MUTED }} onClick={() => saveAlerts(loadAlerts().filter((a) => a.sym !== data.symbol))}>Remove all</button>
-              </div>
-              {alerts.map((a) => (
-                <div key={a.id} className="flex justify-between py-0.5">
-                  <span style={{ color: SOFT }}>{a.kind === "exit" ? "Close the trade" : a.kind === "entry" ? "Entry reached" : a.kind === "stop" ? "Stop hit" : "Target hit"}</span>
-                  <span className="nv-num" style={{ color: a.kind === "stop" ? LOSS : a.kind === "target" ? GAIN : undefined }}>{a.price != null ? `${a.dir === "above" ? "at or above" : "at or below"} ${inr(a.price)}` : "15:25"}</span>
-                </div>
-              ))}
-              <p className="mt-2 text-xs" style={{ color: MUTED }}>Checked every 20 seconds while this site is open in your browser.</p>
-            </div>
-          )}
+          {(alerts.length > 0 || tg?.configured) && <Alerts symbol={data.symbol} alerts={alerts} tg={tg} />}
         </div>
-        <div>
-          <Label>What the forecast rests on</Label>
-          <dl className="space-y-2 text-sm">
-            {data.evidence.map((e) => (
-              <div key={e.label} className="flex justify-between gap-4">
-                <dt style={{ color: MUTED }}>{e.label}</dt>
-                <dd className="nv-num text-right font-medium" style={{ color: e.tone === "good" ? GAIN : e.tone === "bad" ? LOSS : "var(--text-primary)" }}>{e.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-        <Size f={data} />
       </div>
-      {data.events && (
-        <div className="mt-10 border-t pt-8" style={{ borderColor: "var(--border-subtle)" }}>
-          <News ev={data.events} />
-        </div>
-      )}
-      <p className="mt-8 text-xs" style={{ color: MUTED }}>
-        Odds come from this stock&apos;s own past prices and are not a guarantee or investment advice.
-      </p>
+      {/* The facts run as one list that flows down the left column and on into the right, so the two columns end level. */}
+      <div className="mt-10 border-t pt-8 md:columns-2 md:gap-x-14" style={{ borderColor: "var(--border-subtle)" }}>
+        {data.levels && data.levels.length > 0 && (
+          <>
+            <div className="break-after-avoid"><Label>Levels to watch</Label></div>
+            {data.levels.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
+          </>
+        )}
+        <div className="break-after-avoid pt-8 first:pt-0"><Label>What the forecast rests on</Label></div>
+        {data.evidence.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
+      </div>
     </div>
   );
 }

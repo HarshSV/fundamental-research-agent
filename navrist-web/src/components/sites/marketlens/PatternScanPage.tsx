@@ -257,7 +257,7 @@ export function PatternScanPage({
             <p className="mt-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
               {data.scan.building
                 ? `Scanning the market… ${data.scan.done}/${data.scan.total} stocks analysed. Results fill in as it progresses.`
-                : `Scanned ${data.scan.have.toLocaleString("en-IN")} of ${data.scan.universe.toLocaleString("en-IN")} stocks (Nifty Total Market) on their daily charts.`}
+                : `Scanned ${data.scan.have.toLocaleString("en-IN")} of ${data.scan.universe.toLocaleString("en-IN")} stocks (Nifty Total Market) on their daily charts. Prices are the close of ${new Date((data.scan.prices_as_of ?? 0) * 1000 + 19800000).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}.`}
             </p>
           )}
 

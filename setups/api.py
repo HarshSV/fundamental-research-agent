@@ -45,12 +45,22 @@ def make_router(require_session, resolve_symbol):
         except Exception:
             pass
         out = outlook.build(sym, intraday, daily, row, peers, _quarters(sym))
-        try:
-            from . import events
-            out["events"] = events.collect(sym, (row or {}).get("name"))
-        except Exception:
-            out["events"] = {"items": [], "upcoming": [], "sources": {}}
         return {**out, "source": "yfinance"}
+
+    @r.get("/api/v1/events/{symbol}")
+    def stock_events(symbol: str, _: dict = Depends(require_session)):
+        """Filings (NSE, BSE) and headlines (Google News) for the company; read only when the user opens the news panel."""
+        sym = resolve_symbol(symbol)
+        if not sym:
+            raise HTTPException(status_code=400, detail="Symbol required.")
+        from . import events
+        row = None
+        try:
+            from patterns import scan
+            row = scan._load_all().get(sym)
+        except Exception:
+            pass
+        return events.collect(sym, (row or {}).get("name"))
 
     @r.get("/api/v1/setups/{symbol}")
     def stock_setups(symbol: str, session: str | None = None, _: dict = Depends(require_session)):

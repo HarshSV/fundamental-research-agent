@@ -430,6 +430,21 @@ export function StockView({
   const pe = annEps != null && annEps > 0 && ltp ? ltp / annEps : null;
   const arYear = annualEps?.period?.slice(-4);
 
+  // Colours of the Key Metrics: green = favourable, red = unfavourable, plain = no judgement (a level or a label).
+  //   P/E (TTM)      Screener's trailing-12-month P/E against the sector median: more than 20% under it green, more than 50% over it red.
+  //                  The headline P/E uses the last annual report's EPS, which can be a year old, so it is not coloured.
+  //   EPS            positive earnings green, a loss red
+  //   Debt / equity  at most 0.5 green, 1.5 or more red (the figure is left out for banks and lenders, where it means little)
+  //   All time high  within 10% of it green, less than half of it red
+  const sectorPe = Number(forecastData?.data?.evidence.find((e) => e.label.startsWith("P/E"))?.label.match(/median ([\d.]+)/)?.[1]);
+  const ttmPe = overview?.pe ?? null;
+  const toneOf = (v: number | null): "good" | "bad" | null => (!sectorPe || v == null || v <= 0 ? null : v < 0.8 * sectorPe ? "good" : v > 1.5 * sectorPe ? "bad" : null);
+  const ttmTone = toneOf(ttmPe);
+  const epsTone: "good" | "bad" | null = annEps == null ? (annualEps === undefined && overview?.eps_ttm != null ? (overview.eps_ttm > 0 ? "good" : "bad") : null) : annEps > 0 ? "good" : "bad";
+  const deTone: "good" | "bad" | null = overview?.debt_to_equity == null ? null : overview.debt_to_equity <= 0.5 ? "good" : overview.debt_to_equity >= 1.5 ? "bad" : null;
+  const athTone: "good" | "bad" | null =
+    allTime && ltp ? (ltp >= 0.9 * allTime.high ? "good" : ltp < 0.5 * allTime.high ? "bad" : null) : null;
+
   return (
     <div className="w-full">
       <section className="mx-auto w-full max-w-7xl px-4 pb-8 pt-8">
@@ -668,18 +683,25 @@ export function StockView({
         <div className="mx-auto w-full max-w-7xl px-4">
           <SectionTitle>Key Metrics</SectionTitle>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-            {[
-              ["Market Cap", overview?.market_cap_cr != null ? `₹${fmt(overview.market_cap_cr)} Cr` : null],
-              ["P/E Ratio", annualEps === undefined ? (overview?.pe != null ? `${fmt(overview.pe)} (TTM)` : "…") : pe != null ? fmt(pe) : null],
-              [`${arYear ? `EPS (FY${arYear.slice(-2)}` : "EPS (annual"}${annualEps?.basis === "standalone" ? ", standalone" : ""})`, annualEps === undefined ? (overview?.eps_ttm != null ? `₹${fmt(overview.eps_ttm)} (TTM)` : "…") : annEps != null ? `₹${fmt(annEps)}` : null],
-              ["Face Value", overview?.face_value != null ? `₹${fmt(overview.face_value, overview.face_value % 1 ? 2 : 0)}` : null],
-              ["All Time High", allTime ? inr(allTime.high) : null],
-              ["All Time Low", allTime ? inr(allTime.low) : null],
-              ["Debt/Equity", overview?.debt_to_equity != null ? fmt(overview.debt_to_equity) : null],
-            ].map(([label, value]) => (
-              <Card key={label as string}>
+            {([
+              ["Market Cap", overview?.market_cap_cr != null ? `₹${fmt(overview.market_cap_cr)} Cr` : null, null],
+              ["P/E Ratio", ttmPe != null ? fmt(ttmPe) : annualEps === undefined ? "…" : pe != null ? fmt(pe) : null, ttmPe != null ? ttmTone : null],
+              [`${arYear ? `EPS (FY${arYear.slice(-2)}` : "EPS (annual"}${annualEps?.basis === "standalone" ? ", standalone" : ""})`, annualEps === undefined ? (overview?.eps_ttm != null ? `₹${fmt(overview.eps_ttm)} (TTM)` : "…") : annEps != null ? `₹${fmt(annEps)}` : null, epsTone],
+              ["Face Value", overview?.face_value != null ? `₹${fmt(overview.face_value, overview.face_value % 1 ? 2 : 0)}` : null, null],
+              ["All Time High", allTime ? inr(allTime.high) : null, athTone],
+              ["All Time Low", allTime ? inr(allTime.low) : null, null],
+              ["Debt/Equity", overview?.debt_to_equity != null ? fmt(overview.debt_to_equity) : null, deTone],
+            ] as [string, string | null, "good" | "bad" | null][]).map(([label, value, tone]) => (
+              <Card key={label}>
                 <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{label}</div>
-                <div className="mt-1 text-lg font-semibold">{value ?? "—"}</div>
+                <div className="mt-1 text-lg font-semibold" style={{ color: tone === "good" ? GAIN : tone === "bad" ? LOSS : undefined }}>{value ?? "—"}</div>
+                {label === "P/E Ratio" && (
+                  <div className="mt-0.5 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                    {ttmPe != null ? "Last 12 months" : "On the last annual report"}
+                    {sectorPe ? <> · sector median <span className="nv-num">{fmt(sectorPe)}</span></> : null}
+                    {ttmPe != null && pe != null && annualEps !== undefined && Math.abs(pe / ttmPe - 1) > 0.25 ? <> · on the annual report <span className="nv-num">{fmt(pe)}</span></> : null}
+                  </div>
+                )}
               </Card>
             ))}
           </div>

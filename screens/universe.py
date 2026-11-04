@@ -19,11 +19,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.environ.get("SCREENS_DATA_DIR", os.path.join(ROOT, "data", "screens"))
 PATH = os.path.join(DATA_DIR, "universe.json")
 STALE_SECONDS = 24 * 3600
+FUND_STALE_SECONDS = 20 * 3600   # fundamentals are read from Screener again once they are older than this
 WORKERS = 2  # kept low on purpose: four parallel workers got the Screener site timing out on us
 
 _lock = threading.Lock()
 _FUNDAMENTAL_KEYS = ("eps", "pe", "market_cap_cr", "promoter", "div_yield", "payout", "cover", "debt_equity",
-                     "net_profit_cr", "eps_growth", "fund_ok")
+                     "net_profit_cr", "eps_growth", "fund_ok", "fund_at", "fund_src")
 _state = {"building": False, "done": 0, "total": 0, "started": None, "finished": None, "errors": 0}
 _cache: dict | None = None
 
@@ -75,12 +76,28 @@ def status() -> dict:
     return {**_state, "have": len(data), "universe": len(universe_symbols())}
 
 
+def _yahoo_fin(sym: str) -> dict | None:
+    """Yahoo Finance's trailing P/E and dividend yield in the shape metrics.compute reads, or None."""
+    try:
+        import yfinance as yf
+        from tools.live_chart_yf import _to_symbol
+        i = yf.Ticker(_to_symbol(sym)).info or {}
+        pe, dy = i.get("trailingPE"), i.get("dividendYield")
+        if not isinstance(pe, (int, float)) and not isinstance(dy, (int, float)):
+            return None
+        return {"info": {"trailingPE": float(pe) if isinstance(pe, (int, float)) and pe > 0 else None,
+                         "dividendYield": float(dy) / 100.0 if isinstance(dy, (int, float)) else None,
+                         "marketCap": i.get("marketCap")}}
+    except Exception:
+        return None
+
+
 def _build_one(sym: str, name: str | None, fetch_candles) -> tuple[str, dict | None]:
     try:
         from tools.screener_scraper import fetch_screener_financials
         fin = None
         for attempt in range(3):               # Screener throttles under load: retry before recording "no fundamentals"
-            fin = fetch_screener_financials(sym, name)
+            fin = fetch_screener_financials(sym, name, fresh=True)
             if fin and fin.get("info"):
                 break
             time.sleep(1.5 * (attempt + 1))
@@ -92,11 +109,18 @@ def _build_one(sym: str, name: str | None, fetch_candles) -> tuple[str, dict | N
             if top.get("pe") is not None or top.get("dividend_yield") is not None:
                 dy = top.get("dividend_yield")
                 fin = {"info": {"trailingPE": top.get("pe"), "dividendYield": dy / 100.0 if dy is not None else None}}
+        src = "screener"
+        if not (fin and fin.get("info")):
+            # Some Screener pages come back without any figures. Yahoo Finance's headline ratios are the last resort, and are
+            # marked as such (their earnings basis can differ from Screener's).
+            fin = _yahoo_fin(sym)
+            src = "yahoo" if fin else src
         candles = fetch_candles(sym, "1d", "5y")
         if not fin and not candles:
             return sym, None
         m = metrics.compute(fin, candles)
         m["name"] = name or sym
+        m["fund_src"] = src if m.get("fund_ok") else None
         m["as_of"] = int(time.time())
         return sym, m
     except Exception as e:  # one bad company must never stop the build
@@ -117,7 +141,7 @@ def build(fetch_candles, force: bool = False) -> bool:
             names = _names()
             syms = universe_symbols()
             now = time.time()
-            todo = [s for s in syms if force or s not in data or not data[s].get("fund_ok") or now - data[s].get("as_of", 0) > STALE_SECONDS]
+            todo = [s for s in syms if force or s not in data or not data[s].get("fund_ok") or now - (data[s].get("fund_at") or 0) > FUND_STALE_SECONDS]
             _state["total"] = len(todo)
             since_save = 0
             with ThreadPoolExecutor(max_workers=WORKERS) as ex:

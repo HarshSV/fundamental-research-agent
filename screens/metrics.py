@@ -5,6 +5,7 @@ Every metric is None when it cannot be computed from real data - never 0."""
 from __future__ import annotations
 
 import math
+import time
 
 DAY = 86400
 
@@ -113,6 +114,7 @@ def compute(fin: dict | None, candles: list[dict] | None) -> dict:
         # Only when the page could not be read at all is it computed as price / trailing EPS (positive EPS only).
         "pe": (screener_pe(info) if "trailingPE" in info else ((price / eps) if (price and eps and eps > 0) else None)),
         "fund_ok": bool(info),
+        "fund_at": int(time.time()) if info else None,      # when these fundamentals were last read from Screener
         "market_cap_cr": round(info["marketCap"] / 1e7, 2) if _num(info.get("marketCap")) else None,
         "promoter": _num(promoter),
         "div_yield": div_yield,

@@ -237,6 +237,12 @@ def _run_scan(force: bool, workers: int | None, only: list[str] | None) -> None:
     _write_progress(building=False, total=total, done=done, errors=errors, started=started, finished=int(time.time()))
 
 
+def _prices_as_of():
+    """The trading day (unix seconds) most scanned prices are the close of."""
+    t = sorted(r["as_of"] for r in _load_all().values() if isinstance(r.get("as_of"), (int, float)))
+    return t[len(t) // 2] if t else None
+
+
 def status() -> dict:
     prog = {}
     try:
@@ -249,7 +255,7 @@ def status() -> dict:
         prog["building"] = False
     return {"building": bool(prog.get("building")), "done": prog.get("done", 0), "total": prog.get("total", 0),
             "errors": prog.get("errors", 0), "started": prog.get("started"), "finished": prog.get("finished"),
-            "have": len(_load_all()), "universe": len(universe())}
+            "have": len(_load_all()), "universe": len(universe()), "prices_as_of": _prices_as_of()}
 
 
 def refresh_resistance(workers: int = 8) -> int:
@@ -331,6 +337,8 @@ def _load_all() -> dict:
         except Exception:
             continue
         fd = funda.get(r["symbol"]) or {}
+        r["fund_at"] = fd.get("fund_at") if isinstance(fd.get("fund_at"), (int, float)) else None
+        r["fund_src"] = fd.get("fund_src")
         for k in ("pe", "eps", "eps_growth", "debt_equity", "promoter", "div_yield", "payout", "net_profit_cr", "volatility"):
             v = fd.get(k)
             r[k] = v if isinstance(v, (int, float)) else None
@@ -393,6 +401,7 @@ if __name__ == "__main__":
 
 # ------------------------------------------------------------------ keeping the data current
 AUTOSCAN_AFTER_HOURS = 18
+FUND_REFRESH_HOURS = 20          # Screener fundamentals are re-read daily (new results change P/E, EPS, debt)
 _funda_proc = None
 
 
@@ -411,7 +420,8 @@ def autoscan_loop(poll_seconds: int = 1800) -> None:
             if (stale or not rows) and not status().get("building"):
                 build()
             funda = _fundamentals()
-            if len(funda) < len(rows) or any(not (funda.get(s) or {}).get("fund_ok", False) for s in rows):
+            old = sum(1 for s in rows if time.time() - ((funda.get(s) or {}).get("fund_at") or 0) > FUND_REFRESH_HOURS * 3600)
+            if len(funda) < len(rows) or old > 0.1 * max(1, len(rows)) or any(not (funda.get(s) or {}).get("fund_ok", False) for s in rows):
                 global _funda_proc
                 if not status().get("building") and (_funda_proc is None or _funda_proc.poll() is not None):
                     _funda_proc = subprocess.Popen([sys.executable, "-m", "screens.build_cli"], cwd=ROOT,

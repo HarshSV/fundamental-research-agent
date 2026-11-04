@@ -173,3 +173,39 @@ def test_rrg_puts_an_accelerating_sector_in_a_strong_quadrant(monkeypatch):
     assert set(q) == {"Strong", "Weak"}
     assert q["Strong"]["ratio"] > q["Weak"]["ratio"]
     assert q["Weak"]["quadrant"] in ("lagging", "improving") and q["Strong"]["quadrant"] in ("leading", "weakening")
+
+
+# ---------------------------------------------------------------- fundamentals freshness
+def test_fundamentals_are_refreshed_by_their_own_age_not_by_the_price_timestamp(monkeypatch):
+    import time as _t
+    from screens import universe
+    now = _t.time()
+    data = {
+        "FRESH": {"fund_ok": True, "fund_at": now - 3600, "as_of": now},
+        "OLDF": {"fund_ok": True, "fund_at": now - 30 * 3600, "as_of": now},       # prices read just now, fundamentals a day and a half old
+        "LEGACY": {"fund_ok": True, "as_of": now},                                  # no fund_at: unknown age counts as stale
+        "FAILED": {"fund_ok": False, "fund_at": now, "as_of": now},
+    }
+    todo = [s for s in data if not data[s].get("fund_ok") or now - (data[s].get("fund_at") or 0) > universe.FUND_STALE_SECONDS]
+    assert sorted(todo) == ["FAILED", "LEGACY", "OLDF"]
+
+
+def test_compute_stamps_when_the_fundamentals_were_read_and_leaves_it_empty_without_them():
+    from screens import metrics
+    got = metrics.compute({"info": {"trailingPE": 12.0}}, None)
+    assert got["fund_ok"] is True and isinstance(got["fund_at"], int)
+    none = metrics.compute(None, None)
+    assert none["fund_ok"] is False and none["fund_at"] is None
+
+
+def test_options_report_when_fundamentals_were_last_read(monkeypatch):
+    import time as _t
+    from patterns import scan, screen_engine
+    now = int(_t.time())
+    rows = {"A": {"pe": 10, "fund_at": now - 3600}, "B": {"pe": 20, "fund_at": now - 7200}, "C": {"pe": None, "fund_at": now - 200 * 3600}}
+    monkeypatch.setattr(scan, "_load_all", lambda: rows)
+    monkeypatch.setattr(scan, "benchmarks", lambda: {})
+    opts = screen_engine.options()
+    assert opts["fundamentals_have"] == 2
+    assert opts["fundamentals_as_of"] in (now - 3600, now - 7200)
+    assert opts["fundamentals_stale"] == 1

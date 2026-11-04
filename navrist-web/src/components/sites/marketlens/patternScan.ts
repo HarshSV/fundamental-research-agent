@@ -105,6 +105,9 @@ export interface ScanOptions {
   rrg: { quadrants: Quadrant[]; timeframes: string[]; benchmarks: { id: string; label: string }[]; available: boolean };
   resistance_states: { id: string; label: string }[];
   fundamentals_have: number;
+  fundamentals_as_of?: number | null; // when the typical stock's fundamentals were last read (unix seconds)
+  fundamentals_yahoo?: number; // stocks whose P/E and dividend yield come from Yahoo Finance (Screener's page had no figures)
+  fundamentals_stale?: number; // stocks whose fundamentals are older than 48 hours
 }
 
 export interface ScanOccurrence {
@@ -169,6 +172,7 @@ export interface ScanContext {
 }
 
 export interface ScanStatus {
+  prices_as_of?: number | null; // the close (unix seconds) most scanned prices belong to
   building: boolean;
   done: number;
   total: number;

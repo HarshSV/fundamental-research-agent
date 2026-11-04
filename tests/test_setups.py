@@ -160,7 +160,7 @@ def test_horizon_outlook_needs_history_and_returns_probabilities_that_sum_to_100
     short = outlook.horizon_outlook(_trend_daily(100), 5)
     assert short["call"] is None and "history" in short["reason"]
     r = outlook.horizon_outlook(_trend_daily(500, drift=0.0), 5)
-    assert r["call"] in ("up", "down", "none")
+    assert r["call"] in ("up", "down", "even") and r["conviction"] in (None, "slight", "moderate", "strong")
     assert abs(r["up"] + r["flat"] + r["down"] - 100) <= 1
     assert r["p10"] <= r["median"] <= r["p90"] and r["samples"] > 60
 
@@ -201,10 +201,11 @@ def test_replay_orb_counts_each_past_session_once():
     assert rep["trades"] == 3 and rep["target"] == 3 and rep["stop"] == 0
 
 
-def test_build_with_market_closed_sets_no_intraday_trade_and_explains():
+def test_build_with_market_closed_still_gives_a_plan_for_the_next_session():
     out = outlook.build("X", _intraday([100, 100.1, 100.0, 100.1]), _trend_daily(400), None, [])
     assert out["market_open"] is False                       # the bars are from 2026-10-30, not now
-    assert out["today"]["decision"]["action"] == "No trade" and "closed" in out["today"]["decision"]["reason"]
+    assert out["today"]["plan"] is not None and "closed" in out["today"]["note"] and out["today"]["decision"]["action"].startswith(("Buy", "Sell"))
+    assert out["swing"]["plan"] is not None and out["swing"]["edge"]["label"] in ("favourable", "against", "even")
     assert [h["id"] for h in out["outlook"]] == ["session", "week", "month"]
     assert out["outlook"][0]["label"] == "Next session"
 
@@ -274,3 +275,48 @@ def test_collect_survives_a_failing_source_and_reports_which_one(monkeypatch):
     monkeypatch.setattr(events, "google_news", lambda s, n, days=14: (_ for _ in ()).throw(RuntimeError("down")))
     out = events.collect("ZZZ", "Zzz Limited", bse_listed=False)
     assert out["sources"] == {"NSE": "ok", "News": "unavailable"} and [i["title"] for i in out["items"]] == ["Filing A"]
+
+
+def test_lean_always_names_a_side_unless_the_two_are_level():
+    assert outlook.lean(0.34, 0.43) == {"call": "down", "conviction": "slight"}
+    assert outlook.lean(0.52, 0.15) == {"call": "up", "conviction": "strong"}
+    assert outlook.lean(0.40, 0.25) == {"call": "up", "conviction": "moderate"}
+    assert outlook.lean(0.33, 0.32) == {"call": "even", "conviction": None}
+
+
+def test_key_levels_show_resistance_red_support_green_and_session_range():
+    d = _trend_daily(300, drift=0.0, seed=5)
+    px = d[-1]["close"]
+    rows = outlook.key_levels(d, px, {"label": "Next session", "price_low": px * 0.98, "price_high": px * 1.02})
+    labels = {r["label"]: r for r in rows}
+    assert "Next session, likely range" in labels and "52-week high / low" in labels
+    res = labels.get("Nearest resistance (recent swing high)")
+    sup = labels.get("Nearest support (recent swing low)")
+    assert (res is None or res["tone"] == "bad") and (sup is None or sup["tone"] == "good")
+    assert outlook.key_levels([], None, {}) == []
+
+
+def test_edge_uses_the_worse_of_simulation_and_replay():
+    good = {"target": 50, "stop": 20}
+    assert outlook._edge_view(good, 1.0)["label"] == "favourable"
+    bad_replay = {"trades": 30, "target": 4, "stop": 21}
+    e = outlook._edge_view(good, 1.0, bad_replay)
+    assert e["label"] == "against" and e["value"] < 0
+    assert outlook._edge_view(good, 1.0, {"trades": 5, "target": 0, "stop": 5})["label"] == "favourable"   # too few past trades to count
+    assert outlook._edge_view(None, 1.0) is None
+
+
+def test_trend_plan_short_side_mirrors_the_long():
+    d = _trend_daily(300, drift=-0.003, seed=9)
+    adr = engine.adr_pct(d)
+    s = outlook._trend_plan(d, len(d) - 1, adr, side="short")
+    l = outlook._trend_plan(d, len(d) - 1, adr, side="long")
+    assert s["stop"] > s["entry"] > s["targets"][0]["price"] and l["stop"] < l["entry"] < l["targets"][0]["price"]
+    assert 0.5 * adr <= s["risk_pct"] + 0.01 and s["risk_pct"] <= 1.5 * adr + 0.01
+
+
+def test_side_for_follows_the_first_lean_then_the_trend():
+    assert outlook._side_for(["up", "down"], None, []) == "long"
+    assert outlook._side_for(["even", "down"], "long", []) == "short"
+    assert outlook._side_for(["even", "even"], "short", []) == "short"
+    assert outlook._side_for([None], None, _trend_daily(250, drift=0.003)) == "long"

@@ -52,10 +52,14 @@ def _cache_path(key):
     return os.path.join(CACHE_DIR, f"{safe}.json")
 
 
-def _read_cache(key):
+# The financials page changes the moment a company reports results (P/E, EPS, profit all move), so its cached copy is short-lived.
+FIN_TTL = 2 * 3600
+
+
+def _read_cache(key, ttl=None):
     try:
         p = _cache_path(key)
-        if os.path.exists(p) and time.time() - os.path.getmtime(p) <= TTL:
+        if os.path.exists(p) and time.time() - os.path.getmtime(p) <= (ttl or TTL):
             with open(p, "r", encoding="utf-8") as fh:
                 return json.load(fh)
     except Exception:
@@ -562,7 +566,7 @@ def _parse_about(html):
     return None
 
 
-def fetch_screener_financials(symbol, name=None):
+def fetch_screener_financials(symbol, name=None, fresh=False):
     """
     PRIMARY financials source. Parse the full P&L / balance sheet / cash flow /
     quarterly tables + key ratios off the Screener.in company page in ONE GET.
@@ -573,7 +577,7 @@ def fetch_screener_financials(symbol, name=None):
     """
     sym = symbol.strip().upper().replace(".NS", "")
     cache_key = f"fin2_{sym}"  # v2: payload now carries face_value (old `fin_` caches lack it)
-    cached = _read_cache(cache_key)
+    cached = None if fresh else _read_cache(cache_key, FIN_TTL)      # fresh=True: read the page again (the daily refresh must not reuse the 12h copy)
     if cached is not None:
         return cached
     try:
@@ -581,6 +585,21 @@ def fetch_screener_financials(symbol, name=None):
         html = _get(f"https://www.screener.in/company/{slug}/consolidated/")
         if not html or 'id="profit-loss"' not in html:
             html = _get(f"https://www.screener.in/company/{slug}/")
+            # A company that HAS a consolidated page must never be read from its standalone page: when Screener throttles, the
+            # consolidated request can fail while the standalone one succeeds, and the two give very different P/E and EPS.
+            # The standalone page links to the consolidated one, so that link tells us which kind of company this is.
+            if html and 'id="profit-loss"' in html and f"/company/{slug}/consolidated/" in html:
+                got = None
+                for attempt in range(3):
+                    time.sleep(1.5 * (attempt + 1))
+                    got = _get(f"https://www.screener.in/company/{slug}/consolidated/")
+                    if got and 'id="profit-loss"' in got:
+                        break
+                    got = None
+                if got is None:
+                    print(f"[screener] {sym}: consolidated page unavailable; not using the standalone one in its place.")
+                    return None
+                html = got
         if not html or 'id="profit-loss"' not in html:
             r_slug = _resolve_slug(sym, name)
             if r_slug and r_slug != slug:

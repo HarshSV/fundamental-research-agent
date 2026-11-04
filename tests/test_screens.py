@@ -161,3 +161,26 @@ def test_profile_description_is_split_into_plain_text_paragraphs():
            "<a target='_blank' href='mailto:a@b.com'>a@b.com</a>. <br/><br/>Auditors: X &amp; Co")
     assert _paragraphs(raw) == ["ACME LTD is a listed company.", "Registered office: Pune, Email: a@b.com.", "Auditors: X & Co"]
     assert _paragraphs(None) == [] and _paragraphs("") == []
+
+
+def test_stocks_without_screener_figures_fall_back_to_yahoo_and_are_marked(monkeypatch):
+    from screens import universe
+    import sys
+    import types
+
+    class FakeTicker:
+        def __init__(self, *_):
+            self.info = {"trailingPE": 18.4, "dividendYield": 1.2, "marketCap": 5e10}
+
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=FakeTicker))
+    fin = universe._yahoo_fin("ABC")
+    assert fin["info"]["trailingPE"] == 18.4 and fin["info"]["dividendYield"] == pytest.approx(0.012)
+    got = metrics.compute(fin, None)
+    assert got["pe"] == 18.4 and got["div_yield"] == pytest.approx(1.2) and got["fund_ok"] is True
+
+    class Empty:
+        def __init__(self, *_):
+            self.info = {}
+
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=Empty))
+    assert universe._yahoo_fin("ABC") is None
