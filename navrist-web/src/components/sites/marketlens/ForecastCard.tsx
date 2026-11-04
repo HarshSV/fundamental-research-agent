@@ -417,26 +417,28 @@ export function ForecastCard({
         </span>
       </div>
       <div className="grid items-start gap-x-14 gap-y-10 md:grid-cols-2">
-        <div>
-          <Label>Outlook</Label>
-          {data.outlook.map((h, i) => <Outlook key={data.symbol + h.id} h={h} index={i} />)}
+        <div className="space-y-10">
+          <div>
+            <Label>Outlook</Label>
+            {data.outlook.map((h, i) => <Outlook key={data.symbol + h.id} h={h} index={i} />)}
+          </div>
+          {data.levels && data.levels.length > 0 && (
+            <div>
+              <Label>Levels to watch</Label>
+              {data.levels.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
+            </div>
+          )}
         </div>
         <div>
           <Label>Trade plan</Label>
-          <Trade title={data.market_open ? "Today" : "Next session"} b={data.today} daily={false} hasAlerts={alerts.length > 0} onAlert={() => data.today.plan && setFor(data.today.plan, true)} />
+          <Trade title={data.market_open && !data.session_late ? "Today" : "Next session"} b={data.today} daily={false} hasAlerts={alerts.length > 0} onAlert={() => data.today.plan && setFor(data.today.plan, true)} />
           <Trade title="Swing, up to 10 sessions" b={data.swing} daily hasAlerts={alerts.length > 0} onAlert={() => data.swing.plan && setFor(data.swing.plan, false)} />
           {(alerts.length > 0 || tg?.configured) && <Alerts symbol={data.symbol} alerts={alerts} tg={tg} />}
         </div>
       </div>
-      {/* The facts run as one list that flows down the left column and on into the right, so the two columns end level. */}
+      {/* The evidence runs as one list that flows down the left column and on into the right, so the two columns end level. */}
       <div className="mt-10 border-t pt-8 md:columns-2 md:gap-x-14" style={{ borderColor: "var(--border-subtle)" }}>
-        {data.levels && data.levels.length > 0 && (
-          <>
-            <div className="break-after-avoid"><Label>Levels to watch</Label></div>
-            {data.levels.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
-          </>
-        )}
-        <div className="break-after-avoid pt-8 first:pt-0"><Label>What the forecast rests on</Label></div>
+        <div className="break-after-avoid"><Label>What the forecast rests on</Label></div>
         {data.evidence.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
       </div>
     </div>

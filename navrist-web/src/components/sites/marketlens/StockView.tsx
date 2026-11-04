@@ -431,14 +431,14 @@ export function StockView({
   const arYear = annualEps?.period?.slice(-4);
 
   // Colours of the Key Metrics: green = favourable, red = unfavourable, plain = no judgement (a level or a label).
-  //   P/E (TTM)      Screener's trailing-12-month P/E against the sector median: more than 20% under it green, more than 50% over it red.
+  //   P/E (TTM)      Screener's trailing-12-month P/E against the sector median: more than 20% under it green, more than double it red.
   //                  The headline P/E uses the last annual report's EPS, which can be a year old, so it is not coloured.
   //   EPS            positive earnings green, a loss red
   //   Debt / equity  at most 0.5 green, 1.5 or more red (the figure is left out for banks and lenders, where it means little)
   //   All time high  within 10% of it green, less than half of it red
   const sectorPe = Number(forecastData?.data?.evidence.find((e) => e.label.startsWith("P/E"))?.label.match(/median ([\d.]+)/)?.[1]);
   const ttmPe = overview?.pe ?? null;
-  const toneOf = (v: number | null): "good" | "bad" | null => (!sectorPe || v == null || v <= 0 ? null : v < 0.8 * sectorPe ? "good" : v > 1.5 * sectorPe ? "bad" : null);
+  const toneOf = (v: number | null): "good" | "bad" | null => (!sectorPe || v == null || v <= 0 ? null : v < 0.8 * sectorPe ? "good" : v > 2 * sectorPe ? "bad" : null);
   const ttmTone = toneOf(ttmPe);
   const epsTone: "good" | "bad" | null = annEps == null ? (annualEps === undefined && overview?.eps_ttm != null ? (overview.eps_ttm > 0 ? "good" : "bad") : null) : annEps > 0 ? "good" : "bad";
   const deTone: "good" | "bad" | null = overview?.debt_to_equity == null ? null : overview.debt_to_equity <= 0.5 ? "good" : overview.debt_to_equity >= 1.5 ? "bad" : null;
@@ -716,15 +716,17 @@ export function StockView({
             <RangeBar title="52 Week Range" low={week52?.low ?? null} high={week52?.high ?? null} now={ltp} lowLabel={inr(week52?.low)} highLabel={inr(week52?.high)} />
           </div>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            {[
-              ["Open", inr(quote?.open)],
-              ["Prev Close", inr(quote?.close)],
-              ["Volume", quote?.volume == null ? "—" : quote.volume.toLocaleString("en-IN")],
-              ["VWAP", vwap != null ? inr(vwap) : "—"],
-            ].map(([label, value]) => (
+            {([
+              // Open: green when the stock opened above yesterday's close (a gap up), red below it
+              ["Open", inr(quote?.open), quote?.open != null && quote?.close != null && quote.open !== quote.close ? (quote.open > quote.close ? "good" : "bad") : null],
+              ["Prev Close", inr(quote?.close), null],
+              ["Volume", quote?.volume == null ? "—" : quote.volume.toLocaleString("en-IN"), null],
+              // VWAP: green when the price is above the day's volume-weighted average, red below it
+              ["VWAP", vwap != null ? inr(vwap) : "—", vwap != null && ltp != null && ltp !== vwap ? (ltp > vwap ? "good" : "bad") : null],
+            ] as [string, string, "good" | "bad" | null][]).map(([label, value, tone]) => (
               <Card key={label}>
                 <div className="text-sm" style={{ color: "var(--text-secondary)" }}>{label}</div>
-                <div className="mt-1 text-lg font-semibold">{value}</div>
+                <div className="mt-1 text-lg font-semibold" style={{ color: tone === "good" ? GAIN : tone === "bad" ? LOSS : undefined }}>{value}</div>
               </Card>
             ))}
           </div>

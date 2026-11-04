@@ -380,7 +380,8 @@ export function PeerTable({ peers, current, onSelect }: { peers: Peer[]; current
                 <td className="px-5 py-3.5 text-right font-semibold">{m.currentPrice?.value == null ? "—" : `₹${num(m.currentPrice.value)}`}</td>
                 <td className="px-5 py-3.5 text-right">{m.marketCapitalization?.value == null ? "—" : `₹${num(m.marketCapitalization.value)} Cr`}</td>
                 <td className="px-5 py-3.5 text-right">{num(m.priceToEarning?.value ?? null)}</td>
-                <td className="px-5 py-3.5 text-right">{num(m.returnOnCapitalEmployed?.value ?? null)}</td>
+                {/* ROCE: 15% or more green, under 8% red (a business earning less than its cost of money) */}
+                <td className="px-5 py-3.5 text-right" style={{ color: m.returnOnCapitalEmployed?.value == null ? undefined : m.returnOnCapitalEmployed.value >= 15 ? "var(--gain)" : m.returnOnCapitalEmployed.value < 8 ? "var(--loss)" : undefined }}>{num(m.returnOnCapitalEmployed?.value ?? null)}</td>
               </tr>
             );
           })}

@@ -261,7 +261,7 @@ def evidence(daily: list[dict], row: dict | None, peers: list[dict], quarters: d
         if pe is not None:
             med = statistics.median(sec_pe) if len(sec_pe) >= 5 else None
             ev.append({"label": "P/E" + (f" (sector median {med:.1f})" if med else ""), "value": f"{pe:.1f}",
-                       "tone": None if not med else "good" if pe < 0.8 * med else "bad" if pe > 1.5 * med else None})
+                       "tone": None if not med else "good" if pe < 0.8 * med else "bad" if pe > 2.0 * med else None})
         if row.get("eps_growth") is not None:
             ev.append({"label": "EPS growth (annual CAGR)", "value": f"{row['eps_growth']:+.1f}%", "tone": _tone(row["eps_growth"], 15, 0)})
         if row.get("debt_equity") is not None:
@@ -295,6 +295,15 @@ def quarter_rows(quarters: dict | None) -> list[dict]:
 
 
 # ------------------------------------------------------------------ the whole read
+LATE_MINUTES = 45      # with less than this left in the session, a same-day plan has no room to work: plan for the next session
+
+
+def minutes_left(now: _dt.datetime | None = None) -> int:
+    """Minutes until the 15:30 close (IST)."""
+    now = now or _dt.datetime.now(engine.IST)
+    return engine.CLOSE_MIN - (now.hour * 60 + now.minute)
+
+
 def _open_now(bars: list[dict], day: str | None) -> bool:
     if not bars or not day:
         return False
@@ -330,18 +339,20 @@ def build(symbol: str, intraday: list[dict] | None, daily: list[dict] | None, ro
     sessions = _sessions(intraday)
     day, bars = engine.session_bars(intraday, None)
     open_now = _open_now(bars, day)
+    late = open_now and minutes_left() < LATE_MINUTES
+    live = open_now and not late                       # a session with room left; otherwise the forecast looks to the next session
     base = engine.analyse(symbol, intraday, daily, None)
     adr = base["adr20_pct"]
     price = (bars[-1]["close"] if bars else None) or (daily[-1]["close"] if daily else None)
     ev, liq = evidence(daily, row, peers or [], quarters)
-    out = {"symbol": symbol, "price": round(price, 2) if price else None, "market_open": open_now, "session": day,
+    out = {"symbol": symbol, "price": round(price, 2) if price else None, "market_open": open_now, "session_late": late, "session": day,
            "adr20_pct": adr, "evidence": ev, "liquidity": liq, "segment": SEGMENT.get((row or {}).get("index") or "")}
 
     # ---------------- outlook
     hs = []
     for hid, h in HORIZONS:
         if hid == "session":
-            hs.append({"id": "session", "label": "Rest of today" if open_now else "Next session", **_session_outlook(daily, sessions, day, bars, open_now)})
+            hs.append({"id": "session", "label": "Rest of today" if live else "Next session", **_session_outlook(daily, sessions, day, bars, live)})
         else:
             hs.append({"id": hid, "label": f"Next {h} sessions", "sessions": h, **horizon_outlook(daily, h)})
     out["outlook"] = hs
@@ -355,7 +366,7 @@ def build(symbol: str, intraday: list[dict] | None, daily: list[dict] | None, ro
 
     # ---------------- intraday plan (only while the session is live and the 15-minute range exists)
     orb = next(s for s in base["setups"] if s["id"] == "orb")
-    out["today"] = _today_block(orb, open_now, bars, sessions, day, daily, adr, trend, hs[0].get("call"), hs[1].get("call"))
+    out["today"] = _today_block(orb, live, bars, sessions, day, daily, adr, trend, hs[0].get("call"), hs[1].get("call"), late)
 
     # ---------------- swing plan from the daily setups
     out["swing"] = _swing_block(base["setups"], daily, adr, hs[1], hs[2], trend)
@@ -490,7 +501,7 @@ def replay_session(daily: list[dict], side: str, adr_fn) -> dict:
     return {"sessions": n, "trades": n, "target": c["target"], "stop": c["stop"], "open": c["open"], "session_rule": True}
 
 
-def _today_block(orb, open_now, bars, sessions, day, daily, adr, trend, session_call, week_call) -> dict:
+def _today_block(orb, open_now, bars, sessions, day, daily, adr, trend, session_call, week_call, late=False) -> dict:
     blk = {"setup": {k: orb.get(k) for k in ("state", "direction", "range_high", "range_low", "range_pct", "range_vs_adr",
                                                "trigger_price", "trigger_time", "trigger_volume_vs_avg", "last_price", "last_time", "reason")}}
     note = None
@@ -517,6 +528,8 @@ def _today_block(orb, open_now, bars, sessions, day, daily, adr, trend, session_
         note = "Price stayed inside the opening range, so this plan uses the stock's typical daily range."
     elif open_now:
         note = "The opening range is still forming (09:15 to 09:30); this plan uses the stock's typical daily range."
+    elif late:
+        note = "The session ends within 45 minutes, too soon for a plan to play out, so this is the plan for the next session from the latest price."
     else:
         note = "The market is closed; this is the plan for the next session, from the last close."
     if len(daily) < MIN_HISTORY or not adr:
@@ -525,7 +538,9 @@ def _today_block(orb, open_now, bars, sessions, day, daily, adr, trend, session_
     side = _side_for([session_call, week_call], trend, daily)
     px = bars[-1]["close"] if open_now and bars else daily[-1]["close"]
     plan = _session_plan(px, adr, side)
-    steps = intraday_steps(sessions, day, len(bars)) if open_now and bars else daily_steps(daily, 1)
+    # a plan for the next session is replayed over a whole session of the stock's own 5-minute moves (a single daily bar would never
+    # leave room to hit the stop or target after the entry)
+    steps = intraday_steps(sessions, day, len(bars)) if open_now and bars else (intraday_steps(sessions, None, 1) or daily_steps(daily, 1))
     odds = simulate(side, plan["entry"], plan["stop"], _tp(plan), px, steps)
     rep = replay_session(daily, side, engine.adr_pct)
     blk.update({"plan": _plan_view(plan, "triggered"), "odds": odds, "replay": rep,

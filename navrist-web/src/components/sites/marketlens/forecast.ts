@@ -102,6 +102,7 @@ export interface Forecast {
   symbol: string;
   price: number | null;
   market_open: boolean;
+  session_late?: boolean; // under 45 minutes left: the plan looks to the next session
   session: string | null;
   adr20_pct: number | null;
   segment: string | null;

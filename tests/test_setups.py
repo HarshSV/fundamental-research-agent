@@ -320,3 +320,15 @@ def test_side_for_follows_the_first_lean_then_the_trend():
     assert outlook._side_for(["even", "down"], "long", []) == "short"
     assert outlook._side_for(["even", "even"], "short", []) == "short"
     assert outlook._side_for([None], None, _trend_daily(250, drift=0.003)) == "long"
+
+
+def test_a_session_with_under_45_minutes_left_plans_for_the_next_one():
+    import datetime as dt
+    ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+    assert outlook.minutes_left(dt.datetime(2026, 11, 4, 14, 53, tzinfo=ist)) == 37 < outlook.LATE_MINUTES
+    assert outlook.minutes_left(dt.datetime(2026, 11, 4, 11, 0, tzinfo=ist)) == 270 > outlook.LATE_MINUTES
+    # the block's own wording when it is called with a closed session and the late flag
+    out = outlook.build("X", _intraday([100, 100.1, 100.0, 100.1]), _trend_daily(400), None, [])
+    assert out["session_late"] is False and out["today"]["plan"] is not None
+    blk = outlook._today_block({"state": "waiting", "direction": None}, False, [], {}, None, _trend_daily(400), 2.0, None, "up", "up", True)
+    assert "within 45 minutes" in blk["note"] and blk["plan"]["side"] == "long"
