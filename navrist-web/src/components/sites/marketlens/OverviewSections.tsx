@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 export interface Quarter {
   period: string;
@@ -197,6 +197,7 @@ export function ShareholdingPattern({ data }: { data: Shareholding }) {
   const idxs = data.quarters.map((_, i) => i).slice(-5).reverse();
   const [sel, setSel] = useState(idxs[0]);
   const [tip, setTip] = useState<{ k: string; x: number; y: number } | null>(null);
+  const [openKey, setOpenKey] = useState<ShKey | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const keys = ["promoter", "fii", "dii", "public"] as const;
   const parts = keys.map((k) => ({ k, v: data[k][sel] }));
@@ -249,6 +250,7 @@ export function ShareholdingPattern({ data }: { data: Shareholding }) {
                       const r = wrapRef.current?.getBoundingClientRect();
                       if (r) setTip({ k: p.k, x: e.clientX - r.left, y: e.clientY - r.top });
                     }}
+                    onClick={() => setOpenKey((cur) => (cur === p.k ? null : p.k))}
                   />
                 );
                 acc += len;
@@ -272,12 +274,201 @@ export function ShareholdingPattern({ data }: { data: Shareholding }) {
       </div>
       <div className="grid grid-cols-2 gap-4 border-t pt-4 text-sm md:grid-cols-4" style={{ borderColor: "var(--border-subtle)" }}>
         {parts.map((p) => (
-          <div key={p.k}>
+          <button key={p.k} onClick={() => setOpenKey((cur) => (cur === p.k ? null : p.k))} className="text-left">
             <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{SH_LABELS[p.k]}</div>
             <div className="font-semibold">{p.v == null ? "—" : `${num(p.v)}%`}</div>
-          </div>
+          </button>
         ))}
       </div>
+      {openKey && <ShareholdingDetail data={data} k={openKey} sel={sel} onClose={() => setOpenKey(null)} />}
+    </div>
+  );
+}
+
+type ShKey = "promoter" | "fii" | "dii" | "public";
+const SH_KEYS: ShKey[] = ["promoter", "fii", "dii", "public"];
+
+/** Opens when a slice is tapped: that holder's share now, the change since the last quarter and a year earlier,
+ *  and its path over every reported quarter. "All groups" overlays the four lines. A quarter with no figure stays
+ *  blank (gap in the line, "—" in the text), never zero. */
+function ShareholdingDetail({ data, k, sel, onClose }: { data: Shareholding; k: ShKey; sel: number; onClose: () => void }) {
+  const [all, setAll] = useState(false);
+  const [hov, setHov] = useState<number | null>(null);
+  const clipId = useId().replace(/:/g, "");
+  const vals = data[k];
+  const now = vals[sel];
+  const delta = (back: number) => {
+    const prev = vals[sel - back];
+    return now != null && prev != null ? now - prev : null;
+  };
+  const q1 = delta(1);
+  const y1 = delta(4);
+  const tone = (d: number | null) => (d == null || Math.abs(d) < 0.005 ? "var(--text-primary)" : d > 0 ? "#10b981" : "#ef4444");
+  const fmt = (d: number | null) => (d == null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(2)} pts`);
+  const sentence = (() => {
+    if (q1 == null) return null;
+    if (Math.abs(q1) < 0.005) return `${SH_LABELS[k]} holding is unchanged from ${data.quarters[sel - 1]}.`;
+    return `${SH_LABELS[k]} holding ${q1 > 0 ? "rose" : "fell"} ${Math.abs(q1).toFixed(2)} points from ${data.quarters[sel - 1]} to ${data.quarters[sel]}.`;
+  })();
+
+  const shown = all ? SH_KEYS : [k];
+  const nums = shown.flatMap((s) => data[s].filter((v): v is number => v != null));
+  const W = 560, H = 160, PX = 34, PY = 14;
+  const n = data.quarters.length;
+  const lo = nums.length ? Math.min(...nums) : 0;
+  const hi = nums.length ? Math.max(...nums) : 1;
+  const pad = (hi - lo) * 0.15 || 1;
+  const yMin = Math.max(0, lo - pad), yMax = hi + pad;
+  const X = (i: number) => PX + (n > 1 ? (i / (n - 1)) * (W - PX * 2) : 0);
+  const Y = (v: number) => PY + (1 - (v - yMin) / (yMax - yMin)) * (H - PY * 2);
+  const path = (s: ShKey) => {
+    let d = "";
+    let pen = false;
+    data[s].forEach((v, i) => {
+      if (v == null) { pen = false; return; }
+      d += `${pen ? "L" : "M"}${X(i).toFixed(1)} ${Y(v).toFixed(1)} `;
+      pen = true;
+    });
+    return d;
+  };
+
+  /** Value of a holder's line at a fractional quarter position; blank when either neighbouring quarter has no figure. */
+  const at = (s: ShKey, f: number) => {
+    const i0 = Math.floor(f), i1 = Math.min(n - 1, i0 + 1);
+    const a0 = data[s][i0], a1 = data[s][i1];
+    if (a0 == null || a1 == null) return null;
+    return a0 + (a1 - a0) * (f - i0);
+  };
+  const XF = (f: number) => PX + (n > 1 ? (f / (n - 1)) * (W - PX * 2) : 0);
+  const hovLabel = (f: number) => {
+    const r = Math.round(f);
+    if (Math.abs(f - r) < 0.08) return data.quarters[r];
+    return `${data.quarters[Math.floor(f)]} to ${data.quarters[Math.ceil(f)]}`;
+  };
+
+  return (
+    <div className="mt-4 rounded-xl border p-4" style={{ borderColor: "var(--border-subtle)", background: "var(--overlay-weak)" }}>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: SH_COLORS[k] }} />
+          {SH_LABELS[k]}
+        </div>
+        <div className="flex items-center gap-3 text-xs" style={{ color: "var(--text-secondary)" }}>
+          <label className="flex cursor-pointer items-center gap-2">
+            All groups
+            <button
+              role="switch"
+              aria-checked={all}
+              onClick={() => setAll((v) => !v)}
+              className="relative h-4 w-7 rounded-full transition-colors"
+              style={{ background: all ? "#10b981" : "var(--border-subtle)" }}
+            >
+              <span className="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all" style={{ left: all ? 14 : 2 }} />
+            </button>
+          </label>
+          <button onClick={onClose} aria-label="Close" className="px-1 text-base leading-none" style={{ color: "var(--text-tertiary)" }}>×</button>
+        </div>
+      </div>
+
+      <div className="mb-3 grid grid-cols-3 gap-3 text-sm">
+        <div>
+          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{data.quarters[sel]}</div>
+          <div className="font-semibold">{now == null ? "—" : `${num(now)}%`}</div>
+        </div>
+        <div>
+          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>vs last quarter</div>
+          <div className="font-semibold" style={{ color: tone(q1) }}>{fmt(q1)}</div>
+        </div>
+        <div>
+          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>vs a year ago</div>
+          <div className="font-semibold" style={{ color: tone(y1) }}>{fmt(y1)}</div>
+        </div>
+      </div>
+
+      <style>{`@keyframes shReveal{from{transform:scaleX(0)}to{transform:scaleX(1)}}.sh-reveal{transform-box:fill-box;transform-origin:0 50%;animation:shReveal 900ms cubic-bezier(.22,.61,.36,1) both}@media (prefers-reduced-motion:reduce){.sh-reveal{animation:none}}`}</style>
+      {nums.length >= 2 ? (
+        <div className="relative">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full"
+          role="img"
+          aria-label="Holding over time"
+          onMouseMove={(e) => {
+            const b = e.currentTarget.getBoundingClientRect();
+            const x = ((e.clientX - b.left) / b.width) * W;
+            setHov(Math.max(0, Math.min(n - 1, ((x - PX) / (W - PX * 2)) * (n - 1))));
+          }}
+          onMouseLeave={() => setHov(null)}
+        >
+          {[yMin, (yMin + yMax) / 2, yMax].map((g, i) => (
+            <g key={i}>
+              <line x1={PX} x2={W - PX} y1={Y(g)} y2={Y(g)} stroke="var(--border-subtle)" strokeWidth="1" />
+              <text x={PX - 6} y={Y(g) + 3} textAnchor="end" fontSize="9" fill="var(--text-tertiary)">{g.toFixed(0)}%</text>
+            </g>
+          ))}
+          {data.quarters.map((q, i) =>
+            i % Math.ceil(n / 6) === 0 || i === n - 1 ? (
+              <text key={q + i} x={X(i)} y={H - 1} textAnchor="middle" fontSize="9" fill="var(--text-tertiary)">{q}</text>
+            ) : null,
+          )}
+          <defs>
+            <clipPath id={clipId}>
+              <rect key={`${k}-${all}-${sel}`} className="sh-reveal" x="0" y="0" width={W} height={H} />
+            </clipPath>
+          </defs>
+          <g clipPath={`url(#${clipId})`}>
+            {shown.map((s) => (
+              <path key={s} d={path(s)} fill="none" stroke={SH_COLORS[s]} strokeWidth={s === k ? 2.2 : 1.5} strokeLinejoin="round" />
+            ))}
+            {data[k].map((v, i) => (v == null ? null : <circle key={i} cx={X(i)} cy={Y(v)} r={i === sel ? 2.5 : 0} fill={SH_COLORS[k]} />))}
+          </g>
+          {hov != null && (
+            <g pointerEvents="none">
+              <line x1={XF(hov)} x2={XF(hov)} y1={PY} y2={H - PY} stroke="var(--text-tertiary)" strokeWidth="1" strokeDasharray="2 3" opacity="0.6" />
+              {shown.map((s) => {
+                const v = at(s, hov);
+                return v == null ? null : <circle key={s} cx={XF(hov)} cy={Y(v)} r="2.5" fill={SH_COLORS[s]} />;
+              })}
+            </g>
+          )}
+        </svg>
+        {hov != null && (
+          <div
+            className="pointer-events-none absolute top-0 z-10 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs"
+            style={{
+              left: `${(XF(hov) / W) * 100}%`,
+              transition: "left 90ms ease-out",
+              transform: hov > (n - 1) / 2 ? "translateX(calc(-100% - 12px))" : "translateX(12px)",
+              background: "#ffffff",
+              color: "#1f2937",
+              boxShadow: "0 6px 20px rgba(0,0,0,0.35)",
+            }}
+          >
+            <div className="mb-0.5 text-[11px]" style={{ color: "#6b7280" }}>{hovLabel(hov)}</div>
+            {shown.map((s) => (
+              <div key={s} className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ background: SH_COLORS[s] }} />
+                <span style={{ color: "#6b7280" }}>{all ? SH_LABELS[s] : "Holding"}</span>
+                <span className="ml-2 font-semibold">{at(s, hov) == null ? "—" : `${num(at(s, hov))}%`}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        </div>
+      ) : (
+        <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>Not enough quarters reported to draw a trend.</div>
+      )}
+      {all && (
+        <div className="mt-2 flex flex-wrap gap-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+          {SH_KEYS.map((s) => (
+            <span key={s} className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full" style={{ background: SH_COLORS[s] }} />
+              {SH_LABELS[s]}
+            </span>
+          ))}
+        </div>
+      )}
+      {sentence && <p className="mt-3 text-xs" style={{ color: "var(--text-secondary)" }}>{sentence}</p>}
     </div>
   );
 }
