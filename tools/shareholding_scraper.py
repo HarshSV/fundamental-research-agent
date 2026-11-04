@@ -196,7 +196,7 @@ class NSEShareholdingProvider(ShareholdingProvider):
     # -- data methods ------------------------------------------------------
     def fetch_pledge(self, symbol: str) -> dict:
         sym = symbol.strip().upper().replace(".NS", "")
-        cached = _read_cache(f"pledge_{sym}", PLEDGE_TTL_SECONDS)
+        cached = _read_cache(f"pledge2_{sym}", PLEDGE_TTL_SECONDS)
         if cached is not None:
             return cached
 
@@ -216,19 +216,22 @@ class NSEShareholdingProvider(ShareholdingProvider):
                 "status": "ok",
                 "as_of_quarter": latest.get("shp"),
                 "promoter_holding_pct": _to_float(latest.get("percPromoterHolding")),
-                "promoter_pledge_pct": _to_float(latest.get("percSharesPledged")),
-                "num_shares_pledged": _to_float(latest.get("numSharesPledged")),
+                # The promoter's OWN encumbered shares and their share of the promoter holding. NSE's
+                # percSharesPledged / numSharesPledged are a wider all-holder figure (e.g. 4.16% for a company
+                # whose promoters have pledged nothing) and must not be read as the promoter pledge.
+                "promoter_pledge_pct": _to_float(latest.get("percPromoterShares")),
+                "num_shares_pledged": _to_float(latest.get("totPromoterShares")),
                 "total_promoter_holding": _to_float(latest.get("totPromoterHolding")),
                 "total_public_holding": _to_float(latest.get("totPublicHolding")),
                 "total_issued_shares": _to_float(latest.get("totIssuedShares")),
             })
-            _write_cache(f"pledge_{sym}", result)
+            _write_cache(f"pledge2_{sym}", result)
         elif isinstance(data, dict):
             # NSE responded successfully but lists no pledge -> the company has no
             # promoter pledge on record (NSE only lists pledged scrips). That is a
             # REAL 0%, not "unknown".
             result.update({"status": "zero", "promoter_pledge_pct": 0.0, "num_shares_pledged": 0})
-            _write_cache(f"pledge_{sym}", result)
+            _write_cache(f"pledge2_{sym}", result)
         return result
 
     def fetch_promoter_holding_trend(self, symbol: str) -> list:
@@ -300,7 +303,7 @@ class NSEShareholdingProvider(ShareholdingProvider):
         not a failure). Returns [{quarter, pledge_pct}, ...] oldest-first,
         or [] on failure/no history. Never raises."""
         sym = symbol.strip().upper().replace(".NS", "")
-        cache_key = f"pledge_trend_{sym}"
+        cache_key = f"pledge_trend2_{sym}"
         cached = _read_cache(cache_key, PLEDGE_TTL_SECONDS)
         if cached is not None:
             return cached
@@ -311,13 +314,47 @@ class NSEShareholdingProvider(ShareholdingProvider):
         out = []
         if rows:
             for r in rows:
-                pct = _to_float(r.get("percSharesPledged"))
+                pct = _to_float(r.get("percPromoterShares"))
                 if pct is not None:
                     out.append({"quarter": r.get("shp"), "pledge_pct": pct})
             out.reverse()  # NSE returns newest-first; we want oldest-first for a trend
             if out:
                 _write_cache(cache_key, out)
         return out
+
+    def fetch_pledge_rows(self, symbol: str) -> dict:
+        """Every quarter NSE lists a promoter pledge for, newest-first, with the full row.
+        status: "ok" (rows), "none" (NSE answered and lists no pledge for this scrip) or
+        "unavailable" (no usable answer: never treated as zero). Never raises."""
+        sym = symbol.strip().upper().replace(".NS", "")
+        cache_key = f"pledge_rows2_{sym}"
+        cached = _read_cache(cache_key, PLEDGE_TTL_SECONDS)
+        if cached is not None:
+            return cached
+        url = f"{self.HOME}/api/corporate-pledgedata?index=equities&symbol={sym}"
+        ref = f"{self.HOME}/get-quotes/equity?symbol={sym}"
+        data = self._session_get(url, ref)
+        if not isinstance(data, dict):
+            return {"status": "unavailable", "rows": []}
+        rows = []
+        for r in data.get("data") or []:
+            q = r.get("shp")
+            if not q:
+                continue
+            rows.append({
+                "quarter": q,
+                # Promoter pledge = the promoter's own encumbered shares (totPromoterShares) and their share of the
+                # promoter holding (percPromoterShares). percSharesPledged / numSharesPledged are a wider all-holder
+                # figure and are deliberately not used here.
+                "pledge_pct": _to_float(r.get("percPromoterShares")),
+                "shares_pledged": _to_float(r.get("totPromoterShares")),
+                "promoter_holding_pct": _to_float(r.get("percPromoterHolding")),
+                "promoter_shares": _to_float(r.get("totPromoterHolding")),
+                "issued_shares": _to_float(r.get("totIssuedShares")),
+            })
+        result = {"status": "ok" if rows else "none", "rows": rows}
+        _write_cache(cache_key, result)
+        return result
 
     def fetch_market_fii_dii(self) -> list:
         cached = _read_cache("market_fiidii", FIIDII_TTL_SECONDS)

@@ -132,3 +132,23 @@ def test_a_company_with_a_consolidated_page_is_never_read_from_its_standalone_pa
     monkeypatch.setattr(ss, "_read_cache", lambda *a, **k: None)
     assert ss.fetch_screener_financials("ABC", None, fresh=True) is None
     assert sum(1 for c in calls if c.endswith("/consolidated/")) == 4         # one first try and three retries
+
+
+def test_promoter_pledge_uses_the_promoters_own_encumbered_shares(monkeypatch):
+    """NSE's percSharesPledged is an all-holder figure; the promoter pledge is percPromoterShares / totPromoterShares."""
+    from tools import shareholding_scraper as sh
+    row = {"shp": "30-Sep-2026", "percSharesPledged": "4.16", "numSharesPledged": "3070312", "percPromoterShares": "     0.00",
+           "totPromoterShares": "0", "percPromoterHolding": "    57.18", "totPromoterHolding": "42205601", "totIssuedShares": "73808451"}
+    p = sh.NSEShareholdingProvider.__new__(sh.NSEShareholdingProvider)
+    monkeypatch.setattr(sh, "_read_cache", lambda *a, **k: None)
+    monkeypatch.setattr(sh, "_write_cache", lambda *a, **k: None)
+    monkeypatch.setattr(p, "_session_get", lambda *a, **k: {"data": [row]}, raising=False)
+    r = p.fetch_pledge("X")
+    assert r["promoter_pledge_pct"] == 0.0 and r["num_shares_pledged"] == 0.0
+    assert p.fetch_pledge_trend("X") == [{"quarter": "30-Sep-2026", "pledge_pct": 0.0}]
+    rows = p.fetch_pledge_rows("X")
+    assert rows["status"] == "ok" and rows["rows"][0]["pledge_pct"] == 0.0
+    monkeypatch.setattr(p, "_session_get", lambda *a, **k: {"data": []}, raising=False)
+    assert p.fetch_pledge_rows("X")["status"] == "none"
+    monkeypatch.setattr(p, "_session_get", lambda *a, **k: None, raising=False)
+    assert p.fetch_pledge_rows("X")["status"] == "unavailable"

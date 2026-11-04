@@ -863,6 +863,22 @@ def stock_profile(symbol: str, _: dict = Depends(auth.require_session)):
 
 
 
+@app.get("/api/v1/stock-pledge/{symbol}")
+def stock_pledge(symbol: str, _: dict = Depends(auth.require_session)):
+    """Promoter pledge history from NSE's pledge filings, oldest-first. status "none" = NSE lists no pledge for the
+    scrip; "unavailable" = NSE gave no usable answer (never shown as 0)."""
+    sym = resolve_symbol_from_registry(symbol)
+    if not sym:
+        raise HTTPException(status_code=400, detail="Symbol required.")
+    try:
+        from tools.shareholding_scraper import get_provider
+        res = get_provider().fetch_pledge_rows(sym)
+    except Exception:
+        res = {"status": "unavailable", "rows": []}
+    rows = list(reversed(res.get("rows") or []))
+    return {"symbol": sym, "source": "NSE pledge filings", "status": res.get("status", "unavailable"), "rows": rows}
+
+
 def _sector_peers(sym, limit=6):
     """Peer rows from our own scanned universe (same NSE sector, closest by market cap) for when Screener has no peer table
     (not listed there yet / unreachable). Shaped like Screener's peers; ROCE is not in our data, so it stays null."""

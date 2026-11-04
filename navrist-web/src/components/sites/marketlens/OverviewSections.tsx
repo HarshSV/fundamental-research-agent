@@ -1,6 +1,7 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { fetchJson } from "@/lib/api";
 
 export interface Quarter {
   period: string;
@@ -193,7 +194,7 @@ export function QuarterlyResults({ quarters, tab, onTab }: { quarters: Quarter[]
 const SH_COLORS: Record<string, string> = { promoter: "#14b8a6", fii: "#ec4899", dii: "#3b82f6", public: "#f97316" };
 const SH_LABELS: Record<string, string> = { promoter: "Promoter & Promoter Group", fii: "FII", dii: "DII", public: "Public" };
 
-export function ShareholdingPattern({ data }: { data: Shareholding }) {
+export function ShareholdingPattern({ data, symbol }: { data: Shareholding; symbol?: string }) {
   const idxs = data.quarters.map((_, i) => i).slice(-5).reverse();
   const [sel, setSel] = useState(idxs[0]);
   const [tip, setTip] = useState<{ k: string; x: number; y: number } | null>(null);
@@ -280,7 +281,7 @@ export function ShareholdingPattern({ data }: { data: Shareholding }) {
           </button>
         ))}
       </div>
-      {openKey && <ShareholdingDetail data={data} k={openKey} sel={sel} onClose={() => setOpenKey(null)} />}
+      {openKey && <ShareholdingDetail data={data} k={openKey} sel={sel} symbol={symbol} onClose={() => setOpenKey(null)} />}
     </div>
   );
 }
@@ -291,7 +292,7 @@ const SH_KEYS: ShKey[] = ["promoter", "fii", "dii", "public"];
 /** Opens when a slice is tapped: that holder's share now, the change since the last quarter and a year earlier,
  *  and its path over every reported quarter. "All groups" overlays the four lines. A quarter with no figure stays
  *  blank (gap in the line, "—" in the text), never zero. */
-function ShareholdingDetail({ data, k, sel, onClose }: { data: Shareholding; k: ShKey; sel: number; onClose: () => void }) {
+function ShareholdingDetail({ data, k, sel, symbol, onClose }: { data: Shareholding; k: ShKey; sel: number; symbol?: string; onClose: () => void }) {
   const [all, setAll] = useState(false);
   const [hov, setHov] = useState<number | null>(null);
   const clipId = useId().replace(/:/g, "");
@@ -469,6 +470,109 @@ function ShareholdingDetail({ data, k, sel, onClose }: { data: Shareholding; k: 
         </div>
       )}
       {sentence && <p className="mt-3 text-xs" style={{ color: "var(--text-secondary)" }}>{sentence}</p>}
+      {k === "promoter" && symbol && <PledgeBlock symbol={symbol} />}
+    </div>
+  );
+}
+
+interface PledgeRow {
+  quarter: string;
+  pledge_pct: number | null;
+  shares_pledged: number | null;
+  promoter_holding_pct: number | null;
+  promoter_shares: number | null;
+  issued_shares: number | null;
+}
+interface PledgeRes {
+  status: "ok" | "none" | "unavailable";
+  rows: PledgeRow[];
+}
+
+const monthYear = (q: string) => {
+  const d = new Date(q);
+  return Number.isNaN(d.getTime()) ? q : `${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()]} ${d.getFullYear()}`;
+};
+/** Share of the promoter's own holding that is pledged (NSE "percPromoterShares"). */
+const ofPromoter = (r: PledgeRow) => r.pledge_pct;
+const crShares = (v: number | null) => (v == null ? "—" : v >= 1e7 ? `${(v / 1e7).toFixed(2)} Cr` : v >= 1e5 ? `${(v / 1e5).toFixed(2)} L` : v.toLocaleString("en-IN"));
+
+/** Promoter pledge from NSE's pledge filings. NSE lists a quarter only when a pledge exists, so "none" means NSE lists
+ *  no pledge for this company and "unavailable" means the filing could not be read; neither is shown as 0%. */
+function PledgeBlock({ symbol }: { symbol: string }) {
+  const [res, setRes] = useState<PledgeRes | "loading">("loading");
+  const [hov, setHov] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetchJson<PledgeRes & { symbol: string }>(`/api/v1/stock-pledge/${symbol}`, { retries: 1 })
+      .then((r) => live && setRes(r))
+      .catch(() => live && setRes({ status: "unavailable", rows: [] }));
+    return () => {
+      live = false;
+    };
+  }, [symbol]);
+
+  const box = { borderColor: "var(--border-subtle)" };
+  const head = <div className="mb-2 text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>Promoter pledge</div>;
+  if (res === "loading") return <div className="mt-4 border-t pt-3" style={box}>{head}<div className="text-xs" style={{ color: "var(--text-tertiary)" }}>Loading…</div></div>;
+  if (res.status === "unavailable")
+    return <div className="mt-4 border-t pt-3" style={box}>{head}<div className="text-xs" style={{ color: "var(--text-tertiary)" }}>Pledge filing could not be read right now.</div></div>;
+  if (res.status === "none" || res.rows.length === 0)
+    return <div className="mt-4 border-t pt-3" style={box}>{head}<div className="text-xs" style={{ color: "var(--text-secondary)" }}>NSE lists no promoter pledge for this company.</div></div>;
+
+  const rows = res.rows.slice(-8);
+  const last = rows[rows.length - 1];
+  const prev = rows.length > 1 ? rows[rows.length - 2] : null;
+  const lastP = ofPromoter(last), prevP = prev ? ofPromoter(prev) : null;
+  const d = lastP != null && prevP != null ? lastP - prevP : null;
+  const tone = lastP === 0 ? "#10b981" : lastP != null && lastP >= 25 ? "#ef4444" : d == null || Math.abs(d) < 0.005 ? "var(--text-primary)" : d > 0 ? "#ef4444" : "#10b981";
+  const vals = rows.map(ofPromoter);
+  const ofEquity = last.shares_pledged != null && last.issued_shares ? (last.shares_pledged / last.issued_shares) * 100 : null;
+  const max = Math.max(1, ...vals.filter((v): v is number => v != null));
+  const shown = hov != null ? rows[hov] : last;
+
+  return (
+    <div className="mt-4 border-t pt-3" style={box}>
+      {head}
+      {lastP === 0 && <div className="mb-2 text-xs" style={{ color: "var(--text-secondary)" }}>None of the promoter&apos;s shares are pledged.</div>}
+      <div className="grid grid-cols-3 gap-3 text-sm md:grid-cols-4">
+        <div>
+          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>Pledged ({monthYear(last.quarter)})</div>
+          <div className="font-semibold" style={{ color: tone }}>{lastP == null ? "—" : `${num(lastP)}%`}</div>
+          <div className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>of promoter shares</div>
+        </div>
+        {d != null && (
+          <div>
+            <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>vs previous filing</div>
+            <div className="font-semibold" style={{ color: tone }}>{`${d > 0 ? "+" : ""}${d.toFixed(2)} pts`}</div>
+          </div>
+        )}
+        <div>
+          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>Shares pledged</div>
+          <div className="font-semibold">{crShares(last.shares_pledged)}</div>
+        </div>
+        <div>
+          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>Of total equity</div>
+          <div className="font-semibold">{ofEquity == null ? "—" : `${num(ofEquity)}%`}</div>
+        </div>
+      </div>
+      {rows.length > 1 && (<>
+      <div className="mt-3 flex h-16 items-end gap-1.5" onMouseLeave={() => setHov(null)}>
+        {rows.map((r, i) => (
+          <div key={r.quarter + i} className="flex h-full flex-1 items-end" onMouseEnter={() => setHov(i)}>
+            <div
+              className="w-full rounded-sm transition-all duration-500"
+              style={{ height: `${ofPromoter(r) == null ? 0 : Math.max(4, ((ofPromoter(r) as number) / max) * 100)}%`, background: "#ef4444", opacity: hov == null || hov === i ? 0.9 : 0.35 }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="mt-1.5 flex justify-between text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+        <span>{monthYear(rows[0].quarter)}</span>
+        <span style={{ color: "var(--text-secondary)" }}>{monthYear(shown.quarter)}: {ofPromoter(shown) == null ? "—" : `${num(ofPromoter(shown))}%`}</span>
+        <span>{monthYear(last.quarter)}</span>
+      </div>
+      </>)}
+      <p className="mt-2 text-[11px]" style={{ color: "var(--text-tertiary)" }}>Source: NSE pledge filing for the latest quarter. Red at 25% or more of the promoter holding pledged.</p>
     </div>
   );
 }

@@ -753,7 +753,7 @@ export function StockView({
         <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 lg:grid-cols-2">
           <Card className="p-6">
             <SectionTitle>Shareholding Pattern (in %)</SectionTitle>
-            {overview === null ? <Loading /> : overview.shareholding ? <ShareholdingPattern data={overview.shareholding} /> : <Unavailable what="Shareholding pattern" />}
+            {overview === null ? <Loading /> : overview.shareholding ? <ShareholdingPattern data={overview.shareholding} symbol={sym} /> : <Unavailable what="Shareholding pattern" />}
           </Card>
           <Card className="p-6">
             <SectionTitle>{finTab === "results" ? "Financial Result (Amount in ₹ Lakhs)" : "Financial Result"}</SectionTitle>
