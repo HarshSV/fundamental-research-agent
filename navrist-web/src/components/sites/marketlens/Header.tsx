@@ -2,6 +2,7 @@
 
 import { Moon, Search, SlidersHorizontal, Sun } from "lucide-react";
 import { useSyncExternalStore } from "react";
+import { SlidingTabs } from "./controls";
 import { OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
 import { Ticker } from "./Ticker";
 
@@ -43,11 +44,11 @@ export function Header() {
           <a
             href="/"
             aria-label="NAVRIST AI — home"
-            className="flex min-w-0 items-center gap-3 rounded-lg outline-none transition-transform hover:scale-[1.01] focus-visible:ring-2 focus-visible:ring-[var(--btn-primary-bg)] sm:gap-4"
+            className="flex min-w-0 items-center rounded-lg outline-none transition-transform hover:scale-[1.01] focus-visible:ring-2 focus-visible:ring-[var(--btn-primary-bg)] gap-2 sm:gap-4"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/sites/marketlens/navrist-logo.svg" alt="" className="h-11 w-11 shrink-0 rounded-xl sm:h-12 sm:w-12" />
-            <span className="brand-wordmark text-[26px] font-extrabold leading-none sm:text-[30px]">NAVRIST AI</span>
+            <img src="/sites/marketlens/navrist-logo.svg" alt="" className="h-9 w-9 shrink-0 rounded-xl sm:h-12 sm:w-12" />
+            <span className="brand-wordmark whitespace-nowrap text-[19px] font-extrabold leading-none sm:text-[30px]">NAVRIST AI</span>
             <span className="hidden h-9 w-px sm:block" style={{ background: "var(--border-default)" }} aria-hidden="true" />
             <span
               className="hidden text-[12px] font-semibold uppercase leading-[1.25] tracking-[0.14em] sm:block"
@@ -70,26 +71,28 @@ export function Header() {
             <span className="truncate">Search equity stocks , sectors ....</span>
           </button>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <SlidingTabs
+              ariaLabel="Colour theme"
+              size="icon"
+              value={light ? "light" : "dark"}
+              onChange={(t) => {
+                if ((t === "light") !== light) toggleTheme();
+              }}
+              options={[
+                { id: "dark", label: <Moon className="h-4 w-4" />, title: "Dark mode" },
+                { id: "light", label: <Sun className="h-4 w-4" />, title: "Light mode" },
+              ]}
+            />
             <button
               type="button"
-              onClick={toggleTheme}
-              aria-label={light ? "Switch to dark mode" : "Switch to light mode"}
-              aria-pressed={light}
-              title={light ? "Switch to dark mode" : "Switch to light mode"}
-              className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:text-[var(--accent)]"
-              style={{ background: "var(--overlay)", color: "var(--text-secondary)" }}
-            >
-              {light ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-            </button>
-            <button
-              type="button"
+              aria-label="Create Screener"
               onClick={() => window.dispatchEvent(new Event(OPEN_SCREENER_EVENT))}
               title="Create a screener: filter every stock by technicals, fundamentals and horizontal resistance"
               className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-white transition-colors hover:bg-[var(--btn-primary-hover)] sm:px-5"
               style={{ background: "var(--btn-primary-bg)", boxShadow: "var(--shadow-accent)" }}
             >
               <SlidersHorizontal className="h-4 w-4" />
-              <span>Create Screener</span>
+              <span className="hidden sm:inline">Create Screener</span>
             </button>
           </div>
         </div>

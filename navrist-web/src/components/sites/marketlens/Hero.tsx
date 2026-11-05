@@ -50,33 +50,34 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
                 type="button"
                 onClick={(e) => openSearch(e.currentTarget)}
                 aria-label="Search stocks or sectors"
-                className="flex h-14 w-full cursor-text items-center rounded-[10.5px] pl-[3.25rem] pr-32 text-left text-[15px]"
+                className="flex h-14 w-full cursor-text items-center rounded-[10.5px] pl-[3.25rem] pr-4 text-left text-[13px] sm:pr-32 sm:text-[15px]"
                 style={{ background: "var(--surface-1)", color: "var(--text-tertiary)" }}
               >
-                Search Equity Stocks or Sector :&nbsp;{hint}
+                <span className="min-w-0 truncate whitespace-nowrap">
+                  <span className="hidden sm:inline">Search Equity Stocks or Sector :&nbsp;</span>
+                  <span className="sm:hidden">Search :&nbsp;</span>
+                  {hint}
+                </span>
               </button>
             </div>
           </div>
         </div>
 
-        <div className="mb-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
+        <div className="mb-4 text-xs" style={{ color: "var(--text-tertiary)" }}>
           Browse by pattern
         </div>
-        <div className="flex flex-wrap justify-center gap-2">
-          {patterns.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => onPattern(p.id)}
-              title={`${p.category}: ${p.definition}`}
-              className="rounded-full border px-3.5 py-1.5 text-xs transition-all duration-200 hover:border-[var(--accent-border)] hover:bg-[var(--accent-surface)] hover:text-[var(--accent)]"
-              style={{
-                background: "var(--surface-1)",
-                borderColor: "var(--border-default)",
-                color: "var(--text-secondary)",
-              }}
-            >
-              {p.name}
-            </button>
+        <div className="flex flex-wrap justify-center gap-2.5">
+          {patterns.map((p, i) => (
+            <span key={p.id} className={`pat-glow pat-glow-${p.bias ?? "both"}`} style={{ ["--pat-delay" as string]: `${-((i * 0.7) % 4.5)}s` }}>
+              <button
+                onClick={() => onPattern(p.id)}
+                title={`${p.category}${p.bias ? ` · ${p.bias === "both" ? "direction depends on the structure" : p.bias}` : ""}: ${p.definition}`}
+                className="rounded-full px-3.5 py-1.5 text-xs transition-colors duration-200 hover:bg-[var(--overlay)] hover:text-[var(--text-primary)]"
+                style={{ background: "var(--surface-1)", color: "var(--text-secondary)" }}
+              >
+                {p.name}
+              </button>
+            </span>
           ))}
           {patterns.length === 0 && !patternsError && <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>Loading patterns…</span>}
           {patternsError && <span className="text-xs" style={{ color: "#f5a9a9" }}>Could not load patterns: {patternsError}</span>}

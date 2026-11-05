@@ -1,18 +1,19 @@
 "use client";
 
-import { ArrowLeft, ChartCandlestick, ChartLine, Check, Eye, EyeOff, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowLeft, ChartCandlestick, ChartLine, ChevronDown, TrendingDown, TrendingUp } from "lucide-react";
+import { SlidingTabs, Switch } from "./controls";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson, searchSymbols, type CompanyHit } from "@/lib/api";
 import { ActiveSetups } from "./ActiveSetups";
 import { Dropdown } from "./Dropdown";
 import { About, PeerTable, QuarterlyResults, ShareholdingPattern, Unavailable, type FinTab, type Overview, type Profile } from "./OverviewSections";
 import {
-  STATUS_COLOR, STATUS_LABEL, displayName, fetchCatalogue, fetchPatterns,
+  STATUS_LABEL, displayName, fetchCatalogue, fetchPatterns,
   type CatalogueEntry, type PatternOcc, type PatternStatus, type PatternsResponse,
 } from "./patterns";
 import { marketOpen } from "./marketHours";
 import { ForecastCard } from "./ForecastCard";
-import { fetchForecast, forecastLevels, type Forecast } from "./forecast";
+import { fetchForecast, forecastCone, forecastLevels, type Forecast } from "./forecast";
 import type { ScanContext } from "./patternScan";
 import { Detail as PatternDetail, type Candle } from "./PriceChart";
 import { StockChart, type ChartStyle, type ScanOverlay } from "./StockChart";
@@ -96,7 +97,7 @@ function SectionTitle({ children, aside }: { children: React.ReactNode; aside?: 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
     <div
-      className={`rounded-xl border p-4 ${className}`}
+      className={`min-w-0 rounded-xl border p-4 ${className}`}
       style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)", boxShadow: "var(--shadow-md)" }}
     >
       {children}
@@ -126,6 +127,87 @@ function RangeBar({ low, high, now, lowLabel, highLabel, title }: { low: number 
         <span className="text-sm font-semibold" style={{ color: GAIN }}>{highLabel}</span>
       </div>
     </Card>
+  );
+}
+
+/** Eases a displayed number from its previous value to a new target (cubic ease-out); the first value is shown as is. */
+function useTween(target: number | null, ms = 480): number | null {
+  const [shown, setShown] = useState<number | null>(target);
+  const from = useRef<number | null>(target);
+  useEffect(() => {
+    if (target == null) {
+      from.current = null;
+      return;
+    }
+    const start = from.current ?? target;
+    const t0 = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - t0) / ms);
+      const cur = start + (target - start) * (1 - Math.pow(1 - p, 3));
+      from.current = cur;
+      setShown(cur);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return target == null ? null : shown ?? target;
+}
+
+type Basis = "ttm" | "annual";
+
+/** Horizontal TTM | Annual switch for the whole Key Metrics block. `value` is null when the cards disagree. */
+function BasisSwitch({ value, onChange }: { value: Basis | null; onChange: (b: Basis) => void }) {
+  return (
+    <div className="relative grid w-[132px] grid-cols-2 rounded-md p-[3px]" style={{ background: "var(--overlay-weak)" }} role="group" aria-label="All ratios basis" title="Switch every ratio below between the last 12 months and the last annual report">
+      <span
+        aria-hidden
+        className="absolute inset-y-[3px] left-[3px] w-[calc(50%-3px)] rounded-[5px]"
+        style={{ background: "var(--text-primary)", opacity: value ? 0.18 : 0, transform: `translateX(${value === "annual" ? 100 : 0}%)`, transition: "transform 320ms cubic-bezier(.22,.61,.36,1), opacity 250ms ease" }}
+      />
+      {([["ttm", "TTM"], ["annual", "Annual"]] as const).map(([id, text]) => (
+        <button
+          key={id}
+          onClick={() => onChange(id)}
+          aria-pressed={value === id}
+          className="relative z-10 py-1.5 text-center text-xs font-medium leading-none"
+          style={{ color: value === id ? "var(--text-primary)" : "var(--text-tertiary)", transition: "color 250ms ease" }}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Vertical TTM | Annual switch for a Key Metrics card; the highlight slides between the two. */
+function BasisToggle({ basis, onChange, title }: { basis: Basis; onChange: (b: Basis) => void; title: string }) {
+  return (
+    <div
+      className="absolute right-3 top-1/2 grid w-[54px] -translate-y-1/2 grid-rows-2 rounded-md p-[3px]"
+      style={{ background: "var(--overlay-weak)" }}
+      role="group"
+      aria-label="Basis"
+      title={title}
+    >
+      <span
+        aria-hidden
+        className="absolute inset-x-[3px] top-[3px] h-[calc(50%-3px)] rounded-[5px]"
+        style={{ background: "var(--text-primary)", opacity: 0.18, transform: `translateY(${basis === "ttm" ? 0 : 100}%)`, transition: "transform 320ms cubic-bezier(.22,.61,.36,1)" }}
+      />
+      {([["ttm", "TTM"], ["annual", "Annual"]] as const).map(([id, text]) => (
+        <button
+          key={id}
+          onClick={() => onChange(id)}
+          aria-pressed={basis === id}
+          className="relative z-10 whitespace-nowrap py-[5px] text-center text-[10px] font-medium leading-none"
+          style={{ color: basis === id ? "var(--text-primary)" : "var(--text-tertiary)", transition: "color 250ms ease" }}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -178,6 +260,10 @@ export function StockView({
   // Forecast: outlook odds, one trade plan or "No trade", replay odds, evidence. Re-read every minute while the market is open.
   const [forecast, setForecast] = useState<{ sym: string; data: Forecast | null; error: boolean } | null>(null);
   const [showForecastLevels, setShowForecastLevels] = useState(false);
+  // Which basis each two-basis Key Metric shows; the switch beside the section title sets them all at once.
+  const [views, setViews] = useState<Record<string, Basis>>({});
+  const [showMore, setShowMore] = useState(false);
+  const [showCone, setShowCone] = useState(true);
   const [showVolume, setShowVolume] = useState(false);
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
   // Until it has some history, longer ranges fall back to the intraday 1D view (and say so).
@@ -298,6 +384,7 @@ export function StockView({
     };
   }, [sym, open]);
   const forecastData = forecast?.sym === sym ? forecast : null;
+  const coneData = useMemo(() => forecastCone(forecastData?.data ?? null), [forecastData]);
 
   // Pattern agent (backend): occurrences with their status lifecycle, per timeframe. The first run
   // for a stock/timeframe replays its history and can take ~10-30s; later requests come from the store.
@@ -439,8 +526,33 @@ export function StockView({
   const sectorPe = Number(forecastData?.data?.evidence.find((e) => e.label.startsWith("P/E"))?.label.match(/median ([\d.]+)/)?.[1]);
   const ttmPe = overview?.pe ?? null;
   const toneOf = (v: number | null): "good" | "bad" | null => (!sectorPe || v == null || v <= 0 ? null : v < 0.8 * sectorPe ? "good" : v > 2 * sectorPe ? "bad" : null);
-  const ttmTone = toneOf(ttmPe);
-  const epsTone: "good" | "bad" | null = annEps == null ? (annualEps === undefined && overview?.eps_ttm != null ? (overview.eps_ttm > 0 ? "good" : "bad") : null) : annEps > 0 ? "good" : "bad";
+  // Every two-basis metric: shown on its own basis (set by the cards' switches or the block switch); when only one basis
+  // exists that one is shown, with no switch.
+  const basisOf = (k: string, ttm: number | null, annual: number | null) => {
+    const both = ttm != null && annual != null;
+    const basis: Basis = both ? views[k] ?? "ttm" : annual != null ? "annual" : "ttm";
+    return { both, basis, value: basis === "ttm" ? ttm : annual };
+  };
+  const R = overview?.ratios ?? null;
+  const fy = R?.annual_label ?? (arYear ? `FY${arYear.slice(-2)}` : "the last annual report");
+  const peM = basisOf("pe", ttmPe, pe);
+  const epsM = basisOf("eps", overview?.eps_ttm ?? null, annEps);
+  const roeM = basisOf("roe", R?.roe.ttm ?? null, R?.roe.annual ?? null);
+  const marginM = basisOf("margin", R?.net_margin.ttm ?? null, R?.net_margin.annual ?? null);
+  const growthM = basisOf("growth", R?.revenue_growth.ttm ?? null, R?.revenue_growth.annual ?? null);
+  const covM = basisOf("cov", R?.interest_coverage?.ttm ?? null, R?.interest_coverage?.annual ?? null);
+  const peTween = useTween(peM.value);
+  const epsTween = useTween(epsM.value);
+  const roeTween = useTween(roeM.value);
+  const marginTween = useTween(marginM.value);
+  const growthTween = useTween(growthM.value);
+  const covTween = useTween(covM.value);
+  const switchable = [peM, epsM, roeM, marginM, growthM, covM].filter((m) => m.both);
+  const allBasis: Basis | null = switchable.length && switchable.every((m) => m.basis === switchable[0].basis) ? switchable[0].basis : null;
+  const setAll = (b: Basis) => setViews(Object.fromEntries(["pe", "eps", "roe", "margin", "growth", "cov"].map((k) => [k, b])));
+  const setOne = (k: string) => (b: Basis) => setViews((v) => ({ ...v, [k]: b }));
+  const epsTone: "good" | "bad" | null = epsM.value == null ? null : epsM.value > 0 ? "good" : "bad";
+  const level = (v: number | null, good: number, bad: number): "good" | "bad" | null => (v == null ? null : v >= good ? "good" : v < bad ? "bad" : null);
   const deTone: "good" | "bad" | null = overview?.debt_to_equity == null ? null : overview.debt_to_equity <= 0.5 ? "good" : overview.debt_to_equity >= 1.5 ? "bad" : null;
   const athTone: "good" | "bad" | null =
     allTime && ltp ? (ltp >= 0.9 * allTime.high ? "good" : ltp < 0.5 * allTime.high ? "bad" : null) : null;
@@ -514,60 +626,58 @@ export function StockView({
               they fill in as history builds up.
             </p>
           )}
-          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-            <button
-              onClick={() => {
-                setShowPatterns((v) => !v);
-                setSelectedId(null);
-              }}
-              aria-pressed={showPatterns}
-              title={showPatterns ? "Hide pattern markers" : "Show pattern markers"}
-              className="flex items-center gap-1.5 rounded-full border px-3 py-1 font-semibold transition-colors"
-              style={{
-                borderColor: showPatterns ? "#b7b4e7" : "var(--border-default)",
-                color: showPatterns ? "#b7b4e7" : "var(--text-tertiary)",
-                background: showPatterns ? "#b7b4e71a" : "transparent",
-              }}
-            >
-              {showPatterns ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-              Patterns {showPatterns ? "on" : "off"}
-            </button>
-            {showPatterns && (Object.keys(STATUS_LABEL) as PatternStatus[]).map((s) => (
-              <button
-                key={s}
-                onClick={() => setStatusOn((cur) => ({ ...cur, [s]: !cur[s] }))}
-                className="rounded-full border px-2.5 py-1 transition-colors"
-                style={{
-                  borderColor: statusOn[s] ? STATUS_COLOR[s] : "var(--border-default)",
-                  color: statusOn[s] ? STATUS_COLOR[s] : "var(--text-tertiary)",
-                  background: statusOn[s] ? `${STATUS_COLOR[s]}1a` : "transparent",
+          <div className="mb-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <Switch
+                on={showPatterns}
+                onChange={() => {
+                  setShowPatterns((v) => !v);
+                  setSelectedId(null);
                 }}
-              >
-                {STATUS_LABEL[s]}
-                {patterns?.counts.by_status?.[s] != null ? ` (${patterns.counts.by_status[s]})` : ""}
-              </button>
-            ))}
-            {showPatterns && (
-              <Dropdown
-                ariaLabel="Filter by pattern"
-                value={patternFilter}
-                onChange={setPatternFilter}
-                options={[
-                  { value: "all", label: "All patterns" },
-                  ...Object.entries(patterns?.counts.by_pattern ?? {})
-                    .map(([id, n]) => ({ value: id, label: displayName(catalogue, id), hint: String(n) }))
-                    .sort((a, b) => a.label.localeCompare(b.label)),
-                ]}
+                label="Patterns"
+                title={showPatterns ? "Hide pattern markers" : "Show pattern markers"}
               />
-            )}
+              {showPatterns && (
+                <span className="nv-rise text-xs" style={{ color: "var(--text-tertiary)" }}>
+                  {patterns !== null
+                    ? `${shownOccs.length} shown · ${spec.tf} bars`
+                    : patternError
+                      ? `Pattern agent unavailable (${patternError}). It will retry; or switch range and back`
+                      : `Pattern agent running on ${spec.tf} bars… (first run can take up to ~30s)`}
+                </span>
+              )}
+            </div>
             {showPatterns && (
-              <span className="ml-auto" style={{ color: "var(--text-tertiary)" }}>
-                {patterns !== null
-                  ? `${shownOccs.length} shown · ${spec.tf} bars`
-                  : patternError
-                    ? `Pattern agent unavailable (${patternError}) — it will retry; or switch range and back`
-                    : `Pattern agent running on ${spec.tf} bars… (first run can take up to ~30s)`}
-              </span>
+              <div className="nv-rise mt-3 flex flex-wrap items-center gap-2 text-xs">
+                {(Object.keys(STATUS_LABEL) as PatternStatus[]).map((st) => (
+                  <button
+                    key={st}
+                    onClick={() => setStatusOn((cur) => ({ ...cur, [st]: !cur[st] }))}
+                    aria-pressed={statusOn[st]}
+                    className="rounded-md border px-2.5 py-1 font-medium"
+                    style={{
+                      borderColor: statusOn[st] ? "var(--text-tertiary)" : "var(--border-subtle)",
+                      color: statusOn[st] ? "var(--text-primary)" : "var(--text-tertiary)",
+                      background: statusOn[st] ? "var(--overlay)" : "transparent",
+                      transition: "background 250ms ease, color 250ms ease, border-color 250ms ease",
+                    }}
+                  >
+                    {STATUS_LABEL[st]}
+                    {patterns?.counts.by_status?.[st] != null ? <span className="ml-1.5 opacity-60">{patterns.counts.by_status[st]}</span> : null}
+                  </button>
+                ))}
+                <Dropdown
+                  ariaLabel="Filter by pattern"
+                  value={patternFilter}
+                  onChange={setPatternFilter}
+                  options={[
+                    { value: "all", label: "All patterns" },
+                    ...Object.entries(patterns?.counts.by_pattern ?? {})
+                      .map(([id, n]) => ({ value: id, label: displayName(catalogue, id), hint: String(n) }))
+                      .sort((x, y) => x.label.localeCompare(y.label)),
+                  ]}
+                />
+              </div>
             )}
           </div>
           {shown === null && !error ? (
@@ -585,6 +695,7 @@ export function StockView({
               onSelect={setSelectedId}
               scan={scanOverlay}
               levels={showForecastLevels ? forecastLevels(forecastData?.data ?? null) : undefined}
+              cone={showCone && !isIntraday ? coneData : null}
             />
             {switching && (
               <span
@@ -611,52 +722,30 @@ export function StockView({
             </div>
           )}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Chart range">
-              {RANGES.map((r) => {
-                const active = range === r;
-                return (
-                  <button
-                    key={r}
-                    onClick={() => setRange(r)}
-                    aria-pressed={active}
-                    className="rounded-full border px-4 py-1.5 text-sm font-medium transition-colors"
-                    style={{
-                      borderColor: active ? "var(--text-primary)" : "var(--border-default)",
-                      color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                      background: active ? "var(--overlay)" : "transparent",
-                    }}
-                  >
-                    {r}
-                  </button>
-                );
-              })}
-              <button
-                onClick={() => setChartStyle((c) => (c === "candles" ? "line" : "candles"))}
-                title={chartStyle === "candles" ? "Switch to a line chart" : "Switch to a candlestick chart"}
-                aria-label={chartStyle === "candles" ? "Switch to a line chart" : "Switch to a candlestick chart"}
-                className="ml-1 flex h-9 w-9 items-center justify-center rounded-full border transition-colors hover:border-[var(--accent-border)] hover:text-[var(--accent)]"
-                style={{ borderColor: "var(--border-default)", color: "var(--gain)" }}
-              >
-                {chartStyle === "candles" ? <ChartLine className="h-4 w-4" /> : <ChartCandlestick className="h-4 w-4" />}
-              </button>
+            <div className="flex max-w-full flex-wrap items-center gap-3">
+              <div className="max-w-full overflow-x-auto"><SlidingTabs ariaLabel="Chart range" options={RANGES.map((r) => ({ id: r, label: r }))} value={range} onChange={setRange} /></div>
+              <SlidingTabs
+                ariaLabel="Chart style"
+                size="icon"
+                value={chartStyle}
+                onChange={setChartStyle}
+                options={[
+                  { id: "candles", label: <ChartCandlestick className="h-4 w-4" />, title: "Candlestick chart" },
+                  { id: "line", label: <ChartLine className="h-4 w-4" />, title: "Line chart" },
+                ]}
+              />
             </div>
-            <label className="flex cursor-pointer items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-              <span
-                className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border"
-                style={{ borderColor: showVolume ? "#b7b4e7" : "var(--border-default)", background: showVolume ? "#b7b4e7" : "transparent" }}
-              >
-                {showVolume && <Check className="h-3 w-3" strokeWidth={3} style={{ color: "var(--on-accent)" }} />}
-              </span>
-              <input type="checkbox" className="sr-only" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} />
-              Volume
-            </label>
+            <div className="flex items-center gap-5">
+              {!isIntraday && coneData && <Switch on={showCone} onChange={() => setShowCone((v) => !v)} label="Forecast" title="Shade where the price is likely to be over the next 5 and 20 sessions" />}
+              <Switch on={showVolume} onChange={() => setShowVolume((v) => !v)} label="Volume" />
+            </div>
           </div>
           {showPatterns && selectedOcc && (
             <Card className="mt-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="text-base font-semibold">
                   {displayName(catalogue, selectedOcc.pattern)}
-                  <span className="ml-2 text-xs font-normal" style={{ color: STATUS_COLOR[selectedOcc.status] }}>{STATUS_LABEL[selectedOcc.status]}</span>
+                  
                 </div>
                 <button onClick={() => setSelectedId(null)} aria-label="Close details" className="px-1 text-lg leading-none" style={{ color: "var(--text-tertiary)" }}>×</button>
               </div>
@@ -681,30 +770,80 @@ export function StockView({
 
       <section className="border-t py-10" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
-          <SectionTitle>Key Metrics</SectionTitle>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-            {([
-              ["Market Cap", overview?.market_cap_cr != null ? `₹${fmt(overview.market_cap_cr)} Cr` : null, null],
-              ["P/E Ratio", ttmPe != null ? fmt(ttmPe) : annualEps === undefined ? "…" : pe != null ? fmt(pe) : null, ttmPe != null ? ttmTone : null],
-              [`${arYear ? `EPS (FY${arYear.slice(-2)}` : "EPS (annual"}${annualEps?.basis === "standalone" ? ", standalone" : ""})`, annualEps === undefined ? (overview?.eps_ttm != null ? `₹${fmt(overview.eps_ttm)} (TTM)` : "…") : annEps != null ? `₹${fmt(annEps)}` : null, epsTone],
-              ["Face Value", overview?.face_value != null ? `₹${fmt(overview.face_value, overview.face_value % 1 ? 2 : 0)}` : null, null],
-              ["All Time High", allTime ? inr(allTime.high) : null, athTone],
-              ["All Time Low", allTime ? inr(allTime.low) : null, null],
-              ["Debt/Equity", overview?.debt_to_equity != null ? fmt(overview.debt_to_equity) : null, deTone],
-            ] as [string, string | null, "good" | "bad" | null][]).map(([label, value, tone]) => (
-              <Card key={label}>
-                <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{label}</div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: tone === "good" ? GAIN : tone === "bad" ? LOSS : undefined }}>{value ?? "—"}</div>
-                {label === "P/E Ratio" && (
+          <SectionTitle aside={switchable.length ? <BasisSwitch value={allBasis} onChange={setAll} /> : null}>Key Metrics</SectionTitle>
+          {(() => {
+            const wait = overview === null ? "…" : null;
+            const x = (v: number | null, f: (n: number) => string) => (v != null ? f(v) : wait);
+            type Metric = { id: string; label: string; value: string | null; tone: "good" | "bad" | null; sw?: { m: { both: boolean; basis: Basis }; set: (b: Basis) => void; title: string } };
+            const primary: Metric[] = [
+              { id: "mcap", label: "Market Cap", value: overview?.market_cap_cr != null ? `₹${fmt(overview.market_cap_cr)} Cr` : null, tone: null },
+              { id: "pe", label: "P/E Ratio", value: peTween != null ? fmt(peTween) : annualEps === undefined ? "…" : null, tone: peM.basis === "ttm" ? toneOf(ttmPe) : null,
+                sw: { m: peM, set: setOne("pe"), title: peM.basis === "ttm" ? `Last 12 months${sectorPe ? ` · sector median ${fmt(sectorPe)}` : ""}` : `On the ${fy} annual report` } },
+              { id: "eps", label: epsM.basis === "ttm" ? "EPS (TTM)" : `${arYear ? `EPS (FY${arYear.slice(-2)}` : "EPS (annual"}${annualEps?.basis === "standalone" ? ", standalone" : ""})`,
+                value: epsTween != null ? `₹${fmt(epsTween)}` : annualEps === undefined ? "…" : null, tone: epsTone,
+                sw: { m: epsM, set: setOne("eps"), title: epsM.basis === "ttm" ? "Sum of the last four reported quarters" : `Basic EPS on the ${fy} annual report` } },
+              { id: "fv", label: "Face Value", value: overview?.face_value != null ? `₹${fmt(overview.face_value, overview.face_value % 1 ? 2 : 0)}` : null, tone: null },
+              { id: "ath", label: "All Time High", value: allTime ? inr(allTime.high) : null, tone: athTone },
+              { id: "atl", label: "All Time Low", value: allTime ? inr(allTime.low) : null, tone: null },
+              { id: "de", label: "Debt/Equity", value: overview?.debt_to_equity != null ? fmt(overview.debt_to_equity) : null, tone: deTone },
+            ];
+            const book = R?.book_value ?? null;
+            const more: Metric[] = [
+              { id: "roe", label: "ROE", value: x(roeTween, (n) => `${fmt(n)}%`), tone: level(roeM.value, 15, 8),
+                sw: { m: roeM, set: setOne("roe"), title: roeM.basis === "ttm" ? "Last 12 months profit on the latest equity" : `${fy} profit on ${fy} year-end equity` } },
+              { id: "pb", label: "Price to Book", value: ltp && book ? (ltp / book <= 300 ? `${fmt(ltp / book)}x` : null) : wait, tone: null },     // beyond 300x the book value is not a real net worth
+              { id: "dy", label: "Dividend Yield", value: x(R?.dividend_yield ?? null, (n) => `${fmt(n)}%`), tone: null },
+              { id: "promoter", label: "Promoter Holding", value: x(R?.promoter ?? null, (n) => `${fmt(n)}%`), tone: level(R?.promoter ?? null, 50, 25) },
+              { id: "margin", label: "Net Profit Margin", value: x(marginTween, (n) => `${fmt(n)}%`), tone: level(marginM.value, 10, 0),
+                sw: { m: marginM, set: setOne("margin"), title: marginM.basis === "ttm" ? "Last 12 months net profit on sales" : `${fy} net profit on ${fy} sales` } },
+              { id: "growth", label: "Revenue Growth", value: x(growthTween, (n) => `${n > 0 ? "+" : ""}${fmt(n)}%`), tone: level(growthM.value, 10, 0),
+                sw: { m: growthM, set: setOne("growth"), title: growthM.basis === "ttm" ? "Last four quarters of sales against the four before" : `${fy} sales against the year before` } },
+              ...(R && R.interest_coverage === null ? [] : [{ id: "cov", label: "Interest Coverage", value: x(covTween, (n) => `${fmt(n)}x`), tone: level(covM.value, 3, 1.5),
+                sw: { m: covM, set: setOne("cov"), title: covM.basis === "ttm" ? "Last 12 months operating profit over interest paid" : `${fy} operating profit over interest paid` } } as Metric]),
+            ];
+            const card = (c: Metric) => (
+              <Card key={c.id} className={c.sw?.m.both ? "relative" : ""}>
+                <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                  <span>{c.label}</span>
+                </div>
+                <div className="mt-1 text-lg font-semibold" style={{ color: c.tone === "good" ? GAIN : c.tone === "bad" ? LOSS : undefined, transition: "color 350ms ease" }}>{c.value ?? "—"}</div>
+                {c.id === "de" && c.value == null && overview?.is_financial && (
+                  <div className="mt-0.5 text-xs" style={{ color: "var(--text-tertiary)" }}>Not meaningful for lenders</div>
+                )}
+                {c.id === "pe" && peM.value == null && epsM.value != null && epsM.value <= 0 && (
+                  <div className="mt-0.5 text-xs" style={{ color: "var(--text-tertiary)" }}>Negative earnings, so no P/E</div>
+                )}
+                {c.id === "pe" && peM.value != null && !peM.both && (
                   <div className="mt-0.5 text-xs" style={{ color: "var(--text-tertiary)" }}>
-                    {ttmPe != null ? "Last 12 months" : "On the last annual report"}
-                    {sectorPe ? <> · sector median <span className="nv-num">{fmt(sectorPe)}</span></> : null}
-                    {ttmPe != null && pe != null && annualEps !== undefined && Math.abs(pe / ttmPe - 1) > 0.25 ? <> · on the annual report <span className="nv-num">{fmt(pe)}</span></> : null}
+                    {peM.basis === "ttm" ? "Last 12 months" : `On the ${fy} annual report`}
+                    {sectorPe && peM.basis === "ttm" ? <> · sector median <span className="nv-num">{fmt(sectorPe)}</span></> : null}
                   </div>
                 )}
+                {c.sw?.m.both && <BasisToggle basis={c.sw.m.basis} onChange={c.sw.set} title={c.sw.title} />}
               </Card>
-            ))}
-          </div>
+            );
+            return (
+              <>
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">{primary.map(card)}</div>
+                <div className="grid transition-[grid-template-rows] duration-500 ease-out" style={{ gridTemplateRows: showMore ? "1fr" : "0fr" }}>
+                  <div className="-mx-1 overflow-hidden px-1" inert={!showMore}>
+                    <div className="grid grid-cols-2 gap-4 pb-1 pt-4 transition-opacity duration-500 md:grid-cols-3 lg:grid-cols-5" style={{ opacity: showMore ? 1 : 0 }}>{more.map(card)}</div>
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-center">
+                  <button
+                    onClick={() => setShowMore((v) => !v)}
+                    aria-expanded={showMore}
+                    className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
+                    style={{ color: "var(--text-secondary)", background: "var(--overlay-weak)" }}
+                  >
+                    {showMore ? "Show less" : "Show more"}
+                    <ChevronDown className="h-3.5 w-3.5 transition-transform duration-500" style={{ transform: showMore ? "rotate(180deg)" : "none" }} />
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </div>
       </section>
 
@@ -751,13 +890,13 @@ export function StockView({
 
       <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 lg:grid-cols-2">
-          <Card className="p-6">
+          <Card className="p-4 sm:p-6">
             <SectionTitle>Shareholding Pattern (in %)</SectionTitle>
             {overview === null ? <Loading /> : overview.shareholding ? <ShareholdingPattern data={overview.shareholding} symbol={sym} /> : <Unavailable what="Shareholding pattern" />}
           </Card>
-          <Card className="p-6">
+          <Card className="p-4 sm:p-6">
             <SectionTitle>{finTab === "results" ? "Financial Result (Amount in ₹ Lakhs)" : "Financial Result"}</SectionTitle>
-            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} tab={finTab} onTab={setFinTab} /> : <Unavailable what="Quarterly financial results" />}
+            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} tab={finTab} onTab={setFinTab} standalone={overview.basis === "standalone"} /> : <Unavailable what="Quarterly financial results" />}
           </Card>
         </div>
       </section>
