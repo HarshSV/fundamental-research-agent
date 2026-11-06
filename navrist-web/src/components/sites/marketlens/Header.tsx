@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, ChevronDown, Menu, Moon, Search, SlidersHorizontal, Sun, X } from "lucide-react";
+import { BarChart3, BookOpen, ChevronDown, Menu, Moon, Search, SlidersHorizontal, Star, Sun, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SlidingTabs } from "./controls";
 import { OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
@@ -113,6 +113,12 @@ const MENUS: Menu[] = [
       },
     ],
   },
+];
+
+/** Top-level links without a dropdown, as on ChartsMaze: the watchlist and the trade journal */
+const DIRECT: { label: string; icon: typeof Star; run: () => void }[] = [
+  { label: "Watchlist", icon: Star, run: () => navigateTo({ type: "watchlist" }) },
+  { label: "Journal", icon: BookOpen, run: () => navigateTo({ type: "journal" }) },
 ];
 
 function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; onToggle: () => void; onPick: (i: Item) => void }) {
@@ -259,6 +265,11 @@ export function Header() {
             {MENUS.map((m) => (
               <NavMenu key={m.id} menu={m} open={menu === m.id} onToggle={() => setMenu((x) => (x === m.id ? null : m.id))} onPick={pick} />
             ))}
+            {DIRECT.map((d) => (
+              <button key={d.label} type="button" onClick={() => { setMenu(null); d.run(); }} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors hover:bg-[var(--overlay)]" style={{ color: "var(--text-primary)" }}>
+                <d.icon className="h-4 w-4" /> {d.label}
+              </button>
+            ))}
           </nav>
           <div className="min-w-0 flex-1" />
           {/* search: opens the full-screen search; hidden on the home view, where the hero has the big box */}
@@ -301,6 +312,11 @@ export function Header() {
               >
                 <Search className="h-4 w-4" /> Search stocks, sectors…
               </button>
+              {DIRECT.map((d) => (
+                <button key={d.label} type="button" onClick={() => { setDrawer(false); d.run(); }} className="mb-1 flex min-h-[48px] w-full items-center gap-2.5 rounded-lg border px-3 text-left text-[15px] font-semibold" style={{ color: "var(--text-primary)", background: "var(--overlay-weak)", borderColor: "var(--border-subtle)" }}>
+                  <d.icon className="h-4 w-4" style={{ color: "var(--accent)" }} /> {d.label}
+                </button>
+              ))}
               {MENUS.map((m) => (
                 <div key={m.id} className="mb-1">
                   <button

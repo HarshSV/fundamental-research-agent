@@ -7,6 +7,8 @@ import { OPEN_SCREENER_EVENT, OPEN_SEARCH_EVENT } from "./searchEvents";
 import { LIST_SCANNERS, MULTI_ID, OPEN_NAV_EVENT, isListScanner, type NavTarget } from "./scanners";
 import { MarketAnalytics, type AnalyticsTab } from "./MarketAnalytics";
 import { MultiScanModal } from "./MultiScanModal";
+import { WatchlistPage } from "./WatchlistPage";
+import { JournalPage } from "./JournalPage";
 import { SearchOverlay } from "./SearchOverlay";
 import { Hero } from "./Hero";
 import { PatternFilterModal } from "./PatternFilterModal";
@@ -28,6 +30,8 @@ type View =
   | { kind: "patternScan"; pattern: string; filters: ScanFilters }
   | { kind: "sector"; name: string }
   | { kind: "analytics"; tab: AnalyticsTab }
+  | { kind: "watchlist" }
+  | { kind: "journal" }
   | { kind: "screen"; id: string };
 
 /** A sector page: every company NSE classifies in that sector. */
@@ -192,6 +196,8 @@ export function HomeScreen() {
       } else if (t.type === "multi") setMulti({ initial: [], edit: false });
       else if (t.type === "analytics") push({ kind: "analytics", tab: t.tab });
       else if (t.type === "sector") push({ kind: "sector", name: t.name });
+      else if (t.type === "watchlist") push({ kind: "watchlist" });
+      else if (t.type === "journal") push({ kind: "journal" });
       else if (t.type === "home") {
         setStack([{ kind: "home" }]);
         if (t.scroll === "patterns") setTimeout(() => document.getElementById("navrist-patterns")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
@@ -213,6 +219,14 @@ export function HomeScreen() {
     view.kind === "stock" ? <StockView key={view.stock.symbol} stock={view.stock} onBack={pop} onOpenStock={openStock} scan={view.scan} />
     : view.kind === "sector" ? <SectorPage name={view.name} onBack={pop} onSelect={openStock} />
     : view.kind === "screen" ? <ScreenPage id={view.id} onBack={pop} onSelect={openStock} />
+    : view.kind === "watchlist" ? (
+      <WatchlistPage
+        onBack={pop}
+        onOpenStock={openStock}
+        onScan={(symbols) => push({ kind: "patternScan", pattern: SCREENER_ID, filters: { ...emptyFilters(), symbols: { values: symbols } } })}
+      />
+    )
+    : view.kind === "journal" ? <JournalPage onBack={pop} onOpenStock={openStock} />
     : view.kind === "analytics" ? <MarketAnalytics key="analytics" tab={view.tab} onTab={(tab) => setStack((st) => [...st.slice(0, -1), { kind: "analytics", tab }])} onBack={pop} />
     : view.kind === "patternScan" && entries.find((c) => c.id === view.pattern) ? (
       <PatternScanPage

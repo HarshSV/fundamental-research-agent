@@ -68,6 +68,8 @@ export interface ScanFilters {
   patterns: { values: string[] };
   /** Multiple Scans: a stock must appear in ALL of these scanners (chart pattern ids, "horizontal-resistance", market-list ids). */
   scans: { values: string[] };
+  /** Watchlist: only these tickers */
+  symbols: { values: string[] };
   ema: { periods: number[]; side: "above" | "below" };
   dma: { periods: number[]; side: "above" | "below" };
   ranges: Record<string, RangeState>; // mcap + every RANGE_DEFS key
@@ -89,6 +91,7 @@ export const emptyFilters = (): ScanFilters => ({
   status: { values: [] },
   patterns: { values: [] },
   scans: { values: [] },
+  symbols: { values: [] },
   ema: { periods: [], side: "above" },
   dma: { periods: [], side: "above" },
   ranges: Object.fromEntries([MCAP_KEY, ...RANGE_DEFS.map((d) => d.key)].map((k) => [k, off()])),
@@ -250,6 +253,7 @@ export function serialize(f: ScanFilters): Record<string, unknown> {
   if (f.status.values.length) b.status = f.status;
   if (f.patterns.values.length) b.patterns = f.patterns;
   if (f.scans.values.length) b.scans = f.scans;
+  if (f.symbols?.values.length) b.symbols = f.symbols;
   if (f.ema.periods.length) b.ema = f.ema;
   if (f.dma.periods.length) b.dma = f.dma;
   for (const [k, r] of Object.entries(f.ranges)) if (r.on && (r.min != null || r.max != null)) b[k] = { min: r.min, max: r.max };
@@ -284,6 +288,7 @@ export function describeFilters(f: ScanFilters, opts: ScanOptions | null): strin
   const out: string[] = [];
   if (f.indices.values.length) out.push(f.indices.values.map((v) => opts?.indices.find((i) => i.id === v)?.label.split(" (")[0] ?? v).join(", "));
   if (f.sectors.values.length) out.push(f.sectors.values.join(", "));
+  if (f.symbols?.values.length) out.push(`${f.symbols.values.length} watchlist stocks`);
   if (f.scans.values.length) out.push(`In all of: ${f.scans.values.map(scannerName).join(" + ")}`);
   if (f.patterns.values.length) out.push(`Patterns: ${f.patterns.values.map((v) => v.replace(/-and-/g, " & ").replace(/-/g, " ")).join(", ")}`);
   if (f.status.values.length) out.push(f.status.values.join(", ").replace(/_/g, " "));

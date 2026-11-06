@@ -262,6 +262,7 @@ def search(pattern, f: dict, include_candles: bool = False) -> dict:
     # The Create Screener can also be limited to stocks showing any of several chart patterns (f["patterns"]["values"]).
     multi = set((f.get("patterns") or {}).get("values") or []) if pattern == "all" else set()
     lst = pattern if pattern in market_lists.SCANNERS else None                     # a market-list scanner (gainers, gaps, ...)
+    only = {str(x).upper() for x in ((f.get("symbols") or {}).get("values") or [])}      # Watchlist: restrict to these tickers
     scans = list((f.get("scans") or {}).get("values") or []) if pattern == "multi" else []   # Multiple Scans: stocks in ALL of these
     bench = (scan.benchmarks().get("nifty500") or None) if (lst == "rs-high-before-price-high" or scans) else None
     if pattern == "horizontal-resistance":
@@ -273,6 +274,8 @@ def search(pattern, f: dict, include_candles: bool = False) -> dict:
     q = (f.get("q") or "").strip().lower()
     out = []
     for r in rows.values():
+        if only and r["symbol"].upper() not in only:
+            continue
         occ = []
         if pat or multi:
             occ = [o for o in r["occurrences"] if (o["pattern"] == pat if pat else o["pattern"] in multi)]

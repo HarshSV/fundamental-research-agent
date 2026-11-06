@@ -1,5 +1,6 @@
 "use client";
 
+import { WatchStar } from "./WatchlistPage";
 import { ArrowLeft, ChartCandlestick, ChartLine, ChevronDown, TrendingDown, TrendingUp } from "lucide-react";
 import { SlidingTabs, Switch } from "./controls";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -570,6 +571,7 @@ export function StockView({
               {String(stock.primary_exchange)}
             </span>
           ) : null}
+          <WatchStar symbol={stock.symbol} name={String(name)} />
         </div>
         <div className="mt-2 text-sm" style={{ color: "var(--text-tertiary)" }}>{stock.symbol}</div>
         <div className="mt-6 flex flex-wrap items-center gap-4">

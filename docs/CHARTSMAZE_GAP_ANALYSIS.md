@@ -127,8 +127,10 @@ These definitions are ours. ChartsMaze's exact rules were not visible, so result
 
 **Added later the same day (quick wins):** filters for RVOL, gap-up %, 20-day range, price vs 10-day EMA, 1-month and 3-month RS and the 200-day average turn-around; Filtered Inside Bar (daily, weekly); breadth charts for 4.5% movers, advances and declines, 52-week highs and lows and volume above the 20-day average.
 
+**Added later the same day (Watchlist and Journal):** a browser-stored Watchlist with high / medium / low groups, notes, share and import, a star on stock pages, list and chart views and a "Scan these" button; a Trade Journal with notes, mistake tags, a chart picture, P&L, R-multiple and statistics. Both are per browser because Navrist has no user accounts.
+
 **Still not built:** Industry Analytics (no industry field finer than the 25 sectors), Earnings Gap Up / Positive Earnings Reaction / Results Calendar (need result
-dates), Sector Indices page, Watchlist and Journal (need per-user accounts), Past Winners, IPO scanner and recent-IPO list, Circuit Revision, Order Wins, ASM,
+dates), Sector Indices page, Past Winners, IPO scanner and recent-IPO list, Circuit Revision, Order Wins, ASM,
 Bulk/Block deals, Insider Trading (need exchange feeds), named Templates, mobile apps.
 
 ## 4. Build plan

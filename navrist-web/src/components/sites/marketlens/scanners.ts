@@ -43,6 +43,8 @@ export type NavTarget =
   | { type: "multi" }
   | { type: "analytics"; tab: "sectors" | "rrg" | "breadth" }
   | { type: "sector"; name: string }
+  | { type: "watchlist" }
+  | { type: "journal" }
   | { type: "home"; scroll?: "patterns" };
 
 export function navigateTo(target: NavTarget) {
