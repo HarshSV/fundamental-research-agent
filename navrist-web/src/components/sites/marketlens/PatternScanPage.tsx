@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CompanyHit } from "@/lib/api";
 import { BacktestPanel } from "./BacktestPanel";
 import { STATUS_COLOR, STATUS_LABEL, type CatalogueEntry } from "./patterns";
-import { RESISTANCE_ID, describeFilters, isSpecial, searchScan, type ScanContext, type ScanFilters, type ScanOptions, type ScanResult, type ScanRow } from "./patternScan";
+import { RESISTANCE_ID, SCREENER_ID, describeFilters, isSpecial, searchScan, type ScanContext, type ScanFilters, type ScanOptions, type ScanResult, type ScanRow } from "./patternScan";
 import { TvChart } from "./TvChart";
 
 const LIST_SIZE = 50;
@@ -47,7 +47,8 @@ function ResistanceBadge({ row }: { row: ScanRow }) {
 type Col = { key: string; label: string; left?: boolean; cell: (r: ScanRow) => React.ReactNode };
 
 /** The columns of the two list layouts (Technicals / Fundamentals) for this scanner. */
-function columns(kind: "technicals" | "fundamentals", pattern: CatalogueEntry, withResistance: boolean): Col[] {
+function columns(kind: "technicals" | "fundamentals", pattern: CatalogueEntry, withResistance: boolean, withPatterns = false): Col[] {
+  const plain_special = isSpecial(pattern.id) && !withPatterns;
   const stock: Col = {
     key: "stock", label: "Stock", left: true,
     cell: (r) => (<><div className="font-semibold">{r.name}</div><div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{r.symbol}</div></>),
@@ -67,19 +68,19 @@ function columns(kind: "technicals" | "fundamentals", pattern: CatalogueEntry, w
   }
   const state: Col = pattern.id === RESISTANCE_ID
     ? { key: "state", label: "Resistance", left: true, cell: (r) => <ResistanceBadge row={r} /> }
-    : isSpecial(pattern.id)
+    : plain_special
       ? {
           key: "state", label: withResistance ? "Resistance" : "Sector rotation", left: true,
           cell: (r) => (withResistance ? <ResistanceBadge row={r} /> : <span className="text-xs capitalize" style={{ color: "var(--text-secondary)" }}>{r.quadrant ?? "—"}</span>),
         }
-      : { key: "state", label: "Status", left: true, cell: (r) => (<div className="flex flex-col items-start gap-1"><StatusBadge row={r} />{r.resistance && <ResistanceBadge row={r} />}</div>) };
+      : { key: "state", label: "Status", left: true, cell: (r) => (<div className="flex flex-col items-start gap-1">{pattern.id === SCREENER_ID && r.occurrence && <span className="text-xs font-medium capitalize" style={{ color: "var(--text-primary)" }}>{r.occurrence.pattern.replace(/-and-/g, " & ").replace(/-/g, " ")}</span>}<StatusBadge row={r} />{r.resistance && <ResistanceBadge row={r} />}</div>) };
   return [
     stock,
     { key: "rs", label: "RS", cell: (r) => <span className="font-semibold">{r.rs ?? "—"}</span> },
     sector, cap,
     { key: "price", label: "Price", cell: (r) => `₹${num(r.price)}` },
     state,
-    ...(isSpecial(pattern.id) ? [] : [{ key: "brk", label: "Breakout", cell: (r: ScanRow) => (r.occurrence?.breakout == null ? "—" : `₹${num(r.occurrence.breakout)}`) }]),
+    ...(plain_special ? [] : [{ key: "brk", label: "Breakout", cell: (r: ScanRow) => (r.occurrence?.breakout == null ? "—" : `₹${num(r.occurrence.breakout)}`) }]),
     { key: "r1", label: "1M", cell: (r) => <span style={{ color: tone(r.ret_1m) }}>{pct(r.ret_1m)}</span> },
     { key: "r3", label: "3M", cell: (r) => <span style={{ color: tone(r.ret_3m) }}>{pct(r.ret_3m)}</span> },
     { key: "hi", label: "From 52W high", cell: (r) => plain(r.pct_from_52w_high) },
@@ -138,6 +139,8 @@ export function PatternScanPage({
   onOpenStock: (s: CompanyHit, scan?: ScanContext) => void;
 }) {
   const special = isSpecial(pattern.id);
+  // the Create Screener limited to chart patterns behaves like a pattern scan: status/breakout columns, status sort, backtest
+  const patternMode = !special || (pattern.id === SCREENER_ID && filters.patterns.values.length > 0);
   const [mode, setMode] = useState<"scan" | "backtest">("scan");
   const [view, setView] = useState<"list" | "charts">("list");
   const [colset, setColset] = useState<"technicals" | "fundamentals">("technicals");
@@ -145,7 +148,7 @@ export function PatternScanPage({
   const [exporting, setExporting] = useState(false);
   const [q, setQ] = useState("");
   const [dq, setDq] = useState("");
-  const [sort, setSort] = useState(special ? "market_cap" : "status");
+  const [sort, setSort] = useState(patternMode ? "status" : "market_cap");
   const [page, setPage] = useState(1);
   const [res, setRes] = useState<{ key: string; data?: ScanResult; error?: string } | null>(null);
 
@@ -203,9 +206,9 @@ export function PatternScanPage({
   const drawResistance = filters.resistance.on || pattern.id === RESISTANCE_ID;
   // the stock page opens with this scan's marking on its chart (pattern lines and levels, horizontal resistance)
   const open = (r: ScanRow) =>
-    onOpenStock({ symbol: r.symbol, name: r.name }, { pattern: special ? null : pattern.id, occurrence: r.occurrence, resistance: r.resistance, showResistance: drawResistance });
-  const cols = useMemo(() => columns(colset, pattern, drawResistance), [colset, pattern, drawResistance]);
-  const sorts = SORTS.filter(([k]) => !(special && k === "status"));
+    onOpenStock({ symbol: r.symbol, name: r.name }, { pattern: special ? (r.occurrence?.pattern ?? null) : pattern.id, occurrence: r.occurrence, resistance: r.resistance, showResistance: drawResistance });
+  const cols = useMemo(() => columns(colset, pattern, drawResistance, patternMode && special), [colset, pattern, drawResistance, patternMode, special]);
+  const sorts = SORTS.filter(([k]) => !(!patternMode && k === "status"));
 
 
   return (
@@ -220,7 +223,7 @@ export function PatternScanPage({
             {pattern.id === RESISTANCE_ID
               ? "Stocks pressing on a horizontal resistance on the daily chart: a price level at least three separate highs have touched, with the price up to 5% under it or just through it."
               : special
-                ? "Every scanned stock that passes your filters."
+                ? (patternMode ? "Every scanned stock that currently shows one of the chosen chart patterns and passes your other filters." : "Every scanned stock that passes your filters.")
                 : "Stocks showing this pattern on the daily chart right now: forming, awaiting breakout, or confirmed in the last 10 sessions. It describes how the shape has formed, not a forecast."}
           </p>
         </div>
@@ -241,13 +244,13 @@ export function PatternScanPage({
         </div>
       )}
 
-      {!special && (
+      {patternMode && (
         <div className="mt-5">
           <SlidingTabs ariaLabel="Mode" size="lg" value={mode} onChange={setMode} options={[{ id: "scan", label: "Scan results" }, { id: "backtest", label: "Backtest" }]} />
         </div>
       )}
 
-      {mode === "backtest" && !special ? (
+      {mode === "backtest" && patternMode ? (
         <BacktestPanel pattern={pattern} filters={filters} onOpenStock={onOpenStock} />
       ) : (
         <>

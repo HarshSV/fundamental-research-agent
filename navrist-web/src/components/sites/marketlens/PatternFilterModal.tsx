@@ -11,13 +11,15 @@ import {
 
 const SLIDER_STEPS = 1000;
 const FALLBACK_CAP = { min: 100, max: 2_000_000 }; // Rs crore, used only until the real bounds arrive
-type ModalTab = Tab | "resistance";
-const TABS: { id: ModalTab; label: string }[] = [
-  { id: "technicals", label: "Technicals" },
-  { id: "fundamentals", label: "Fundamentals" },
-  { id: "misc", label: "Miscellaneous" },
-  { id: "resistance", label: "Horizontal Resistance" },
-];
+type ModalTab = Tab | "resistance" | "patterns";
+const T_TECH = { id: "technicals" as ModalTab, label: "Technicals" };
+const T_FUND = { id: "fundamentals" as ModalTab, label: "Fundamentals" };
+const T_MISC = { id: "misc" as ModalTab, label: "Miscellaneous" };
+const T_PATTERNS = { id: "patterns" as ModalTab, label: "Patterns" };
+const T_RESISTANCE = { id: "resistance" as ModalTab, label: "Horizontal Resistance" };
+/** Horizontal resistance is its own scanner, not a filter on the others; chart patterns are a filter of the Create Screener. */
+const tabsFor = (id: string): { id: ModalTab; label: string }[] =>
+  id === RESISTANCE_ID ? [T_RESISTANCE, T_TECH, T_FUND, T_MISC] : id === SCREENER_ID ? [T_TECH, T_PATTERNS, T_FUND, T_MISC] : [T_TECH, T_FUND, T_MISC];
 const QUADRANTS: { id: Quadrant; label: string }[] = [
   { id: "leading", label: "Leading" }, { id: "improving", label: "Improving" }, { id: "weakening", label: "Weakening" }, { id: "lagging", label: "Lagging" },
 ];
@@ -178,16 +180,19 @@ function MaSection({
  * Select all, and Save / Load / Share of a filter set. Apply runs the scan.
  */
 export function PatternFilterModal({
-  pattern, options, initial, onApply, onClose,
+  pattern, options, catalogue, initial, onApply, onClose,
 }: {
   pattern: CatalogueEntry;
   options: ScanOptions | null;
+  catalogue: CatalogueEntry[];
   initial: ScanFilters;
   onApply: (f: ScanFilters) => void;
   onClose: () => void;
 }) {
   const [f, setF] = useState<ScanFilters>(initial);
-  const [tab, setTab] = useState<ModalTab>("technicals");
+  const tabs = tabsFor(pattern.id);
+  const [tab, setTab] = useState<ModalTab>(tabs[0].id);
+  const [patQ, setPatQ] = useState("");
   const [secQ, setSecQ] = useState("");
   const [saved, setSaved] = useState<SavedFilter[]>(() => loadSaved());
   const [menu, setMenu] = useState<null | "load" | "save">(null);
@@ -201,6 +206,13 @@ export function PatternFilterModal({
   };
   const sectors = useMemo(() => (options?.sectors ?? []).filter((s) => s.toLowerCase().includes(secQ.trim().toLowerCase())), [options, secQ]);
   const periods = options?.ma_periods ?? [10, 20, 50, 100, 200];
+  const charts = useMemo(() => catalogue.filter((c) => !isSpecial(c.id)), [catalogue]);
+  const patternGroups = useMemo(() => {
+    const q = patQ.trim().toLowerCase();
+    const by = new Map<string, CatalogueEntry[]>();
+    for (const c of charts) if (!q || c.name.toLowerCase().includes(q)) by.set(c.category, [...(by.get(c.category) ?? []), c]);
+    return [...by.entries()];
+  }, [charts, patQ]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -326,7 +338,7 @@ export function PatternFilterModal({
             <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }} title={pattern.definition}>{pattern.definition}</p>
             {note && <p className="mt-1 text-xs" style={{ color: "var(--accent-text, #b7b4e7)" }} role="status">{note}</p>}
             <div className="mt-3 flex gap-1" role="tablist">
-              {TABS.map((t) => (
+              {tabs.map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -456,18 +468,56 @@ export function PatternFilterModal({
               </>
             )}
 
+            {tab === "patterns" && (
+              <>
+                <Section
+                  title="Chart patterns"
+                  hint="Show stocks that currently show any of the ticked patterns. Leave all unticked for no pattern filter."
+                  right={<SelectAll label="patterns" total={charts.length} selected={f.patterns.values.length} onAll={() => patch({ patterns: { values: charts.map((c) => c.id) } })} onNone={() => patch({ patterns: { values: [] } })} />}
+                >
+                  <input
+                    value={patQ}
+                    onChange={(e) => setPatQ(e.target.value)}
+                    placeholder="Search patterns"
+                    aria-label="Search patterns"
+                    className="mb-2 w-full rounded-lg border bg-transparent px-3 py-2 text-sm outline-none"
+                    style={{ borderColor: "var(--border-default)" }}
+                  />
+                  {charts.length === 0 && <span className="px-2 py-1 text-xs" style={{ color: "var(--text-tertiary)" }}>Loading patterns…</span>}
+                  <div className="max-h-72 overflow-y-auto pr-1">
+                    {patternGroups.map(([cat, list]) => (
+                      <div key={cat} className="mb-2">
+                        <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>{cat}</div>
+                        <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+                          {list.map((c) => (
+                            <Tick key={c.id} checked={f.patterns.values.includes(c.id)} label={c.name} onChange={(on) => patch({ patterns: { values: toggle(f.patterns.values, c.id, on) } })} />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {charts.length > 0 && patternGroups.length === 0 && <span className="px-2 py-1 text-xs" style={{ color: "var(--text-tertiary)" }}>No pattern matches.</span>}
+                  </div>
+                </Section>
+                <Section
+                  title="Pattern status"
+                  hint="Where the formation is right now"
+                  right={<SelectAll label="statuses" total={options?.statuses.length ?? 0} selected={f.status.values.length} onAll={() => patch({ status: { values: (options?.statuses ?? []).map((x) => x.id) } })} onNone={() => patch({ status: { values: [] } })} />}
+                >
+                  <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+                    {(options?.statuses ?? []).map((s) => (
+                      <Tick key={s.id} checked={f.status.values.includes(s.id)} label={s.label} onChange={(on) => patch({ status: { values: toggle(f.status.values, s.id, on) } })} />
+                    ))}
+                  </div>
+                </Section>
+              </>
+            )}
+
             {tab === "resistance" && (
               <Section
                 title="Horizontal resistance"
                 hint="Stocks pressing on a price level that at least three separate highs have touched"
               >
-                {pattern.id === RESISTANCE_ID ? (
-                  <p className="text-sm" style={{ color: "var(--text-secondary)" }}>This scan always requires a horizontal resistance.</p>
-                ) : (
-                  <Row on={f.resistance.on} onToggle={(on) => patch({ resistance: { ...f.resistance, on } })}>
-                    <span>Show horizontal resistance stocks only</span>
-                  </Row>
-                )}
+                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>This scan always requires a horizontal resistance. Choose which stocks to keep:</p>
                 <div className="mt-1 flex flex-wrap gap-1 pl-7">
                   {(options?.resistance_states ?? [{ id: "near", label: "Near (up to 5% below)" }, { id: "breakout", label: "Breakout (last 3 sessions)" }]).map((st) => (
                     <Tick key={st.id} checked={f.resistance.states.includes(st.id as "near" | "breakout")} label={st.label}
@@ -548,7 +598,7 @@ export function PatternFilterModal({
             </button>
             <button
               type="button"
-              onClick={() => onApply(pattern.id === RESISTANCE_ID ? { ...f, resistance: { ...f.resistance, on: true } } : f)}
+              onClick={() => onApply(pattern.id === RESISTANCE_ID ? { ...f, resistance: { ...f.resistance, on: true } } : { ...f, resistance: { ...f.resistance, on: false }, patterns: pattern.id === SCREENER_ID ? f.patterns : { values: [] } })}
               className="rounded-lg px-8 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[var(--btn-primary-hover)]"
               style={{ background: "var(--btn-primary-bg)", boxShadow: "var(--shadow-accent)" }}
             >

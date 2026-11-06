@@ -1,9 +1,9 @@
 "use client";
 
-import { Moon, Search, SlidersHorizontal, Sun } from "lucide-react";
+import { Moon, Search, SlidersHorizontal, Sun, TrendingUp } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { SlidingTabs } from "./controls";
-import { OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
+import { OPEN_RESISTANCE_EVENT, OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
 import { Ticker } from "./Ticker";
 
 export const THEME_KEY = "navrist_theme";
@@ -83,6 +83,17 @@ export function Header() {
                 { id: "light", label: <Sun className="h-4 w-4" />, title: "Light mode" },
               ]}
             />
+            <button
+              type="button"
+              aria-label="Horizontal Resistance scanner"
+              onClick={() => window.dispatchEvent(new Event(OPEN_RESISTANCE_EVENT))}
+              title="Horizontal Resistance: stocks pressing on a price level that at least three highs have touched"
+              className="flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors hover:border-[var(--accent-border)] hover:bg-[var(--accent-surface)] hover:text-[var(--accent)] sm:py-2"
+              style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)", background: "var(--surface-1)" }}
+            >
+              <TrendingUp className="h-4 w-4" />
+              <span className="hidden lg:inline">Horizontal Resistance</span>
+            </button>
             <button
               type="button"
               aria-label="Create Screener"

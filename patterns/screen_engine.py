@@ -241,6 +241,8 @@ def search(pattern, f: dict, include_candles: bool = False) -> dict:
     rows = scan._load_all()
     pat = None if pattern in (None, "") or pattern in SPECIAL else pattern
     f = dict(f or {})
+    # The Create Screener can also be limited to stocks showing any of several chart patterns (f["patterns"]["values"]).
+    multi = set((f.get("patterns") or {}).get("values") or []) if pattern == "all" else set()
     if pattern == "horizontal-resistance":
         f["resistance"] = {**(f.get("resistance") or {}), "require": True}
     quad = None
@@ -251,8 +253,8 @@ def search(pattern, f: dict, include_candles: bool = False) -> dict:
     out = []
     for r in rows.values():
         occ = []
-        if pat:
-            occ = [o for o in r["occurrences"] if o["pattern"] == pat]
+        if pat or multi:
+            occ = [o for o in r["occurrences"] if (o["pattern"] == pat if pat else o["pattern"] in multi)]
             if not occ:
                 continue
             if stat.get("values") and not _any_of(stat["values"], [o["status"] for o in occ]):
@@ -272,10 +274,11 @@ def search(pattern, f: dict, include_candles: bool = False) -> dict:
         row["occurrence"] = best
         row["occurrence_count"] = len(occ)
         out.append(row)
-    sort = f.get("sort") or ("status" if pat else "market_cap")
+    has_occ = bool(pat or multi)
+    sort = f.get("sort") or ("status" if has_occ else "market_cap")
     if sort == "name":
         out.sort(key=lambda x: x["name"] or x["symbol"])
-    elif sort == "status" and pat:
+    elif sort == "status" and has_occ:
         out.sort(key=lambda x: (_STATUS_RANK.get(x["occurrence"]["status"], 9), -(x["market_cap_cr"] or -1)))
     else:
         out.sort(key=_sort_key(sort if sort in SORTS else "market_cap"))
@@ -333,7 +336,9 @@ def backtest(pattern: str, f: dict) -> dict:
     if (f.get("rrg") or {}).get("quadrants"):
         quad = rrg_quadrants(rows, f["rrg"].get("timeframe", "daily"), f["rrg"].get("benchmark", "nifty50"))
     stocks = [r for r in rows.values() if _stock_passes(r, f, quad, state=False)]
-    trades = [(r["symbol"], r["name"], t) for r in stocks for t in (r.get("trades") or []) if pattern == "all" or t[0] == pattern]
+    pats = set((f.get("patterns") or {}).get("values") or []) if pattern == "all" else set()
+    trades = [(r["symbol"], r["name"], t) for r in stocks for t in (r.get("trades") or [])
+              if (t[0] in pats if pats else pattern == "all") or t[0] == pattern]
     stats = {str(hh): _stats([t[4 + i] for _, _, t in trades if t[4 + i] is not None]) for i, hh in enumerate(HORIZONS)}
     at_h = [t[col] for _, _, t in trades if t[col] is not None]
     years: dict = {}

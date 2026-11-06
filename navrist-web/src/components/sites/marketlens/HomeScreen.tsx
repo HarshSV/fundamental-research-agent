@@ -3,7 +3,7 @@
 import { AlertHost } from "./AlertHost";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CompanyHit } from "@/lib/api";
-import { OPEN_SCREENER_EVENT, OPEN_SEARCH_EVENT } from "./searchEvents";
+import { OPEN_RESISTANCE_EVENT, OPEN_SCREENER_EVENT, OPEN_SEARCH_EVENT } from "./searchEvents";
 import { SearchOverlay } from "./SearchOverlay";
 import { Hero } from "./Hero";
 import { PatternFilterModal } from "./PatternFilterModal";
@@ -165,6 +165,13 @@ export function HomeScreen() {
     return () => window.removeEventListener(OPEN_SCREENER_EVENT, start);
   }, [openPattern]);
 
+  // "Horizontal Resistance" (header button): its own scanner, separate from the screener's filters
+  useEffect(() => {
+    const start = () => openPattern(RESISTANCE_ID);
+    window.addEventListener(OPEN_RESISTANCE_EVENT, start);
+    return () => window.removeEventListener(OPEN_RESISTANCE_EVENT, start);
+  }, [openPattern]);
+
   const page =
     view.kind === "stock" ? <StockView key={view.stock.symbol} stock={view.stock} onBack={pop} onOpenStock={openStock} scan={view.scan} />
     : view.kind === "sector" ? <SectorPage name={view.name} onBack={pop} onSelect={openStock} />
@@ -214,6 +221,7 @@ export function HomeScreen() {
           key={`${modal.pattern}-${modal.edit}`}
           pattern={entries.find((c) => c.id === modal.pattern) as CatalogueEntry}
           options={scanOptions}
+          catalogue={catalogue}
           initial={modal.initial}
           onApply={applyFilters}
           onClose={() => setModal(null)}

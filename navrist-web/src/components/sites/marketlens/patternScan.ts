@@ -57,6 +57,8 @@ export interface ScanFilters {
   indices: { values: string[] };
   sectors: { values: string[] };
   status: { values: PatternStatus[] };
+  /** Create Screener only: show stocks that currently show any of these chart patterns (catalogue ids). */
+  patterns: { values: string[] };
   ema: { periods: number[]; side: "above" | "below" };
   dma: { periods: number[]; side: "above" | "below" };
   ranges: Record<string, RangeState>; // mcap + every RANGE_DEFS key
@@ -74,6 +76,7 @@ export const emptyFilters = (): ScanFilters => ({
   indices: { values: [] },
   sectors: { values: [] },
   status: { values: [] },
+  patterns: { values: [] },
   ema: { periods: [], side: "above" },
   dma: { periods: [], side: "above" },
   ranges: Object.fromEntries([MCAP_KEY, ...RANGE_DEFS.map((d) => d.key)].map((k) => [k, off()])),
@@ -228,6 +231,7 @@ export function serialize(f: ScanFilters): Record<string, unknown> {
   if (f.indices.values.length) b.indices = f.indices;
   if (f.sectors.values.length) b.sectors = f.sectors;
   if (f.status.values.length) b.status = f.status;
+  if (f.patterns.values.length) b.patterns = f.patterns;
   if (f.ema.periods.length) b.ema = f.ema;
   if (f.dma.periods.length) b.dma = f.dma;
   for (const [k, r] of Object.entries(f.ranges)) if (r.on && (r.min != null || r.max != null)) b[k] = { min: r.min, max: r.max };
@@ -261,6 +265,7 @@ export function describeFilters(f: ScanFilters, opts: ScanOptions | null): strin
   const out: string[] = [];
   if (f.indices.values.length) out.push(f.indices.values.map((v) => opts?.indices.find((i) => i.id === v)?.label.split(" (")[0] ?? v).join(", "));
   if (f.sectors.values.length) out.push(f.sectors.values.join(", "));
+  if (f.patterns.values.length) out.push(`Patterns: ${f.patterns.values.map((v) => v.replace(/-and-/g, " & ").replace(/-/g, " ")).join(", ")}`);
   if (f.status.values.length) out.push(f.status.values.join(", ").replace(/_/g, " "));
   if (f.ema.periods.length) out.push(`Price ${f.ema.side} EMA ${f.ema.periods.join(", ")}`);
   if (f.dma.periods.length) out.push(`Price ${f.dma.side} DMA ${f.dma.periods.join(", ")}`);
