@@ -114,8 +114,14 @@ Sankey -> icicle diagrams, multi-year comparison, segment-revenue extraction and
 ### 2026-11-06 - Login hardening (working tree, uncommitted)
 * *Historical:* `/api/auth/login` accepted unlimited wrong passwords; the real password was written in an `auth.py` comment. *Change:* per-client throttle (5 failures / 15 min, then HTTP 429 with `Retry-After`) in `auth.py` and `app.py`; the comment now holds a placeholder. *Current:* observed on the restarted backend: attempts 1-5 gave 401, 6-7 gave 429, another client address was unaffected. A route audit found 91 of 95 routes protected; the four open ones are login, `/`, `/api/health` and `/api/v1/market-indices`. *Unresolved:* rotate the password and `JWT_SECRET_KEY` (M-18); M-21 (`.env.example` out of date).
 
+### 2026-11-06 - Create Screener patterns and a separate Horizontal Resistance scanner
+* *Historical:* the Create Screener had no chart-pattern filter; Horizontal Resistance was a filter tab in every scanner, and its own scanner had no button on the page. *Change:* a Patterns tab in Create Screener (multi-pattern, plus pattern status) backed by `patterns` in `screen_engine.search`/`backtest`; the resistance tab removed everywhere except the Horizontal Resistance scanner, which now opens from a compact header button (`OPEN_RESISTANCE_EVENT`). *Current:* backend results checked on the 751-stock store (751 / 113 / 118 / 70 stocks for the cases listed in B.17); screens checked in a browser at desktop and 375 px; live at ai.navrist.com. *Unresolved:* M-28 (resistance line still shown in some result rows).
+
+### 2026-11-06 - ChartsMaze feature comparison (record)
+* Compared ChartsMaze's public menu with Navrist; its page contents are behind a sign-up that was not used. Findings and a three-group build plan: [`ChartsMaze gap analysis`](CHARTSMAZE_GAP_ANALYSIS.md). *Unresolved:* M-27.
+
 ### 2026-11-06 - Documentation update (this change set)
-* Updated `PROJECT_DOCUMENTATION.md` (header note, B.17, D.3, M-17 to M-25, O.4, O.9, O.10, R), this changelog and `DEPLOY.md`; no application code changed by this step.
+* Updated `PROJECT_DOCUMENTATION.md` (header note, B.17, D.2, D.3, M-17 to M-28, O.4, O.9, O.10, R), this changelog, `DEPLOY.md` and added `docs/CHARTSMAZE_GAP_ANALYSIS.md`; no application code changed by this step.
 
 ---
 
