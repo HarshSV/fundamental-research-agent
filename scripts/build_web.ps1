@@ -10,7 +10,7 @@ try {
   if ($LASTEXITCODE -ne 0) { Write-Host "Build failed - the running site was not touched."; exit 1 }
 } finally { Pop-Location }
 
-# stop whatever serves port 3100; the keeper brings the new build up
-$conn = Get-NetTCPConnection -LocalPort 3100 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($conn -and $conn.OwningProcess -gt 0) { Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue }
+# stop whatever serves port 3100 (matched by its command line: the listener's owner id is not always readable); the keeper brings the new build up
+$old = Get-CimInstance Win32_Process | Where-Object { $_.Name -in @("node.exe", "cmd.exe") -and $_.CommandLine -match "(npm|next).*(start).*-p 3100" }
+foreach ($p in $old) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
 Write-Host "Build done. The site restarts within about a minute."

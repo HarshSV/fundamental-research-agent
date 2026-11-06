@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, ChevronDown, Menu, Moon, Search, SlidersHorizontal, Sun, TrendingUp, X } from "lucide-react";
+import { BarChart3, ChevronDown, Menu, Moon, Search, SlidersHorizontal, Sun, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SlidingTabs } from "./controls";
 import { OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
@@ -271,29 +271,7 @@ export function Header() {
             <span className="hidden truncate text-sm xl:inline">Search stocks, sectors…</span>
           </button>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
-            <div className="hidden min-[360px]:block">{themeTabs}</div>
-            <button
-              type="button"
-              aria-label="Horizontal Resistance scanner"
-              onClick={() => navigateTo({ type: "scanner", id: "horizontal-resistance" })}
-              title="Horizontal Resistance: stocks pressing on a price level that at least three highs have touched"
-              className="hidden items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors hover:border-[var(--accent-border)] hover:bg-[var(--accent-surface)] hover:text-[var(--accent)] xl:flex"
-              style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)", background: "var(--surface-1)" }}
-            >
-              <TrendingUp className="h-4 w-4" />
-              <span className="hidden 2xl:inline">Horizontal Resistance</span>
-            </button>
-            <button
-              type="button"
-              aria-label="Create Screener"
-              onClick={() => window.dispatchEvent(new Event(OPEN_SCREENER_EVENT))}
-              title="Create a screener: filter every stock by technicals, chart patterns and fundamentals"
-              className="flex h-10 items-center gap-2 rounded-lg px-3 text-sm text-white transition-colors hover:bg-[var(--btn-primary-hover)] sm:px-5"
-              style={{ background: "var(--btn-primary-bg)", boxShadow: "var(--shadow-accent)" }}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              <span className="hidden sm:inline">Create Screener</span>
-            </button>
+            <div>{themeTabs}</div>
           </div>
         </div>
       </header>
