@@ -41,7 +41,7 @@ export function StockList({
   }, [stocks, q, sort]);
 
   const th = (key: string, label: string, left = false) => (
-    <th key={key} className={`px-4 py-3 font-semibold ${left ? "text-left" : "text-right"}`}>
+    <th key={key} className={`px-3 py-3 font-semibold sm:px-4 ${left ? "text-left" : "text-right"}`}>
       <button
         onClick={() => setSort((s) => (s.key === key ? { key, dir: (-s.dir) as 1 | -1 } : { key, dir: key === "name" ? 1 : -1 }))}
         className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-[var(--accent)]"
@@ -103,6 +103,7 @@ export function StockList({
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+          <p className="sticky left-0 w-[calc(100vw-2rem)] px-4 py-2 text-[11px] sm:hidden" style={{ color: "var(--text-tertiary)" }}>Swipe sideways for more columns →</p>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs" style={{ color: "var(--text-tertiary)", background: "var(--overlay-weak)" }}>
@@ -118,12 +119,12 @@ export function StockList({
                   className="cursor-pointer border-t transition-colors hover:bg-[var(--accent-surface)]"
                   style={{ borderColor: "var(--border-subtle)" }}
                 >
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-3 sm:px-4">
                     <div className="font-semibold">{s.name}</div>
                     <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{s.symbol}</div>
                   </td>
                   {cols.map((c) => (
-                    <td key={c} className="nv-num px-4 py-3 text-right">{cell(s, c)}</td>
+                    <td key={c} className="nv-num px-3 py-3 text-right sm:px-4">{cell(s, c)}</td>
                   ))}
                 </tr>
               ))}

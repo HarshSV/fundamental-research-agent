@@ -103,7 +103,7 @@ export function BacktestPanel({ pattern, filters, onOpenStock }: { pattern: Cata
           <button
             key={h}
             onClick={() => { setHorizon(h); setPage(1); }}
-            className="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors"
+            className="rounded-lg border px-3 py-2.5 text-xs sm:py-1.5 font-medium transition-colors"
             style={{
               borderColor: horizon === h ? "var(--accent-border)" : "var(--border-default)",
               background: horizon === h ? "var(--accent-surface)" : "transparent",
@@ -129,7 +129,7 @@ export function BacktestPanel({ pattern, filters, onOpenStock }: { pattern: Cata
           <h3 className="mb-3 text-sm font-semibold">Distribution of {horizon}-bar returns</h3>
           <Histogram bins={d.histogram} />
         </div>
-        <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+        <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs uppercase tracking-wide" style={{ color: "var(--text-tertiary)", background: "var(--overlay-weak)" }}>
@@ -160,8 +160,8 @@ export function BacktestPanel({ pattern, filters, onOpenStock }: { pattern: Cata
         </div>
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_2fr]">
-        <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[1fr_2fr]">
+        <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs uppercase tracking-wide" style={{ color: "var(--text-tertiary)", background: "var(--overlay-weak)" }}>
@@ -185,7 +185,7 @@ export function BacktestPanel({ pattern, filters, onOpenStock }: { pattern: Cata
         </div>
 
         <div>
-          <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+          <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs uppercase tracking-wide" style={{ color: "var(--text-tertiary)", background: "var(--overlay-weak)" }}>
@@ -218,11 +218,11 @@ export function BacktestPanel({ pattern, filters, onOpenStock }: { pattern: Cata
             <span>Showing {((page - 1) * PAGE + 1).toLocaleString("en-IN")} - {Math.min(d.trades_total, page * PAGE).toLocaleString("en-IN")} of {d.trades_total.toLocaleString("en-IN")} trades, newest first</span>
             {pages > 1 && (
               <div className="flex items-center gap-2">
-                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="flex items-center gap-1 rounded-lg border px-3 py-1.5 disabled:opacity-40" style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}>
+                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="flex min-h-[40px] items-center gap-1 rounded-lg border px-3 py-1.5 disabled:opacity-40 sm:min-h-0" style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}>
                   <ChevronLeft className="h-3.5 w-3.5" /> Previous
                 </button>
                 <span className="rounded-lg px-3 py-1.5" style={{ background: "var(--btn-primary-bg)", color: "#fff" }}>{page} / {pages}</span>
-                <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page >= pages} className="flex items-center gap-1 rounded-lg border px-3 py-1.5 disabled:opacity-40" style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}>
+                <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page >= pages} className="flex min-h-[40px] items-center gap-1 rounded-lg border px-3 py-1.5 disabled:opacity-40 sm:min-h-0" style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}>
                   Next <ChevronRight className="h-3.5 w-3.5" />
                 </button>
               </div>

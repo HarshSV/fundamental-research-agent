@@ -1,5 +1,6 @@
 "use client";
 
+import { SlidingTabs } from "./controls";
 import { ArrowLeft, ChevronLeft, ChevronRight, Download, LineChart, List, Search, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { CompanyHit } from "@/lib/api";
@@ -206,11 +207,10 @@ export function PatternScanPage({
   const cols = useMemo(() => columns(colset, pattern, drawResistance), [colset, pattern, drawResistance]);
   const sorts = SORTS.filter(([k]) => !(special && k === "status"));
 
-  const seg = (on: boolean) => ({ background: on ? "var(--btn-primary-bg)" : "transparent", color: on ? "#fff" : "var(--text-secondary)" });
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-8">
-      <button onClick={onBack} className="mb-5 flex items-center gap-2 text-sm hover:text-[var(--accent)]" style={{ color: "var(--text-secondary)" }}>
+      <button onClick={onBack} className="mb-3 flex min-h-[44px] items-center gap-2 text-sm hover:text-[var(--accent)] sm:mb-5 sm:min-h-0" style={{ color: "var(--text-secondary)" }}>
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -242,10 +242,8 @@ export function PatternScanPage({
       )}
 
       {!special && (
-        <div className="mt-5 inline-flex rounded-xl border p-1" style={{ borderColor: "var(--border-default)" }}>
-          {([["scan", "Scan results"], ["backtest", "Backtest"]] as const).map(([id, label]) => (
-            <button key={id} onClick={() => setMode(id)} className="rounded-lg px-4 py-2 text-sm font-medium transition-colors" style={seg(mode === id)}>{label}</button>
-          ))}
+        <div className="mt-5">
+          <SlidingTabs ariaLabel="Mode" size="lg" value={mode} onChange={setMode} options={[{ id: "scan", label: "Scan results" }, { id: "backtest", label: "Backtest" }]} />
         </div>
       )}
 
@@ -263,28 +261,21 @@ export function PatternScanPage({
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
-              <div className="inline-flex rounded-xl border p-1" style={{ borderColor: "var(--accent-border)" }}>
-                {([["list", "List", List], ["charts", "Charts", LineChart]] as const).map(([id, label, Icon]) => (
-                  <button key={id} onClick={() => { setView(id); setPage(1); }} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors" style={seg(view === id)}>
-                    <Icon className="h-4 w-4" /> {label}
-                  </button>
-                ))}
-              </div>
+              <SlidingTabs
+                ariaLabel="View"
+                size="lg"
+                value={view}
+                onChange={(id) => { setView(id); setPage(1); }}
+                options={[
+                  { id: "list", label: <span className="flex items-center gap-2"><List className="h-4 w-4" /> List</span> },
+                  { id: "charts", label: <span className="flex items-center gap-2"><LineChart className="h-4 w-4" /> Charts</span> },
+                ]}
+              />
               {view === "charts" && (
-                <div className="inline-flex rounded-xl border p-1" style={{ borderColor: "var(--accent-border)" }} role="group" aria-label="Charts per row">
-                  {([1, 2] as const).map((n) => (
-                    <button key={n} onClick={() => setPerRow(n)} className="rounded-lg px-4 py-2 text-sm font-medium transition-colors" style={seg(perRow === n)} aria-pressed={perRow === n}>
-                      {n} per row
-                    </button>
-                  ))}
-                </div>
+                <SlidingTabs ariaLabel="Charts per row" size="lg" value={String(perRow)} onChange={(id) => setPerRow(Number(id) as 1 | 2)} options={[{ id: "1", label: "1 per row" }, { id: "2", label: "2 per row" }]} />
               )}
               {view === "list" && (
-                <div className="inline-flex rounded-xl border p-1" style={{ borderColor: "var(--accent-border)" }}>
-                  {([["technicals", "Technicals"], ["fundamentals", "Fundamentals"]] as const).map(([id, label]) => (
-                    <button key={id} onClick={() => setColset(id)} className="rounded-lg px-4 py-2 text-sm font-medium transition-colors" style={seg(colset === id)}>{label}</button>
-                  ))}
-                </div>
+                <SlidingTabs ariaLabel="Columns" size="lg" value={colset} onChange={setColset} options={[{ id: "technicals", label: "Technicals" }, { id: "fundamentals", label: "Fundamentals" }]} />
               )}
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -342,7 +333,8 @@ export function PatternScanPage({
                     : "No stocks match this scan and these filters right now."}
               </div>
             ) : view === "list" ? (
-              <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)", opacity: loading ? 0.6 : 1 }}>
+              <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)", opacity: loading ? 0.6 : 1 }}>
+                <p className="sticky left-0 w-[calc(100vw-2rem)] px-4 py-2 text-[11px] sm:hidden" style={{ color: "var(--text-tertiary)" }}>Swipe sideways for more columns →</p>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-xs uppercase tracking-wide" style={{ color: "var(--text-tertiary)", background: "var(--overlay-weak)" }}>
@@ -411,11 +403,11 @@ export function PatternScanPage({
             <span>{total ? `Showing ${first.toLocaleString("en-IN")} - ${last.toLocaleString("en-IN")} of ${total.toLocaleString("en-IN")}` : ""}</span>
             {pages > 1 && (
               <div className="flex items-center gap-2">
-                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="flex items-center gap-1 rounded-lg border px-3 py-1.5 disabled:opacity-40" style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}>
+                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="flex min-h-[40px] items-center gap-1 rounded-lg border px-3 py-1.5 disabled:opacity-40 sm:min-h-0" style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}>
                   <ChevronLeft className="h-3.5 w-3.5" /> Previous
                 </button>
-                <span className="rounded-lg px-3 py-1.5" style={{ background: "var(--btn-primary-bg)", color: "#fff" }}>{page} / {pages}</span>
-                <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page >= pages} className="flex items-center gap-1 rounded-lg border px-3 py-1.5 disabled:opacity-40" style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}>
+                <span className="rounded-lg px-3 py-2 sm:py-1.5" style={{ background: "var(--btn-primary-bg)", color: "#fff" }}>{page} / {pages}</span>
+                <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page >= pages} className="flex min-h-[40px] items-center gap-1 rounded-lg border px-3 py-1.5 disabled:opacity-40 sm:min-h-0" style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}>
                   Next <ChevronRight className="h-3.5 w-3.5" />
                 </button>
               </div>

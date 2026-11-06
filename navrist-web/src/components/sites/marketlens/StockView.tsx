@@ -560,7 +560,7 @@ export function StockView({
   return (
     <div className="w-full">
       <section className="mx-auto w-full max-w-7xl px-4 pb-8 pt-8">
-        <button onClick={onBack} className="mb-5 flex items-center gap-2 text-sm hover:text-[var(--accent)]" style={{ color: "var(--text-secondary)" }}>
+        <button onClick={onBack} className="mb-3 flex min-h-[44px] items-center gap-2 text-sm hover:text-[var(--accent)] sm:mb-5 sm:min-h-0" style={{ color: "var(--text-secondary)" }}>
           <ArrowLeft className="h-4 w-4" /> Back to search
         </button>
         <div className="flex flex-wrap items-center gap-3">

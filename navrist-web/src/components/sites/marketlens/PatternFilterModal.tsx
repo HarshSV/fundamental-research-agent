@@ -1,5 +1,6 @@
 "use client";
 
+import { SlidingTabs } from "./controls";
 import { Check, ChevronDown, Share2, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { CatalogueEntry } from "./patterns";
@@ -30,7 +31,7 @@ const box = { borderColor: "var(--border-default)", background: "var(--surface-2
 
 function Tick({ checked, label, onChange }: { checked: boolean; label: string; onChange: (v: boolean) => void }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--overlay-weak)]">
+    <label className="flex min-h-[40px] cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm sm:min-h-0 transition-colors hover:bg-[var(--overlay-weak)]">
       <span
         className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-colors"
         style={{ borderColor: checked ? "#b7b4e7" : "var(--border-default)", background: checked ? "#b7b4e7" : "transparent" }}
@@ -159,20 +160,10 @@ function MaSection({
       hint={`Compares the latest close with the ${title} of the daily chart`}
       right={<SelectAll label={title} total={periods.length} selected={value.periods.length} onAll={() => onChange({ ...value, periods: [...periods] })} onNone={() => onChange({ ...value, periods: [] })} />}
     >
-      <div className="mb-3 inline-flex rounded-lg p-0.5 text-xs font-medium" style={{ background: "var(--overlay-weak)" }}>
-        {(["above", "below"] as const).map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => onChange({ ...value, side: s })}
-            className="rounded-md px-3 py-1 transition-colors"
-            style={{ background: value.side === s ? "#b7b4e7" : "transparent", color: value.side === s ? "var(--on-accent)" : "var(--text-secondary)" }}
-          >
-            Price {s}
-          </button>
-        ))}
+      <div className="mb-3">
+        <SlidingTabs ariaLabel="Price side" size="sm" value={value.side} onChange={(side) => onChange({ ...value, side })} options={[{ id: "above", label: "Price above" }, { id: "below", label: "Price below" }]} />
       </div>
-      <div className="flex flex-wrap gap-1">
+      <div className="grid grid-cols-2 gap-1 sm:flex sm:flex-wrap">
         {periods.map((p) => (
           <Tick key={p} checked={value.periods.includes(p)} label={`${title} ${p}`} onChange={(on) => onChange({ ...value, periods: toggle(value.periods, p, on) })} />
         ))}

@@ -6,6 +6,7 @@ import { TYPED_PHRASES } from "./data";
 import type { CatalogueEntry } from "./patterns";
 import { useTyped } from "./typing";
 
+const LONGEST_PHRASE = TYPED_PHRASES.reduce((a, b) => (b.length > a.length ? b : a), "");
 const BOX_HINTS = ["IT Services", "Banks", "Pharmaceuticals", "Tata Steel"];
 
 export function Hero({ patterns, patternsError, onPattern }: { patterns: CatalogueEntry[]; patternsError: string; onPattern: (id: string) => void }) {
@@ -26,12 +27,20 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
       <div className="relative mx-auto max-w-4xl px-4 pb-12 pt-16 text-center">
         <h1 className="mb-4 text-4xl font-bold leading-[1.15] tracking-tight lg:text-5xl">
           NAVRIST AI.{" "}
-          <span style={{ color: "var(--accent)" }}>
-            {typed}
-            <span
-              className="ml-0.5 inline-block h-[0.9em] w-[3px] animate-pulse align-middle"
-              style={{ background: "var(--accent)" }}
-            />
+          {/* The longest phrase is laid out invisibly in the same grid cell, so the headline keeps one fixed size and
+              wrapping while the phrase types and deletes (otherwise the search box below jumps up and down). */}
+          <span className="inline-grid text-left" style={{ color: "var(--accent)" }}>
+            <span aria-hidden="true" className="invisible col-start-1 row-start-1">
+              {LONGEST_PHRASE}
+              <span className="ml-0.5 inline-block w-[3px]" />
+            </span>
+            <span className="col-start-1 row-start-1">
+              {typed}
+              <span
+                className="ml-0.5 inline-block h-[0.9em] w-[3px] animate-pulse align-middle"
+                style={{ background: "var(--accent)" }}
+              />
+            </span>
           </span>
         </h1>
         <p className="mx-auto mb-10 max-w-2xl text-lg" style={{ color: "var(--text-secondary)" }}>
@@ -72,7 +81,7 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
               <button
                 onClick={() => onPattern(p.id)}
                 title={`${p.category}${p.bias ? ` · ${p.bias === "both" ? "direction depends on the structure" : p.bias}` : ""}: ${p.definition}`}
-                className="rounded-full px-3.5 py-1.5 text-xs transition-colors duration-200 hover:bg-[var(--overlay)] hover:text-[var(--text-primary)]"
+                className="rounded-full px-3.5 py-2.5 text-xs transition-colors sm:py-1.5 duration-200 hover:bg-[var(--overlay)] hover:text-[var(--text-primary)]"
                 style={{ background: "var(--surface-1)", color: "var(--text-secondary)" }}
               >
                 {p.name}

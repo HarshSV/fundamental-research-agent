@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { fetchJson } from "@/lib/api";
+import { SlidingTabs, Switch } from "./controls";
 
 export interface Quarter {
   period: string;
@@ -25,6 +26,12 @@ export interface Peer {
   metrics: Record<string, { value: number | null } | undefined>;
 }
 
+/** One ratio on the two bases: last four quarters (ttm) and the last full financial year (annual); null = not computable. */
+export interface Basis2 {
+  ttm: number | null;
+  annual: number | null;
+}
+
 export interface Overview {
   source: string;
   market_cap_cr?: number | null;
@@ -40,6 +47,18 @@ export interface Overview {
   shareholding?: Shareholding | null;
   peers?: Peer[];
   peers_source?: "screener" | "sector";
+  basis?: "consolidated" | "standalone";
+  is_financial?: boolean;
+  ratios?: {
+    annual_label: string | null;
+    roe: Basis2;
+    net_margin: Basis2;
+    revenue_growth: Basis2;
+    interest_coverage: Basis2 | null;
+    book_value: number | null;
+    dividend_yield: number | null;
+    promoter: number | null;
+  } | null;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -89,7 +108,7 @@ export type FinTab = "results" | "eps";
 
 /** Last four reported quarters, newest first (as on the exchange's page). Amounts in ₹ Lakhs; hover a quarter for
  *  its exact figures. A quarter whose value is unavailable draws no bar and reads "—" in the tooltip. */
-export function QuarterlyResults({ quarters, tab, onTab }: { quarters: Quarter[]; tab: FinTab; onTab: (t: FinTab) => void }) {
+export function QuarterlyResults({ quarters, tab, onTab, standalone = false }: { quarters: Quarter[]; tab: FinTab; onTab: (t: FinTab) => void; standalone?: boolean }) {
   const [hover, setHover] = useState<number | null>(null);
   const last = quarters.slice(-4).reverse();
   // ₹ Crore -> ₹ Lakhs
@@ -114,17 +133,8 @@ export function QuarterlyResults({ quarters, tab, onTab }: { quarters: Quarter[]
 
   return (
     <div>
-      <div className="mb-4 flex gap-1 rounded-lg p-1" style={{ background: "var(--overlay-weak)" }}>
-        {(["results", "eps"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => onTab(t)}
-            className="rounded-md px-3 py-1.5 text-xs font-medium"
-            style={{ background: tab === t ? "#b7b4e7" : "transparent", color: tab === t ? "var(--on-accent)" : "var(--text-secondary)" }}
-          >
-            {t === "results" ? "Results" : "Earnings Per Share"}
-          </button>
-        ))}
+      <div className="mb-4">
+        <SlidingTabs ariaLabel="Financial view" options={[{ id: "results", label: "Results" }, { id: "eps", label: "Earnings Per Share" }]} value={tab} onChange={onTab} />
       </div>
       <div className="mb-3 flex flex-wrap gap-4 text-xs" style={{ color: "var(--text-secondary)" }}>
         {series.map((s) => (
@@ -162,7 +172,7 @@ export function QuarterlyResults({ quarters, tab, onTab }: { quarters: Quarter[]
                     );
                   })}
                 </div>
-                <div className="absolute inset-x-0 text-center text-[11px]" style={{ top: H + 6, color: "var(--text-tertiary)" }}>{dayLabel(q.period)}</div>
+                <div className="absolute inset-x-0 whitespace-pre-line text-center text-[11px] leading-tight" style={{ top: H + 6, color: "var(--text-tertiary)" }}>{dayLabel(q.period).replace(/ (\d{4})$/, "\n$1")}</div>
                 {hover === qi && (
                   <div
                     className="pointer-events-none absolute z-10 w-max rounded-lg px-3 py-2 text-xs shadow-lg"
@@ -184,8 +194,8 @@ export function QuarterlyResults({ quarters, tab, onTab }: { quarters: Quarter[]
           </div>
         </div>
       </div>
-      <p className="mt-2 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-        Consolidated results (parent plus subsidiaries), latest four quarters, newest first. Source: Screener.in.
+      <p className="mt-9 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+        {standalone ? "Standalone results (this company reports no consolidated accounts)" : "Consolidated results (parent plus subsidiaries)"}, latest four quarters, newest first. Source: Screener.in.
       </p>
     </div>
   );
@@ -210,17 +220,8 @@ export function ShareholdingPattern({ data, symbol }: { data: Shareholding; symb
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap gap-1 rounded-lg p-1" style={{ background: "var(--overlay-weak)" }}>
-        {idxs.map((i) => (
-          <button
-            key={i}
-            onClick={() => setSel(i)}
-            className="rounded-md px-3 py-1.5 text-xs font-medium"
-            style={{ background: sel === i ? "#b7b4e7" : "transparent", color: sel === i ? "var(--on-accent)" : "var(--text-secondary)" }}
-          >
-            {data.quarters[i]}
-          </button>
-        ))}
+      <div className="mb-4 max-w-full overflow-x-auto">
+        <SlidingTabs ariaLabel="Quarter" options={idxs.map((i) => ({ id: String(i), label: <><span className="sm:hidden">{data.quarters[i].replace(/ \d{2}(\d{2})$/, " ’$1")}</span><span className="hidden sm:inline">{data.quarters[i]}</span></> }))} value={String(sel)} onChange={(id) => setSel(Number(id))} />
       </div>
       <div className="mb-3 flex flex-wrap gap-4 text-xs" style={{ color: "var(--text-secondary)" }}>
         {keys.map((k) => (
@@ -355,18 +356,7 @@ function ShareholdingDetail({ data, k, sel, symbol, onClose }: { data: Sharehold
           {SH_LABELS[k]}
         </div>
         <div className="flex items-center gap-3 text-xs" style={{ color: "var(--text-secondary)" }}>
-          <label className="flex cursor-pointer items-center gap-2">
-            All groups
-            <button
-              role="switch"
-              aria-checked={all}
-              onClick={() => setAll((v) => !v)}
-              className="relative h-4 w-7 rounded-full transition-colors"
-              style={{ background: all ? "#10b981" : "var(--border-subtle)" }}
-            >
-              <span className="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all" style={{ left: all ? 14 : 2 }} />
-            </button>
-          </label>
+          <Switch on={all} onChange={() => setAll((v) => !v)} label="All groups" />
           <button onClick={onClose} aria-label="Close" className="px-1 text-base leading-none" style={{ color: "var(--text-tertiary)" }}>×</button>
         </div>
       </div>
@@ -643,7 +633,8 @@ export function About({ profile, fallbackText }: { profile: Profile | null; fall
 export function PeerTable({ peers, current, onSelect }: { peers: Peer[]; current: string; onSelect?: (p: Peer) => void }) {
   const head = ["Company", "Price", "Market Cap", "P/E Ratio", "ROCE %"];
   return (
-    <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+    <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}>
+      <p className="sticky left-0 w-[calc(100vw-2rem)] px-4 py-2 text-[11px] sm:hidden" style={{ color: "var(--text-tertiary)" }}>Swipe sideways for more columns →</p>
       <table className="w-full text-sm">
         <thead>
           <tr className="text-xs uppercase tracking-wide" style={{ color: "var(--text-tertiary)", background: "var(--overlay-weak)" }}>
