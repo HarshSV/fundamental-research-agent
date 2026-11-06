@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Search } from "lucide-react";
 import { openSearch } from "./searchEvents";
 import { TYPED_PHRASES } from "./data";
@@ -7,11 +8,17 @@ import type { CatalogueEntry } from "./patterns";
 import { useTyped } from "./typing";
 
 const LONGEST_PHRASE = TYPED_PHRASES.reduce((a, b) => (b.length > a.length ? b : a), "");
-const BOX_HINTS = ["IT Services", "Banks", "Pharmaceuticals", "Tata Steel"];
+/** The chips shown first on the landing page (5 bullish, 3 bearish, 2 either way); the rest sit behind "More". */
+const TOP_PATTERNS = [
+  "cup-and-handle", "vcp", "head-and-shoulders", "double-bottom", "symmetrical-triangle",
+  "double-top", "ascending-triangle", "inverse-head-and-shoulders", "descending-triangle", "rectangle",
+];
+const BOX_HINTS =["IT Services", "Banks", "Pharmaceuticals", "Tata Steel"];
 
 export function Hero({ patterns, patternsError, onPattern }: { patterns: CatalogueEntry[]; patternsError: string; onPattern: (id: string) => void }) {
   const typed = useTyped(TYPED_PHRASES);
   const hint = useTyped(BOX_HINTS);
+  const [more, setMore] = useState(false);
 
   return (
     <div
@@ -76,7 +83,7 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
           Browse by pattern
         </div>
         <div className="flex flex-wrap justify-center gap-2.5">
-          {patterns.map((p, i) => (
+          {(more ? patterns : patterns.filter((p) => TOP_PATTERNS.includes(p.id)).sort((a, b) => TOP_PATTERNS.indexOf(a.id) - TOP_PATTERNS.indexOf(b.id))).map((p, i) => (
             <span key={p.id} className={`pat-glow pat-glow-${p.bias ?? "both"}`} style={{ ["--pat-delay" as string]: `${-((i * 0.7) % 4.5)}s` }}>
               <button
                 onClick={() => onPattern(p.id)}
@@ -88,6 +95,17 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
               </button>
             </span>
           ))}
+          {patterns.length > TOP_PATTERNS.length && (
+            <button
+              type="button"
+              onClick={() => setMore((v) => !v)}
+              aria-expanded={more}
+              className="rounded-full px-3 py-2.5 text-xs font-semibold transition-colors sm:py-1.5 hover:bg-[var(--overlay)]"
+              style={{ color: "var(--accent)" }}
+            >
+              {more ? "Less" : "More"}
+            </button>
+          )}
           {patterns.length === 0 && !patternsError && <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>Loading patterns…</span>}
           {patternsError && <span className="text-xs" style={{ color: "#f5a9a9" }}>Could not load patterns: {patternsError}</span>}
         </div>
