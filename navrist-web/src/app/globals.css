@@ -349,3 +349,23 @@ html:not([data-view]) .hdr-search, [data-view="home"] .hdr-search { display: non
 @media (prefers-reduced-motion: reduce) {
   .pat-glow { animation: none; }
 }
+
+/* mobile menu drawer: slides in from the left over a fading backdrop, and slides back out when closed */
+@keyframes drawer-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes drawer-out { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes drawer-item { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
+.drawer-panel { animation: drawer-in 420ms cubic-bezier(.22, 1, .36, 1) both; }
+.drawer-panel[data-closing="true"] { animation: drawer-out 340ms cubic-bezier(.55, 0, .75, .2) both; }
+.drawer-backdrop { animation: fade-in 380ms ease-out both; }
+.drawer-backdrop[data-closing="true"] { animation: fade-out 340ms ease-in both; }
+.drawer-body > * { animation: drawer-item 460ms cubic-bezier(.22, 1, .36, 1) both; }
+.drawer-body > *:nth-child(1) { animation-delay: 110ms; }
+.drawer-body > *:nth-child(2) { animation-delay: 110ms; }
+.drawer-body > *:nth-child(3) { animation-delay: 150ms; }
+.drawer-body > *:nth-child(4) { animation-delay: 190ms; }
+.drawer-body > *:nth-child(5) { animation-delay: 230ms; }
+@media (prefers-reduced-motion: reduce) {
+  .drawer-panel, .drawer-backdrop, .drawer-body > * { animation-duration: 1ms !important; animation-delay: 0ms !important; }
+}

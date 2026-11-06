@@ -23,7 +23,7 @@ export default function RootLayout({
         {/* Apply the saved theme before first paint so a light-mode user never sees a dark flash. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{if(localStorage.getItem('navrist_theme')==='light')document.documentElement.classList.add('light')}catch(e){}`,
+            __html: `var d=false;try{d=localStorage.getItem('navrist_theme')==='dark'}catch(e){}if(!d)document.documentElement.classList.add('light')`,
           }}
         />
       </head>

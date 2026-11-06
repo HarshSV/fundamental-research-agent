@@ -31,9 +31,19 @@ const toggle = <T,>(list: T[], v: T, on: boolean) => (on ? (list.includes(v) ? l
 
 const box = { borderColor: "var(--border-default)", background: "var(--surface-2, var(--surface-1))", color: "var(--text-primary)" };
 
-function Tick({ checked, label, onChange }: { checked: boolean; label: string; onChange: (v: boolean) => void }) {
+const BIAS_STYLE = {
+  bullish: { color: "#10b981", text: "Positive" },
+  bearish: { color: "#ef4444", text: "Negative" },
+  both: { color: "#9ca3af", text: "Neutral" },
+} as const;
+
+function Tick({ checked, label, onChange, bias }: { checked: boolean; label: string; onChange: (v: boolean) => void; bias?: "bullish" | "bearish" | "both" }) {
+  const b = bias ? BIAS_STYLE[bias] : null;
   return (
-    <label className="flex min-h-[40px] cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm sm:min-h-0 transition-colors hover:bg-[var(--overlay-weak)]">
+    <label
+      className={`flex min-h-[40px] cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm sm:min-h-0 transition-colors hover:bg-[var(--overlay-weak)] ${b ? "my-[3px]" : ""}`}
+      style={b ? { background: `${b.color}1a` } : undefined}
+    >
       <span
         className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-colors"
         style={{ borderColor: checked ? "#b7b4e7" : "var(--border-default)", background: checked ? "#b7b4e7" : "transparent" }}
@@ -42,6 +52,11 @@ function Tick({ checked, label, onChange }: { checked: boolean; label: string; o
       </span>
       <input type="checkbox" className="sr-only" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span style={{ color: "var(--text-primary)" }}>{label}</span>
+      {b && (
+        <span className="ml-auto shrink-0 text-xs font-bold" style={{ color: b.color }} title={bias === "both" ? "Neutral: direction depends on the breakout" : `${b.text} (${bias})`} aria-label={b.text}>
+          {bias === "bullish" ? "▲" : bias === "bearish" ? "▼" : "◆"}
+        </span>
+      )}
     </label>
   );
 }
@@ -507,7 +522,7 @@ export function PatternFilterModal({
                         <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>{cat}</div>
                         <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
                           {list.map((c) => (
-                            <Tick key={c.id} checked={f.patterns.values.includes(c.id)} label={c.name} onChange={(on) => patch({ patterns: { values: toggle(f.patterns.values, c.id, on) } })} />
+                            <Tick key={c.id} checked={f.patterns.values.includes(c.id)} label={c.name} bias={c.bias ?? "both"} onChange={(on) => patch({ patterns: { values: toggle(f.patterns.values, c.id, on) } })} />
                           ))}
                         </div>
                       </div>

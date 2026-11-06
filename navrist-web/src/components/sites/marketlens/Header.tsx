@@ -247,6 +247,16 @@ export function Header() {
   const light = useSyncExternalStore(subscribe, isLight, () => false);
   const [menu, setMenu] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
+  // the drawer stays mounted for the length of its slide-out animation
+  const [drawerMounted, setDrawerMounted] = useState(false);
+  useEffect(() => {
+    if (drawer) {
+      setDrawerMounted(true);
+      return;
+    }
+    const t = setTimeout(() => setDrawerMounted(false), 350);
+    return () => clearTimeout(t);
+  }, [drawer]);
   const [section, setSection] = useState<string | null>("screeners");
   const bar = useRef<HTMLDivElement>(null);
 
@@ -362,17 +372,17 @@ export function Header() {
       </header>
 
       {/* mobile drawer: slides in from the left; Create Screener stays in the bar */}
-      {drawer && (
-        <div className="fixed inset-0 z-[70] lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
-          <div className="absolute inset-0" style={{ background: "var(--backdrop)", backdropFilter: "blur(4px)" }} onMouseDown={() => setDrawer(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-[86%] max-w-[340px] flex-col border-r" style={{ background: "var(--surface-1)", borderColor: "var(--border-default)" }}>
+      {drawerMounted && (
+        <div className="fixed inset-0 z-[70] lg:hidden" role="dialog" aria-modal="true" aria-label="Menu" style={{ pointerEvents: drawer ? undefined : "none" }}>
+          <div className="drawer-backdrop absolute inset-0" data-closing={!drawer} style={{ background: "var(--backdrop)", backdropFilter: "blur(4px)" }} onMouseDown={() => setDrawer(false)} />
+          <aside data-closing={!drawer} className="drawer-panel absolute inset-y-0 left-0 flex w-[86%] max-w-[340px] flex-col border-r" style={{ background: "var(--surface-1)", borderColor: "var(--border-default)" }}>
             <div className="flex items-center justify-between border-b px-4 py-3" style={{ background: "var(--bar-bg)", borderColor: "var(--bar-border)" }}>
               <span className="text-lg font-extrabold tracking-wide" style={{ color: "#ffffff" }}>NAVRIST AI</span>
               <button type="button" aria-label="Close menu" onClick={() => setDrawer(false)} className="flex h-10 w-10 items-center justify-center rounded-lg text-white hover:bg-white/15">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto px-3 py-3">
+            <div className="drawer-body flex-1 overflow-y-auto px-3 py-3">
               <button
                 type="button"
                 onClick={() => {
