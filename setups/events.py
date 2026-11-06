@@ -114,7 +114,8 @@ _LEGAL = re.compile(r"\b(limited|ltd|pvt|private|india|industries|corporation|co
 def _name_key(name: str | None, symbol: str) -> str:
     """The distinctive word of the company name a headline must contain to be about this company."""
     words = [w for w in re.findall(r"[A-Za-z0-9&]+", _LEGAL.sub(" ", name or symbol)) if len(w) > 2]
-    return (words[0] if words else symbol).lower()
+    # two distinctive words when the name has them ("Panorama Studios"), so a headline about another "Panorama" is dropped
+    return " ".join(words[:2]).lower() if words else symbol.lower()
 
 
 def parse_google_news(xml_text: str, key: str, now: _dt.datetime | None = None, days: int = 14) -> list[dict]:
@@ -126,7 +127,7 @@ def parse_google_news(xml_text: str, key: str, now: _dt.datetime | None = None, 
         src = html.unescape(it.findtext("source") or "")
         if src and title.endswith(f" - {src}"):
             title = title[: -(len(src) + 3)]
-        if key not in title.lower():                       # a name collision (a different company) is dropped, not guessed at
+        if not all(w in title.lower() for w in key.split()):                     # a name collision (a different company) is dropped, not guessed at
             continue
         try:
             d = parsedate_to_datetime(it.findtext("pubDate") or "")

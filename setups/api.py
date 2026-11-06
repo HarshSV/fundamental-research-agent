@@ -60,7 +60,14 @@ def make_router(require_session, resolve_symbol):
             row = scan._load_all().get(sym)
         except Exception:
             pass
-        return events.collect(sym, (row or {}).get("name"))
+        name = (row or {}).get("name")
+        if not name:                                        # stocks outside the scanned set: the NSE listings file has every company name
+            try:
+                from patterns import exchange_data as ex
+                name = ((ex.load("listings") or {}).get(sym) or {}).get("name")
+            except Exception:
+                name = None
+        return events.collect(sym, name)
 
     @r.get("/api/v1/setups/{symbol}")
     def stock_setups(symbol: str, session: str | None = None, _: dict = Depends(require_session)):

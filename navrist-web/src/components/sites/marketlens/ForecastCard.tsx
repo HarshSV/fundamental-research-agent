@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Newspaper } from "lucide-react";
+import { SlidingTabs, Switch } from "./controls";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, Newspaper } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import {
   ALERTS_EVENT, alertsForPlan, connectTelegram, fetchAlerts, removeAlerts, saveAlertsFor, testTelegram,
@@ -74,18 +75,6 @@ function Fact({ label, value, tone }: { label: string; value: string; tone: "goo
       <span style={{ color: MUTED }}>{label}</span>
       <span className="nv-num text-right font-medium" style={{ color: tone === "good" ? GAIN : tone === "bad" ? LOSS : "var(--text-primary)" }}>{value}</span>
     </div>
-  );
-}
-
-/** A small on/off switch. */
-function Switch({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) {
-  return (
-    <button role="switch" aria-checked={on} onClick={onChange} className="flex items-center gap-2 text-sm" style={{ color: SOFT }}>
-      <span className="relative h-5 w-9 rounded-full transition-colors" style={{ background: on ? GAIN : "var(--overlay)" }}>
-        <span className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all" style={{ left: on ? 18 : 2 }} />
-      </span>
-      {label}
-    </button>
   );
 }
 
@@ -193,7 +182,7 @@ function Trade({ title, b, daily, onAlert, hasAlerts }: { title: string; b: Trad
   const p: Plan | null | undefined = b.plan;
   const t1 = p?.targets[0];
   return (
-    <div className="border-t py-4 first:border-t-0 first:pt-0" style={{ borderColor: "var(--border-subtle)" }}>
+    <div>
       <div className="flex items-baseline justify-between gap-3">
         <span className="font-medium">{title}</span>
         <span className="text-lg font-semibold" style={{ color: p ? (p.side === "long" ? GAIN : LOSS) : SOFT }}>
@@ -371,12 +360,88 @@ function Alerts({ symbol, alerts, tg }: { symbol: string; alerts: Alert[]; tg: T
   );
 }
 
+
+const SPAN: Record<Horizon["id"], string> = { session: "the next session", week: "the next 5 sessions", month: "the next 20 sessions" };
+const SPAN_TAB: Record<Horizon["id"], string> = { session: "1 day", week: "1 week", month: "1 month" };
+
+/** The answer first: one sentence, how sure we are, and where the price should land. Everything else sits behind "See the reasoning". */
+function Verdict({ data }: { data: Forecast }) {
+  const [hid, setHid] = useState<Horizon["id"]>("week");
+  const { ref, seen } = useInView<HTMLDivElement>();
+  const h = data.outlook.find((x) => x.id === hid) ?? data.outlook[0];
+  const span = SPAN[h.id];
+  const dp = (h.price_mid ?? data.price ?? 1000) < 100 ? 2 : 0;      // a ₹16 stock needs its paise
+  const call = h.up == null ? null : h.call;
+  const color = call === "up" ? GAIN : call === "down" ? LOSS : SOFT;
+  const Icon = call === "up" ? ArrowUpRight : call === "down" ? ArrowDownRight : Minus;
+  const headline = h.up == null ? `Not enough history to forecast ${span}` : call === "up" ? `Likely to go up over ${span}` : call === "down" ? `Likely to go down over ${span}` : `Could go either way over ${span}`;
+  const lean = h.up == null ? null : call === "even" || call == null ? "The odds are about even" : `${h.conviction ? h.conviction[0].toUpperCase() + h.conviction.slice(1) : "Clear"} lean`;
+  return (
+    <div ref={ref} className="rounded-2xl border p-6 md:p-8" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full" style={{ background: "var(--overlay-weak)", color, transition: "color 300ms ease" }}>
+            <Icon className="h-6 w-6" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <div key={h.id} className="nv-rise text-xl font-semibold leading-snug md:text-2xl" style={{ color }}>{headline}</div>
+            {lean && (
+              <div className="mt-1 text-sm" style={{ color: MUTED }}>
+                {lean}
+                {h.samples ? ` · based on ${h.samples.toLocaleString("en-IN")} similar past ${h.basis === "sessions" ? "sessions" : "days"}` : ""}
+              </div>
+            )}
+          </div>
+        </div>
+        <SlidingTabs ariaLabel="Forecast span" size="sm" value={hid} onChange={setHid} options={data.outlook.map((x) => ({ id: x.id, label: SPAN_TAB[x.id] }))} />
+      </div>
+
+      {h.up == null ? (
+        <p className="mt-5 text-sm" style={{ color: MUTED }}>{h.reason ?? "Not enough history to measure."}</p>
+      ) : (
+        <div key={h.id + "-body"} className="nv-rise">
+          <div className="mt-6 flex h-2 overflow-hidden rounded-full" style={{ background: "var(--overlay)" }} role="img" aria-label={`Up ${h.up}%, flat ${h.flat}%, down ${h.down}%`}>
+            <div style={{ width: seen ? `${h.up}%` : 0, background: "var(--gain)", transition: reduced() ? "none" : `width 900ms ${EASE}` }} />
+            <div style={{ width: seen ? `${h.flat}%` : 0, background: "var(--text-tertiary)", opacity: 0.45, transition: reduced() ? "none" : `width 900ms ${EASE}` }} />
+            <div style={{ width: seen ? `${h.down}%` : 0, background: "var(--loss)", transition: reduced() ? "none" : `width 900ms ${EASE}` }} />
+          </div>
+          <p className="mt-3 text-sm" style={{ color: SOFT }}>
+            Out of 100 similar past setups, <b style={{ color: GAIN }}>{h.up}</b> went up, <b>{h.flat}</b> stayed flat and <b style={{ color: LOSS }}>{h.down}</b> went down.
+          </p>
+          {h.price_low != null && h.price_high != null && (
+            <p className="mt-2 text-sm" style={{ color: SOFT }}>
+              Most likely range: <b className="nv-num" style={{ color: "var(--text-primary)" }}>{inr(h.price_low, dp)} to {inr(h.price_high, dp)}</b>
+              {h.price_mid != null && <span style={{ color: MUTED }}> · middle {inr(h.price_mid, dp)}</span>}
+            </p>
+          )}
+        </div>
+      )}
+
+    </div>
+  );
+}
+
 /** The one Forecast section on the stock page: outlook, trade plan with replay odds, levels, evidence and position size. */
 export function ForecastCard({
+  symbol, data, error, showLevels, onToggleLevels,
+}: { symbol: string; data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void }) {
+  // News sits above everything, so it is there whether or not a forecast could be made (new listings, renamed symbols, errors).
+  return (
+    <div>
+      <div className="relative mb-5 flex justify-end">
+        <News symbol={symbol} />
+      </div>
+      <ForecastBody data={data} error={error} showLevels={showLevels} onToggleLevels={onToggleLevels} />
+    </div>
+  );
+}
+
+function ForecastBody({
   data, error, showLevels, onToggleLevels,
 }: { data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [tg, setTg] = useState<TelegramStatus | null>(null);
+  const [open, setOpen] = useState(false);
   const sym = data?.symbol;
   useEffect(() => {
     if (!sym) return;
@@ -403,44 +468,60 @@ export function ForecastCard({
   };
   if (error) return <p className="text-sm" style={{ color: MUTED }}>The forecast could not be worked out for this stock right now.</p>;
   if (data === null) return <div className="h-40 animate-pulse rounded-lg" style={{ background: "var(--overlay-weak)" }} aria-label="Working out the forecast" />;
-  if (!data.outlook) return <p className="text-sm" style={{ color: MUTED }}>There is no price history for this stock, so no forecast can be made.</p>;
+  if (!data.outlook) return <p className="text-sm" style={{ color: MUTED }}>No price history could be read for this stock under this symbol (it may be newly listed or have been renamed), so no forecast can be made. News is still available above.</p>;
   const hasLevels = Boolean(data.today.setup?.range_high != null || data.today.plan || data.swing.plan);
   return (
     <div>
-      <div className="relative mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" style={{ color: MUTED }}>
-        <span>{data.market_open ? "Market open" : "Market closed"}</span>
-        {data.segment && <span>{data.segment}</span>}
-        {data.adr20_pct != null && <span>Typical daily range {n(data.adr20_pct)}%</span>}
-        <span className="ml-auto flex items-center gap-5">
-          <News symbol={data.symbol} />
-          {hasLevels && <Switch on={showLevels} onChange={onToggleLevels} label="Levels on chart" />}
-        </span>
-      </div>
-      <div className="grid items-start gap-x-14 gap-y-10 md:grid-cols-2">
-        <div className="space-y-10">
-          <div>
-            <Label>Outlook</Label>
-            {data.outlook.map((h, i) => <Outlook key={data.symbol + h.id} h={h} index={i} />)}
-          </div>
-          {data.levels && data.levels.length > 0 && (
-            <div>
-              <Label>Levels to watch</Label>
-              {data.levels.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
-            </div>
-          )}
-        </div>
-        <div>
-          <Label>Trade plan</Label>
+      <Verdict data={data} />
+
+      <div className="mt-10">
+        <Label>When to buy and when to get out</Label>
+        <div className="grid items-start gap-x-14 gap-y-8 md:grid-cols-2">
           <Trade title={data.market_open && !data.session_late ? "Today" : "Next session"} b={data.today} daily={false} hasAlerts={alerts.length > 0} onAlert={() => data.today.plan && setFor(data.today.plan, true)} />
           <Trade title="Swing, up to 10 sessions" b={data.swing} daily hasAlerts={alerts.length > 0} onAlert={() => data.swing.plan && setFor(data.swing.plan, false)} />
-          {(alerts.length > 0 || tg?.configured) && <Alerts symbol={data.symbol} alerts={alerts} tg={tg} />}
         </div>
+        {(alerts.length > 0 || tg?.configured) && <div className="mt-6"><Alerts symbol={data.symbol} alerts={alerts} tg={tg} /></div>}
       </div>
-      {/* The evidence runs as one list that flows down the left column and on into the right, so the two columns end level. */}
-      <div className="mt-10 border-t pt-8 md:columns-2 md:gap-x-14" style={{ borderColor: "var(--border-subtle)" }}>
-        <div className="break-after-avoid"><Label>What the forecast rests on</Label></div>
-        {data.evidence.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
-      </div>
+
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="mt-8 flex items-center gap-1.5 text-sm font-medium hover:opacity-80"
+        style={{ color: SOFT }}
+      >
+        {open ? "Hide the reasoning" : "See the reasoning"}
+        <ChevronDown className="h-4 w-4" style={{ transform: open ? "rotate(180deg)" : "none", transition: reduced() ? "none" : "transform 400ms ease" }} aria-hidden />
+      </button>
+
+      {open && (
+        <div className="nv-rise mt-8">
+          <div className="relative mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" style={{ color: MUTED }}>
+            <span>{data.market_open ? "Market open" : "Market closed"}</span>
+            {data.segment && <span>{data.segment}</span>}
+            {data.adr20_pct != null && <span>Typical daily range {n(data.adr20_pct)}%</span>}
+            <span className="ml-auto flex items-center gap-5">
+              {hasLevels && <Switch on={showLevels} onChange={onToggleLevels} label="Levels on chart" />}
+            </span>
+          </div>
+          <div className="grid items-start gap-x-14 gap-y-10 md:grid-cols-2">
+            <div>
+              <Label>Outlook</Label>
+              {data.outlook.map((h, i) => <Outlook key={data.symbol + h.id} h={h} index={i} />)}
+            </div>
+            {data.levels && data.levels.length > 0 && (
+              <div>
+                <Label>Levels to watch</Label>
+                {data.levels.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
+              </div>
+            )}
+          </div>
+          {/* The evidence runs as one list that flows down the left column and on into the right, so the two columns end level. */}
+          <div className="mt-10 border-t pt-8 md:columns-2 md:gap-x-14" style={{ borderColor: "var(--border-subtle)" }}>
+            <div className="break-after-avoid"><Label>What the forecast rests on</Label></div>
+            {data.evidence.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

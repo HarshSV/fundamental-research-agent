@@ -762,6 +762,7 @@ export function StockView({
         <div className="mx-auto w-full max-w-7xl px-4">
           <SectionTitle>Forecast</SectionTitle>
           <ForecastCard
+            symbol={stock.symbol}
             data={forecastData?.data ?? null}
             error={Boolean(forecastData?.error)}
             showLevels={showForecastLevels}
