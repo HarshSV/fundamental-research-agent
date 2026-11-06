@@ -9,7 +9,7 @@ import time
 import statistics
 from datetime import datetime, timezone
 
-from . import scan
+from . import market_lists, scan
 from .features import HORIZONS, MA_PERIODS, ADR_DAYS, UPTREND_PERIODS
 
 IST = 19800
@@ -19,7 +19,7 @@ RRG_QUADRANTS = ("leading", "improving", "weakening", "lagging")
 RRG_WINDOW = 10
 NEAR_HIGH_SESSIONS = (1, 5, 10, 21, 63, 126)
 UPTREND_MONTHS = (1, 2, 3, 6)
-SPECIAL = {"all", "horizontal-resistance"}          # scanners that are not one chart pattern
+SPECIAL = {"all", "horizontal-resistance", "multi"} | set(market_lists.SCANNERS)   # scanners that are not one chart pattern
 
 # range filters: filter key -> how to read the value from a stock row
 RANGE_FIELDS = {
@@ -101,7 +101,7 @@ def _zscore(series: list[float], w: int) -> list[float]:
 _rrg_cache: dict = {}
 
 
-def rrg_quadrants(rows: dict, timeframe: str = "daily", benchmark: str = "nifty50") -> dict:
+def rrg_quadrants(rows: dict, timeframe: str = "daily", benchmark: str = "nifty50", trail: int = 0) -> dict:
     """{sector: {quadrant, ratio, momentum}}: the sector (equal-weighted average of its stocks) against the benchmark index.
     RS = sector level / benchmark level; RS-Ratio and RS-Momentum are z-scores (around 100) of RS and of the ratio over 10
     periods; Leading = both >= 100, Weakening = ratio >= 100 only, Lagging = neither, Improving = momentum >= 100 only.
@@ -109,7 +109,7 @@ def rrg_quadrants(rows: dict, timeframe: str = "daily", benchmark: str = "nifty5
     bench = scan.benchmarks().get(benchmark)
     if not bench:
         return {}
-    key = (id(rows), len(rows), timeframe, benchmark, bench[-1][0])
+    key = (id(rows), len(rows), timeframe, benchmark, bench[-1][0], trail)
     if key in _rrg_cache:
         return _rrg_cache[key]
     bdays = {_day(t): c for t, c in bench}
@@ -143,6 +143,8 @@ def rrg_quadrants(rows: dict, timeframe: str = "daily", benchmark: str = "nifty5
         a, m = ratio[-1], mom[-1]
         out[sector] = {"quadrant": ("leading" if m >= 100 else "weakening") if a >= 100 else ("improving" if m >= 100 else "lagging"),
                        "ratio": round(a, 2), "momentum": round(m, 2)}
+        if trail:                                      # the last `trail` (ratio, momentum) points: the sector's path on the rotation graph
+            out[sector]["trail"] = [[round(x, 2), round(y, 2)] for x, y in zip(ratio[-trail:], mom[-trail:])]
     _rrg_cache.clear()
     _rrg_cache[key] = out
     return out
@@ -238,11 +240,15 @@ def _sort_key(sort: str):
 
 
 def search(pattern, f: dict, include_candles: bool = False) -> dict:
+    """See the module docstring; `pattern` may be a chart pattern id, "all", "horizontal-resistance", "multi" (f["scans"]["values"]) or a market-list scanner id."""
     rows = scan._load_all()
     pat = None if pattern in (None, "") or pattern in SPECIAL else pattern
     f = dict(f or {})
     # The Create Screener can also be limited to stocks showing any of several chart patterns (f["patterns"]["values"]).
     multi = set((f.get("patterns") or {}).get("values") or []) if pattern == "all" else set()
+    lst = pattern if pattern in market_lists.SCANNERS else None                     # a market-list scanner (gainers, gaps, ...)
+    scans = list((f.get("scans") or {}).get("values") or []) if pattern == "multi" else []   # Multiple Scans: stocks in ALL of these
+    bench = (scan.benchmarks().get("nifty500") or None) if (lst == "rs-high-before-price-high" or scans) else None
     if pattern == "horizontal-resistance":
         f["resistance"] = {**(f.get("resistance") or {}), "require": True}
     quad = None
@@ -261,6 +267,35 @@ def search(pattern, f: dict, include_candles: bool = False) -> dict:
                 continue
             if stat.get("values"):
                 occ = [o for o in occ if o["status"] in stat["values"]] or occ
+        sig, matched = None, []
+        if lst:
+            sig = market_lists.evaluate(lst, r, bench)
+            if sig is None:
+                continue
+        if pattern == "multi":
+            if not scans:
+                continue
+            ok, occ = True, []
+            for sid in scans:
+                if sid in market_lists.SCANNERS:
+                    hit = market_lists.evaluate(sid, r, bench) is not None
+                elif sid == "horizontal-resistance":
+                    res = r.get("resistance")
+                    states = (f.get("resistance") or {}).get("states")
+                    hit = bool(res) and (not states or res["state"] in states)
+                else:
+                    mine = [o for o in r["occurrences"] if o["pattern"] == sid]
+                    if stat.get("values"):
+                        mine = [o for o in mine if o["status"] in stat["values"]]
+                    hit = bool(mine)
+                    if hit and not occ:
+                        occ = mine[:1]
+                if not hit:
+                    ok = False
+                    break
+                matched.append(sid)
+            if not ok:
+                continue
         if not _stock_passes(r, f, quad):
             continue
         if q and q not in r["symbol"].lower() and q not in (r.get("name") or "").lower():
@@ -273,11 +308,16 @@ def search(pattern, f: dict, include_candles: bool = False) -> dict:
         row["resistance"] = r.get("resistance")
         row["occurrence"] = best
         row["occurrence_count"] = len(occ)
+        row["signal"] = sig
+        row["matched"] = matched or None
         out.append(row)
     has_occ = bool(pat or multi)
-    sort = f.get("sort") or ("status" if has_occ else "market_cap")
+    sort = f.get("sort") or ("status" if has_occ else ("signal" if lst else "market_cap"))
     if sort == "name":
         out.sort(key=lambda x: x["name"] or x["symbol"])
+    elif sort == "signal" and lst:
+        direction = market_lists.SCANNERS[lst][3]
+        out.sort(key=lambda x: direction * x["signal"]["value"])
     elif sort == "status" and has_occ:
         out.sort(key=lambda x: (_STATUS_RANK.get(x["occurrence"]["status"], 9), -(x["market_cap_cr"] or -1)))
     else:
