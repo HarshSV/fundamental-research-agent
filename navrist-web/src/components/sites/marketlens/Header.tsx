@@ -159,6 +159,7 @@ const DIRECT: { label: string; icon: typeof Star; run: () => void }[] = [
 ];
 
 function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; onToggle: () => void; onPick: (i: Item) => void }) {
+  const [active, setActive] = useState(0);
   return (
     <div className="relative">
       <button
@@ -178,10 +179,44 @@ function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; 
           className="menu-panel absolute left-0 top-full z-[60] mt-2 grid gap-x-8 gap-y-4 rounded-2xl border p-5"
           style={{
             background: "var(--surface-1)", borderColor: "var(--border-default)", boxShadow: "0 20px 50px rgba(0,0,0,.35)",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", width: `min(${menu.groups.length * 210}px, calc(100vw - 32px))`,
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", width: menu.groups.length >= 3 ? "min(520px, calc(100vw - 32px))" : `min(${menu.groups.length * 210}px, calc(100vw - 32px))`,
           }}
         >
-          {menu.groups.map((g) => (
+          {menu.groups.length >= 3 ? (
+            <div className="flex gap-4" style={{ gridColumn: "1 / -1" }}>
+              <div className="w-44 shrink-0 space-y-0.5 border-r pr-3" style={{ borderColor: "var(--border-default)" }}>
+                {menu.groups.map((g, i) => (
+                  <button
+                    key={g.title}
+                    type="button"
+                    onMouseEnter={() => setActive(i)}
+                    onFocus={() => setActive(i)}
+                    onClick={() => setActive(i)}
+                    className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm font-semibold transition-colors"
+                    style={{ color: i === active ? "var(--accent)" : "var(--text-primary)", background: i === active ? "var(--overlay)" : undefined }}
+                  >
+                    {g.title}
+                  </button>
+                ))}
+              </div>
+              <ul className="min-w-0 flex-1 space-y-0.5">
+                {menu.groups[Math.min(active, menu.groups.length - 1)].items.map((it) => (
+                  <li key={it.label}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => onPick(it)}
+                      className="block w-full rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-[var(--overlay-weak)] hover:text-[var(--accent)]"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      {it.label}
+                      {it.hint && <span className="mt-0.5 block text-[11px] font-normal leading-snug" style={{ color: "var(--text-tertiary)" }}>{it.hint}</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : menu.groups.map((g) => (
             <div key={g.title}>
               <div className="menu-heading text-[11px] uppercase">{g.title}</div>
               <ul className="space-y-0.5">
