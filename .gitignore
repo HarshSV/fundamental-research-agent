@@ -9,9 +9,6 @@ tools/token_cache.json
 .gemini/
 cache/
 exports/*.pdf
-logs/*.csv
-logs/*.log
-logs/*/
 precompute_run*.log
 seed_registry_run.log
 coverage_gaps*.csv
@@ -42,3 +39,22 @@ navrist-web/node_modules/
 navrist-web/.next/
 navrist-web/.env.local
 navrist-web/tsconfig.tsbuildinfo
+
+# --- secrets and credentials (added after a review: logs had API keys, tokens, IP and MAC in them) ---
+.env.*
+!.env.example
+navrist-web/.env*
+!navrist-web/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.cloudflared/
+credentials*.json
+
+# runtime logs: the Angel client logs full request headers (API key, bearer tokens, public IP, MAC address)
+logs/
+data/dev-logs/
+
+# local runtime data (market store, user alerts with Telegram chat ids, caches)
+data/
