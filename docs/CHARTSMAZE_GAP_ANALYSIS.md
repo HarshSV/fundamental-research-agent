@@ -129,7 +129,11 @@ These definitions are ours. ChartsMaze's exact rules were not visible, so result
 
 **Added later the same day (Watchlist and Journal):** a browser-stored Watchlist with high / medium / low groups, notes, share and import, a star on stock pages, list and chart views and a "Scan these" button; a Trade Journal with notes, mistake tags, a chart picture, P&L, R-multiple and statistics. Both are per browser because Navrist has no user accounts.
 
-**Still not built:** Industry Analytics (no industry field finer than the 25 sectors), Earnings Gap Up / Positive Earnings Reaction / Results Calendar (need result
+**Added later the same day (data-dependent features):** quarterly fundamentals (growth, streaks, ROE, ROCE, PEG, Code 33, turnaround, FII change, latest quarter) from Screener.in; industry classification (143 groups) with Industry Analytics and industry-rank filters; exchange data from NSE: Results Calendar, Earnings Gap Up and Positive Earnings Reaction, Circuit Revision List, ASM list and exclusion, price-band exclusion, F&O only, listing-date filter, Recent IPOs, IPO Setups, Order Wins, Bulk and Block Deals, Sector Indices, float shares; Past Winners; price x 20-day volume; fair value gap flags.
+
+**Final status (2026-11-06).** Of the 98 features counted from ChartsMaze, the ones still missing are: Volume Footprint (needs intraday volume), "dense volume" (meaning unknown), % from 3-year high (only about two years of closes are stored), Templates (shared presets), the rotation graph on NSE sector indices (no index history source worked), Insider Trading list (the NSE feed returned nothing), and Order Wins' AI notes (LLM calls are disabled). Partly built: Shakeout by EMA, Top Gainers' extra selectors, Market Breadth's RSI chart and base-index selector. The 2,500-stock universe is also not matched (751 stocks scanned).
+
+**Older note, before these were built:** Industry Analytics (no industry field finer than the 25 sectors), Earnings Gap Up / Positive Earnings Reaction / Results Calendar (need result
 dates), Sector Indices page, Past Winners, IPO scanner and recent-IPO list, Circuit Revision, Order Wins, ASM,
 Bulk/Block deals, Insider Trading (need exchange feeds), named Templates, mobile apps.
 

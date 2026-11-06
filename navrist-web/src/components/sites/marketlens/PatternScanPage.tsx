@@ -52,9 +52,21 @@ function columns(kind: "technicals" | "fundamentals", pattern: CatalogueEntry, w
   const plain_special = isSpecial(pattern.id) && !withPatterns;
   const stock: Col = {
     key: "stock", label: "Stock", left: true,
-    cell: (r) => (<><div className="font-semibold">{r.name}</div><div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{r.symbol}</div></>),
+    cell: (r) => (
+      <>
+        <div className="font-semibold">{r.name}</div>
+        <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{r.symbol}</div>
+        {r.markers && r.markers.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {r.markers.map((m) => (
+              <span key={m.k} className="whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: m.k === "asm" ? "#ef444422" : m.k === "results" ? "var(--accent-surface)" : "var(--overlay)", color: m.k === "asm" ? "#ef4444" : m.k === "results" ? "var(--accent)" : "var(--text-secondary)" }}>{m.label}</span>
+            ))}
+          </div>
+        )}
+      </>
+    ),
   };
-  const sector: Col = { key: "sector", label: "Sector", left: true, cell: (r) => <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{r.sector}</span> };
+  const sector: Col = { key: "sector", label: "Sector", left: true, cell: (r) => (<><span className="text-xs" style={{ color: "var(--text-secondary)" }}>{r.sector}</span>{r.industry && <div className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>{r.industry}</div>}</>) };
   const cap: Col = { key: "cap", label: "Market cap (₹ Cr)", cell: (r) => num(r.market_cap_cr, 0) };
   if (kind === "fundamentals") {
     return [

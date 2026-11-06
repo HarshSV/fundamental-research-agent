@@ -53,7 +53,50 @@ export const RANGE_DEFS: RangeDef[] = [
   { key: "rs_1m", label: "1-month RS (1-99)", tab: "misc", hint: "The stock's 1-month return ranked against every scanned stock" },
   { key: "rs_3m", label: "3-month RS (1-99)", tab: "misc", hint: "The stock's 3-month return ranked against every scanned stock" },
   { key: "vs_ema10", label: "Price vs 10-day EMA", tab: "technicals", unit: "%", hint: "How far the price is above (+) or below (-) its 10-day EMA" },
+  // quarterly results (Screener) - Fundamentals tab
+  { key: "eps_yoy", label: "EPS growth, year on year", tab: "fundamentals", unit: "%", minOnly: true, hint: "Latest quarter's EPS against the same quarter a year earlier (needs a positive base)" },
+  { key: "eps_qoq", label: "EPS growth, quarter on quarter", tab: "fundamentals", unit: "%", minOnly: true },
+  { key: "np_yoy", label: "Net profit growth, year on year", tab: "fundamentals", unit: "%", minOnly: true },
+  { key: "np_qoq", label: "Net profit growth, quarter on quarter", tab: "fundamentals", unit: "%", minOnly: true },
+  { key: "sales_yoy", label: "Sales growth, year on year", tab: "fundamentals", unit: "%", minOnly: true },
+  { key: "sales_qoq", label: "Sales growth, quarter on quarter", tab: "fundamentals", unit: "%", minOnly: true },
+  { key: "opm_yoy_pp", label: "OPM change, year on year", tab: "fundamentals", unit: "pp", minOnly: true, hint: "Operating margin now minus a year earlier, in percentage points" },
+  { key: "opm_qoq_pp", label: "OPM change, quarter on quarter", tab: "fundamentals", unit: "pp", minOnly: true },
+  { key: "sales_cagr_5y", label: "Sales growth, 5 years (CAGR)", tab: "fundamentals", unit: "%", minOnly: true },
+  { key: "roe", label: "ROE", tab: "fundamentals", unit: "%", minOnly: true },
+  { key: "roce", label: "ROCE", tab: "fundamentals", unit: "%", minOnly: true },
+  { key: "opm_ttm", label: "OPM, last four quarters", tab: "fundamentals", unit: "%", minOnly: true },
+  { key: "peg", label: "PEG ratio", tab: "fundamentals", hint: "P/E divided by the annual EPS growth; only for positive P/E and growth" },
+  { key: "np_pos_streak", label: "Net profit positive for at least", tab: "fundamentals", unit: "quarters", minOnly: true },
+  { key: "eps_incr_streak", label: "EPS rising for at least", tab: "fundamentals", unit: "quarters", minOnly: true, hint: "Each quarter above the one before" },
+  { key: "np_incr_streak", label: "Net profit rising for at least", tab: "fundamentals", unit: "quarters", minOnly: true },
+  { key: "sales_incr_streak", label: "Sales rising for at least", tab: "fundamentals", unit: "quarters", minOnly: true },
+  { key: "opm_incr_streak", label: "OPM rising for at least", tab: "fundamentals", unit: "quarters", minOnly: true },
+  { key: "fii_qoq_pp", label: "FII holding change, latest quarter", tab: "fundamentals", unit: "pp", hint: "Percentage points of the company held by FIIs, latest quarter against the one before" },
+  // exchange data - Miscellaneous tab
+  { key: "turnover_20d_cr", label: "Price × 20-day average volume", tab: "misc", unit: "₹ Cr", minOnly: true, hint: "Latest price times the average volume of the last 20 sessions: at least" },
+  { key: "float_cr", label: "Float shares", tab: "misc", unit: "Cr", hint: "Shares outstanding (market cap / price) times free float %" },
+  { key: "ind_rank_1w", label: "Industry 1-week rank (1 = best)", tab: "misc", hint: "Enter a maximum, for example 10 for the ten best industries" },
+  { key: "ind_rank_1m", label: "Industry 1-month rank (1 = best)", tab: "misc" },
+  { key: "ind_rank_3m", label: "Industry 3-month rank (1 = best)", tab: "misc" },
 ];
+/** Yes/no filters: every ticked one must hold. "Exclude" flags remove only stocks known to be on the list. */
+export const FLAG_DEFS: { id: string; label: string; short: string; tab: Tab; hint?: string }[] = [
+  { id: "latest_quarter", label: "Only stocks that have reported the latest quarter", short: "Latest quarter reported", tab: "fundamentals" },
+  { id: "code33", label: "Code 33: EPS growth, sales growth and margin all improving for three quarters", short: "Code 33", tab: "fundamentals", hint: "Year-on-year EPS growth, year-on-year sales growth and OPM each higher than in the quarter before, three quarters in a row" },
+  { id: "np_turnaround", label: "Net profit turned positive (loss last quarter, profit now)", short: "Profit turnaround", tab: "fundamentals" },
+  { id: "eps_last_gt_prev", label: "EPS last year greater than the year before", short: "EPS up on last year", tab: "fundamentals" },
+  { id: "fii_up", label: "FII holding rose in the latest quarter", short: "FII holding up", tab: "fundamentals" },
+  { id: "fno", label: "F&O stocks only", short: "F&O", tab: "misc" },
+  { id: "exclude_asm", label: "Exclude ASM stocks (short or long term)", short: "No ASM", tab: "misc" },
+  { id: "exclude_circuit5", label: "Exclude stocks on a 5% price band", short: "No 5% band", tab: "misc" },
+  { id: "exclude_circuit2", label: "Exclude stocks on a 2% price band", short: "No 2% band", tab: "misc" },
+  { id: "fvg_daily", label: "Unfilled bullish fair value gap, daily (last 10 sessions, at least 2% wide)", short: "FVG daily", tab: "misc", hint: "A candle whose low is at least 2% above the high of the candle two before it, with no later candle trading back down to that high" },
+  { id: "fvg_weekly", label: "Unfilled bullish fair value gap, weekly (last 6 weeks, at least 3% wide)", short: "FVG weekly", tab: "misc" },
+  { id: "block_deal", label: "Had a block deal in the last 30 days", short: "Block deal", tab: "misc" },
+  { id: "results_soon", label: "Results due within 7 days", short: "Results soon", tab: "misc" },
+];
+
 export const MCAP_KEY = "mcap";
 
 export type Quadrant = "leading" | "improving" | "weakening" | "lagging";
@@ -70,6 +113,12 @@ export interface ScanFilters {
   scans: { values: string[] };
   /** Watchlist: only these tickers */
   symbols: { values: string[] };
+  /** yes/no filters (see FLAG_DEFS) */
+  flags: { values: string[] };
+  /** industries (Screener classification) */
+  industries: { values: string[] };
+  /** listed on the exchange after this date (YYYY-MM-DD) */
+  listedAfter: string | null;
   ema: { periods: number[]; side: "above" | "below" };
   dma: { periods: number[]; side: "above" | "below" };
   ranges: Record<string, RangeState>; // mcap + every RANGE_DEFS key
@@ -92,6 +141,9 @@ export const emptyFilters = (): ScanFilters => ({
   patterns: { values: [] },
   scans: { values: [] },
   symbols: { values: [] },
+  flags: { values: [] },
+  industries: { values: [] },
+  listedAfter: null,
   ema: { periods: [], side: "above" },
   dma: { periods: [], side: "above" },
   ranges: Object.fromEntries([MCAP_KEY, ...RANGE_DEFS.map((d) => d.key)].map((k) => [k, off()])),
@@ -114,6 +166,7 @@ export const withDefaults = (f: Partial<ScanFilters> | null | undefined): ScanFi
 export interface ScanOptions {
   indices: { id: string; label: string }[];
   sectors: string[];
+  industries?: { name: string; stocks: number }[];
   ma_periods: number[];
   statuses: { id: PatternStatus; label: string }[];
   market_cap_cr: { min: number | null; max: number | null };
@@ -183,6 +236,9 @@ export interface ScanRow {
   /** Multiple Scans: the scanners this stock appears in */
   matched?: string[] | null;
   occurrence_count: number;
+  industry?: string | null;
+  listed?: string | null;
+  markers?: { k: string; label: string }[];
   candles?: [number, number, number, number, number, number][]; // t, o, h, l, c, v
 }
 
@@ -254,6 +310,9 @@ export function serialize(f: ScanFilters): Record<string, unknown> {
   if (f.patterns.values.length) b.patterns = f.patterns;
   if (f.scans.values.length) b.scans = f.scans;
   if (f.symbols?.values.length) b.symbols = f.symbols;
+  if (f.flags?.values.length) b.flags = f.flags;
+  if (f.industries?.values.length) b.industries = f.industries;
+  if (f.listedAfter) b.listed_after = { date: f.listedAfter };
   if (f.ema.periods.length) b.ema = f.ema;
   if (f.dma.periods.length) b.dma = f.dma;
   for (const [k, r] of Object.entries(f.ranges)) if (r.on && (r.min != null || r.max != null)) b[k] = { min: r.min, max: r.max };
@@ -289,6 +348,9 @@ export function describeFilters(f: ScanFilters, opts: ScanOptions | null): strin
   if (f.indices.values.length) out.push(f.indices.values.map((v) => opts?.indices.find((i) => i.id === v)?.label.split(" (")[0] ?? v).join(", "));
   if (f.sectors.values.length) out.push(f.sectors.values.join(", "));
   if (f.symbols?.values.length) out.push(`${f.symbols.values.length} watchlist stocks`);
+  if (f.industries?.values.length) out.push(f.industries.values.length > 2 ? `${f.industries.values.length} industries` : f.industries.values.join(", "));
+  if (f.flags?.values.length) out.push(f.flags.values.map((v) => FLAG_DEFS.find((d) => d.id === v)?.short ?? v).join(", "));
+  if (f.listedAfter) out.push(`Listed after ${f.listedAfter}`);
   if (f.scans.values.length) out.push(`In all of: ${f.scans.values.map(scannerName).join(" + ")}`);
   if (f.patterns.values.length) out.push(`Patterns: ${f.patterns.values.map((v) => v.replace(/-and-/g, " & ").replace(/-/g, " ")).join(", ")}`);
   if (f.status.values.length) out.push(f.status.values.join(", ").replace(/_/g, " "));

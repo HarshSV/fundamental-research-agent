@@ -5,7 +5,7 @@ import { Check, ChevronDown, Share2, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { CatalogueEntry } from "./patterns";
 import {
-  MCAP_KEY, RANGE_DEFS, RESISTANCE_ID, SCREENER_ID, deleteSaved, emptyFilters, isSpecial, loadSaved, parseShareCode, saveFilter, shareCode,
+  FLAG_DEFS, MCAP_KEY, RANGE_DEFS, RESISTANCE_ID, SCREENER_ID, deleteSaved, emptyFilters, isSpecial, loadSaved, parseShareCode, saveFilter, shareCode,
   type Quadrant, type RangeDef, type SavedFilter, type ScanFilters, type ScanOptions, type Tab,
 } from "./patternScan";
 
@@ -43,6 +43,19 @@ function Tick({ checked, label, onChange }: { checked: boolean; label: string; o
       <input type="checkbox" className="sr-only" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span style={{ color: "var(--text-primary)" }}>{label}</span>
     </label>
+  );
+}
+
+/** The yes/no filters of one tab as a list of ticks. */
+function FlagList({ tab, f, patch }: { tab: Tab; f: ScanFilters; patch: (p: Partial<ScanFilters>) => void }) {
+  return (
+    <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+      {FLAG_DEFS.filter((d) => d.tab === tab).map((d) => (
+        <div key={d.id} title={d.hint}>
+          <Tick checked={f.flags.values.includes(d.id)} label={d.label} onChange={(on) => patch({ flags: { values: toggle(f.flags.values, d.id, on) } })} />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -193,6 +206,7 @@ export function PatternFilterModal({
   const tabs = tabsFor(pattern.id);
   const [tab, setTab] = useState<ModalTab>(tabs[0].id);
   const [patQ, setPatQ] = useState("");
+  const [indQ, setIndQ] = useState("");
   const [secQ, setSecQ] = useState("");
   const [saved, setSaved] = useState<SavedFilter[]>(() => loadSaved());
   const [menu, setMenu] = useState<null | "load" | "save">(null);
@@ -537,9 +551,14 @@ export function PatternFilterModal({
             )}
 
             {tab === "fundamentals" && (
-              <Section title="Fundamentals" hint={fundamentalsHint(options)}>
-                <RangeList tab="fundamentals" f={f} set={setRange} />
-              </Section>
+              <>
+                <Section title="Fundamentals" hint={fundamentalsHint(options)}>
+                  <RangeList tab="fundamentals" f={f} set={setRange} />
+                </Section>
+                <Section title="Quarterly signals" hint="Tick to require. From the last twelve quarters on Screener.in; a stock without the data is left out.">
+                  <FlagList tab="fundamentals" f={f} patch={patch} />
+                </Section>
+              </>
             )}
 
             {tab === "misc" && (
@@ -588,6 +607,23 @@ export function PatternFilterModal({
                     </div>
                   </Section>
                 )}
+                <Section title="Industries" hint="Screener.in's industry classification; tick any"
+                  right={<SelectAll label="industries" total={options?.industries?.length ?? 0} selected={f.industries.values.length} onAll={() => patch({ industries: { values: (options?.industries ?? []).map((i) => i.name) } })} onNone={() => patch({ industries: { values: [] } })} />}>
+                  <input value={indQ} onChange={(e) => setIndQ(e.target.value)} placeholder="Search industries" aria-label="Search industries" className="mb-2 w-full rounded-lg border bg-transparent px-3 py-2 text-sm outline-none" style={{ borderColor: "var(--border-default)" }} />
+                  <div className="grid max-h-52 grid-cols-1 gap-x-4 overflow-y-auto sm:grid-cols-2">
+                    {(options?.industries ?? []).filter((i) => i.name.toLowerCase().includes(indQ.trim().toLowerCase())).map((i) => (
+                      <Tick key={i.name} checked={f.industries.values.includes(i.name)} label={`${i.name} (${i.stocks})`} onChange={(on) => patch({ industries: { values: toggle(f.industries.values, i.name, on) } })} />
+                    ))}
+                    {options && !(options.industries?.length) && <span className="px-2 py-1 text-xs" style={{ color: "var(--text-tertiary)" }}>Industries are still being read from Screener.in.</span>}
+                  </div>
+                </Section>
+                <Section title="Exchange lists" hint="From NSE's public files and APIs">
+                  <FlagList tab="misc" f={f} patch={patch} />
+                  <label className="mt-2 flex items-center gap-3 px-2 text-sm">
+                    <span>Listed on the exchange after</span>
+                    <input type="date" value={f.listedAfter ?? ""} onChange={(e) => patch({ listedAfter: e.target.value || null })} className="min-h-[40px] rounded-lg border bg-transparent px-2 text-sm sm:min-h-0 sm:py-1" style={{ borderColor: "var(--border-default)" }} />
+                  </label>
+                </Section>
                 <Section title="Returns, volume and volatility" hint="Tick a row to use it">
                   <RangeList tab="misc" f={f} set={setRange} />
                 </Section>

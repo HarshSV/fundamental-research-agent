@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from . import market_analytics, market_lists, scan
+from . import exchange_data, market_analytics, market_feeds, market_lists, scan
 from .registry import BY_NAME
 from .screen_engine import SPECIAL
 
@@ -42,6 +42,50 @@ def make_router(require_session):
         if timeframe not in ("daily", "weekly") or benchmark not in ("nifty50", "nifty500"):
             raise HTTPException(status_code=400, detail="timeframe is daily or weekly; benchmark is nifty50 or nifty500.")
         return market_analytics.rrg(timeframe, benchmark, max(2, min(20, trail)))
+
+    @r.get("/api/v1/market/feed/{name}")
+    def market_feed(name: str, kind: str = "", year: int = 0, start: str = "", end: str = "", _: dict = Depends(require_session)):
+        """List pages built from exchange data: results-calendar, circuit-revisions, order-wins, deals (kind=bulk|block), asm,
+        sector-indices, recent-ipos, past-winners. Starts a background read of the exchange feeds when they are missing or old."""
+        exchange_data.ensure_fresh()
+        if name == "results-calendar":
+            return market_feeds.results_calendar(start or None, end or None)
+        if name == "circuit-revisions":
+            return market_feeds.circuit_revisions()
+        if name == "order-wins":
+            return market_feeds.order_wins()
+        if name == "deals":
+            if kind not in ("bulk", "block"):
+                raise HTTPException(status_code=400, detail="kind is bulk or block.")
+            return market_feeds.deals(kind)
+        if name == "asm":
+            return market_feeds.asm_list()
+        if name == "sector-indices":
+            return market_feeds.sector_indices()
+        if name == "recent-ipos":
+            return market_feeds.recent_ipos()
+        if name == "past-winners":
+            return market_feeds.past_winners(year or None)
+        raise HTTPException(status_code=404, detail=f"Unknown list {name!r}.")
+
+    @r.get("/api/v1/market/industries")
+    def market_industries(weighting: str = "equal", _: dict = Depends(require_session)):
+        """Industry analytics: returns, ranks, stock count, group market cap and rotation quadrant per industry (Screener classification)."""
+        return market_analytics.industries("cap" if weighting == "cap" else "equal")
+
+    @r.get("/api/v1/market/data-status")
+    def market_data_status(_: dict = Depends(require_session)):
+        from screens import quarterly
+        return {"exchange": exchange_data.status(), "quarterly": quarterly.status()}
+
+    @r.post("/api/v1/market/data-refresh")
+    def market_data_refresh(_: dict = Depends(require_session)):
+        """Read the exchange feeds and the Screener quarterly pages again in the background."""
+        import threading
+        from screens import quarterly
+        threading.Thread(target=exchange_data.refresh, kwargs={"force": True}, daemon=True).start()
+        threading.Thread(target=quarterly.build, daemon=True).start()
+        return {"started": True}
 
     @r.get("/api/v1/pattern-scan/status")
     def scan_status(_: dict = Depends(require_session)):

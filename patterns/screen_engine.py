@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time
 import statistics
+from collections import Counter
 from datetime import datetime, timezone
 
 from . import market_lists, scan
@@ -52,6 +53,28 @@ RANGE_FIELDS = {
     "vs_ema10": lambda r: r.get("vs_ema10"),
     "rs_1m": lambda r: r.get("rs_1m"),
     "rs_3m": lambda r: r.get("rs_3m"),
+    # quarterly results (Screener) and exchange data
+    **{k: (lambda k: (lambda r: r.get(k)))(k) for k in (
+        "eps_qoq", "eps_yoy", "np_qoq", "np_yoy", "sales_qoq", "sales_yoy", "opm_qoq_pp", "opm_yoy_pp", "opm_ttm", "roe", "roce",
+        "sales_cagr_5y", "peg", "np_pos_streak", "eps_incr_streak", "np_incr_streak", "sales_incr_streak", "opm_incr_streak",
+        "fii_qoq_pp", "float_cr", "ind_rank_1w", "ind_rank_1m", "ind_rank_3m", "turnover_20d_cr")},
+}
+
+# yes/no filters: flag id -> test on the row; every ticked flag must hold. "exclude" flags remove only stocks KNOWN to be on the list.
+FLAGS = {
+    "code33": lambda r: r.get("f_code33") is True,
+    "np_turnaround": lambda r: r.get("f_np_turnaround") is True,
+    "eps_last_gt_prev": lambda r: r.get("f_eps_last_gt_prev") is True,
+    "latest_quarter": lambda r: r.get("f_latest_quarter") is True,
+    "fii_up": lambda r: r.get("f_fii_up") is True,
+    "fno": lambda r: r.get("fno") is True,
+    "exclude_asm": lambda r: not r.get("asm"),
+    "exclude_circuit5": lambda r: r.get("band") != "5",
+    "exclude_circuit2": lambda r: r.get("band") != "2",
+    "block_deal": lambda r: r.get("block_recent") is True,
+    "results_soon": lambda r: r.get("results_soon") is True,
+    "fvg_daily": lambda r: r.get("fvg_d") is True,
+    "fvg_weekly": lambda r: r.get("fvg_w") is True,
 }
 
 SORTS = {
@@ -108,7 +131,7 @@ def _zscore(series: list[float], w: int) -> list[float]:
 _rrg_cache: dict = {}
 
 
-def rrg_quadrants(rows: dict, timeframe: str = "daily", benchmark: str = "nifty50", trail: int = 0) -> dict:
+def rrg_quadrants(rows: dict, timeframe: str = "daily", benchmark: str = "nifty50", trail: int = 0, group: str = "sector") -> dict:
     """{sector: {quadrant, ratio, momentum}}: the sector (equal-weighted average of its stocks) against the benchmark index.
     RS = sector level / benchmark level; RS-Ratio and RS-Momentum are z-scores (around 100) of RS and of the ratio over 10
     periods; Leading = both >= 100, Weakening = ratio >= 100 only, Lagging = neither, Improving = momentum >= 100 only.
@@ -116,7 +139,7 @@ def rrg_quadrants(rows: dict, timeframe: str = "daily", benchmark: str = "nifty5
     bench = scan.benchmarks().get(benchmark)
     if not bench:
         return {}
-    key = (id(rows), len(rows), timeframe, benchmark, bench[-1][0], trail)
+    key = (id(rows), len(rows), timeframe, benchmark, bench[-1][0], trail, group)
     if key in _rrg_cache:
         return _rrg_cache[key]
     bdays = {_day(t): c for t, c in bench}
@@ -125,7 +148,9 @@ def rrg_quadrants(rows: dict, timeframe: str = "daily", benchmark: str = "nifty5
         cl = r.get("closes") or []
         for (_, c0), (t1, c1) in zip(cl, cl[1:]):
             if c0 and c1:
-                s = sums.setdefault(r["sector"], {}).setdefault(_day(t1), [0.0, 0])
+                if not r.get(group):
+                    continue
+                s = sums.setdefault(r[group], {}).setdefault(_day(t1), [0.0, 0])
                 s[0] += c1 / c0 - 1.0
                 s[1] += 1
     out = {}
@@ -164,7 +189,7 @@ def _median(vals):
 
 
 def options() -> dict:
-    rows = scan._load_all()
+    rows = _rows()
     uni = scan.universe()
 
     def bounds(fn):
@@ -177,6 +202,7 @@ def options() -> dict:
         "ma_periods": list(MA_PERIODS),
         "statuses": [{"id": "forming", "label": "Forming"}, {"id": "awaiting_breakout", "label": "Awaiting breakout"},
                      {"id": "confirmed", "label": "Confirmed (last %d sessions)" % scan.CONFIRMED_WINDOW_BARS}],
+        "industries": [{"name": k, "stocks": v} for k, v in sorted(Counter(r.get("industry") for r in rows.values() if r.get("industry")).items())],
         "market_cap_cr": bounds(RANGE_FIELDS["mcap"]),
         "price": bounds(RANGE_FIELDS["price"]),
         "near_high_sessions": list(NEAR_HIGH_SESSIONS),
@@ -208,6 +234,16 @@ def _stock_passes(r: dict, f: dict, quad: dict | None, state: bool = True) -> bo
     if not _ma_ok(r, "ema", f.get("ema")) or not _ma_ok(r, "sma", f.get("dma")):
         return False
     if (f.get("ma200_turn") or {}).get("require") and r.get("ma200_turn") is not True:
+        return False
+    for fid in (f.get("flags") or {}).get("values") or []:
+        test = FLAGS.get(fid)
+        if test and not test(r):
+            return False
+    inds = (f.get("industries") or {}).get("values")
+    if inds and r.get("industry") not in inds:
+        return False
+    la = (f.get("listed_after") or {}).get("date")
+    if la and not (r.get("listed") and r["listed"] > la):
         return False
     nh = f.get("near_high")
     if nh and nh.get("sessions"):
@@ -248,9 +284,30 @@ def _sort_key(sort: str):
     return lambda x: (x.get(field) is None, direction * (x.get(field) or 0))
 
 
+def _markers(r: dict) -> list:
+    """Small flags shown beside a stock: ASM stage, a 2%/5% price band, a recent block deal, results due soon."""
+    m = []
+    if r.get("asm"):
+        m.append({"k": "asm", "label": "ASM " + str(r["asm"])})
+    if r.get("band") in ("2", "5"):
+        m.append({"k": "band", "label": r["band"] + "% band"})
+    if r.get("block_recent"):
+        m.append({"k": "block", "label": "Block deal"})
+    if r.get("results_soon"):
+        m.append({"k": "results", "label": "Results soon"})
+    return m
+
+
 def _rows() -> dict:
     rows = scan._load_all()
     market_lists.annotate(rows)
+    try:  # keep the exchange feeds and the Screener quarterly data fresh in the background (never blocks a search)
+        from . import exchange_data
+        from screens import quarterly
+        exchange_data.ensure_fresh()
+        quarterly.ensure_fresh()
+    except Exception:
+        pass
     return rows
 
 
@@ -328,6 +385,9 @@ def search(pattern, f: dict, include_candles: bool = False) -> dict:
         row["occurrence_count"] = len(occ)
         row["signal"] = sig
         row["matched"] = matched or None
+        row["industry"] = r.get("industry")
+        row["listed"] = r.get("listed")
+        row["markers"] = _markers(r)
         out.append(row)
     has_occ = bool(pat or multi)
     sort = f.get("sort") or ("status" if has_occ else ("signal" if lst else "market_cap"))

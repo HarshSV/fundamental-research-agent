@@ -6,7 +6,7 @@ import { fetchJson } from "@/lib/api";
 import { SlidingTabs } from "./controls";
 import { navigateTo } from "./scanners";
 
-export type AnalyticsTab = "sectors" | "rrg" | "breadth";
+export type AnalyticsTab = "sectors" | "industries" | "rrg" | "breadth";
 
 const GAIN = "var(--gain)";
 const LOSS = "var(--loss)";
@@ -125,6 +125,85 @@ function Sectors() {
         Index returns used for comparison: Nifty 500 1W {pct(data.benchmark_returns["1w"])}, 1M {pct(data.benchmark_returns["1m"])}, 3M {pct(data.benchmark_returns["3m"])}.
         Averages are equal-weighted and use only stocks that have the data; a blank means it cannot be computed.
       </p>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ Industry analytics
+interface IndustryRow { name: string; stocks: number; sector: string | null; ret_1w: number | null; ret_1m: number | null; ret_3m: number | null; rank_1w?: number; rank_1m?: number; rank_3m?: number; market_cap_cr: number | null; quadrant: string | null }
+interface IndustriesRes { stocks: number; weighting: string; industries: IndustryRow[] }
+
+function Industries() {
+  const [weighting, setWeighting] = useState<"equal" | "cap">("equal");
+  const { data, error } = useLoad<IndustriesRes>(`/api/v1/market/industries?weighting=${weighting}`);
+  const [key, setKey] = useState<keyof IndustryRow>("ret_1m");
+  const [dir, setDir] = useState<1 | -1>(-1);
+  const [q, setQ] = useState("");
+  const rows = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    const r = (data?.industries ?? []).filter((x) => !t || x.name.toLowerCase().includes(t) || (x.sector ?? "").toLowerCase().includes(t));
+    return [...r].sort((a, b) => {
+      const x = a[key], y = b[key];
+      if (x == null && y == null) return 0;
+      if (x == null) return 1;
+      if (y == null) return -1;
+      return typeof x === "string" ? dir * -x.localeCompare(y as string) : dir * ((x as number) - (y as number));
+    });
+  }, [data, key, dir, q]);
+  const head = (
+    <div className="mb-4 flex flex-wrap items-center gap-3">
+      <SlidingTabs ariaLabel="Weighting" value={weighting} onChange={setWeighting} options={[{ id: "equal", label: "Equal weighted" }, { id: "cap", label: "Market-cap weighted" }]} />
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search industries" aria-label="Search industries" className="min-h-[44px] w-full max-w-xs rounded-xl border px-3 text-sm outline-none sm:min-h-[40px]" style={{ borderColor: "var(--border-default)", background: "var(--surface-1)" }} />
+    </div>
+  );
+  if (!data) return <div>{head}<Loading error={error} /></div>;
+  const cols: { k: keyof IndustryRow; label: string; left?: boolean }[] = [
+    { k: "name", label: "Industry", left: true }, { k: "sector", label: "Sector", left: true }, { k: "stocks", label: "Stocks" }, { k: "ret_1w", label: "1W" }, { k: "ret_1m", label: "1M" }, { k: "ret_3m", label: "3M" },
+    { k: "rank_1w", label: "1W rank" }, { k: "rank_1m", label: "1M rank" }, { k: "rank_3m", label: "3M rank" }, { k: "market_cap_cr", label: "Group mkt cap (₹ Cr)" },
+  ];
+  return (
+    <div>
+      <p className="mb-4 max-w-3xl text-sm" style={{ color: "var(--text-secondary)" }}>
+        Industries from Screener.in's classification, for the {data.stocks} stocks Navrist scans that have one. Spot the strongest industry group first, then open its stocks in the screener.
+        Rank 1 is the best performer; the rotation column is the daily graph against the Nifty 50. An industry with only a stock or two is a weak signal.
+      </p>
+      {head}
+      {data.industries.length === 0 ? (
+        <Loading error="Industries are still being read from Screener.in. Try again in a few minutes." />
+      ) : (
+        <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}>
+          <p className="sticky left-0 w-[calc(100vw-2rem)] px-4 py-2 text-[11px] sm:hidden" style={{ color: "var(--text-tertiary)" }}>Swipe sideways for more columns →</p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs" style={{ color: "var(--text-tertiary)", background: "var(--overlay-weak)" }}>
+                {cols.map((h) => (
+                  <th key={h.k} className={`whitespace-nowrap px-3 py-3 font-semibold sm:px-4 ${h.left ? "text-left" : "text-right"}`}>
+                    <button type="button" className="inline-flex min-h-[32px] items-center gap-1" onClick={() => (key === h.k ? setDir((x) => (x === 1 ? -1 : 1)) : (setKey(h.k), setDir(h.left ? 1 : h.k.startsWith("rank") ? 1 : -1)))}>
+                      {h.label}{key === h.k ? (dir === 1 ? " ▲" : " ▼") : ""}
+                    </button>
+                  </th>
+                ))}
+                <th className="px-3 py-3 text-left font-semibold sm:px-4">Rotation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.name} className="border-t" style={{ borderColor: "var(--border-subtle)" }}>
+                  <td className="px-3 py-3 font-medium sm:px-4"><div className="max-w-[240px]">{r.name}</div></td>
+                  <td className="px-3 py-3 text-xs sm:px-4" style={{ color: "var(--text-secondary)" }}><div className="max-w-[180px]">{r.sector ?? "—"}</div></td>
+                  <td className="nv-num px-3 py-3 text-right sm:px-4">{r.stocks}</td>
+                  {([r.ret_1w, r.ret_1m, r.ret_3m] as (number | null)[]).map((v, i) => <td key={i} className="nv-num px-3 py-3 text-right sm:px-4" style={{ color: tone(v) }}>{pct(v)}</td>)}
+                  <td className="nv-num px-3 py-3 text-right sm:px-4">{r.rank_1w ?? "—"}</td>
+                  <td className="nv-num px-3 py-3 text-right sm:px-4">{r.rank_1m ?? "—"}</td>
+                  <td className="nv-num px-3 py-3 text-right sm:px-4">{r.rank_3m ?? "—"}</td>
+                  <td className="nv-num px-3 py-3 text-right sm:px-4">{r.market_cap_cr == null ? "—" : r.market_cap_cr.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
+                  <td className="px-3 py-3 sm:px-4">{r.quadrant ? <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium" style={{ background: `${QCOLOR[r.quadrant]}22`, color: QCOLOR[r.quadrant] }}>{QLABEL[r.quadrant]}</span> : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -318,7 +397,7 @@ function Breadth() {
 }
 
 // ------------------------------------------------------------------ page
-const TITLES: Record<AnalyticsTab, string> = { sectors: "Sector Analytics", rrg: "Relative Rotation Graph (RRG)", breadth: "Market Breadth" };
+const TITLES: Record<AnalyticsTab, string> = { sectors: "Sector Analytics", industries: "Industry Analytics", rrg: "Relative Rotation Graph (RRG)", breadth: "Market Breadth" };
 
 export function MarketAnalytics({ tab, onTab, onBack }: { tab: AnalyticsTab; onTab: (t: AnalyticsTab) => void; onBack: () => void }) {
   return (
@@ -328,9 +407,9 @@ export function MarketAnalytics({ tab, onTab, onBack }: { tab: AnalyticsTab; onT
       </button>
       <h1 className="text-3xl font-bold tracking-tight">{TITLES[tab]}</h1>
       <div className="mb-6 mt-4 max-w-full overflow-x-auto">
-        <SlidingTabs ariaLabel="Market analytics" value={tab} onChange={onTab} options={[{ id: "sectors", label: "Sectors" }, { id: "rrg", label: "RRG" }, { id: "breadth", label: "Breadth" }]} />
+        <SlidingTabs ariaLabel="Market analytics" value={tab} onChange={onTab} options={[{ id: "sectors", label: "Sectors" }, { id: "industries", label: "Industries" }, { id: "rrg", label: "RRG" }, { id: "breadth", label: "Breadth" }]} />
       </div>
-      {tab === "sectors" ? <Sectors /> : tab === "rrg" ? <Rrg /> : <Breadth />}
+      {tab === "sectors" ? <Sectors /> : tab === "industries" ? <Industries /> : tab === "rrg" ? <Rrg /> : <Breadth />}
     </div>
   );
 }

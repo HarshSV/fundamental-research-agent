@@ -4,8 +4,9 @@ import { AlertHost } from "./AlertHost";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CompanyHit } from "@/lib/api";
 import { OPEN_SCREENER_EVENT, OPEN_SEARCH_EVENT } from "./searchEvents";
-import { LIST_SCANNERS, MULTI_ID, OPEN_NAV_EVENT, isListScanner, type NavTarget } from "./scanners";
+import { LIST_SCANNERS, MULTI_ID, OPEN_NAV_EVENT, isListScanner, type FeedName, type NavTarget } from "./scanners";
 import { MarketAnalytics, type AnalyticsTab } from "./MarketAnalytics";
+import { FeedPage } from "./FeedPage";
 import { MultiScanModal } from "./MultiScanModal";
 import { WatchlistPage } from "./WatchlistPage";
 import { JournalPage } from "./JournalPage";
@@ -31,6 +32,7 @@ type View =
   | { kind: "sector"; name: string }
   | { kind: "analytics"; tab: AnalyticsTab }
   | { kind: "watchlist" }
+  | { kind: "feed"; name: FeedName; deal?: "bulk" | "block" }
   | { kind: "journal" }
   | { kind: "screen"; id: string };
 
@@ -197,6 +199,7 @@ export function HomeScreen() {
       else if (t.type === "analytics") push({ kind: "analytics", tab: t.tab });
       else if (t.type === "sector") push({ kind: "sector", name: t.name });
       else if (t.type === "watchlist") push({ kind: "watchlist" });
+      else if (t.type === "feed") push({ kind: "feed", name: t.name, deal: t.kind });
       else if (t.type === "journal") push({ kind: "journal" });
       else if (t.type === "home") {
         setStack([{ kind: "home" }]);
@@ -226,6 +229,7 @@ export function HomeScreen() {
         onScan={(symbols) => push({ kind: "patternScan", pattern: SCREENER_ID, filters: { ...emptyFilters(), symbols: { values: symbols } } })}
       />
     )
+    : view.kind === "feed" ? <FeedPage key={`${view.name}-${view.deal ?? ""}`} name={view.name} kind={view.deal} onBack={pop} onOpenStock={openStock} />
     : view.kind === "journal" ? <JournalPage onBack={pop} onOpenStock={openStock} />
     : view.kind === "analytics" ? <MarketAnalytics key="analytics" tab={view.tab} onTab={(tab) => setStack((st) => [...st.slice(0, -1), { kind: "analytics", tab }])} onBack={pop} />
     : view.kind === "patternScan" && entries.find((c) => c.id === view.pattern) ? (

@@ -8,7 +8,7 @@ export const MULTI_ID = "multi";
 export interface ListScanner {
   id: string;
   name: string;
-  group: "Market lists" | "Volume" | "Gaps" | "Setups" | "Strength" | "Weakness";
+  group: "Market lists" | "Volume" | "Gaps" | "Setups" | "Strength" | "Weakness" | "Earnings" | "IPO";
   definition: string;
   /** which way "strongest first" runs for this scanner */
   note?: string;
@@ -29,6 +29,12 @@ export const LIST_SCANNERS: ListScanner[] = [
   { id: "tight-setup-weekly", name: "Tight Setup (weekly)", group: "Setups", definition: "The last 3 weekly closes are within 4% of each other and the price is above its 50-day average." },
   { id: "momentum", name: "Momentum", group: "Strength", definition: "Above the 50 and 200-day averages (50 over 200), RS rating 80+, within 15% of the 52-week high and up 20%+ in 3 months." },
   { id: "rs-high-before-price-high", name: "RS High Before Price High", group: "Strength", definition: "The relative-strength line (against the Nifty 500) is at a 52-week high while the price is still at least 2% under its own 52-week high." },
+  { id: "earnings-gap-up", name: "Earnings Gap Up (latest quarter)", group: "Earnings", definition: "Opened at least 3% above the pre-results close on the first session after the latest quarter's results." },
+  { id: "earnings-gap-up-prev", name: "Earnings Gap Up (previous quarter)", group: "Earnings", definition: "The same, for the quarter before the latest." },
+  { id: "positive-earnings-reaction", name: "Positive Earnings Reaction (latest quarter)", group: "Earnings", definition: "Closed at least 5% above the pre-results close within 5 sessions of the latest quarter's results, and is still above it." },
+  { id: "positive-earnings-reaction-prev", name: "Positive Earnings Reaction (previous quarter)", group: "Earnings", definition: "The same, for the quarter before the latest." },
+  { id: "recent-ipos", name: "Recent IPOs (scanned stocks)", group: "IPO", definition: "Stocks listed in the last 365 days." },
+  { id: "ipo-setups", name: "IPO Setups", group: "IPO", definition: "Listed since 2023 and showing a horizontal resistance or a tight setup." },
   { id: "shorting", name: "Shorting Scanner", group: "Weakness", definition: "Below the 50 and 200-day averages (50 under 200), RS rating 30 or less and within 15% of the 52-week low." },
 ];
 
@@ -37,11 +43,13 @@ export const isListScanner = (id: string) => LIST_SCANNER_IDS.has(id);
 export const scannerName = (id: string) => LIST_SCANNERS.find((s) => s.id === id)?.name ?? (id === "horizontal-resistance" ? "Horizontal Resistance" : id.replace(/-and-/g, " & ").replace(/-/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase()));
 
 // ---- navigation: the top bar and the page talk through one window event ----------------------------------------------------
+export type FeedName = "results-calendar" | "circuit-revisions" | "order-wins" | "deals" | "asm" | "sector-indices" | "recent-ipos" | "past-winners";
 export const OPEN_NAV_EVENT = "navrist-nav";
 export type NavTarget =
   | { type: "scanner"; id: string }
   | { type: "multi" }
-  | { type: "analytics"; tab: "sectors" | "rrg" | "breadth" }
+  | { type: "analytics"; tab: "sectors" | "industries" | "rrg" | "breadth" }
+  | { type: "feed"; name: FeedName; kind?: "bulk" | "block" }
   | { type: "sector"; name: string }
   | { type: "watchlist" }
   | { type: "journal" }

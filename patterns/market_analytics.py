@@ -160,3 +160,39 @@ def rrg(timeframe: str = "weekly", benchmark: str = "nifty50", trail: int = 8) -
     return {"timeframe": timeframe, "benchmark": benchmark, "trail": trail,
             "sectors": [{"name": k, **v} for k, v in sorted(quad.items())],
             "available": bool(quad)}
+
+
+def industries(weighting: str = "equal") -> dict:
+    """Each Screener industry (3rd level of its classification): 1W / 1M / 3M performance (equal- or market-cap-weighted), the rank of each,
+    stock count, group market cap and the daily rotation quadrant against the Nifty 50. Stocks without a classification are left out."""
+    from . import market_lists
+    rows = scan._load_all()
+    if not rows:
+        return {"industries": []}
+    market_lists.annotate(rows)
+    _, group = _latest_rows(rows)
+    quad = rrg_quadrants(rows, "daily", "nifty50", group="industry") if scan.benchmarks().get("nifty50") else {}
+    by: dict = {}
+    for r in group:
+        if r.get("industry"):
+            by.setdefault(r["industry"], []).append(r)
+    out = []
+    for name, rs in by.items():
+        def wavg(vals):
+            pairs = [(v, r.get("market_cap_cr")) for v, r in vals if _num(v)]
+            if not pairs:
+                return None
+            if weighting == "cap":
+                tot = sum(c for _, c in pairs if _num(c))
+                return sum(v * c for v, c in pairs if _num(c)) / tot if tot else None
+            return sum(v for v, _ in pairs) / len(pairs)
+        w1 = [(_change(r.get("closes") or [], 5), r) for r in rs]
+        out.append({"name": name, "stocks": len(rs), "ret_1w": wavg(w1), "ret_1m": wavg([(r.get("ret_1m"), r) for r in rs]),
+                    "ret_3m": wavg([(r.get("ret_3m"), r) for r in rs]), "market_cap_cr": sum(r["market_cap_cr"] for r in rs if _num(r.get("market_cap_cr"))) or None,
+                    "sector": rs[0].get("sector_cls"), "quadrant": (quad.get(name) or {}).get("quadrant")})
+    for k in ("ret_1w", "ret_1m", "ret_3m"):
+        order = sorted((x for x in out if x[k] is not None), key=lambda x: -x[k])
+        for n, x in enumerate(order):
+            x["rank_" + k[4:]] = n + 1
+    out.sort(key=lambda x: (x["ret_1m"] is None, -(x["ret_1m"] or 0)))
+    return {"stocks": len(group), "weighting": weighting, "industries": out}

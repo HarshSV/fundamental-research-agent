@@ -4,7 +4,7 @@ import { BarChart3, BookOpen, ChevronDown, Menu, Moon, Search, SlidersHorizontal
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SlidingTabs } from "./controls";
 import { OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
-import { navigateTo } from "./scanners";
+import { navigateTo, type FeedName } from "./scanners";
 import { Ticker } from "./Ticker";
 
 export const THEME_KEY = "navrist_theme";
@@ -45,7 +45,8 @@ interface Menu {
 }
 
 const scanner = (id: string) => () => navigateTo({ type: "scanner", id });
-const analytics = (tab: "sectors" | "rrg" | "breadth") => () => navigateTo({ type: "analytics", tab });
+const feed = (name: FeedName, kind?: "bulk" | "block") => () => navigateTo({ type: "feed", name, kind });
+const analytics = (tab: "sectors" | "industries" | "rrg" | "breadth") => () => navigateTo({ type: "analytics", tab });
 
 /** The top menu, in the order a trader works: build a scan, find a setup, check volume and gaps, then the market as a whole. */
 const MENUS: Menu[] = [
@@ -90,6 +91,16 @@ const MENUS: Menu[] = [
           { label: "Shorting Scanner", run: scanner("shorting") },
         ],
       },
+      {
+        title: "Earnings and IPOs",
+        items: [
+          { label: "Earnings Gap Up · latest quarter", run: scanner("earnings-gap-up") },
+          { label: "Earnings Gap Up · previous", run: scanner("earnings-gap-up-prev") },
+          { label: "Positive Earnings Reaction · latest", run: scanner("positive-earnings-reaction") },
+          { label: "Positive Earnings Reaction · previous", run: scanner("positive-earnings-reaction-prev") },
+          { label: "IPO Setups", run: scanner("ipo-setups") },
+        ],
+      },
     ],
   },
   {
@@ -100,8 +111,10 @@ const MENUS: Menu[] = [
         title: "Top down",
         items: [
           { label: "Sector Analytics", hint: "Which sectors lead and lag", run: analytics("sectors") },
+          { label: "Industry Analytics", hint: "The strongest industry groups", run: analytics("industries") },
           { label: "RRG", hint: "Sector rotation across four quadrants", run: analytics("rrg") },
           { label: "Market Breadth", hint: "How many stocks take part in the move", run: analytics("breadth") },
+          { label: "Sector Indices", hint: "Every NSE index today", run: feed("sector-indices") },
         ],
       },
       {
@@ -109,6 +122,30 @@ const MENUS: Menu[] = [
         items: [
           { label: "Top Gainers", run: scanner("top-gainers") },
           { label: "Top Losers", run: scanner("top-losers") },
+        ],
+      },
+    ],
+  },
+  {
+    id: "tools",
+    label: "Tools",
+    groups: [
+      {
+        title: "Results and winners",
+        items: [
+          { label: "Results Calendar", hint: "Who filed, who is due", run: feed("results-calendar") },
+          { label: "Order Wins", hint: "Order and contract announcements", run: feed("order-wins") },
+          { label: "Past Winners", hint: "The best of each year", run: feed("past-winners") },
+          { label: "Recent IPOs", hint: "Everything listed in the last year", run: feed("recent-ipos") },
+        ],
+      },
+      {
+        title: "Exchange lists",
+        items: [
+          { label: "Circuit Revision List", hint: "Price-band changes", run: feed("circuit-revisions") },
+          { label: "ASM List", hint: "Additional surveillance", run: feed("asm") },
+          { label: "Bulk Deals", run: feed("deals", "bulk") },
+          { label: "Block Deals", run: feed("deals", "block") },
         ],
       },
     ],
@@ -129,7 +166,7 @@ function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; 
         aria-haspopup="true"
         aria-expanded={open}
         onClick={onToggle}
-        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors hover:bg-[var(--overlay)]"
+        className="flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition-colors hover:bg-[var(--overlay)]"
         style={{ color: "var(--text-primary)", background: open ? "var(--overlay)" : undefined }}
       >
         {menu.label}
@@ -141,7 +178,7 @@ function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; 
           className="menu-panel absolute left-0 top-full z-[60] mt-2 grid gap-x-8 gap-y-4 rounded-2xl border p-5"
           style={{
             background: "var(--surface-1)", borderColor: "var(--border-default)", boxShadow: "0 20px 50px rgba(0,0,0,.35)",
-            gridTemplateColumns: `repeat(${menu.groups.length}, minmax(180px, 1fr))`, width: `${menu.groups.length * 210}px`,
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", width: `min(${menu.groups.length * 210}px, calc(100vw - 32px))`,
           }}
         >
           {menu.groups.map((g) => (
@@ -266,7 +303,7 @@ export function Header() {
               <NavMenu key={m.id} menu={m} open={menu === m.id} onToggle={() => setMenu((x) => (x === m.id ? null : m.id))} onPick={pick} />
             ))}
             {DIRECT.map((d) => (
-              <button key={d.label} type="button" onClick={() => { setMenu(null); d.run(); }} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors hover:bg-[var(--overlay)]" style={{ color: "var(--text-primary)" }}>
+              <button key={d.label} type="button" onClick={() => { setMenu(null); d.run(); }} className="flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition-colors hover:bg-[var(--overlay)]" style={{ color: "var(--text-primary)" }}>
                 <d.icon className="h-4 w-4" /> {d.label}
               </button>
             ))}
