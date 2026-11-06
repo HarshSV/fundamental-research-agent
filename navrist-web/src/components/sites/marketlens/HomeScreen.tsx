@@ -3,7 +3,10 @@
 import { AlertHost } from "./AlertHost";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CompanyHit } from "@/lib/api";
-import { OPEN_RESISTANCE_EVENT, OPEN_SCREENER_EVENT, OPEN_SEARCH_EVENT } from "./searchEvents";
+import { OPEN_SCREENER_EVENT, OPEN_SEARCH_EVENT } from "./searchEvents";
+import { LIST_SCANNERS, MULTI_ID, OPEN_NAV_EVENT, isListScanner, type NavTarget } from "./scanners";
+import { MarketAnalytics, type AnalyticsTab } from "./MarketAnalytics";
+import { MultiScanModal } from "./MultiScanModal";
 import { SearchOverlay } from "./SearchOverlay";
 import { Hero } from "./Hero";
 import { PatternFilterModal } from "./PatternFilterModal";
@@ -24,6 +27,7 @@ type View =
   | { kind: "stock"; stock: CompanyHit; scan?: ScanContext }
   | { kind: "patternScan"; pattern: string; filters: ScanFilters }
   | { kind: "sector"; name: string }
+  | { kind: "analytics"; tab: AnalyticsTab }
   | { kind: "screen"; id: string };
 
 /** A sector page: every company NSE classifies in that sector. */
@@ -124,11 +128,14 @@ export function HomeScreen() {
   const scanners = useMemo<CatalogueEntry[]>(() => [
     { id: SCREENER_ID, name: "Create Screener", category: "screener", maturity: "standard", definition: "Filter every scanned stock by technicals, fundamentals and more, then see the list or the charts." },
     { id: RESISTANCE_ID, name: "Horizontal Resistance", category: "scanner", maturity: "standard", definition: "Stocks pressing on a price level that at least three separate highs have touched, with the price just under it or just through it." },
+    { id: MULTI_ID, name: "Multiple Scans", category: "scanner", maturity: "standard", definition: "Stocks that appear in every one of the scanners you choose." },
+    ...LIST_SCANNERS.map((s) => ({ id: s.id, name: s.name, category: s.group, maturity: "standard", definition: s.definition })),
   ], []);
   const entries = useMemo(() => [...scanners, ...catalogue], [scanners, catalogue]);
   const [patternsError, setPatternsError] = useState("");
   const [scanOptions, setScanOptions] = useState<ScanOptions | null>(null);
   const [modal, setModal] = useState<{ pattern: string; initial: ScanFilters; edit: boolean } | null>(null);
+  const [multi, setMulti] = useState<{ initial: string[]; edit: boolean } | null>(null);
   useEffect(() => {
     let alive = true;
     fetchCatalogue()
@@ -165,17 +172,48 @@ export function HomeScreen() {
     return () => window.removeEventListener(OPEN_SCREENER_EVENT, start);
   }, [openPattern]);
 
-  // "Horizontal Resistance" (header button): its own scanner, separate from the screener's filters
+  // The top menu: every scanner and analytics page is reached through one navigation event
+  const openList = useCallback((id: string) => {
+    const def = loadSaved().find((s) => s.isDefault && s.pattern === id);
+    const next: View = { kind: "patternScan", pattern: id, filters: def ? withDefaults(def.filters) : emptyFilters() };
+    setSearch({ open: false, origin: null });
+    setStack((st) => (st[st.length - 1].kind === "home" ? [...st, next] : [...st, next]));
+    window.scrollTo({ top: 0 });
+  }, []);
   useEffect(() => {
-    const start = () => openPattern(RESISTANCE_ID);
-    window.addEventListener(OPEN_RESISTANCE_EVENT, start);
-    return () => window.removeEventListener(OPEN_RESISTANCE_EVENT, start);
-  }, [openPattern]);
+    const go = (e: Event) => {
+      const t = (e as CustomEvent<NavTarget>).detail;
+      if (!t) return;
+      setModal(null);
+      setMulti(null);
+      if (t.type === "scanner") {
+        if (isListScanner(t.id)) openList(t.id);
+        else openPattern(t.id);
+      } else if (t.type === "multi") setMulti({ initial: [], edit: false });
+      else if (t.type === "analytics") push({ kind: "analytics", tab: t.tab });
+      else if (t.type === "sector") push({ kind: "sector", name: t.name });
+      else if (t.type === "home") {
+        setStack([{ kind: "home" }]);
+        if (t.scroll === "patterns") setTimeout(() => document.getElementById("navrist-patterns")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+        else window.scrollTo({ top: 0 });
+      }
+    };
+    window.addEventListener(OPEN_NAV_EVENT, go);
+    return () => window.removeEventListener(OPEN_NAV_EVENT, go);
+  }, [openList, openPattern, push]);
+  const applyMulti = (ids: string[]) => {
+    const next: View = { kind: "patternScan", pattern: MULTI_ID, filters: { ...emptyFilters(), scans: { values: ids } } };
+    if (multi?.edit) setStack((st) => [...st.slice(0, -1), next]);
+    else push(next);
+    window.scrollTo({ top: 0 });
+    setMulti(null);
+  };
 
   const page =
     view.kind === "stock" ? <StockView key={view.stock.symbol} stock={view.stock} onBack={pop} onOpenStock={openStock} scan={view.scan} />
     : view.kind === "sector" ? <SectorPage name={view.name} onBack={pop} onSelect={openStock} />
     : view.kind === "screen" ? <ScreenPage id={view.id} onBack={pop} onSelect={openStock} />
+    : view.kind === "analytics" ? <MarketAnalytics key="analytics" tab={view.tab} onTab={(tab) => setStack((st) => [...st.slice(0, -1), { kind: "analytics", tab }])} onBack={pop} />
     : view.kind === "patternScan" && entries.find((c) => c.id === view.pattern) ? (
       <PatternScanPage
         key={view.pattern}
@@ -183,7 +221,7 @@ export function HomeScreen() {
         filters={view.filters}
         options={scanOptions}
         onBack={pop}
-        onEdit={() => setModal({ pattern: view.pattern, initial: view.filters, edit: true })}
+        onEdit={() => (view.pattern === MULTI_ID ? setMulti({ initial: view.filters.scans.values, edit: true }) : setModal({ pattern: view.pattern, initial: view.filters, edit: true }))}
         onOpenStock={openStock}
       />
     )
@@ -216,6 +254,7 @@ export function HomeScreen() {
           }}
         />
       )}
+      {multi && <MultiScanModal catalogue={catalogue} initial={multi.initial} onApply={applyMulti} onClose={() => setMulti(null)} />}
       {modal && entries.find((c) => c.id === modal.pattern) && (
         <PatternFilterModal
           key={`${modal.pattern}-${modal.edit}`}

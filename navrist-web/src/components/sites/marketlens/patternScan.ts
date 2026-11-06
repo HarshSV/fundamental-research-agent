@@ -1,12 +1,13 @@
 import { fetchJson } from "@/lib/api";
 import type { PatternStatus } from "./patterns";
+import { MULTI_ID, isListScanner, scannerName } from "./scanners";
 
 export type Tab = "technicals" | "fundamentals" | "misc";
 
 /** The scanners that are not one chart pattern. */
 export const SCREENER_ID = "all";
 export const RESISTANCE_ID = "horizontal-resistance";
-export const isSpecial = (id: string) => id === SCREENER_ID || id === RESISTANCE_ID;
+export const isSpecial = (id: string) => id === SCREENER_ID || id === RESISTANCE_ID || id === MULTI_ID || isListScanner(id);
 
 export interface RangeState {
   on: boolean;
@@ -59,6 +60,8 @@ export interface ScanFilters {
   status: { values: PatternStatus[] };
   /** Create Screener only: show stocks that currently show any of these chart patterns (catalogue ids). */
   patterns: { values: string[] };
+  /** Multiple Scans: a stock must appear in ALL of these scanners (chart pattern ids, "horizontal-resistance", market-list ids). */
+  scans: { values: string[] };
   ema: { periods: number[]; side: "above" | "below" };
   dma: { periods: number[]; side: "above" | "below" };
   ranges: Record<string, RangeState>; // mcap + every RANGE_DEFS key
@@ -77,6 +80,7 @@ export const emptyFilters = (): ScanFilters => ({
   sectors: { values: [] },
   status: { values: [] },
   patterns: { values: [] },
+  scans: { values: [] },
   ema: { periods: [], side: "above" },
   dma: { periods: [], side: "above" },
   ranges: Object.fromEntries([MCAP_KEY, ...RANGE_DEFS.map((d) => d.key)].map((k) => [k, off()])),
@@ -162,6 +166,10 @@ export interface ScanRow {
   resistance: Resistance | null;
   as_of: number;
   occurrence: ScanOccurrence | null; // null for the pattern-less scanners
+  /** market-list scanners: what the scanner measured for this stock */
+  signal?: { value: number; text: string; note: string } | null;
+  /** Multiple Scans: the scanners this stock appears in */
+  matched?: string[] | null;
   occurrence_count: number;
   candles?: [number, number, number, number, number, number][]; // t, o, h, l, c, v
 }
@@ -232,6 +240,7 @@ export function serialize(f: ScanFilters): Record<string, unknown> {
   if (f.sectors.values.length) b.sectors = f.sectors;
   if (f.status.values.length) b.status = f.status;
   if (f.patterns.values.length) b.patterns = f.patterns;
+  if (f.scans.values.length) b.scans = f.scans;
   if (f.ema.periods.length) b.ema = f.ema;
   if (f.dma.periods.length) b.dma = f.dma;
   for (const [k, r] of Object.entries(f.ranges)) if (r.on && (r.min != null || r.max != null)) b[k] = { min: r.min, max: r.max };
@@ -265,6 +274,7 @@ export function describeFilters(f: ScanFilters, opts: ScanOptions | null): strin
   const out: string[] = [];
   if (f.indices.values.length) out.push(f.indices.values.map((v) => opts?.indices.find((i) => i.id === v)?.label.split(" (")[0] ?? v).join(", "));
   if (f.sectors.values.length) out.push(f.sectors.values.join(", "));
+  if (f.scans.values.length) out.push(`In all of: ${f.scans.values.map(scannerName).join(" + ")}`);
   if (f.patterns.values.length) out.push(`Patterns: ${f.patterns.values.map((v) => v.replace(/-and-/g, " & ").replace(/-/g, " ")).join(", ")}`);
   if (f.status.values.length) out.push(f.status.values.join(", ").replace(/_/g, " "));
   if (f.ema.periods.length) out.push(`Price ${f.ema.side} EMA ${f.ema.periods.join(", ")}`);

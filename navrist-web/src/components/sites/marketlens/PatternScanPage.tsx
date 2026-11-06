@@ -8,6 +8,7 @@ import { BacktestPanel } from "./BacktestPanel";
 import { STATUS_COLOR, STATUS_LABEL, type CatalogueEntry } from "./patterns";
 import { RESISTANCE_ID, SCREENER_ID, describeFilters, isSpecial, searchScan, type ScanContext, type ScanFilters, type ScanOptions, type ScanResult, type ScanRow } from "./patternScan";
 import { TvChart } from "./TvChart";
+import { MULTI_ID, isListScanner, scannerName } from "./scanners";
 
 const LIST_SIZE = 50;
 const CHART_SIZE = 20;
@@ -66,7 +67,17 @@ function columns(kind: "technicals" | "fundamentals", pattern: CatalogueEntry, w
       { key: "np", label: "Net profit (₹ Cr)", cell: (r) => num(r.net_profit_cr, 0) },
     ];
   }
-  const state: Col = pattern.id === RESISTANCE_ID
+  const state: Col = isListScanner(pattern.id)
+    ? {
+        key: "state", label: "Signal", left: true,
+        cell: (r) => (<><div className="font-medium">{r.signal?.text ?? "—"}</div><div className="max-w-[260px] text-[11px] leading-snug" style={{ color: "var(--text-tertiary)" }}>{r.signal?.note}</div></>),
+      }
+    : pattern.id === MULTI_ID
+    ? {
+        key: "state", label: "In scanners", left: true,
+        cell: (r) => (<div className="flex flex-wrap gap-1">{(r.matched ?? []).map((m) => (<span key={m} className="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px]" style={{ background: "var(--accent-surface)", color: "var(--accent)" }}>{scannerName(m)}</span>))}</div>),
+      }
+    : pattern.id === RESISTANCE_ID
     ? { key: "state", label: "Resistance", left: true, cell: (r) => <ResistanceBadge row={r} /> }
     : plain_special
       ? {
@@ -148,7 +159,7 @@ export function PatternScanPage({
   const [exporting, setExporting] = useState(false);
   const [q, setQ] = useState("");
   const [dq, setDq] = useState("");
-  const [sort, setSort] = useState(patternMode ? "status" : "market_cap");
+  const [sort, setSort] = useState(isListScanner(pattern.id) ? "signal" : patternMode ? "status" : "market_cap");
   const [page, setPage] = useState(1);
   const [res, setRes] = useState<{ key: string; data?: ScanResult; error?: string } | null>(null);
 
@@ -208,7 +219,7 @@ export function PatternScanPage({
   const open = (r: ScanRow) =>
     onOpenStock({ symbol: r.symbol, name: r.name }, { pattern: special ? (r.occurrence?.pattern ?? null) : pattern.id, occurrence: r.occurrence, resistance: r.resistance, showResistance: drawResistance });
   const cols = useMemo(() => columns(colset, pattern, drawResistance, patternMode && special), [colset, pattern, drawResistance, patternMode, special]);
-  const sorts = SORTS.filter(([k]) => !(!patternMode && k === "status"));
+  const sorts: [string, string][] = [...(isListScanner(pattern.id) ? [["signal", "Strongest signal"] as [string, string]] : []), ...SORTS.filter(([k]) => !(!patternMode && k === "status"))];
 
 
   return (
@@ -222,7 +233,11 @@ export function PatternScanPage({
           <p className="mt-2 max-w-3xl text-sm" style={{ color: "var(--text-secondary)" }}>
             {pattern.id === RESISTANCE_ID
               ? "Stocks pressing on a horizontal resistance on the daily chart: a price level at least three separate highs have touched, with the price up to 5% under it or just through it."
-              : special
+              : pattern.id === MULTI_ID
+                ? "Stocks that appear in every one of the scanners you chose."
+                : isListScanner(pattern.id)
+                  ? pattern.definition
+                  : special
                 ? (patternMode ? "Every scanned stock that currently shows one of the chosen chart patterns and passes your other filters." : "Every scanned stock that passes your filters.")
                 : "Stocks showing this pattern on the daily chart right now: forming, awaiting breakout, or confirmed in the last 10 sessions. It describes how the shape has formed, not a forecast."}
           </p>

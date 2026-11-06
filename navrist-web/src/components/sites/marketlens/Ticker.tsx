@@ -45,11 +45,11 @@ export function Ticker() {
     const Arrow = up ? ArrowUpRight : ArrowDownRight;
     return (
       <div key={r.name} className="flex shrink-0 items-center gap-3">
-        <span className="text-[11.25px] tracking-wide" style={{ color: "var(--text-tertiary)" }}>{r.name}</span>
-        <span className="nv-num text-[13.125px]" style={{ color: "var(--text-primary)" }}>
+        <span className="text-[10.5px] tracking-wide" style={{ color: "var(--text-tertiary)" }}>{r.name}</span>
+        <span className="nv-num text-[12px]" style={{ color: "var(--text-primary)" }}>
           {r.value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </span>
-        <span className="nv-num flex items-center gap-0.5 text-[11.25px]" style={{ color: up ? "var(--gain)" : "var(--loss)" }}>
+        <span className="nv-num flex items-center gap-0.5 text-[10.5px]" style={{ color: up ? "var(--gain)" : "var(--loss)" }}>
           <Arrow className="h-3 w-3" />
           {up ? "+" : ""}
           {r.change_pct.toFixed(2)}%
@@ -62,7 +62,7 @@ export function Ticker() {
     <div className="border-b" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
       <div className="mx-auto max-w-7xl px-4">
         <div
-          className="min-h-[41px] overflow-hidden py-3"
+          className="min-h-[30px] overflow-hidden py-1.5"
           style={{
             maskImage: "linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent)",
             WebkitMaskImage: "linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent)",
@@ -71,11 +71,11 @@ export function Ticker() {
           {rows ? (
             // two identical halves so the -50% scroll loops without a jump
             <div className="ticker-track flex w-max items-center">
-              <div className="flex shrink-0 items-center gap-6 pr-6">{group}</div>
-              <div className="flex shrink-0 items-center gap-6 pr-6" aria-hidden="true">{group}</div>
+              <div className="flex shrink-0 items-center gap-5 pr-5">{group}</div>
+              <div className="flex shrink-0 items-center gap-5 pr-5" aria-hidden="true">{group}</div>
             </div>
           ) : (
-            <div className="text-center text-[11.25px]" style={{ color: "var(--text-tertiary)" }}>
+            <div className="text-center text-[10.5px]" style={{ color: "var(--text-tertiary)" }}>
               {failed ? "Market index data is unavailable right now." : "Loading market indices…"}
             </div>
           )}

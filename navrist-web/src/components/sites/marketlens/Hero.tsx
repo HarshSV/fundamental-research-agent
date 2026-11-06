@@ -72,7 +72,7 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
           </div>
         </div>
 
-        <div className="mb-4 text-xs" style={{ color: "var(--text-tertiary)" }}>
+        <div id="navrist-patterns" className="mb-4 scroll-mt-28 text-xs" style={{ color: "var(--text-tertiary)" }}>
           Browse by pattern
         </div>
         <div className="flex flex-wrap justify-center gap-2.5">

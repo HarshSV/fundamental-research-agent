@@ -1,9 +1,10 @@
 "use client";
 
-import { Moon, Search, SlidersHorizontal, Sun, TrendingUp } from "lucide-react";
-import { useSyncExternalStore } from "react";
+import { BarChart3, ChevronDown, Menu, Moon, Search, SlidersHorizontal, Sun, TrendingUp, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SlidingTabs } from "./controls";
-import { OPEN_RESISTANCE_EVENT, OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
+import { OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
+import { navigateTo } from "./scanners";
 import { Ticker } from "./Ticker";
 
 export const THEME_KEY = "navrist_theme";
@@ -28,78 +29,266 @@ function toggleTheme() {
   window.dispatchEvent(new Event(THEME_EVENT));
 }
 
+interface Item {
+  label: string;
+  hint?: string;
+  run: () => void;
+}
+interface Group {
+  title: string;
+  items: Item[];
+}
+interface Menu {
+  id: string;
+  label: string;
+  groups: Group[];
+}
+
+const scanner = (id: string) => () => navigateTo({ type: "scanner", id });
+const analytics = (tab: "sectors" | "rrg" | "breadth") => () => navigateTo({ type: "analytics", tab });
+
+/** The top menu, in the order a trader works: build a scan, find a setup, check volume and gaps, then the market as a whole. */
+const MENUS: Menu[] = [
+  {
+    id: "screeners",
+    label: "Screeners",
+    groups: [
+      {
+        title: "Build",
+        items: [
+          { label: "Create Screener", hint: "Your own rules: technicals, patterns, fundamentals", run: () => window.dispatchEvent(new Event(OPEN_SCREENER_EVENT)) },
+          { label: "Multiple Scans", hint: "Stocks that appear in all the scanners you pick", run: () => navigateTo({ type: "multi" }) },
+          { label: "Horizontal Resistance", hint: "Price pressing on a level three highs have touched", run: scanner("horizontal-resistance") },
+          { label: "Chart Patterns", hint: "VCP, flags, cup & handle, double bottom and more", run: () => navigateTo({ type: "home", scroll: "patterns" }) },
+        ],
+      },
+      {
+        title: "Setups",
+        items: [
+          { label: "Tight Setup · daily", run: scanner("tight-setup") },
+          { label: "Tight Setup · weekly", run: scanner("tight-setup-weekly") },
+          { label: "Inside Bar · daily", run: scanner("inside-bar") },
+          { label: "Inside Bar · weekly", run: scanner("inside-bar-weekly") },
+        ],
+      },
+      {
+        title: "Volume and gaps",
+        items: [
+          { label: "Volume Gainers", run: scanner("volume-gainers") },
+          { label: "High Volume Stocks", run: scanner("high-volume") },
+          { label: "Gap Up", run: scanner("gap-up") },
+          { label: "Gap Filling", run: scanner("gap-filling") },
+        ],
+      },
+      {
+        title: "Strength and weakness",
+        items: [
+          { label: "Momentum", run: scanner("momentum") },
+          { label: "RS High Before Price High", run: scanner("rs-high-before-price-high") },
+          { label: "Shorting Scanner", run: scanner("shorting") },
+        ],
+      },
+    ],
+  },
+  {
+    id: "analytics",
+    label: "Market Analytics",
+    groups: [
+      {
+        title: "Top down",
+        items: [
+          { label: "Sector Analytics", hint: "Which sectors lead and lag", run: analytics("sectors") },
+          { label: "RRG", hint: "Sector rotation across four quadrants", run: analytics("rrg") },
+          { label: "Market Breadth", hint: "How many stocks take part in the move", run: analytics("breadth") },
+        ],
+      },
+      {
+        title: "Movers",
+        items: [
+          { label: "Top Gainers", run: scanner("top-gainers") },
+          { label: "Top Losers", run: scanner("top-losers") },
+        ],
+      },
+    ],
+  },
+];
+
+function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; onToggle: () => void; onPick: (i: Item) => void }) {
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--overlay-weak)] hover:text-[var(--accent)]"
+        style={{ color: open ? "var(--accent)" : "var(--text-primary)", background: open ? "var(--accent-surface)" : undefined }}
+      >
+        {menu.label}
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-0 top-full z-[60] mt-2 grid gap-x-8 gap-y-4 rounded-2xl border p-5"
+          style={{
+            background: "var(--surface-1)", borderColor: "var(--border-default)", boxShadow: "0 20px 50px rgba(0,0,0,.35)",
+            gridTemplateColumns: `repeat(${menu.groups.length}, minmax(180px, 1fr))`, width: `${menu.groups.length * 210}px`,
+          }}
+        >
+          {menu.groups.map((g) => (
+            <div key={g.title}>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>{g.title}</div>
+              <ul className="space-y-0.5">
+                {g.items.map((it) => (
+                  <li key={it.label}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => onPick(it)}
+                      className="block w-full rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-[var(--overlay-weak)] hover:text-[var(--accent)]"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      {it.label}
+                      {it.hint && <span className="mt-0.5 block text-[11px] font-normal leading-snug" style={{ color: "var(--text-tertiary)" }}>{it.hint}</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Header() {
   const light = useSyncExternalStore(subscribe, isLight, () => false);
+  const [menu, setMenu] = useState<string | null>(null);
+  const [drawer, setDrawer] = useState(false);
+  const [section, setSection] = useState<string | null>("screeners");
+  const bar = useRef<HTMLDivElement>(null);
+
+  const pick = useCallback((it: Item) => {
+    setMenu(null);
+    setDrawer(false);
+    it.run();
+  }, []);
+
+  // the open dropdown closes on a click elsewhere or Escape; the drawer on Escape; the page behind the drawer does not scroll
+  useEffect(() => {
+    const click = (e: MouseEvent) => {
+      if (menu && bar.current && !bar.current.contains(e.target as Node)) setMenu(null);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenu(null);
+        setDrawer(false);
+      }
+    };
+    document.addEventListener("mousedown", click);
+    window.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", click);
+      window.removeEventListener("keydown", key);
+    };
+  }, [menu]);
+  useEffect(() => {
+    if (!drawer) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [drawer]);
+
+  const themeTabs = (
+    <SlidingTabs
+      ariaLabel="Colour theme"
+      size="icon"
+      value={light ? "light" : "dark"}
+      onChange={(t) => {
+        if ((t === "light") !== light) toggleTheme();
+      }}
+      options={[
+        { id: "dark", label: <Moon className="h-4 w-4" />, title: "Dark mode" },
+        { id: "light", label: <Sun className="h-4 w-4" />, title: "Light mode" },
+      ]}
+    />
+  );
+
   return (
     <>
-      {/* index ticker: its own bar above the header; it scrolls away, the header below stays pinned */}
+      {/* index ticker: a slim strip above the header; it scrolls away, the header below stays pinned */}
       <Ticker />
-      <header
-        className="sticky top-0 z-50 border-b backdrop-blur-xl"
-        style={{ background: "var(--glass-bg)", borderColor: "var(--border-subtle)" }}
-      >
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-3 sm:px-4 sm:py-4">
-          {/* Brand block: clickable, goes back to the home screen (a full load resets any open stock). */}
+      <header className="sticky top-0 z-50 border-b backdrop-blur-xl" style={{ background: "var(--glass-bg)", borderColor: "var(--border-subtle)" }}>
+        <div ref={bar} className="mx-auto flex max-w-7xl items-center gap-1.5 px-2 py-2 sm:gap-3 sm:px-4 sm:py-2.5">
+          {/* mobile: menu button on the left */}
+          <button
+            type="button"
+            aria-label="Open menu"
+            aria-expanded={drawer}
+            onClick={() => setDrawer(true)}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--overlay-weak)] lg:hidden"
+            style={{ color: "var(--text-primary)" }}
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          {/* Brand: clickable, goes back to the home screen (a full load resets any open stock). */}
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- a full load is intended: it resets the open stock */}
           <a
             href="/"
             aria-label="NAVRIST AI — home"
-            className="flex min-w-0 items-center rounded-lg outline-none transition-transform hover:scale-[1.01] focus-visible:ring-2 focus-visible:ring-[var(--btn-primary-bg)] gap-2 sm:gap-4"
+            className="flex min-w-0 shrink-0 items-center gap-2 rounded-lg outline-none transition-transform hover:scale-[1.01] focus-visible:ring-2 focus-visible:ring-[var(--btn-primary-bg)] sm:gap-3"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/sites/marketlens/navrist-logo.svg" alt="" className="h-9 w-9 shrink-0 rounded-xl sm:h-12 sm:w-12" />
-            <span className="brand-wordmark whitespace-nowrap text-[19px] font-extrabold leading-none sm:text-[30px]">NAVRIST AI</span>
-            <span className="hidden h-9 w-px sm:block" style={{ background: "var(--border-default)" }} aria-hidden="true" />
-            <span
-              className="hidden text-[12px] font-semibold uppercase leading-[1.25] tracking-[0.14em] sm:block"
-              style={{ color: "var(--text-secondary)" }}
-            >
+            <img src="/sites/marketlens/navrist-logo.svg" alt="" className="h-8 w-8 shrink-0 rounded-lg sm:h-10 sm:w-10" />
+            <span className="brand-wordmark whitespace-nowrap text-[17px] font-extrabold leading-none min-[380px]:text-[19px] sm:text-[24px]">NAVRIST AI</span>
+            <span className="hidden h-8 w-px xl:block" style={{ background: "var(--border-default)" }} aria-hidden="true" />
+            <span className="hidden text-[11px] font-semibold uppercase leading-[1.25] tracking-[0.14em] xl:block" style={{ color: "var(--text-secondary)" }}>
               Research
               <br />
               Terminal
             </span>
           </a>
-          {/* search bar (as on the exchange's stock page): opens the same full-screen search; hidden on the home view */}
+          {/* desktop: the top menu, just beside the logo */}
+          <nav className="ml-2 hidden items-center gap-1 lg:flex" aria-label="Main">
+            {MENUS.map((m) => (
+              <NavMenu key={m.id} menu={m} open={menu === m.id} onToggle={() => setMenu((x) => (x === m.id ? null : m.id))} onPick={pick} />
+            ))}
+          </nav>
+          <div className="min-w-0 flex-1" />
+          {/* search: opens the full-screen search; hidden on the home view, where the hero has the big box */}
           <button
             type="button"
             onClick={(e) => openSearch(e.currentTarget)}
             aria-label="Search equity stocks or sectors"
-            className="hdr-search hidden min-w-0 max-w-[360px] flex-1 items-center gap-2.5 rounded-xl border px-4 py-2.5 text-left text-sm transition-colors hover:border-[var(--accent-border)] md:flex"
+            className="hdr-search hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-colors hover:border-[var(--accent-border)] md:flex xl:w-[260px] xl:justify-start xl:gap-2.5 xl:px-4"
             style={{ background: "var(--surface-1)", borderColor: "var(--border-default)", color: "var(--text-tertiary)" }}
           >
             <Search className="h-4 w-4 shrink-0" />
-            <span className="truncate">Search equity stocks , sectors ....</span>
+            <span className="hidden truncate text-sm xl:inline">Search stocks, sectors…</span>
           </button>
-          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            <SlidingTabs
-              ariaLabel="Colour theme"
-              size="icon"
-              value={light ? "light" : "dark"}
-              onChange={(t) => {
-                if ((t === "light") !== light) toggleTheme();
-              }}
-              options={[
-                { id: "dark", label: <Moon className="h-4 w-4" />, title: "Dark mode" },
-                { id: "light", label: <Sun className="h-4 w-4" />, title: "Light mode" },
-              ]}
-            />
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+            <div className="hidden min-[360px]:block">{themeTabs}</div>
             <button
               type="button"
               aria-label="Horizontal Resistance scanner"
-              onClick={() => window.dispatchEvent(new Event(OPEN_RESISTANCE_EVENT))}
+              onClick={() => navigateTo({ type: "scanner", id: "horizontal-resistance" })}
               title="Horizontal Resistance: stocks pressing on a price level that at least three highs have touched"
-              className="flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors hover:border-[var(--accent-border)] hover:bg-[var(--accent-surface)] hover:text-[var(--accent)] sm:py-2"
+              className="hidden items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors hover:border-[var(--accent-border)] hover:bg-[var(--accent-surface)] hover:text-[var(--accent)] xl:flex"
               style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)", background: "var(--surface-1)" }}
             >
               <TrendingUp className="h-4 w-4" />
-              <span className="hidden lg:inline">Horizontal Resistance</span>
+              <span className="hidden 2xl:inline">Horizontal Resistance</span>
             </button>
             <button
               type="button"
               aria-label="Create Screener"
               onClick={() => window.dispatchEvent(new Event(OPEN_SCREENER_EVENT))}
-              title="Create a screener: filter every stock by technicals, fundamentals and horizontal resistance"
-              className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-white transition-colors hover:bg-[var(--btn-primary-hover)] sm:px-5"
+              title="Create a screener: filter every stock by technicals, chart patterns and fundamentals"
+              className="flex h-10 items-center gap-2 rounded-lg px-3 text-sm text-white transition-colors hover:bg-[var(--btn-primary-hover)] sm:px-5"
               style={{ background: "var(--btn-primary-bg)", boxShadow: "var(--shadow-accent)" }}
             >
               <SlidersHorizontal className="h-4 w-4" />
@@ -108,6 +297,66 @@ export function Header() {
           </div>
         </div>
       </header>
+
+      {/* mobile drawer: slides in from the left; Create Screener stays in the bar */}
+      {drawer && (
+        <div className="fixed inset-0 z-[70] lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
+          <div className="absolute inset-0" style={{ background: "var(--backdrop)", backdropFilter: "blur(4px)" }} onMouseDown={() => setDrawer(false)} />
+          <aside className="absolute inset-y-0 left-0 flex w-[86%] max-w-[340px] flex-col border-r" style={{ background: "var(--surface-1)", borderColor: "var(--border-default)" }}>
+            <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--border-subtle)" }}>
+              <span className="brand-wordmark text-lg font-extrabold">NAVRIST AI</span>
+              <button type="button" aria-label="Close menu" onClick={() => setDrawer(false)} className="flex h-10 w-10 items-center justify-center rounded-lg hover:bg-[var(--overlay-weak)]">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-3 py-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setDrawer(false);
+                  openSearch(null);
+                }}
+                className="mb-3 flex min-h-[44px] w-full items-center gap-2.5 rounded-xl border px-3 text-left text-sm"
+                style={{ background: "var(--surface-2, var(--surface-1))", borderColor: "var(--border-default)", color: "var(--text-tertiary)" }}
+              >
+                <Search className="h-4 w-4" /> Search stocks, sectors…
+              </button>
+              {MENUS.map((m) => (
+                <div key={m.id} className="mb-1">
+                  <button
+                    type="button"
+                    aria-expanded={section === m.id}
+                    onClick={() => setSection((s) => (s === m.id ? null : m.id))}
+                    className="flex min-h-[48px] w-full items-center justify-between rounded-lg px-3 text-left text-[15px] font-semibold"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    <span className="flex items-center gap-2.5">{m.id === "analytics" ? <BarChart3 className="h-4 w-4" style={{ color: "var(--accent)" }} /> : <SlidersHorizontal className="h-4 w-4" style={{ color: "var(--accent)" }} />}{m.label}</span>
+                    <ChevronDown className={`h-4 w-4 transition-transform ${section === m.id ? "rotate-180" : ""}`} />
+                  </button>
+                  {section === m.id && (
+                    <div className="pb-2 pl-3">
+                      {m.groups.map((g) => (
+                        <div key={g.title} className="mb-1">
+                          <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>{g.title}</div>
+                          {g.items.map((it) => (
+                            <button key={it.label} type="button" onClick={() => pick(it)} className="flex min-h-[44px] w-full items-center rounded-lg px-3 text-left text-sm hover:bg-[var(--overlay-weak)]" style={{ color: "var(--text-secondary)" }}>
+                              {it.label}
+                            </button>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between border-t px-4 py-3" style={{ borderColor: "var(--border-subtle)" }}>
+              <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Theme</span>
+              {themeTabs}
+            </div>
+          </aside>
+        </div>
+      )}
     </>
   );
 }
