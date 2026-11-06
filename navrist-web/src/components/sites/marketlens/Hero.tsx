@@ -16,7 +16,7 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
   return (
     <div
       className="relative overflow-hidden border-b"
-      style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+      style={{ background: "var(--surface-0)", borderColor: "var(--border-default)" }}
     >
       <div className="pointer-events-none absolute left-1/4 top-0 h-96 w-96 rounded-full blur-3xl" style={{ background: "#635ec80d" }} />
       <div className="pointer-events-none absolute right-1/4 top-20 h-80 w-80 rounded-full blur-3xl" style={{ background: "#b7b4e70d" }} />

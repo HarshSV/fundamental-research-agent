@@ -197,35 +197,45 @@
 /* ---- Light theme ------------------------------------------------------------------------------------ */
 html.light { color-scheme: light; }
 html.light .ml {
-  --surface-0: #ffffff;
+  /* Light theme, with real separation: tinted page and section backgrounds, white cards, visible borders and shadows */
+  --surface-0: #eceff8;
   --surface-1: #ffffff;
-  --text-primary: #202224;
-  --text-secondary: #606060;
-  --text-tertiary: #717d8a;
-  --border-subtle: #32416814;
-  --border-default: #32416826;
-  --glass-bg: #ffffffd9;
-  --glass-border: #3241681a;
+  --text-primary: #1b1f2a;
+  --text-secondary: #434a5c;
+  --text-tertiary: #5b6679;
+  --border-subtle: #d2d8ea;
+  --border-default: #b1bad3;
+  --glass-bg: #fffffff2;
+  --glass-border: #b1bad3;
   --accent: #3a2e7d;
-  --accent-surface: #3a2e7d14;
-  --accent-border: #3a2e7d33;
+  --accent-surface: #3a2e7d1c;
+  --accent-border: #3a2e7d59;
   --btn-primary-bg: #3a2e7d;
   --btn-primary-hover: #4b3fa0;
-  --gain: #00b69b;
-  --loss: #f93c65;
+  --gain: #00a58c;
+  --loss: #e0294f;
   --gold: #e65c1b;
-  --shadow-md: 0 4px 24px #0000000f;
-  --shadow-accent: 0 4px 16px #3a2e7d26;
-  --overlay-weak: rgba(50, 65, 104, 0.05);
-  --overlay: rgba(50, 65, 104, 0.09);
-  --overlay-strong: rgba(50, 65, 104, 0.14);
-  --grid: rgba(50, 65, 104, 0.12);
+  --shadow-md: 0 2px 8px rgba(35, 45, 90, 0.13), 0 1px 2px rgba(35, 45, 90, 0.08);
+  --shadow-accent: 0 4px 16px #3a2e7d33;
+  --overlay-weak: rgba(58, 46, 125, 0.07);
+  --overlay: rgba(58, 46, 125, 0.12);
+  --overlay-strong: rgba(58, 46, 125, 0.18);
+  --grid: rgba(50, 65, 104, 0.16);
   --crosshair: rgba(32, 34, 36, 0.55);
   --brand-text: #3a2e7d;
   --on-accent: #ffffff;
-  --backdrop: rgba(32, 34, 36, 0.32);
-  background: #f1f3f9;
+  --backdrop: rgba(27, 31, 42, 0.4);
+  background: #e6e9f4;
 }
+
+/* ---- Table headers and the top bar: readable at a glance in both themes ---------------------------------------- */
+.ml thead tr { border-bottom: 1px solid var(--border-default); }
+.ml thead th { font-weight: 600; letter-spacing: 0.01em; }
+html.light .ml thead tr { background: #dfe3f3 !important; }
+html.light .ml thead th { color: #2f3550 !important; }
+html.light .ml tbody tr:hover { background: #f2f4fb; }
+html.light .ml header.sticky { box-shadow: 0 1px 0 var(--border-default), 0 6px 16px rgba(35, 45, 90, 0.07); }
+html.light .ml tbody tr { border-color: var(--border-subtle) !important; }
 
 /* ---- Search box: gradient border that moves around the box, in the brand colours ----------------
    A conic gradient (purple -> light purple -> gold -> steel blue) whose start angle is animated via a
@@ -277,3 +287,34 @@ html.light .ml {
 
 /* header search bar: hidden before sign-in (no page yet) and on the home view (the hero has the big box) */
 html:not([data-view]) .hdr-search, [data-view="home"] .hdr-search { display: none !important; }
+
+/* Content that appears when a switch is turned on: a short rise and fade. */
+@keyframes nv-rise { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.nv-rise { animation: nv-rise 320ms cubic-bezier(.22, .61, .36, 1) both; }
+@media (prefers-reduced-motion: reduce) { .nv-rise { animation: none; } }
+
+/* ---- Pattern chips: a thin gradient border that travels around each chip -------------------------------
+   Green for patterns that point up, red for patterns that point down, grey and white for patterns whose direction
+   comes from the structure found. Same technique as the search box (a registered angle, animated). */
+@property --pat-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.pat-glow {
+  --pat-angle: 0deg;
+  display: inline-flex;
+  padding: 1.5px;
+  border-radius: 9999px;
+  animation: pat-glow-spin 4.5s linear infinite;
+  animation-delay: var(--pat-delay, 0s);
+}
+.pat-glow > button { border-radius: 9999px; }
+.pat-glow-bullish { background: conic-gradient(from var(--pat-angle), #047857, #10b981, #6ee7b7, #10b981, #047857); }
+.pat-glow-bearish { background: conic-gradient(from var(--pat-angle), #991b1b, #ef4444, #fca5a5, #ef4444, #991b1b); }
+.pat-glow-both    { background: conic-gradient(from var(--pat-angle), #6b7280, #e5e7eb, #ffffff, #e5e7eb, #6b7280); }
+.pat-glow:hover { animation-duration: 2s; }
+@keyframes pat-glow-spin { to { --pat-angle: 360deg; } }
+@media (prefers-reduced-motion: reduce) {
+  .pat-glow { animation: none; }
+}
