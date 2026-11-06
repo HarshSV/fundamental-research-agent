@@ -114,6 +114,9 @@ Sankey -> icicle diagrams, multi-year comparison, segment-revenue extraction and
 ### 2026-11-06 - Login hardening (working tree, uncommitted)
 * *Historical:* `/api/auth/login` accepted unlimited wrong passwords; the real password was written in an `auth.py` comment. *Change:* per-client throttle (5 failures / 15 min, then HTTP 429 with `Retry-After`) in `auth.py` and `app.py`; the comment now holds a placeholder. *Current:* observed on the restarted backend: attempts 1-5 gave 401, 6-7 gave 429, another client address was unaffected. A route audit found 91 of 95 routes protected; the four open ones are login, `/`, `/api/health` and `/api/v1/market-indices`. *Unresolved:* rotate the password and `JWT_SECRET_KEY` (M-18); M-21 (`.env.example` out of date).
 
+### 2026-11-06 - Coloured top bar and menu headings
+* *Historical:* the top bar and the menu headings were white / pale grey in light mode and low contrast in both themes. *Change:* a coloured top bar (indigo, white text, white logo tile), accent-coloured underlined group headings in the dropdowns and the mobile drawer, a coloured drawer top band (`globals.css`, `Header.tsx`). *Current:* checked in light and dark, desktop and drawer; deployed to ai.navrist.com. *Unresolved:* only the top bar and menus were reviewed for this feedback.
+
 ### 2026-11-06 - Light theme with real separation
 * *Historical:* in light mode the page, sections and cards were all near-white with barely visible borders, so headers and panels blended together. *Change:* tinted page and section backgrounds, white cards, darker borders and text, stronger shadows, tinted table header rows (`globals.css`), hero on the section tint (`Hero.tsx`). *Current:* checked in a browser on the Home hero, a scanner results table and the stock page sections; deployed to ai.navrist.com (new stylesheet confirmed served). Dark mode unchanged. *Unresolved:* only those screens were reviewed in light mode.
 

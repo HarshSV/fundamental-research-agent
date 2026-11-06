@@ -121,8 +121,8 @@ function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; 
         aria-haspopup="true"
         aria-expanded={open}
         onClick={onToggle}
-        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--overlay-weak)] hover:text-[var(--accent)]"
-        style={{ color: open ? "var(--accent)" : "var(--text-primary)", background: open ? "var(--accent-surface)" : undefined }}
+        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors hover:bg-[var(--overlay)]"
+        style={{ color: "var(--text-primary)", background: open ? "var(--overlay)" : undefined }}
       >
         {menu.label}
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
@@ -130,7 +130,7 @@ function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; 
       {open && (
         <div
           role="menu"
-          className="absolute left-0 top-full z-[60] mt-2 grid gap-x-8 gap-y-4 rounded-2xl border p-5"
+          className="menu-panel absolute left-0 top-full z-[60] mt-2 grid gap-x-8 gap-y-4 rounded-2xl border p-5"
           style={{
             background: "var(--surface-1)", borderColor: "var(--border-default)", boxShadow: "0 20px 50px rgba(0,0,0,.35)",
             gridTemplateColumns: `repeat(${menu.groups.length}, minmax(180px, 1fr))`, width: `${menu.groups.length * 210}px`,
@@ -138,7 +138,7 @@ function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; 
         >
           {menu.groups.map((g) => (
             <div key={g.title}>
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>{g.title}</div>
+              <div className="menu-heading text-[11px] uppercase">{g.title}</div>
               <ul className="space-y-0.5">
                 {g.items.map((it) => (
                   <li key={it.label}>
@@ -222,7 +222,7 @@ export function Header() {
     <>
       {/* index ticker: a slim strip above the header; it scrolls away, the header below stays pinned */}
       <Ticker />
-      <header className="sticky top-0 z-50 border-b backdrop-blur-xl" style={{ background: "var(--glass-bg)", borderColor: "var(--border-subtle)" }}>
+      <header className="sticky top-0 z-50 border-b backdrop-blur-xl" style={{ background: "var(--bar-bg)", borderColor: "var(--bar-border)" }}>
         <div ref={bar} className="mx-auto flex max-w-7xl items-center gap-1.5 px-2 py-2 sm:gap-3 sm:px-4 sm:py-2.5">
           {/* mobile: menu button on the left */}
           <button
@@ -243,7 +243,7 @@ export function Header() {
             className="flex min-w-0 shrink-0 items-center gap-2 rounded-lg outline-none transition-transform hover:scale-[1.01] focus-visible:ring-2 focus-visible:ring-[var(--btn-primary-bg)] sm:gap-3"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/sites/marketlens/navrist-logo.svg" alt="" className="h-8 w-8 shrink-0 rounded-lg sm:h-10 sm:w-10" />
+            <img src="/sites/marketlens/navrist-logo.svg" alt="" className="ml-logo h-8 w-8 shrink-0 rounded-lg sm:h-10 sm:w-10" />
             <span className="brand-wordmark whitespace-nowrap text-[17px] font-extrabold leading-none min-[380px]:text-[19px] sm:text-[24px]">NAVRIST AI</span>
             <span className="hidden h-8 w-px xl:block" style={{ background: "var(--border-default)" }} aria-hidden="true" />
             <span className="hidden text-[11px] font-semibold uppercase leading-[1.25] tracking-[0.14em] xl:block" style={{ color: "var(--text-secondary)" }}>
@@ -281,9 +281,9 @@ export function Header() {
         <div className="fixed inset-0 z-[70] lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
           <div className="absolute inset-0" style={{ background: "var(--backdrop)", backdropFilter: "blur(4px)" }} onMouseDown={() => setDrawer(false)} />
           <aside className="absolute inset-y-0 left-0 flex w-[86%] max-w-[340px] flex-col border-r" style={{ background: "var(--surface-1)", borderColor: "var(--border-default)" }}>
-            <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--border-subtle)" }}>
-              <span className="brand-wordmark text-lg font-extrabold">NAVRIST AI</span>
-              <button type="button" aria-label="Close menu" onClick={() => setDrawer(false)} className="flex h-10 w-10 items-center justify-center rounded-lg hover:bg-[var(--overlay-weak)]">
+            <div className="flex items-center justify-between border-b px-4 py-3" style={{ background: "var(--bar-bg)", borderColor: "var(--bar-border)" }}>
+              <span className="text-lg font-extrabold tracking-wide" style={{ color: "#ffffff" }}>NAVRIST AI</span>
+              <button type="button" aria-label="Close menu" onClick={() => setDrawer(false)} className="flex h-10 w-10 items-center justify-center rounded-lg text-white hover:bg-white/15">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -305,8 +305,8 @@ export function Header() {
                     type="button"
                     aria-expanded={section === m.id}
                     onClick={() => setSection((s) => (s === m.id ? null : m.id))}
-                    className="flex min-h-[48px] w-full items-center justify-between rounded-lg px-3 text-left text-[15px] font-semibold"
-                    style={{ color: "var(--text-primary)" }}
+                    className="flex min-h-[48px] w-full items-center justify-between rounded-lg border px-3 text-left text-[15px] font-semibold"
+                    style={{ color: "var(--text-primary)", background: section === m.id ? "var(--accent-surface)" : "var(--overlay-weak)", borderColor: section === m.id ? "var(--accent-border)" : "var(--border-subtle)" }}
                   >
                     <span className="flex items-center gap-2.5">{m.id === "analytics" ? <BarChart3 className="h-4 w-4" style={{ color: "var(--accent)" }} /> : <SlidersHorizontal className="h-4 w-4" style={{ color: "var(--accent)" }} />}{m.label}</span>
                     <ChevronDown className={`h-4 w-4 transition-transform ${section === m.id ? "rotate-180" : ""}`} />
@@ -315,7 +315,7 @@ export function Header() {
                     <div className="pb-2 pl-3">
                       {m.groups.map((g) => (
                         <div key={g.title} className="mb-1">
-                          <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>{g.title}</div>
+                          <div className="menu-heading mx-3 mt-2 text-[11px] uppercase">{g.title}</div>
                           {g.items.map((it) => (
                             <button key={it.label} type="button" onClick={() => pick(it)} className="flex min-h-[44px] w-full items-center rounded-lg px-3 text-left text-sm hover:bg-[var(--overlay-weak)]" style={{ color: "var(--text-secondary)" }}>
                               {it.label}
