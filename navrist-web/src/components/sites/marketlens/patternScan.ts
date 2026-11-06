@@ -47,6 +47,12 @@ export const RANGE_DEFS: RangeDef[] = [
   { key: "ret_5y", label: "5 year return", tab: "misc", unit: "%" },
   { key: "avg_volume", label: "Avg volume, 30 days (shares)", tab: "misc", minOnly: true },
   { key: "volatility", label: "Volatility (annualised)", tab: "misc", unit: "%" },
+  { key: "rvol", label: "Relative volume (RVOL)", tab: "misc", unit: "x", hint: "Latest session's volume divided by the average of the 20 sessions before it" },
+  { key: "gap_pct", label: "Gap up % (open vs previous close)", tab: "misc", unit: "%", minOnly: true, hint: "How far the latest session opened above the previous close: at least" },
+  { key: "range_20d", label: "20-day range", tab: "misc", unit: "%", hint: "Highest high over lowest low of the last 20 sessions, in %" },
+  { key: "rs_1m", label: "1-month RS (1-99)", tab: "misc", hint: "The stock's 1-month return ranked against every scanned stock" },
+  { key: "rs_3m", label: "3-month RS (1-99)", tab: "misc", hint: "The stock's 3-month return ranked against every scanned stock" },
+  { key: "vs_ema10", label: "Price vs 10-day EMA", tab: "technicals", unit: "%", hint: "How far the price is above (+) or below (-) its 10-day EMA" },
 ];
 export const MCAP_KEY = "mcap";
 
@@ -68,6 +74,8 @@ export interface ScanFilters {
   nearHigh: { on: boolean; sessions: number };
   maOrder: { on: boolean; kind: "sma" | "ema"; periods: [number, number, number] };
   uptrend: { on: boolean; period: number; months: number };
+  /** the 200-day average fell for a while and has just started rising, with the price above it */
+  ma200Turn: { on: boolean };
   adr: { on: boolean; days: number; min: number | null };
   rrg: { on: boolean; quadrants: Quadrant[]; timeframe: "daily" | "weekly"; benchmark: "nifty50" | "nifty500" };
   resistance: { on: boolean; states: ("near" | "breakout")[] };
@@ -87,6 +95,7 @@ export const emptyFilters = (): ScanFilters => ({
   nearHigh: { on: false, sessions: 21 },
   maOrder: { on: false, kind: "sma", periods: [20, 50, 200] },
   uptrend: { on: false, period: 200, months: 1 },
+  ma200Turn: { on: false },
   adr: { on: false, days: 5, min: null },
   rrg: { on: false, quadrants: ["leading", "improving"], timeframe: "daily", benchmark: "nifty50" },
   resistance: { on: false, states: ["near", "breakout"] },
@@ -247,6 +256,7 @@ export function serialize(f: ScanFilters): Record<string, unknown> {
   if (f.nearHigh.on) b.near_high = { sessions: f.nearHigh.sessions };
   if (f.maOrder.on) b.ma_order = { kind: f.maOrder.kind, periods: f.maOrder.periods };
   if (f.uptrend.on) b.ma_uptrend = { period: f.uptrend.period, months: f.uptrend.months };
+  if (f.ma200Turn?.on) b.ma200_turn = { require: true };
   if (f.adr.on && f.adr.min != null) b.adr = { days: f.adr.days, min: f.adr.min };
   if (f.rrg.on && f.rrg.quadrants.length) b.rrg = { quadrants: f.rrg.quadrants, timeframe: f.rrg.timeframe, benchmark: f.rrg.benchmark };
   if (f.resistance.on) b.resistance = { require: true, states: f.resistance.states };
@@ -288,6 +298,7 @@ export function describeFilters(f: ScanFilters, opts: ScanOptions | null): strin
   }
   if (f.nearHigh.on) out.push(`New 52W high within ${f.nearHigh.sessions} sessions`);
   if (f.maOrder.on) out.push(`${f.maOrder.periods.map((p) => `${p}${f.maOrder.kind === "sma" ? "MA" : "EMA"}`).join(" ≥ ")}`);
+  if (f.ma200Turn?.on) out.push("200-day average turning up");
   if (f.uptrend.on) out.push(`${f.uptrend.period} MA rising ≥ ${f.uptrend.months} month${f.uptrend.months > 1 ? "s" : ""}`);
   if (f.adr.on && f.adr.min != null) out.push(`${f.adr.days}-day ADR > ${f.adr.min}%`);
   if (f.rrg.on) out.push(`${f.rrg.quadrants.join("/")} sectors (${f.rrg.timeframe}, vs ${f.rrg.benchmark === "nifty50" ? "Nifty 50" : "Nifty 500"})`);

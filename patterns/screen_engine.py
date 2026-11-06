@@ -45,6 +45,13 @@ RANGE_FIELDS = {
     "ret_1y": lambda r: r.get("ret_1y"),
     "ret_3y": lambda r: r.get("ret_3y"),
     "ret_5y": lambda r: r.get("ret_5y"),
+    # derived by market_lists.annotate() on every search
+    "rvol": lambda r: r.get("rvol"),
+    "gap_pct": lambda r: r.get("gap_pct"),
+    "range_20d": lambda r: r.get("range_20d"),
+    "vs_ema10": lambda r: r.get("vs_ema10"),
+    "rs_1m": lambda r: r.get("rs_1m"),
+    "rs_3m": lambda r: r.get("rs_3m"),
 }
 
 SORTS = {
@@ -200,6 +207,8 @@ def _stock_passes(r: dict, f: dict, quad: dict | None, state: bool = True) -> bo
             return False
     if not _ma_ok(r, "ema", f.get("ema")) or not _ma_ok(r, "sma", f.get("dma")):
         return False
+    if (f.get("ma200_turn") or {}).get("require") and r.get("ma200_turn") is not True:
+        return False
     nh = f.get("near_high")
     if nh and nh.get("sessions"):
         d = r.get("new_high_days")
@@ -239,9 +248,15 @@ def _sort_key(sort: str):
     return lambda x: (x.get(field) is None, direction * (x.get(field) or 0))
 
 
+def _rows() -> dict:
+    rows = scan._load_all()
+    market_lists.annotate(rows)
+    return rows
+
+
 def search(pattern, f: dict, include_candles: bool = False) -> dict:
     """See the module docstring; `pattern` may be a chart pattern id, "all", "horizontal-resistance", "multi" (f["scans"]["values"]) or a market-list scanner id."""
-    rows = scan._load_all()
+    rows = _rows()
     pat = None if pattern in (None, "") or pattern in SPECIAL else pattern
     f = dict(f or {})
     # The Create Screener can also be limited to stocks showing any of several chart patterns (f["patterns"]["values"]).
@@ -366,7 +381,7 @@ def backtest(pattern: str, f: dict) -> dict:
     confirmation is a trade entered at the confirming close, in the pattern's direction, measured 5-60 bars later.
     It is a study of the past five years of the stocks that exist TODAY (no delisted names, no costs, trades from one stock
     can overlap) - not a promise about the future."""
-    rows = scan._load_all()
+    rows = _rows()
     f = dict(f or {})
     h = int(f.get("horizon") or 20)
     if h not in HORIZONS:

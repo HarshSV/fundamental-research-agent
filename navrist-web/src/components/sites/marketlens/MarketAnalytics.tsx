@@ -27,7 +27,7 @@ interface RrgRes { timeframe: string; benchmark: string; sectors: RrgSector[]; a
 interface BreadthRes {
   as_of?: string; stocks: number; universe?: number;
   today?: { advancing: number; declining: number; unchanged: number; advancing_pct: number | null; new_52w_highs: number; new_52w_lows: number; above_20: number | null; above_50: number | null; above_200: number | null };
-  history?: { date: string; above_50: number | null; above_200: number | null; advancing: number | null }[];
+  history?: { date: string; above_50: number | null; above_200: number | null; advancing: number | null; advances?: number; declines?: number; up_4_5?: number | null; down_4_5?: number | null; highs_52w?: number | null; lows_52w?: number | null; vol_above_20d?: number | null }[];
 }
 
 function useLoad<T>(url: string) {
@@ -239,17 +239,55 @@ function Stat({ label, value, sub, color }: { label: string; value: string; sub?
   );
 }
 
+type HistRow = NonNullable<BreadthRes["history"]>[number];
+type HistKey = Exclude<keyof HistRow, "date">;
+
+/** A small multi-line history chart (SVG). Points where a series has no value are skipped, never drawn as zero. */
+function HistChart({ title, hist, series, unit }: { title: string; hist: HistRow[]; series: { k: HistKey; label: string; color: string }[]; unit?: string }) {
+  const W = 560, H = 220, PX = 38, PY = 14;
+  const vals = series.flatMap((s) => hist.map((h) => h[s.k]).filter((v): v is number => typeof v === "number"));
+  if (vals.length === 0) return null;
+  const top = unit === "%" ? 100 : Math.max(1, ...vals) * 1.08;
+  const x = (i: number) => PX + (i / Math.max(1, hist.length - 1)) * (W - PX - 8);
+  const y = (v: number) => H - PY - (v / top) * (H - 2 * PY);
+  const path = (k: HistKey) => {
+    let d = "", pen = false;
+    hist.forEach((h, i) => {
+      const v = h[k];
+      if (typeof v !== "number") { pen = false; return; }
+      d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)} `;
+      pen = true;
+    });
+    return d;
+  };
+  const ticks = unit === "%" ? [20, 50, 80] : [0.25, 0.5, 0.75].map((f) => Math.round(top * f));
+  return (
+    <div className="rounded-xl border p-3" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+      <div className="mb-1 text-sm font-semibold">{title}</div>
+      <div className="mb-2 flex flex-wrap gap-4 text-xs">
+        {series.map((s) => <span key={s.k} className="flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}><span className="h-2 w-2 rounded-full" style={{ background: s.color }} />{s.label}</span>)}
+      </div>
+      <div className="overflow-x-auto">
+        <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full min-w-[360px]" role="img" aria-label={title}>
+          {ticks.map((g) => (
+            <g key={g}><line x1={PX} x2={W - 8} y1={y(g)} y2={y(g)} stroke="var(--border-subtle)" strokeDasharray="3 4" /><text x={4} y={y(g) + 4} fontSize="10" fill="var(--text-tertiary)">{g}{unit ?? ""}</text></g>
+          ))}
+          {series.map((s) => <path key={s.k} d={path(s.k)} fill="none" stroke={s.color} strokeWidth="1.8" strokeLinejoin="round" />)}
+          <text x={PX} y={H - 1} fontSize="10" fill="var(--text-tertiary)">{hist[0].date}</text>
+          <text x={W - 8} y={H - 1} fontSize="10" textAnchor="end" fill="var(--text-tertiary)">{hist[hist.length - 1].date}</text>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 function Breadth() {
   const { data, error } = useLoad<BreadthRes>("/api/v1/market/breadth");
   if (!data || !data.today) return <Loading error={error} />;
   const t = data.today;
   const verdict = t.above_50 == null ? "" : t.above_50 >= 60 ? "Broad, healthy strength" : t.above_50 >= 40 ? "Mixed participation" : "Narrow, fragile market";
   const hist = (data.history ?? []).filter((h) => h.above_50 != null);
-  const W = 720, H = 260, PX = 34, PY = 16;
-  const x = (i: number) => PX + (i / Math.max(1, hist.length - 1)) * (W - PX - 10);
-  const y = (v: number) => H - PY - (v / 100) * (H - 2 * PY);
-  const line = (k: "above_50" | "above_200" | "advancing") => hist.map((h, i) => `${x(i)},${y(h[k] ?? 0)}`).join(" ");
-  const series: { k: "above_50" | "above_200" | "advancing"; label: string; color: string }[] = [
+  const series: { k: HistKey; label: string; color: string }[] = [
     { k: "above_50", label: "Above 50 DMA", color: "#3b82f6" }, { k: "above_200", label: "Above 200 DMA", color: "#f59e0b" }, { k: "advancing", label: "Advancing that day", color: "#10b981" },
   ];
   return (
@@ -267,20 +305,12 @@ function Breadth() {
         <Stat label="At 52-week lows" value={`${t.new_52w_lows}`} sub="within 0.5% of the low" color={LOSS} />
       </div>
       {hist.length > 1 && (
-        <div className="rounded-xl border p-3" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
-          <div className="mb-2 flex flex-wrap gap-4 text-xs">
-            {series.map((s) => <span key={s.k} className="flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}><span className="h-2 w-2 rounded-full" style={{ background: s.color }} />{s.label}</span>)}
-          </div>
-          <div className="overflow-x-auto">
-            <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full min-w-[460px]" role="img" aria-label="Market breadth history">
-              {[20, 50, 80].map((g) => (
-                <g key={g}><line x1={PX} x2={W - 10} y1={y(g)} y2={y(g)} stroke="var(--border-subtle)" strokeDasharray="3 4" /><text x={4} y={y(g) + 4} fontSize="10" fill="var(--text-tertiary)">{g}%</text></g>
-              ))}
-              {series.map((s) => <polyline key={s.k} points={line(s.k)} fill="none" stroke={s.color} strokeWidth="1.8" strokeLinejoin="round" />)}
-              <text x={PX} y={H - 2} fontSize="10" fill="var(--text-tertiary)">{hist[0].date}</text>
-              <text x={W - 10} y={H - 2} fontSize="10" textAnchor="end" fill="var(--text-tertiary)">{hist[hist.length - 1].date}</text>
-            </svg>
-          </div>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <HistChart title="Share of stocks above their moving averages" unit="%" hist={hist} series={series} />
+          <HistChart title="Stocks up / down 4.5% in a day" hist={hist} series={[{ k: "up_4_5", label: "Up 4.5%+", color: "#10b981" }, { k: "down_4_5", label: "Down 4.5%+", color: "#ef4444" }]} />
+          <HistChart title="Advances and declines" hist={hist} series={[{ k: "advances", label: "Advances", color: "#10b981" }, { k: "declines", label: "Declines", color: "#ef4444" }]} />
+          <HistChart title="52-week highs and lows (closing basis)" hist={hist} series={[{ k: "highs_52w", label: "New 52-week high", color: "#10b981" }, { k: "lows_52w", label: "New 52-week low", color: "#ef4444" }]} />
+          <HistChart title="Stocks with volume above their 20-day average" hist={hist} series={[{ k: "vol_above_20d", label: "Volume above 20-day average", color: "#3b82f6" }]} />
         </div>
       )}
     </div>

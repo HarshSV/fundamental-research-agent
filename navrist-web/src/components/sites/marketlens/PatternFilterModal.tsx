@@ -435,6 +435,9 @@ export function PatternFilterModal({
                     <span>has been rising for at least</span>
                     <Pick label="Months" value={f.uptrend.months} onChange={(months) => patch({ uptrend: { ...f.uptrend, on: true, months } })} options={(options?.uptrend.months ?? [1, 2, 3, 6]).map((v) => ({ v, label: `${v} month${v > 1 ? "s" : ""}` }))} />
                   </Row>
+                  <Row on={!!f.ma200Turn?.on} onToggle={(on) => patch({ ma200Turn: { on } })} hint="The 200-day average fell over the 60 sessions before last week and has risen since, with the price above it">
+                    <span>200-day average has turned around (falling, now rising)</span>
+                  </Row>
                   <Row on={f.adr.on} onToggle={(on) => patch({ adr: { ...f.adr, on } })} hint="Average daily range: (high / low - 1) in %">
                     <Pick label="ADR days" value={f.adr.days} onChange={(days) => patch({ adr: { ...f.adr, on: true, days } })} options={(options?.adr_days ?? [5, 10, 20, 30]).map((v) => ({ v, label: `${v} days` }))} />
                     <span>average daily range % &gt;</span>

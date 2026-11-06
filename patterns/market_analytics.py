@@ -69,8 +69,30 @@ def breadth() -> dict:
             lows += 1
     # history, aligned by calendar day, from each stock's stored closes (prefix sums give every day's moving average cheaply)
     per_day: dict = {}
+    extra: dict = {}                      # day -> [up 4.5%, down 4.5%, new 52w high (close), new 52w low (close), volume above 20d avg, volume counted]
     for r in group:
         cl = r.get("closes") or []
+        # extra breadth series from the stored closes and candles (the candles hold volume for about the last 160 sessions)
+        vol_by_day = {}
+        bars = [c for c in (r.get("candles") or []) if len(c) >= 6 and _num(c[5])]
+        for k in range(20, len(bars)):
+            avg = sum(b[5] for b in bars[k - 20:k]) / 20
+            if avg > 0:
+                vol_by_day[(bars[k][0] + IST) // DAY] = bars[k][5] > avg
+        for i in range(max(1, len(cl) - BREADTH_DAYS), len(cl)):
+            d = (cl[i][0] + IST) // DAY
+            e = extra.setdefault(d, [0, 0, 0, 0, 0, 0])
+            ch = _pct(cl[i][1], cl[i - 1][1])
+            if ch is not None:
+                e[0] += ch >= 4.5
+                e[1] += ch <= -4.5
+            if i >= 252:
+                win = [c for _, c in cl[i - 252:i]]
+                e[2] += cl[i][1] > max(win)
+                e[3] += cl[i][1] < min(win)
+            if d in vol_by_day:
+                e[4] += vol_by_day[d]
+                e[5] += 1
         if len(cl) < SMA_SLOW + 2:
             continue
         pref = [0.0]
@@ -85,7 +107,11 @@ def breadth() -> dict:
             b[1] += cl[i][1] > ma50
             b[2] += cl[i][1] > ma200
             b[3] += cl[i][1] > cl[i - 1][1]
-    history = [{"date": _iso(d), "above_50": _share(v[1], v[0]), "above_200": _share(v[2], v[0]), "advancing": _share(v[3], v[0])}
+    history = [{"date": _iso(d), "above_50": _share(v[1], v[0]), "above_200": _share(v[2], v[0]), "advancing": _share(v[3], v[0]),
+                "advances": v[3], "declines": v[0] - v[3],
+                "up_4_5": extra.get(d, [None] * 6)[0], "down_4_5": extra.get(d, [None] * 6)[1],
+                "highs_52w": extra.get(d, [None] * 6)[2], "lows_52w": extra.get(d, [None] * 6)[3],
+                "vol_above_20d": extra.get(d, [None] * 6)[4] if (extra.get(d) and extra[d][5] >= 50) else None}
                for d, v in sorted(per_day.items()) if v[0] >= 50]
     n = len(group)
     return {

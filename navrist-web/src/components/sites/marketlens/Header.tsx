@@ -69,6 +69,8 @@ const MENUS: Menu[] = [
           { label: "Tight Setup · weekly", run: scanner("tight-setup-weekly") },
           { label: "Inside Bar · daily", run: scanner("inside-bar") },
           { label: "Inside Bar · weekly", run: scanner("inside-bar-weekly") },
+          { label: "Filtered Inside Bar · daily", run: scanner("inside-bar-filtered") },
+          { label: "Filtered Inside Bar · weekly", run: scanner("inside-bar-weekly-filtered") },
         ],
       },
       {

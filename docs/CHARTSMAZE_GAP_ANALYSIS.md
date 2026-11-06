@@ -125,6 +125,8 @@ The universe is the 751 stocks of the Nifty Total Market list, not ChartsMaze's 
 These definitions are ours. ChartsMaze's exact rules were not visible, so results will differ from theirs. All computations use only the stored scan data
 (about 160 daily candles and 520 closes per stock); a value that cannot be computed is None and the stock does not match.
 
+**Added later the same day (quick wins):** filters for RVOL, gap-up %, 20-day range, price vs 10-day EMA, 1-month and 3-month RS and the 200-day average turn-around; Filtered Inside Bar (daily, weekly); breadth charts for 4.5% movers, advances and declines, 52-week highs and lows and volume above the 20-day average.
+
 **Still not built:** Industry Analytics (no industry field finer than the 25 sectors), Earnings Gap Up / Positive Earnings Reaction / Results Calendar (need result
 dates), Sector Indices page, Watchlist and Journal (need per-user accounts), Past Winners, IPO scanner and recent-IPO list, Circuit Revision, Order Wins, ASM,
 Bulk/Block deals, Insider Trading (need exchange feeds), named Templates, mobile apps.

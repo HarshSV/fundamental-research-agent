@@ -116,7 +116,7 @@ def _gap_filling(r):
     return None
 
 
-def _inside_bar(r, weekly=False):
+def _inside_bar(r, weekly=False, filtered=False):
     if weekly:
         w = _weeks(_bars(r))
         if len(w) < 2:
@@ -130,6 +130,10 @@ def _inside_bar(r, weekly=False):
     if not (h <= ph and l >= pl) or ph <= pl:
         return None
     ratio = (h - l) / (ph - pl) * 100.0
+    if filtered:                     # the "filtered" variant: only a clearly narrower bar, in an uptrend
+        sma50, price = (r.get("sma") or {}).get("50"), r.get("price")
+        if ratio > 60 or not _num(sma50) or not _num(price) or price <= sma50:
+            return None
     return {"value": ratio, "text": f"Range {ratio:.0f}% of prior", "note": ("this week" if weekly else "latest session") + " traded inside the prior " + ("week" if weekly else "session") + "'s high and low"}
 
 
@@ -202,6 +206,59 @@ def rs_high_before_price_high(r, bench):
     return {"value": off, "text": f"{off:.1f}% below high", "note": "relative strength line at a 52-week high while the price is below its 52-week high"}
 
 
+# ------------------------------------------------------------------ derived per-stock measures used as screener filters
+RANGE_DAYS = 20
+
+
+def _sma_series(closes: list, n: int):
+    """Simple moving average of `closes` ending at every index >= n-1 (list aligned to the END of closes)."""
+    if len(closes) < n:
+        return []
+    out, run = [], sum(closes[:n])
+    out.append(run / n)
+    for i in range(n, len(closes)):
+        run += closes[i] - closes[i - n]
+        out.append(run / n)
+    return out
+
+
+def ma200_turnaround(r: dict):
+    """True when the 200-day average was falling over the 60 sessions before last week and has been rising since, with the price above it.
+    None when there are too few closes to say (never False for 'unknown')."""
+    cl = [c for _, c in (r.get("closes") or []) if _num(c)]
+    if len(cl) < 200 + 70:
+        return None
+    s = _sma_series(cl, 200)
+    if len(s) < 66:
+        return None
+    return bool(s[-1] > s[-6] and s[-6] < s[-66] and cl[-1] > s[-1])
+
+
+def annotate(rows: dict) -> None:
+    """Adds the measures the screener's extra filters read to every stock row (idempotent, cheap): rvol (latest volume over the
+    average of the 20 sessions before it), gap_pct (open vs previous close), range_20d (high-low range of the last 20 sessions,
+    % of the low), vs_ema10 (% the price is above its 10-day EMA), rs_1m / rs_3m (1-99 percentile of the 1 / 3-month return among
+    the scanned stocks) and ma200_turn. A measure that cannot be computed is None and never matches a filter."""
+    import bisect
+    for key, src in (("rs_1m", "ret_1m"), ("rs_3m", "ret_3m")):
+        vals = sorted(r[src] for r in rows.values() if _num(r.get(src)))
+        n = len(vals)
+        for r in rows.values():
+            v = r.get(src)
+            r[key] = None if not _num(v) or n < 2 else int(round(1 + 98 * bisect.bisect_left(vals, v) / (n - 1)))
+    for r in rows.values():
+        b = _bars(r)
+        vr = _volume_ratio(r)
+        r["rvol"] = round(vr[0], 2) if vr else None
+        r["gap_pct"] = _pct(b[-1][1], b[-2][4]) if len(b) >= 2 else None
+        w = b[-RANGE_DAYS:]
+        low = min((x[3] for x in w), default=None)
+        r["range_20d"] = ((max(x[2] for x in w) / low - 1.0) * 100.0 if len(w) >= RANGE_DAYS and low else None)
+        e10 = (r.get("ema") or {}).get("10")
+        r["vs_ema10"] = _pct(r["price"], e10) if _num(r.get("price")) and _num(e10) else None
+        r["ma200_turn"] = ma200_turnaround(r)
+
+
 # id -> (name, group, definition, sort direction: -1 largest first, 1 smallest first)
 SCANNERS = {
     "top-gainers": ("Top Gainers", "Market lists", "Stocks that rose in the latest session, biggest gain first.", -1),
@@ -212,6 +269,8 @@ SCANNERS = {
     "gap-filling": ("Gap Filling", "Gaps", "Gapped up at least 2% in the last 15 sessions and has since come back into the gap without closing it completely.", -1),
     "inside-bar": ("Inside Bar (daily)", "Setups", "The latest session traded inside the previous session's high and low.", 1),
     "inside-bar-weekly": ("Inside Bar (weekly)", "Setups", "This week has traded inside last week's high and low.", 1),
+    "inside-bar-filtered": ("Filtered Inside Bar (daily)", "Setups", "An inside bar whose range is at most 60% of the previous session's, with the price above its 50-day average.", 1),
+    "inside-bar-weekly-filtered": ("Filtered Inside Bar (weekly)", "Setups", "A weekly inside bar at most 60% of last week's range, with the price above its 50-day average.", 1),
     "tight-setup": ("Tight Setup (daily)", "Setups", "The last 5 closes are within 2.5% of each other and the price is above its 50-day average.", 1),
     "tight-setup-weekly": ("Tight Setup (weekly)", "Setups", "The last 3 weekly closes are within 4% of each other and the price is above its 50-day average.", 1),
     "momentum": ("Momentum", "Strength", "Above the 50 and 200-day averages (50 over 200), RS rating 80+, within 15% of the 52-week high and up 20%+ in 3 months.", -1),
@@ -228,6 +287,8 @@ _EVAL = {
     "gap-filling": lambda r, b: _gap_filling(r),
     "inside-bar": lambda r, b: _inside_bar(r),
     "inside-bar-weekly": lambda r, b: _inside_bar(r, True),
+    "inside-bar-filtered": lambda r, b: _inside_bar(r, False, True),
+    "inside-bar-weekly-filtered": lambda r, b: _inside_bar(r, True, True),
     "tight-setup": lambda r, b: _tight_setup(r),
     "tight-setup-weekly": lambda r, b: _tight_setup(r, True),
     "momentum": lambda r, b: _momentum(r),
