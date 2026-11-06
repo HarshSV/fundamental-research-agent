@@ -231,7 +231,7 @@ const day = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.sl
 
 /** A small "News" button that opens a light popover with the company's filings (NSE / BSE) and headlines (Google News). It reads
  *  them only when first opened. Nothing is scored or interpreted. */
-function News({ symbol }: { symbol: string }) {
+export function News({ symbol }: { symbol: string }) {
   const [open, setOpen] = useState(false); // mounted
   const [shown, setShown] = useState(false); // fade/slide state
   const [ev, setEv] = useState<Events | null>(null);
@@ -271,10 +271,10 @@ function News({ symbol }: { symbol: string }) {
       </button>
       {open && (
         <div
-          className="absolute inset-x-0 top-full z-30 mt-2 max-h-[26rem] overflow-y-auto overflow-x-hidden sm:left-auto sm:right-0 sm:w-[23rem] rounded-lg border p-3 text-xs shadow-xl"
+          className="absolute inset-x-0 top-full z-30 mt-2 max-h-[26rem] overflow-y-auto overflow-x-hidden sm:right-auto sm:left-0 sm:w-[23rem] rounded-lg border p-3 text-xs shadow-xl"
           style={{
             background: "var(--surface-1)", borderColor: "var(--border-default)",
-            opacity: shown ? 1 : 0, transform: shown ? "none" : "translateY(-6px) scale(0.98)", transformOrigin: "top right",
+            opacity: shown ? 1 : 0, transform: shown ? "none" : "translateY(-6px) scale(0.98)", transformOrigin: "top left",
             transition: reduced() ? "none" : `opacity 220ms ${EASE}, transform 220ms ${EASE}`,
           }}
         >
@@ -423,17 +423,9 @@ function Verdict({ data }: { data: Forecast }) {
 
 /** The one Forecast section on the stock page: outlook, trade plan with replay odds, levels, evidence and position size. */
 export function ForecastCard({
-  symbol, data, error, showLevels, onToggleLevels,
-}: { symbol: string; data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void }) {
-  // News sits above everything, so it is there whether or not a forecast could be made (new listings, renamed symbols, errors).
-  return (
-    <div>
-      <div className="relative mb-5 flex justify-end">
-        <News symbol={symbol} />
-      </div>
-      <ForecastBody data={data} error={error} showLevels={showLevels} onToggleLevels={onToggleLevels} />
-    </div>
-  );
+  data, error, showLevels, onToggleLevels,
+}: { data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void }) {
+  return <ForecastBody data={data} error={error} showLevels={showLevels} onToggleLevels={onToggleLevels} />;
 }
 
 function ForecastBody({

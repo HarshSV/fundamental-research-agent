@@ -13,7 +13,7 @@ import {
   type CatalogueEntry, type PatternOcc, type PatternStatus, type PatternsResponse,
 } from "./patterns";
 import { marketOpen } from "./marketHours";
-import { ForecastCard } from "./ForecastCard";
+import { ForecastCard, News } from "./ForecastCard";
 import { fetchForecast, forecastCone, forecastLevels, type Forecast } from "./forecast";
 import type { ScanContext } from "./patternScan";
 import { Detail as PatternDetail, type Candle } from "./PriceChart";
@@ -83,12 +83,13 @@ async function getCandles(sym: string, interval: string, period: string): Promis
   return d.candles ?? [];
 }
 
-function SectionTitle({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
+function SectionTitle({ children, aside, beside }: { children: React.ReactNode; aside?: React.ReactNode; beside?: React.ReactNode }) {
   return (
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+    <div className="relative mb-5 flex flex-wrap items-center justify-between gap-3">
       <div className="flex items-center gap-3">
         <div className="h-6 w-1 rounded-full" style={{ background: "var(--accent-muted, #635ec8)" }} />
         <h2 className="text-xl font-semibold">{children}</h2>
+        {beside}
       </div>
       {aside}
     </div>
@@ -760,9 +761,8 @@ export function StockView({
 
       <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
-          <SectionTitle>Forecast</SectionTitle>
+          <SectionTitle beside={<News symbol={stock.symbol} />}>Forecast</SectionTitle>
           <ForecastCard
-            symbol={stock.symbol}
             data={forecastData?.data ?? null}
             error={Boolean(forecastData?.error)}
             showLevels={showForecastLevels}
@@ -810,9 +810,6 @@ export function StockView({
                   <span>{c.label}</span>
                 </div>
                 <div className="mt-1 text-lg font-semibold" style={{ color: c.tone === "good" ? GAIN : c.tone === "bad" ? LOSS : undefined, transition: "color 350ms ease" }}>{c.value ?? "—"}</div>
-                {c.id === "de" && c.value == null && overview?.is_financial && (
-                  <div className="mt-0.5 text-xs" style={{ color: "var(--text-tertiary)" }}>Not meaningful for lenders</div>
-                )}
                 {c.id === "pe" && peM.value == null && epsM.value != null && epsM.value <= 0 && (
                   <div className="mt-0.5 text-xs" style={{ color: "var(--text-tertiary)" }}>Negative earnings, so no P/E</div>
                 )}

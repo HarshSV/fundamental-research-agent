@@ -137,7 +137,8 @@ def _parse_shareholding(html):
                 series[dst] = vals
                 break
 
-    if not quarters or not series["promoter"]:
+    # A company with no promoter (professionally managed, e.g. a widely held bank) has no promoter row: that is not "no data".
+    if not quarters or not any(series[k] for k in ("promoter", "fii", "dii", "government", "public", "others")):
         return None
 
     n = len(quarters)
@@ -576,7 +577,7 @@ def fetch_screener_financials(symbol, name=None, fresh=False):
     12h. Never raises.
     """
     sym = symbol.strip().upper().replace(".NS", "")
-    cache_key = f"fin2_{sym}"  # v2: payload now carries face_value (old `fin_` caches lack it)
+    cache_key = f"fin3_{sym}"  # v3: shareholding now kept for companies with no promoter row (v2 caches held {} for them)
     cached = None if fresh else _read_cache(cache_key, FIN_TTL)      # fresh=True: read the page again (the daily refresh must not reuse the 12h copy)
     if cached is not None:
         return cached
