@@ -37,6 +37,7 @@ orderblock-research/scrape/
 # Next.js app: dependencies, build output, local env
 navrist-web/node_modules/
 navrist-web/.next/
+navrist-web/.next-prod/
 navrist-web/.env.local
 navrist-web/tsconfig.tsbuildinfo
 

@@ -139,6 +139,10 @@ Use a startup task that runs `cloudflared tunnel run navrist` (created from an A
 JSON to `C:\Windows\System32\config\systemprofile\.cloudflared\` and fix the `credentials-file` path. A service stuck in STOP_PENDING
 needs `taskkill /F /PID <pid>`. Cloudflare error 530 means no tunnel is connected.
 
-**Before sharing the link:** run a production build (`npm run build` then `npm run start -- -p 3100` in `navrist-web/`) instead of `next dev`;
+**Serving mode (updated 2026-11-06):** the site now serves a production build from `navrist-web/.next-prod`. After changing web code run
+`powershell -ExecutionPolicy Bypass -File scripts\build_web.ps1` (builds, then restarts; `scripts\keep_running.ps1` brings the new build up). In Cloudflare set
+**Caching -> Configuration -> Browser Cache TTL = Respect Existing Headers**. For live-reload editing, run `npm run dev -- -p 3101` in `navrist-web/`.
+
+**Before sharing the link:** (the production build is already in place; the rest still applies)
 set a strong `SITE_PASSWORD` and a new `JWT_SECRET_KEY`; make sure the machine does not sleep. Login is rate limited (5 wrong passwords per
 15 minutes per client address). While the app runs in dev mode, `navrist-web/next.config.ts` must list the public host in `allowedDevOrigins`.
