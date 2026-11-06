@@ -8,6 +8,11 @@ dashboard, served together from one origin.
 > Annual Reports/XBRL, not yfinance; LLM calls are disabled). See [`PROJECT_DOCUMENTATION.md`](PROJECT_DOCUMENTATION.md)
 > sections E, N and O for the current picture.
 
+> **Update (2026-11-06):** the live site is `https://ai.navrist.com`, published from the owner's PC through a Cloudflare Tunnel
+> (see the section "Publishing as ai.navrist.com" at the end of this file and
+> [`PROJECT_DOCUMENTATION.md` O.10](PROJECT_DOCUMENTATION.md#o10-public-deployment-at-ainavristcom)). The interface in use is the Next.js app in
+> `navrist-web/` (port 3100, proxying `/api` to the backend on 8000), not the Vite app. `navrist.com` itself stays a WordPress site on Hostinger.
+
 > **Hosting requirement:** this app scrapes NSE for promoter-pledge (F-11) and
 > FII/DII flow (F-12) data. NSE blocks most datacenter IPs **outside India**.
 > Deploy in an **Indian region** (AWS `ap-south-1` Mumbai, or an Indian VPS).
@@ -102,3 +107,38 @@ Shareholding data is cached on disk under `cache/` (pledge 12h, FII/DII 4h).
 feed. `tools/shareholding_scraper.py` exposes a `ShareholdingProvider` interface -
 implement it for a paid vendor (Trendlyne / Tickertape) and register it in
 `get_provider()`; nothing else changes.
+
+---
+
+## Publishing as ai.navrist.com (Cloudflare Tunnel)
+
+Hostinger shared hosting cannot run this app (Python backend plus Node web app), so the app is published as a subdomain through a tunnel.
+No credentials belong in this file.
+
+1. Add `navrist.com` to Cloudflare (Free plan). Compare the imported DNS records with Hostinger's. Set `autoconfig`, `autodiscover`,
+   the `hostingermail-*._domainkey` CNAMEs and `ftp` to **DNS only**; delete any old `ai` A record. Keep the WordPress records proxied.
+2. At Hostinger (Domains -> navrist.com -> Nameservers) replace the nameservers with the two Cloudflare ones. Wait for "Active".
+3. Cloudflare -> SSL/TLS -> mode **Full**.
+4. On the machine that runs the app: `winget install Cloudflare.cloudflared`, open a **new** terminal, then
+   `cloudflared tunnel login` and **click the `navrist.com` row** on the page that opens.
+5. `cloudflared tunnel create navrist`, then `cloudflared tunnel route dns navrist ai.navrist.com`.
+6. Create `~/.cloudflared/config.yml`:
+   ```yaml
+   tunnel: navrist
+   credentials-file: C:\Users\<user>\.cloudflared\<tunnel-id>.json
+   ingress:
+     - hostname: ai.navrist.com
+       service: http://localhost:3100
+     - service: http_status:404
+   ```
+7. Start the app (`start_navrist.bat`), then `cloudflared tunnel run navrist`.
+
+**Keeping it running:** do **not** rely on `cloudflared service install` alone - on this machine it registered a service with no
+`tunnel run` arguments, which exits immediately (error 1067), and a service reads config from the system profile, not the user folder.
+Use a startup task that runs `cloudflared tunnel run navrist` (created from an Administrator shell), or copy `config.yml` and the credentials
+JSON to `C:\Windows\System32\config\systemprofile\.cloudflared\` and fix the `credentials-file` path. A service stuck in STOP_PENDING
+needs `taskkill /F /PID <pid>`. Cloudflare error 530 means no tunnel is connected.
+
+**Before sharing the link:** run a production build (`npm run build` then `npm run start -- -p 3100` in `navrist-web/`) instead of `next dev`;
+set a strong `SITE_PASSWORD` and a new `JWT_SECRET_KEY`; make sure the machine does not sleep. Login is rate limited (5 wrong passwords per
+15 minutes per client address). While the app runs in dev mode, `navrist-web/next.config.ts` must list the public host in `allowedDevOrigins`.

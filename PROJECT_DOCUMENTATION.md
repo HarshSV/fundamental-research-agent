@@ -2,6 +2,8 @@
 
 *Written 2026-10-09 from the repository at `C:\Users\vanar\Downloads\Agent-Clone\fundamental-research-agent` (branch `main`, last commit `86cb38f` of 2026-10-08, plus a large amount of uncommitted work - see [B.0](#b0-how-this-history-was-reconstructed-and-its-limits)).*
 
+> **Update 2026-11-06:** a public deployment at `https://ai.navrist.com`, a phone-layout pass, login hardening and a secrets review were added after this document was first written. They are recorded in [B.17](#b17-stage-16---public-deployment-phone-layout-and-secrets-review-2026-11-05---11-06), [D.3](#d3-authentication-as-implemented), [M.1](#m1-summary) (M-20 to M-25), [O.10](#o10-public-deployment-at-ainavristcom) and [`docs/PROJECT_CHANGELOG.md`](docs/PROJECT_CHANGELOG.md). Sections that describe the October ratio work were not re-verified in this update.
+
 **Companion documents:** [`docs/FINANCIAL_RATIO_AUDIT.md`](docs/FINANCIAL_RATIO_AUDIT.md) (68-row audit matrix) - [`docs/PROJECT_CHANGELOG.md`](docs/PROJECT_CHANGELOG.md) (chronological changes) - [`docs/ratio_contract.md`](docs/ratio_contract.md) (generated formula contract) - [`docs/ratio_audit_matrix_2026-10.md`](docs/ratio_audit_matrix_2026-10.md) (raw ANURAS audit) - [`docs/final_validation_2026-10/matrix.md`](docs/final_validation_2026-10/matrix.md) (earlier cross-company validation) - [`docs/forecast_system.md`](docs/forecast_system.md) - [`DEPLOY.md`](DEPLOY.md) (deployment guide, partly out of date - see [O.9](#o9-known-stale-documentation)) - [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) (permanent project rules).
 
 > **Read this first - what this document is and is not.** It records what the code and records in this repository *show*. Where something was
@@ -201,6 +203,18 @@ See [J](#j-recent-global-audit) for the full audit. In short: COGS-based Invento
 
 `c2ed624` "prioritize screener-aligned ratio names" (first 13 ratios shown use Screener-style labels such as "Inventory Days", "Debtor Days", via `tools/ratio_display.py`; internal ids unchanged) and `86cb38f` "simplify ratio calculation cards" (cards show name and value; statuses/warnings remain in the API payload but are not drawn). Completed.
 
+### B.17 Stage 16 - Public deployment, phone layout and secrets review (2026-11-05 -> 11-06)
+
+*Source: this session's work and the commits `8434d3a`, `f8e1eec`, `a740486` (observed in git); the Cloudflare and Hostinger steps were done in their dashboards and are not in git.*
+
+* **Public site.** `navrist.com` stays a WordPress site on Hostinger shared hosting (it cannot run Python or Node). The app is published as `ai.navrist.com` through a Cloudflare Tunnel from the owner's PC (details and lessons in [O.10](#o10-public-deployment-at-ainavristcom)).
+* **Dev-mode hydration block (mistake found and fixed).** The first public load rendered only the page shell ("Loading market indices...") because the web app runs `next dev`, which refuses to hydrate pages for non-localhost origins. Fixed with `allowedDevOrigins: ["ai.navrist.com"]` in `navrist-web/next.config.ts`.
+* **Phone layout pass (320 / 375 / 768 px).** Fixed: header title overlapping the theme toggle; home search placeholder wrapping over three lines; stock page and Backtest page wider than the screen (grid items without `min-w-0`); chart range tabs and Shareholding quarter tabs wider than the screen; Financial Result chart date labels colliding; tap targets of 20-30 px raised to 36-44 px on phones only; EMA/DMA checkbox lists made a two-column grid; a "Swipe sideways for more columns" line above wide tables; the typing headline no longer shifts the search box (the longest phrase is laid out invisibly to reserve its size). Verified with a script that lists elements wider than the viewport, plus screenshots. Not verified on a real phone.
+* **Login hardening.** Wrong-password attempts are rate-limited per client address ([D.3](#d3-authentication-as-implemented)).
+* **Secrets review.** Found the real site password in an `auth.py` comment (M-18) and API keys, bearer tokens, public IP and MAC address in tracked `logs/` files (M-20). `.gitignore` extended and `logs/` untracked in commit `a740486`.
+
+---
+
 ---
 
 ## C. How the complete system works
@@ -321,7 +335,9 @@ There is **no second calculation engine**. The remaining differences are in *whe
 
 Not an email/password system: `auth.py` verifies a **single shared `SITE_PASSWORD`** (constant-time comparison) and issues a short-lived JWT (`JWT_SECRET_KEY`, default 12 h). The token is stored in the browser's `localStorage` and sent as `Authorization: Bearer`; protected endpoints use `Depends(auth.require_session)`. An older memory note describing per-user email accounts is out of date. Hardening gaps recorded by the owner: token in `localStorage`, no per-user audit trail.
 
-> **Security finding while documenting (not fixed):** the module docstring of `auth.py` contains an example line `SITE_PASSWORD=...` with what appears to be the **real shared password in clear text**, and it has been in git history since commit `1914c2e` (the repository has an `origin` remote on GitHub). Treat that password as exposed: rotate it, change the docstring, and consider the history public. I have deliberately not repeated the value here.
+**Added 2026-11-06 (working tree, not yet committed):** `/api/auth/login` is rate-limited per client address (`auth.client_key`, `login_retry_after`, `record_login_failure`, `clear_login_failures`): 5 wrong passwords in 15 minutes return HTTP 429 with `Retry-After`; defaults are `LOGIN_MAX_FAILURES=5` and `LOGIN_WINDOW_SECONDS=900` (both overridable in `.env`). The client address is `CF-Connecting-IP`, else the first `X-Forwarded-For` entry, else the socket address. State is in memory and resets on restart. Audit result: 91 of 95 backend routes require `auth.require_session`; the four open routes are `POST /api/auth/login`, `GET /`, `GET /api/health` and `GET /api/v1/market-indices` (public market data shown in the ticker before sign-in). CORS allows any origin, which is acceptable only because the backend port is not exposed publicly and tokens travel in a header, not a cookie.
+
+> **Security finding while documenting (partly fixed 2026-11-06):** the docstring line has been replaced by a placeholder in the working tree, but the password remains in git history and **must still be rotated** (M-18). Original finding: the module docstring of `auth.py` contains an example line `SITE_PASSWORD=...` with what appears to be the **real shared password in clear text**, and it has been in git history since commit `1914c2e` (the repository has an `origin` remote on GitHub). Treat that password as exposed: rotate it, change the docstring, and consider the history public. I have deliberately not repeated the value here.
 
 ---
 
@@ -838,9 +854,15 @@ Status was re-verified on 2026-10-09. "Observed" = I ran or read it today; "Reco
 | M-14 | **NEW** Cash Ratio treats an unextracted "other bank balances" line as 0 and stays `verified` | **Pending investigation** |
 | M-15 | **NEW** `tests/final_validation.py` crashes (`fiscal_year` TypeError) | **Open** (test harness) |
 | M-16 | Latest universe scan: 20/133 filings unreadable; 29 % fail an identity | **Open** (recorded 2026-10-08, not re-run) |
-| M-17 | Almost all October work is uncommitted | **Open - risk** |
-| M-18 | Shared password appears in `auth.py` docstring in git history | **Open - security** |
+| M-17 | Almost all October work is uncommitted | **Open - risk** (partly reduced: UI and `.gitignore` work is committed in `8434d3a`, `f8e1eec`, `a740486`; the ratio work is still uncommitted) |
+| M-18 | Shared password appears in `auth.py` docstring in git history | **Partly fixed**: docstring is now a placeholder (working tree); password **not yet rotated**, history **not purged** - security |
 | M-19 | Dividend Yield (and other price ratios) use today's live price for any historical year | **Open - design gap** |
+| M-20 | Tracked `logs/` files contained the Angel API key (confirmed equal to the current `.env` value), about 16 bearer tokens, the public IP and the MAC address; pushed to GitHub | **Untracked in `a740486`**; the key is **not yet rotated** and remains in pushed history - security |
+| M-21 | `.env.example` is out of date: lacks the OpenRouter and Supabase keys, lists AXIS/Telegram/HOST/PORT/RELOAD that `.env` lacks (Telegram alerts need `TELEGRAM_BOT_TOKEN`) | **Open** |
+| M-22 | The public site runs `next dev` (slower, shows the dev badge) and needs `allowedDevOrigins` | **Workaround in place**; a production build is not yet set up |
+| M-23 | Tunnel availability: `cloudflared service install` registered a service with no `tunnel run` arguments and crashed (exit 1067); a scheduled-task replacement was not created | **Open**: the tunnel stays up only while a manual process keeps it running |
+| M-24 | No limit on wrong-password attempts once the site was public | **Fixed** (working tree, uncommitted) - observed: attempts 1-5 gave 401, 6-7 gave 429 |
+| M-25 | Phone layout defects (overlaps, sideways overflow, tiny tap targets, headline jump) | **Fixed and verified at 320/375/768 px in an emulated browser**; real-device test and stock-page light mode still pending |
 
 ### M.2 Details
 
@@ -881,6 +903,14 @@ Status was re-verified on 2026-10-09. "Observed" = I ran or read it today; "Reco
 **M-18 Credentials in history.** See D.3. *Next step:* rotate the site password and JWT secret, remove the line from the docstring, consider purging history.
 
 **M-19 Price timing.** See E.3 and H-10.
+
+**M-20 Secrets in tracked logs.** The Angel client logs the full request headers on errors (`X-PrivateKey`, `Authorization: Bearer ...`, `X-ClientPublicIP`, `X-MACAddress`). `.gitignore` listed `logs/` patterns, but ignoring does not apply to files git already tracks, so six files stayed in the repository. *Done:* `git rm --cached -r logs`, `logs/` and `data/` ignored, committed as `a740486` (local files kept). *Next step:* regenerate the Angel API key (the old one is in pushed history); decide whether to purge history (destructive; copies and forks keep the old data). *Lesson:* after adding an ignore rule, check `git ls-files` for files it should have covered.
+
+**M-21 `.env.example` drift.** Keep it as placeholders only. *Next step:* add the missing names and remove names no code reads.
+
+**M-22 Dev server in public.** `next dev` blocks cross-origin hydration unless the host is in `allowedDevOrigins`; that is set to `ai.navrist.com`. *Next step:* `next build` and `next start -p 3100`, and point `scripts/keep_running.ps1` at it.
+
+**M-23 Tunnel persistence.** See O.10. *Next step (owner, Administrator shell):* `sc.exe delete cloudflared`, then create a startup task that runs `cloudflared tunnel run navrist`.
 
 ### M.3 Other limitations worth knowing
 
@@ -988,6 +1018,8 @@ cd frontend && npm run build               # produces frontend/dist, which app.p
 ```
 `.claude/launch.json` defines the same servers (`backend`, `frontend`, `test-instance` on :8010 via `frontend/scripts/serveTestInstance.py`). Health check: `GET /api/health`. Changing `.env` needs a backend restart (the reloader does not watch it).
 
+**Current web UI (added 2026-11-06).** The interface in use is the Next.js app in `navrist-web/` (Next 16, App Router), not the Vite app in `frontend/`. `start_navrist.bat` runs `scripts/start_navrist.ps1`, which starts `scripts/keep_running.ps1` (a hidden loop that restarts the backend `python app.py` on :8000 and `npm run dev -- -p 3100` in `navrist-web/` when a port stops answering, checking every ~60 s) and opens `http://localhost:3100`. `navrist-web/next.config.ts` rewrites `/api/*` to `NAVRIST_BACKEND_URL` (default `http://127.0.0.1:8000`), so a single public origin is enough. To make backend code changes take effect, stop the `python app.py` processes; the keeper restarts them. **Gotchas:** the backend did not pick up a change to `auth.py`/`app.py` until it was restarted, and `netstat` may show the owner of the :8000 listener as PID 0, so find the process by command line (`Win32_Process`).
+
 ### O.5 Uploading / processing documents
 
 Use the Document Analysis view, or call `POST /api/v1/documents/analyse` (multipart; Bearer token from `POST /api/auth/login`). Then `POST /api/v1/document-analysis/run` and `GET /api/v1/document-analysis/{symbol}`. Details in [F](#f-manual-document-upload-workflow). Batch precompute (automatic mode, writes Supabase):
@@ -1012,9 +1044,28 @@ See [P](#p-how-to-investigate-a-wrong-ratio). To read evidence: open the ratio's
 
 Preferred: bump `_EXTRACTION_LOGIC_VERSION` / `EXTRACTION_VERSION` / `FORMULA_VERSION` (N.3) so keys change. Deleting `cache/` files is safe (they are rebuilt) but slow; delete `cache/ar_text/{SYM}_{FY}.json` only if it is empty/short. For stored rows use `tools/refresh_ratios.py`. Never patch extraction code containing regular expressions through shell heredocs (escape corruption, record *final-validation-2026-10*); edit with a proper editor or script file.
 
+### O.10 Public deployment at ai.navrist.com
+
+*Set up 2026-11-05. Names only; no credentials belong here.*
+
+| Item | Value |
+|---|---|
+| Registrar | Hostinger (domain `navrist.com`) |
+| DNS | **Cloudflare** (Free plan); the Hostinger nameservers were replaced by the two Cloudflare ones |
+| `navrist.com` / `www` | WordPress on Hostinger shared hosting (A/AAAA/CNAME, proxied) - unchanged |
+| `ai.navrist.com` | CNAME created by `cloudflared tunnel route dns navrist ai.navrist.com`, pointing at tunnel `navrist`, which forwards to `http://localhost:3100` |
+| Config | `C:\Users\<user>\.cloudflared\config.yml` (tunnel `navrist`; ingress `ai.navrist.com` -> `http://localhost:3100`, fallback 404); `cert.pem` and the tunnel's `<id>.json` credentials sit beside it and must never be committed |
+| Run | `cloudflared tunnel run navrist` (needs `C:\Program Files (x86)\cloudflared` on PATH) |
+
+**Steps in order:** (1) add `navrist.com` to Cloudflare and compare the imported records with Hostinger's; (2) set the mail-related records to *DNS only* (`autoconfig`, `autodiscover`, the three `hostingermail-*._domainkey` CNAMEs, `ftp`) because proxying breaks them, and delete the old `ai` A record; (3) change the nameservers at Hostinger and wait for "Active"; (4) set SSL/TLS to **Full**; (5) `cloudflared tunnel login`, choosing the zone `navrist.com` by **clicking its row**; (6) `tunnel create`, `tunnel route dns`, write the config, run.
+
+**Mistakes made and what they taught:** `cloudflared tunnel login` cannot finish until the domain is a zone in the account; a new PowerShell window is needed after `winget install` to refresh PATH; the Windows service created by `cloudflared service install` had no `tunnel run` arguments and exited (1067), and a service reads its config from the *system profile*, not the user's folder; a stopped service can hang in STOP_PENDING and needs `taskkill /F /PID`; Cloudflare error 530 means "no tunnel connected"; and the first public page load hung until `allowedDevOrigins` was set.
+
+**Security posture while public:** the site is behind the shared password; 91 of 95 API routes require a session; login is rate limited (D.3). The tunnel exposes only port 3100. The machine must stay awake and online. This is a demo-grade setup; a small VPS plus a production build is the recommended next step.
+
 ### O.9 Known stale documentation
 
-`DEPLOY.md` section 6 (data sources: "yfinance ... as filed", Groq for AI sections) describes the 2026-06 architecture; the first lines of section 2 still say `GROQ_API_KEY` is required. `docs/ratio_contract.md` is generated and current (formula `2026.10.13`). Project memory notes outside the repo describe email/password auth and "Screener primary" - both superseded (D.3, B.4).
+`DEPLOY.md` section 6 (data sources: "yfinance ... as filed", Groq for AI sections) describes the 2026-06 architecture; the first lines of section 2 still say `GROQ_API_KEY` is required. `docs/ratio_contract.md` is generated and current (formula `2026.10.13`). Project memory notes outside the repo describe email/password auth and "Screener primary" - both superseded (D.3, B.4). `.env.example` is stale (M-21). Section O.4 originally described only the Vite app in `frontend/`; the Next.js app in `navrist-web/` is the interface in use (see the 2026-11-06 note under O.4).
 
 ---
 
@@ -1088,13 +1139,13 @@ Preferred: bump `_EXTRACTION_LOGIC_VERSION` / `EXTRACTION_VERSION` / `FORMULA_VE
 | **Completed and verified** (code + tests + an observed run today) | Single ratio contract and adapters (B.13); statuses and unknown-never-zero model (with M-13/M-14 exceptions); calculation breakdown payload; COGS Inventory Turnover and dependants; average-WC turnover; single EV definition; equity-basis policy; dividend fiscal-year attribution; version folding into cache keys; pipeline parity; EBIT Margin relabel; frontend logic tests (73 pass); backend suite (542 pass) |
 | **Implemented but not fully verified** | Cash Ratio restricted-balance policy (no XBRL cross-check); dividend payout perimeter split (many `needs_review`); bank extractor for Kotak/HDFC/ICICI/SBI (identities proven, disclosed values corroborated for only 1-2 per ratio); Total Debt Three-Part Test; pledge/free-float against the filing; qualitative A-G scoring; live chart patterns; income-statement charts |
 | **Partially implemented** | Net-credit-sales DSO (proxy only); NBFC asset-quality ratios (Poonawalla not found); Beta in manual mode (insufficient by policy); XBRL path for uploaded filings; Supabase fast path (latest year only); qualitative H-U (catalogued, not built); forecast beyond 8 pilot symbols |
-| **Known bug** | M-2 L&T current items; M-4 Asian Paints subtotal; M-13 Bharti DPS zero; M-15 broken validation harness; `DEPLOY.md` / `requirements.txt` stale; credentials in git history (M-18) |
+| **Known bug** | M-2 L&T current items; M-4 Asian Paints subtotal; M-13 Bharti DPS zero; M-15 broken validation harness; `DEPLOY.md` / `requirements.txt` stale; credentials in git history (M-18, M-20) |
 | **Pending investigation** | M-1 XBRL Cash Ratio cross-check; M-3 Kotak/Poonawalla discrepancy; M-14 absent-vs-unextracted bank balances; TCS owners' PAT `NEEDS_REVIEW` reason; ITC continuing-vs-total EPS policy; 20/133 unreadable filings and 29% identity failures (M-16); Titan share-count rounding; payout > 100 % cases |
 | **Future enhancement** | Dated (fiscal-year-end) price series for historical yields; TTM ratios; OCR for scanned PDFs; second EV view with NCI in UI; cold-vs-warm automated comparison on real filings; rendered-UI tests; per-user accounts; re-enabling LLM interpretation (owner's explicit decision required); daily-forecast production model |
 
 ### R.2 Priorities (financial correctness first, then user impact)
 
-1. **Commit and back up the October work; rotate the exposed password** (M-17, M-18) - one bad disk or force-push loses the audit trail.
+1. **Rotate the exposed secrets (site password, `JWT_SECRET_KEY`, Angel API key; M-18, M-20) and commit the remaining October work** (M-17) - one bad disk or force-push loses the audit trail. Then: a production build and a persistent tunnel or a VPS (M-22, M-23), a real-phone test (M-25) and a refreshed `.env.example` (M-21).
 2. **M-13** dividend glyph zero (a wrong "verified 0") and **M-14** (possible silent zero) - both break the project's central rule.
 3. **M-2 / M-4** subtotal misreads (L&T, Asian Paints, Bharti): they are already flagged, but every liquidity ratio depends on them.
 4. **Repair the validation harness (M-15)** and re-run `final_validation.py` / `universe_scan.py`; update the matrix.

@@ -99,6 +99,24 @@ Sankey -> icicle diagrams, multi-year comparison, segment-revenue extraction and
 ### 2026-10-09 - Documentation pass (this change set)
 * Added `PROJECT_DOCUMENTATION.md`, `docs/FINANCIAL_RATIO_AUDIT.md`, `docs/PROJECT_CHANGELOG.md`; no application code changed. Findings recorded as new open issues: **M-13** Bharti Airtel DPS 0 `verified`, **M-14** unextracted bank balances as 0, **M-15** broken `tests/final_validation.py`, **M-18** password in history, **M-19** live price for historical years.
 
+### 2026-11-05 - Public deployment at ai.navrist.com (record; dashboards, not in git)
+* *Historical:* the app ran only on the owner's PC (`localhost:3100`); `navrist.com` is a WordPress site on Hostinger shared hosting, which cannot run Python or Node. *Change:* `navrist.com` moved to Cloudflare DNS (Free); a Cloudflare Tunnel named `navrist` publishes port 3100 as `ai.navrist.com`; mail records set to DNS only; SSL mode Full. *Current:* live and returning 200 while the PC is on and the tunnel runs. *Unresolved:* M-23 (the tunnel is not persistent: the service install produced a crashing service), M-22 (still `next dev`). [O.10](../PROJECT_DOCUMENTATION.md#o10-public-deployment-at-ainavristcom)
+
+### 2026-11-05 - `8434d3a` Allow the public origin in the dev server; first phone fixes
+* *Historical:* the public page showed only its shell ("Loading market indices...") because `next dev` blocks hydration for non-localhost origins. *Change:* `allowedDevOrigins: ["ai.navrist.com"]` in `navrist-web/next.config.ts`; header and home search box fixed for phones. *Current:* shipped (observed in a phone-sized browser). *Note:* the commit also swept in the owner's earlier uncommitted edits to `Header.tsx`, `Hero.tsx` and `StockView.tsx`.
+
+### 2026-11-06 - `f8e1eec` Phone layout pass
+* *Historical:* overlapping text, pages wider than the screen (stock page, Backtest), tap targets of 20-30 px, a typing headline that moved the search box, tables clipped without a hint. *Change:* responsive tap sizes in `controls.tsx` (`SlidingTabs`, `Switch`), `min-w-0` / single-column grids, shorter quarter labels, two-line chart date labels, EMA/DMA two-column grid, "Swipe sideways" captions, a reserved-size typing headline; `controls.tsx` committed (it had been imported but never committed). *Current:* no horizontal overflow at 320, 375 and 768 px (script check), TypeScript clean. *Unresolved:* M-25 (real-device test, stock page in light mode), peer table still scrolls sideways by design.
+
+### 2026-11-06 - `a740486` Secrets review: `.gitignore` and tracked logs
+* *Historical:* `logs/` was tracked despite ignore rules and contained the Angel API key, bearer tokens, public IP and MAC address (M-20). *Change:* `.env.*`, key/certificate patterns, `logs/`, `data/dev-logs/` and `data/` ignored; `logs/` untracked (files kept locally). *Current:* committed, not pushed. *Unresolved:* the key and the site password remain in pushed history and must be rotated (M-18, M-20).
+
+### 2026-11-06 - Login hardening (working tree, uncommitted)
+* *Historical:* `/api/auth/login` accepted unlimited wrong passwords; the real password was written in an `auth.py` comment. *Change:* per-client throttle (5 failures / 15 min, then HTTP 429 with `Retry-After`) in `auth.py` and `app.py`; the comment now holds a placeholder. *Current:* observed on the restarted backend: attempts 1-5 gave 401, 6-7 gave 429, another client address was unaffected. A route audit found 91 of 95 routes protected; the four open ones are login, `/`, `/api/health` and `/api/v1/market-indices`. *Unresolved:* rotate the password and `JWT_SECRET_KEY` (M-18); M-21 (`.env.example` out of date).
+
+### 2026-11-06 - Documentation update (this change set)
+* Updated `PROJECT_DOCUMENTATION.md` (header note, B.17, D.3, M-17 to M-25, O.4, O.9, O.10, R), this changelog and `DEPLOY.md`; no application code changed by this step.
+
 ---
 
 ## Release/versions snapshot (2026-10-09)
