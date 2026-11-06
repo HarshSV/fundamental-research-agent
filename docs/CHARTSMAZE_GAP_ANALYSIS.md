@@ -71,6 +71,32 @@ forecast with buy / stop / target levels, shareholding and pledge detail, and se
 
 The universe is the 751 stocks of the Nifty Total Market list, not ChartsMaze's 2000+.
 
+## 3b. Built on 2026-11-06 (code in `patterns/market_lists.py`, `patterns/market_analytics.py`, the top menu in `Header.tsx`)
+
+| ChartsMaze feature | Navrist | Definition we use (also shown in the app) |
+|---|---|---|
+| Multiple Scans | **Built** (`pattern: "multi"`, `filters.scans`) | A stock must appear in ALL ticked scanners (chart patterns, Horizontal Resistance, any market-list scanner) |
+| Top Gainers / Losers | **Built** | Latest session's close-to-close change, biggest first |
+| Volume Gainers | **Built** | Latest volume at least 2x the average of the 20 sessions before it |
+| High Volume Stocks | **Built** | Ranked by the latest session's traded value (price x volume) |
+| Gap Up | **Built** | Open at least 2% above the previous close in the latest session |
+| Gap Filling | **Built** | A 2%+ gap up in the last 15 sessions that price has since come back into without fully closing it |
+| Inside Bar (daily, weekly) | **Built** | Latest session (or week) inside the previous one's high and low |
+| Tight Setup (daily, weekly) | **Built** | Last 5 closes within 2.5% (3 weekly closes within 4%), price above the 50-day average |
+| Momentum | **Built** | Price > 50-day > 200-day average, RS 80+, within 15% of the 52-week high, 3-month return 20%+ |
+| RS High Before Price High | **Built** | Stock/Nifty 500 relative-strength line at a 52-week high while price is 2%+ below its own 52-week high |
+| Shorting Scanner | **Built** | Price < 50-day < 200-day average, RS 30 or less, within 15% of the 52-week low |
+| Sector Analytics | **Built** (`/api/v1/market/sectors`) | Equal-weighted sector returns (1D to 1Y), 1M against the Nifty 500, share above 50/200-day averages, average RS, rotation quadrant |
+| RRG | **Built** (`/api/v1/market/rrg`) | Sector quadrants and trails; open approximation, not the licensed JdK formula |
+| Market Breadth | **Built** (`/api/v1/market/breadth`) | Advance/decline, share above 20/50/200-day averages, new 52-week highs and lows, 90-day history |
+
+These definitions are ours. ChartsMaze's exact rules were not visible, so results will differ from theirs. All computations use only the stored scan data
+(about 160 daily candles and 520 closes per stock); a value that cannot be computed is None and the stock does not match.
+
+**Still not built:** Industry Analytics (no industry field finer than the 25 sectors), Earnings Gap Up / Positive Earnings Reaction / Results Calendar (need result
+dates), Sector Indices page, Watchlist and Journal (need per-user accounts), Past Winners, IPO scanner and recent-IPO list, Circuit Revision, Order Wins, ASM,
+Bulk/Block deals, Insider Trading (need exchange feeds), named Templates, mobile apps.
+
 ## 4. Build plan
 
 **Group 1 - from candles we already store (no new data); the video suggests this order of value: Multiple Scans, RRG chart, Market Breadth, Sector analytics view, then the single-purpose scanners:** Top Gainers/Losers; Volume Gainers and High Volume Stocks (volume against the 20-day
