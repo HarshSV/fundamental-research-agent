@@ -20,10 +20,10 @@ disconnects and visitors see Cloudflare Error 1033. Running the same app and tun
 
 ## Step 3 - Pack the project on your PC (PowerShell, in the project folder)
 ```powershell
-tar --exclude=venv --exclude=node_modules --exclude=.next --exclude=.next-prod --exclude=__pycache__ --exclude="*.log" --exclude=.git -czf $env:TEMP\navrist.tgz .
+tar --exclude=venv --exclude=node_modules --exclude=.next --exclude=.next-prod --exclude=__pycache__ --exclude="*.log" --exclude=.git --exclude=cache/ar_pdfs -czf $env:TEMP\navrist.tgz .
 Copy-Item "$env:USERPROFILE\.cloudflared\d6190f48-31d7-4621-91ac-abf5b85874a9.json" $env:TEMP\tunnel.json
 ```
-This includes `.env` and `data/` (about 1.7 GB, so the upload takes a while) and your current uncommitted edits.
+This includes `.env`, `data/` (1.7 GB) and `uploads/` (1.1 GB), so the upload takes a while. It leaves out `cache/ar_pdfs` (6.6 GB of downloaded annual-report PDFs, which are fetched again when needed; their extracted text in `cache/ar_text` is kept). The package should come to roughly 3 GB.
 
 ## Step 4 - Upload (PowerShell; replace the key path and IP)
 ```powershell
