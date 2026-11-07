@@ -14,7 +14,7 @@ import concurrent.futures
 import threading
 import time
 import requests
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -474,10 +474,20 @@ class LoginRequest(BaseModel):
 
 # --- Authentication endpoints ---------------------------------------------
 @app.post("/api/auth/login")
-def login(request: LoginRequest):
+def login(request: LoginRequest, http_request: Request):
     """Validate the shared site password and return a JWT session token."""
+    key = auth.client_key(http_request)
+    wait = auth.login_retry_after(key)
+    if wait:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many wrong passwords. Try again in {max(1, wait // 60)} minute(s).",
+            headers={"Retry-After": str(wait)},
+        )
     if not auth.verify_site_password(request.password):
+        auth.record_login_failure(key)
         raise HTTPException(status_code=401, detail="Incorrect password.")
+    auth.clear_login_failures(key)
     token = auth.create_access_token()
     return {
         "access_token": token,
@@ -904,6 +914,70 @@ def _sector_peers(sym, limit=6):
     except Exception:
         return []
 
+def _nse_overview(sym):
+    """Headline Key Metrics from NSE's company record (Market Lens) for a stock Screener cannot give. Only positive figures
+    are used for ratios where that API reports 0 for "not available" (a real zero and a missing value look the same);
+    net margin may be negative, so only an exact 0 is skipped."""
+    try:
+        import requests
+        from tools.company_profile import _UA
+        r = requests.get(f"https://marketlens.nseindia.com/api/stocks/{sym}", headers=_UA, timeout=20)
+        d = (r.json() or {}).get("data") if r.status_code == 200 else None
+    except Exception:
+        d = None
+    if not d:
+        return {}
+    from screens.metrics import is_financial
+    from tools.nse_sector_map import get_nse_sector
+    num = lambda k: d.get(k) if isinstance(d.get(k), (int, float)) and not isinstance(d.get(k), bool) else None
+    pos = lambda k: num(k) if (num(k) or 0) > 0 else None
+    nz = lambda k: num(k) if num(k) not in (None, 0) else None
+    fin = is_financial(get_nse_sector(sym))
+    mcap = pos("marketCap")
+    out = {
+        "source": "nse",
+        "market_cap_cr": round(mcap / 1e7, 2) if mcap else None,
+        "face_value": pos("faceValue"),
+        "pe": pos("peRatio"),
+        "debt_to_equity": None if fin else (round(pos("debtToEquity"), 2) if pos("debtToEquity") else None),
+        "book_value": None,          # NSE's book value uses a different basis from Screener's (Gravita 103 vs 358): not used
+        "about": d.get("description") or None,
+        "ratios": {
+            "annual_label": None,
+            "roe": {"ttm": None, "annual": None},
+            "net_margin": {"ttm": None, "annual": nz("netMargin")},
+            "revenue_growth": {"ttm": None, "annual": None},
+            "interest_coverage": None if fin else {"ttm": None, "annual": nz("interestCover")},
+            "book_value": None,
+            "dividend_yield": pos("divYield"),
+            "promoter": pos("promoterHolding"),
+        },
+    }
+    if out["pe"] is None or out["ratios"]["dividend_yield"] is None:
+        # NSE lists no P/E or yield for it: Yahoo's trailing P/E and yield (their earnings basis can differ)
+        try:
+            from screens.universe import _yahoo_fin
+            y = (_yahoo_fin(sym) or {}).get("info") or {}
+            if out["pe"] is None and (y.get("trailingPE") or 0) > 0:
+                out["pe"] = round(y["trailingPE"], 2)
+            if out["ratios"]["dividend_yield"] is None and (y.get("dividendYield") or 0) > 0:
+                out["ratios"]["dividend_yield"] = round(y["dividendYield"] * 100.0, 2)
+        except Exception:
+            pass
+    return out
+
+
+def _key_ratios(data, sym):
+    """ROE, net margin, revenue growth and interest coverage on TTM and annual bases (screens/key_ratios.py)."""
+    try:
+        from screens.key_ratios import compute
+        from screens.metrics import is_financial
+        from tools.nse_sector_map import get_nse_sector
+        return compute(data, financial=is_financial(get_nse_sector(sym)))
+    except Exception:
+        return None
+
+
 @app.get("/api/v1/stock-overview/{symbol}")
 def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     """Stock-page sections that are not price data: key metrics, about text, quarterly
@@ -940,9 +1014,9 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     finally:
         _pool.shutdown(wait=False)
     if not data:
-        # fundamentals source down: price-derived extremes are still real
+        # Screener unreachable or has no page that parses: NSE's own company record still carries the headline figures
         return {"symbol": sym, "source": "unavailable", "all_time_high": ath, "all_time_low": atl, "return_bases": return_bases,
-                "peers": _sector_peers(sym), "peers_source": "sector"}
+                "peers": _sector_peers(sym), "peers_source": "sector", **_nse_overview(sym)}
 
     def cr(v):
         return round(v / 1e7, 2) if isinstance(v, (int, float)) else None
@@ -1005,6 +1079,9 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
         "all_time_low": atl,
         "pe": pe,
         "book_value": info.get("bookValue"),
+        "ratios": _key_ratios(data, sym),
+        "basis": data.get("basis") or "consolidated",
+        "is_financial": is_financial(get_nse_sector(sym)),
         "about": info.get("longBusinessSummary"),
         "quarterly": quarterly,
         "shareholding": data.get("shareholding") or None,

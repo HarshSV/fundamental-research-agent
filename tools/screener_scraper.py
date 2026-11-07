@@ -567,6 +567,12 @@ def _parse_about(html):
     return None
 
 
+def _has_columns(html: str) -> bool:
+    """True when the Profit & Loss table carries period columns (an empty skeleton has none)."""
+    i = html.find('id="profit-loss"')
+    return i >= 0 and "data-date-key" in html[i:i + 12000]
+
+
 def fetch_screener_financials(symbol, name=None, fresh=False):
     """
     PRIMARY financials source. Parse the full P&L / balance sheet / cash flow /
@@ -583,7 +589,17 @@ def fetch_screener_financials(symbol, name=None, fresh=False):
         return cached
     try:
         slug = _SYMBOL_MAP.get(sym, sym)
+        basis = "consolidated"
         html = _get(f"https://www.screener.in/company/{slug}/consolidated/")
+        if html and 'id="profit-loss"' in html and not _has_columns(html):
+            # An empty skeleton: either Screener is throttling, or this company has no consolidated accounts at all (the
+            # /consolidated/ page of a standalone-only company is exactly this). The standalone page tells them apart: a company
+            # WITH consolidated accounts links to them from its standalone page, a standalone-only one does not.
+            st = _get(f"https://www.screener.in/company/{slug}/")
+            if st and 'id="profit-loss"' in st and _has_columns(st) and f"/company/{slug}/consolidated/" not in st:
+                html, basis = st, "standalone"
+            else:
+                html = None                      # fall through to the retry logic below
         if not html or 'id="profit-loss"' not in html:
             html = _get(f"https://www.screener.in/company/{slug}/")
             # A company that HAS a consolidated page must never be read from its standalone page: when Screener throttles, the
@@ -594,7 +610,7 @@ def fetch_screener_financials(symbol, name=None, fresh=False):
                 for attempt in range(3):
                     time.sleep(1.5 * (attempt + 1))
                     got = _get(f"https://www.screener.in/company/{slug}/consolidated/")
-                    if got and 'id="profit-loss"' in got:
+                    if got and 'id="profit-loss"' in got and _has_columns(got):
                         break
                     got = None
                 if got is None:
@@ -689,6 +705,7 @@ def fetch_screener_financials(symbol, name=None, fresh=False):
             "shareholding": sh or {},
             "screener_peers": peers,
             "face_value": top.get("face value"),  # None when Screener does not list it
+            "basis": basis,                       # "standalone" for a company that reports no consolidated accounts
             "data_source": "screener_scrape",
         }
         _write_cache(cache_key, payload)

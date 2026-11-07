@@ -5,6 +5,7 @@ import {
   type IChartApi, type IPriceLine, type ISeriesApi, type ISeriesMarkersPluginApi, type SeriesMarker, type Time, type UTCTimestamp,
 } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ConePrimitive, type Cone } from "./cone";
 import { OUTCOME_COLOR, STATUS_COLOR, markerOf, type MarkerKind, type PatternOcc } from "./patterns";
 import type { Resistance, ScanOccurrence } from "./patternScan";
 import type { Candle } from "./PriceChart";
@@ -63,7 +64,7 @@ function toBars(cs: Candle[], intraday: boolean) {
  * the stock was opened from a scanner, that scan's pattern lines, levels and horizontal resistance.
  */
 export function StockChart({
-  candles, dataKey, intraday, chartStyle, showVolume, occs, selectedId, onSelect, scan, levels, height = 440,
+  candles, dataKey, intraday, chartStyle, showVolume, occs, selectedId, onSelect, scan, levels, cone, height = 440,
 }: {
   candles: Candle[];
   dataKey: string; // changes when the DATASET changes (range switch), not on live updates: refits the view
@@ -75,6 +76,7 @@ export function StockChart({
   onSelect: (id: string | null) => void;
   scan?: ScanOverlay | null;
   levels?: { price: number; title: string; color: string; dashed?: boolean }[];
+  cone?: Cone | null; // the forecast fan drawn to the right of the last bar (daily charts only)
   height?: number;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -303,6 +305,39 @@ export function StockChart({
     }
     for (const lv of levels ?? []) level(lv.price, lv.color, lv.title, lv.dashed ? LineStyle.Dashed : LineStyle.Solid);
   }, [data, occs, selectedId, scan, levels, chartStyle, showVolume, intraday, height]);
+
+  // 5. the forecast fan: a primitive on the price series, with room on the right of the last bar for it
+  const coneOn = Boolean(cone) && !intraday && data.bars.length > 0;
+  const lastIndex = data.bars.length - 1 + (chartStyle === "line" ? data.ticks.length : 0);
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series || !coneOn || !cone) return;
+    const prim = new ConePrimitive();
+    series.attachPrimitive(prim);
+    const gain = css("--gain", "#10b981");
+    const loss = css("--loss", "#ef4444");
+    const rgb = cone.tone === "up" ? "16, 185, 129" : cone.tone === "down" ? "239, 68, 68" : "148, 163, 184";
+    prim.set(cone, lastIndex, { fill: rgb, text: cone.tone === "up" ? gain : cone.tone === "down" ? loss : css("--text-secondary", "#94a3b8") });
+    return () => {
+      try {
+        series.detachPrimitive(prim);
+      } catch {
+        /* the series was already removed */
+      }
+    };
+  }, [cone, coneOn, lastIndex, chartStyle, showVolume, intraday, height]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const room = coneOn ? 24 : 6;
+    chart.timeScale().applyOptions({ rightOffset: room });
+    const r = chart.timeScale().getVisibleLogicalRange();
+    if (coneOn && r && r.to < lastIndex + room) chart.timeScale().setVisibleLogicalRange({ from: r.from, to: lastIndex + room });
+    // only when the fan appears or the dataset changes: a live tick must not undo the user's panning
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coneOn, dataKey, intraday, height]);
 
   const last = data.bars[data.bars.length - 1];
   const shown = hover ?? last ?? null;

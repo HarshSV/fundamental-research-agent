@@ -6,13 +6,16 @@ granted a short-lived JWT session token. The token is then required on every
 data endpoint, so the backend stays protected (not just the frontend UI).
 
 Configure the password and token lifetime in the .env file:
-    SITE_PASSWORD=Navrist@400051*
+    SITE_PASSWORD=<a long random passphrase; never put the real value in code or comments>
     JWT_SECRET_KEY=<random secret>
     ACCESS_TOKEN_EXPIRE_HOURS=12
 """
 
 import hmac
 import os
+import threading
+import time
+from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -92,3 +95,42 @@ def require_session(
     except jwt.PyJWTError:
         raise unauthorized
     return {"session": payload.get("sub", "navrist-internal")}
+
+
+# --- Login throttling --------------------------------------------------------
+# The site is reachable from the internet, so wrong-password attempts are limited per client address:
+# after MAX_FAILURES wrong passwords inside WINDOW_SECONDS, further attempts are refused until the oldest
+# failure ages out. In memory only (resets on restart), which is enough to stop online password guessing.
+LOGIN_MAX_FAILURES = int(os.getenv("LOGIN_MAX_FAILURES", "5"))
+LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "900"))
+_failures: "defaultdict[str, deque]" = defaultdict(deque)
+_failures_lock = threading.Lock()
+
+
+def client_key(request) -> str:
+    """The caller's address: the Cloudflare header when the request came through the tunnel, else the socket."""
+    h = request.headers
+    return (h.get("cf-connecting-ip") or (h.get("x-forwarded-for") or "").split(",")[0].strip()
+            or (request.client.host if request.client else "unknown"))
+
+
+def login_retry_after(key: str) -> int:
+    """Seconds the caller must wait before another attempt, or 0 when attempts are allowed."""
+    now = time.time()
+    with _failures_lock:
+        q = _failures[key]
+        while q and now - q[0] > LOGIN_WINDOW_SECONDS:
+            q.popleft()
+        if len(q) >= LOGIN_MAX_FAILURES:
+            return max(1, int(LOGIN_WINDOW_SECONDS - (now - q[0])))
+    return 0
+
+
+def record_login_failure(key: str) -> None:
+    with _failures_lock:
+        _failures[key].append(time.time())
+
+
+def clear_login_failures(key: str) -> None:
+    with _failures_lock:
+        _failures.pop(key, None)

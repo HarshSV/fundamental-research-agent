@@ -46,6 +46,8 @@ export interface CatalogueEntry {
   id: string;
   name: string;
   category: string;
+  /** What a confirmed formation implies; "both" when the direction comes from the structure found. */
+  bias?: "bullish" | "bearish" | "both";
   maturity: string;
   definition: string;
 }

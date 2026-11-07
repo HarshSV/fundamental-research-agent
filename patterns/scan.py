@@ -47,7 +47,8 @@ CLOSE_BARS = 520                    # closes kept per stock (about 2 years) for 
 PATTERN_YEARS = 5                   # the pattern engine's window
 
 _lock = threading.Lock()
-_mem: dict = {"stamp": None, "rows": {}}
+_mem: dict = {"stamp": None, "rows": {}, "at": 0.0}
+RELOAD_WHILE_BUSY_SECONDS = 30      # while a scan / fundamentals build is writing files, the joined rows are rebuilt at most this often
 
 
 # ------------------------------------------------------------------ universe + index membership
@@ -304,7 +305,7 @@ def build(force: bool = False, workers: int | None = None, only: list[str] | Non
             cmd += ["--only", ",".join(only)]
         os.makedirs(DATA_DIR, exist_ok=True)
         log = open(os.path.join(DATA_DIR, "scan.log"), "a", encoding="utf-8")
-        _proc = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+        _proc = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, **_low_priority())
         return True
 
 
@@ -317,9 +318,23 @@ def _fundamentals() -> dict:
         return {}
 
 
+def _background_busy() -> bool:
+    """True while this server's own scan or fundamentals-build subprocess is running."""
+    return any(p is not None and p.poll() is None for p in (globals().get("_proc"), globals().get("_funda_proc")))
+
+
+def _low_priority() -> dict:
+    """Popen options that run a background job below normal priority on Windows, so the site stays responsive while it works."""
+    return {"creationflags": 0x00004000} if os.name == "nt" else {}      # BELOW_NORMAL_PRIORITY_CLASS
+
+
 def _load_all() -> dict:
     """{symbol: row}: the per-stock files joined with the Screener fundamentals and a relative-strength rating, re-built
     only when the files changed."""
+    # A scan or fundamentals build rewrites per-stock files all the time; joining ~750 large files on every request made the
+    # whole site crawl while it ran. During one, hand out the rows built a moment ago.
+    if _mem["rows"] and time.monotonic() - _mem["at"] < RELOAD_WHILE_BUSY_SECONDS and _background_busy():
+        return _mem["rows"]
     try:
         files = [f for f in os.listdir(SYMBOL_DIR) if f.endswith(".json")]
         stamp = (len(files), max((os.path.getmtime(os.path.join(SYMBOL_DIR, f)) for f in files), default=0.0),
@@ -355,7 +370,7 @@ def _load_all() -> dict:
             r["rs"] = max(1, min(99, round(bisect.bisect_left(raws, v) / (len(raws) - 1) * 98 + 1)))
         else:
             r["rs"] = None
-    _mem["stamp"], _mem["rows"] = stamp, rows
+    _mem["stamp"], _mem["rows"], _mem["at"] = stamp, rows, time.monotonic()
     return rows
 
 
@@ -405,6 +420,12 @@ FUND_REFRESH_HOURS = 20          # Screener fundamentals are re-read daily (new 
 _funda_proc = None
 
 
+def _partial_due(row) -> bool:
+    """A fundamentals row built from a headline-only page that is old enough to be read again."""
+    from screens.universe import partial_due
+    return partial_due(row)
+
+
 def autoscan_loop(poll_seconds: int = 1800) -> None:
     """Background thread of the web server: when the scanned prices are older than AUTOSCAN_AFTER_HOURS, start a rescan
     (it skips stocks already scanned in the last 12 hours), then top up missing Screener fundamentals. The scan itself
@@ -421,11 +442,11 @@ def autoscan_loop(poll_seconds: int = 1800) -> None:
                 build()
             funda = _fundamentals()
             old = sum(1 for s in rows if time.time() - ((funda.get(s) or {}).get("fund_at") or 0) > FUND_REFRESH_HOURS * 3600)
-            if len(funda) < len(rows) or old > 0.1 * max(1, len(rows)) or any(not (funda.get(s) or {}).get("fund_ok", False) for s in rows):
+            if len(funda) < len(rows) or old > 0.1 * max(1, len(rows)) or any(not (funda.get(s) or {}).get("fund_ok", False) for s in rows) or any(_partial_due(funda.get(s)) for s in rows):
                 global _funda_proc
                 if not status().get("building") and (_funda_proc is None or _funda_proc.poll() is not None):
                     _funda_proc = subprocess.Popen([sys.executable, "-m", "screens.build_cli"], cwd=ROOT,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, **_low_priority())
         except Exception as e:
             print(f"[pattern_scan] autoscan: {e}", flush=True)
         time.sleep(poll_seconds)

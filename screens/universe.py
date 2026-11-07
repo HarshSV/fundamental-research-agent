@@ -24,7 +24,8 @@ WORKERS = 2  # kept low on purpose: four parallel workers got the Screener site 
 
 _lock = threading.Lock()
 _FUNDAMENTAL_KEYS = ("eps", "pe", "market_cap_cr", "promoter", "div_yield", "payout", "cover", "debt_equity",
-                     "net_profit_cr", "eps_growth", "fund_ok", "fund_at", "fund_src")
+                     "net_profit_cr", "eps_growth", "fund_ok", "fund_at", "fund_src", "fund_full", "nse_filled", "fund_tries")
+PARTIAL_RETRY_SECONDS = 30 * 60   # a row built from a headline-only page is read again after this long, not the next day
 _state = {"building": False, "done": 0, "total": 0, "started": None, "finished": None, "errors": 0}
 _cache: dict | None = None
 
@@ -92,6 +93,53 @@ def _yahoo_fin(sym: str) -> dict | None:
         return None
 
 
+def is_partial(row: dict | None) -> bool:
+    """A stored row built from a page that gave only headline ratios (P/E, dividend yield): earnings, promoter holding,
+    profit and debt are missing although the company reports them. Rows saved before `fund_full` existed are judged by
+    those fields."""
+    if not row or not row.get("fund_ok"):
+        return False
+    if row.get("fund_full") is not None:
+        return not row["fund_full"]
+    return row.get("promoter") is None and row.get("net_profit_cr") is None and row.get("eps") is None
+
+
+def partial_due(row: dict | None, now: float | None = None) -> bool:
+    """A partial row that is old enough to be read again: after 30 minutes, then 1h, 2h, 4h ... up to the normal daily
+    refresh, so a page that never parses is not hammered."""
+    if not is_partial(row):
+        return False
+    now = time.time() if now is None else now
+    wait = min(FUND_STALE_SECONDS, PARTIAL_RETRY_SECONDS * (2 ** int(row.get("fund_tries") or 0)))
+    return now - (row.get("fund_at") or 0) > wait
+
+
+def _nse_fill(sym: str, m: dict) -> list[str]:
+    """Fill what is still missing in `m` from NSE's own company record (Market Lens). Only positive figures are taken:
+    that API reports 0 both for a real zero and for "not available", and an unknown must never become a zero."""
+    try:
+        import requests
+        from tools.company_profile import _UA
+        r = requests.get(f"https://marketlens.nseindia.com/api/stocks/{sym}", headers=_UA, timeout=20)
+        d = (r.json() or {}).get("data") if r.status_code == 200 else None
+    except Exception:
+        return []
+    if not d:
+        return []
+    from screens.metrics import is_financial
+    from tools.nse_sector_map import get_nse_sector
+    pos = lambda k: d.get(k) if isinstance(d.get(k), (int, float)) and d.get(k) > 0 else None
+    want = {"pe": pos("peRatio"), "promoter": pos("promoterHolding"), "div_yield": pos("divYield"), "net_profit_cr": (pos("netProfit") / 10.0 if pos("netProfit") else None)}   # NSE reports rupees in millions
+    if not is_financial(get_nse_sector(sym)):
+        want["debt_equity"] = pos("debtToEquity")
+    filled = []
+    for k, v in want.items():
+        if m.get(k) is None and v is not None:
+            m[k] = float(v)
+            filled.append(k)
+    return filled
+
+
 def _build_one(sym: str, name: str | None, fetch_candles) -> tuple[str, dict | None]:
     try:
         from tools.screener_scraper import fetch_screener_financials
@@ -110,17 +158,21 @@ def _build_one(sym: str, name: str | None, fetch_candles) -> tuple[str, dict | N
                 dy = top.get("dividend_yield")
                 fin = {"info": {"trailingPE": top.get("pe"), "dividendYield": dy / 100.0 if dy is not None else None}}
         src = "screener"
+        full = bool(fin and fin.get("info") and (fin.get("financial_arrays") or {}).get("income_stmt"))
         if not (fin and fin.get("info")):
             # Some Screener pages come back without any figures. Yahoo Finance's headline ratios are the last resort, and are
             # marked as such (their earnings basis can differ from Screener's).
             fin = _yahoo_fin(sym)
             src = "yahoo" if fin else src
+            full = False
         candles = fetch_candles(sym, "1d", "5y")
         if not fin and not candles:
             return sym, None
         m = metrics.compute(fin, candles)
         m["name"] = name or sym
         m["fund_src"] = src if m.get("fund_ok") else None
+        m["fund_full"] = full if m.get("fund_ok") else None
+        m["nse_filled"] = _nse_fill(sym, m) if (m.get("fund_ok") and not full) else []
         m["as_of"] = int(time.time())
         return sym, m
     except Exception as e:  # one bad company must never stop the build
@@ -141,7 +193,8 @@ def build(fetch_candles, force: bool = False) -> bool:
             names = _names()
             syms = universe_symbols()
             now = time.time()
-            todo = [s for s in syms if force or s not in data or not data[s].get("fund_ok") or now - (data[s].get("fund_at") or 0) > FUND_STALE_SECONDS]
+            todo = [s for s in syms if force or s not in data or not data[s].get("fund_ok") or now - (data[s].get("fund_at") or 0) > FUND_STALE_SECONDS
+                    or partial_due(data[s], now)]
             _state["total"] = len(todo)
             since_save = 0
             with ThreadPoolExecutor(max_workers=WORKERS) as ex:
@@ -155,6 +208,12 @@ def build(fetch_candles, force: bool = False) -> bool:
                             # Screener failed this time: keep the last good fundamentals rather than blanking them
                             for k in _FUNDAMENTAL_KEYS:
                                 m[k] = old.get(k)
+                        elif m.get("fund_ok") and not m.get("fund_full") and old.get("fund_full"):
+                            # only a headline page came back: keep the earlier complete figures it cannot replace
+                            for k in _FUNDAMENTAL_KEYS:
+                                if m.get(k) is None and old.get(k) is not None:
+                                    m[k] = old.get(k)
+                        m["fund_tries"] = (int(old.get("fund_tries") or 0) + 1) if (m.get("fund_ok") and not m.get("fund_full")) else 0
                         data[sym] = m
                     since_save += 1
                     if since_save >= 20:

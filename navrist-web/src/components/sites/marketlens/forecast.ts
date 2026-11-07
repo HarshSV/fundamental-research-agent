@@ -1,4 +1,5 @@
 import { fetchJson } from "@/lib/api";
+import type { Cone } from "./cone";
 
 export type Call = "up" | "down" | "even" | null;
 
@@ -142,4 +143,20 @@ export function forecastLevels(f: Forecast | null): ChartLevel[] {
     out.push({ price: p.targets.find((t) => t.r === p.first_target_r)?.price ?? p.targets[0].price, title: "Target", color: "#10b981", dashed: true });
   }
   return out;
+}
+
+/** Sessions ahead for each outlook horizon. */
+export const HORIZON_SESSIONS: Record<Horizon["id"], number> = { session: 1, week: 5, month: 20 };
+
+/** The forecast as a fan for the price chart: where the price should land at each horizon, from the last price. Null when
+ *  there is no price range to draw (too little history). The colour follows the week's lean, else the month's. */
+export function forecastCone(f: Forecast | null): Cone | null {
+  if (!f || f.price == null || !f.outlook) return null;
+  const points = f.outlook
+    .filter((h) => h.price_low != null && h.price_mid != null && h.price_high != null)
+    .map((h) => ({ k: HORIZON_SESSIONS[h.id], low: h.price_low as number, mid: h.price_mid as number, high: h.price_high as number }))
+    .sort((a, b) => a.k - b.k);
+  if (points.length === 0 || points[points.length - 1].k < 5) return null;
+  const lead = f.outlook.find((h) => h.id === "week" && h.call) ?? f.outlook.find((h) => h.id === "month" && h.call);
+  return { anchor: f.price, tone: lead?.call === "up" ? "up" : lead?.call === "down" ? "down" : "even", points };
 }

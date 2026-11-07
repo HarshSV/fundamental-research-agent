@@ -1,7 +1,7 @@
 """The 32 supported patterns, their detectors, and the rules for counting each formation once."""
 from __future__ import annotations
 
-from .core import DETECTOR_VERSION, Detector
+from .core import DETECTOR_VERSION, Bidirectional, Detector, MirrorDetector
 from .detectors import bases, harmonic, liquidity, reversal, rounding, trendlines
 
 ALL: list[Detector] = [
@@ -26,9 +26,25 @@ BY_NAME = {d.name: d for d in ALL}
 assert len(BY_NAME) == len(ALL) == 32, "pattern names must be unique and total 32"
 
 
+# Patterns whose single detector reports both directions (taken from the actual structure) although they are not
+# wrapped in `Bidirectional`.
+_EITHER_WAY = {"symmetrical-triangle", "rectangle"}
+# Bearish by definition but written as their own detector rather than as a MirrorDetector.
+_BEARISH = {"descending-triangle", "rising-wedge"}
+
+
+def bias(d: Detector) -> str:
+    """What a confirmed formation of this pattern implies: "bullish", "bearish", or "both" when its direction comes
+    from the structure found. Derived from how the detector is built: detectors are written bullish, a Mirror is
+    their bearish twin, a Bidirectional runs both."""
+    if isinstance(d, Bidirectional) or d.name in _EITHER_WAY:
+        return "both"
+    return "bearish" if isinstance(d, MirrorDetector) or d.name in _BEARISH else "bullish"
+
+
 def catalogue() -> list[dict]:
     return [
-        {"id": d.name, "name": d.display, "category": d.category, "maturity": d.maturity,
+        {"id": d.name, "name": d.display, "category": d.category, "bias": bias(d), "maturity": d.maturity,
          "min_bars": d.min_bars, "timeframes": list(d.timeframes) if d.timeframes else "any",
          "definition": d.definition, "parameters": {k: v for k, v in d.defaults.items()}}
         for d in ALL

@@ -20,6 +20,7 @@ import requests
 _CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "profile")
 _PROFILE_TTL = 7 * 86400
 _AR_TTL = 86400
+_LEADERLESS_TTL = 6 * 3600     # a profile saved without an MD / CEO is looked up again after this long, not a week
 _UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://marketlens.nseindia.com/", "Accept": "application/json"}
 
 
@@ -77,23 +78,70 @@ def _from_nse(sym: str) -> dict | None:
     }
 
 
-def _from_yahoo(sym: str) -> dict | None:
+_YEAR_RE = re.compile(r"\b(?:incorporated|founded|established|formed)\b[^.]{0,80}?\b(1[89]\d{2}|20[0-2]\d)\b", re.I)
+
+
+def _year_from_text(paragraphs) -> int | None:
+    """The year a description says the company was incorporated / founded ("incorporated in the year 2013", "founded in
+    1946"), for companies whose record has no founded-year field. The first such statement wins; None when there is none."""
+    now = time.gmtime().tm_year
+    for para in paragraphs or []:
+        m = _YEAR_RE.search(para or "")
+        if m and 1800 <= int(m.group(1)) <= now:
+            return int(m.group(1))
+    return None
+
+
+def _clean_name(raw: str) -> str:
+    nm = re.sub(r"^(?:(?:Mr|Ms|Mrs|Miss|Dr|Prof|Shri|Smt|Sri|CA|CS)\.?\s+)+", "", raw or "", flags=re.I)
+    nm = re.split(r"\s+(?:B\.|M\.|Ph\.?D\b|CA\b|ACA\b|A\.C\.A\.?|MBA\b|BBA\b|BE\b|BTech\b|MTech\b|BCom\b|LLB\b|LLM\b|PGDM\b|FCA\b|CMA\b)", nm)[0]   # drop trailing degrees
+    nm = nm.split(",")[0]                                                                               # "Name BBA, PGDM"
+    return re.sub(r"\s+", " ", nm).strip()
+
+
+def _leader_from_officers(officers) -> dict | None:
+    """The company's chief executive from a list of {name, title}: an officer titled CEO / Chief Executive Officer /
+    Managing Director / MD; a title carrying both ranks wins. A subsidiary or brand head ("Chief Executive Officer of
+    Arrow") is not the company's own head and is skipped."""
+    best, best_score = None, 0
+    for o in officers or []:
+        title = o.get("title") or ""
+        name = _clean_name(o.get("name") or "")
+        if not name or re.search(r"\b(?:deputy|assistant|associate|vice)\b", title, re.I):
+            continue
+        # a rank counts only when it is not "... of <a unit>": "CEO, CEO of Zinc Business & Executive Director" is the
+        # company's CEO, "Chief Executive Officer of Arrow" is a brand head
+        ceo = bool(re.search(r"\b(?:ceo|chief executive officer)\b(?!\s+of\b)", title, re.I))
+        md = bool(re.search(r"\b(?:managing director|md)\b(?!\s+of\b)", title, re.I))
+        score = 3 if ceo and md else 2 if ceo or md else 0
+        if score > best_score:
+            best, best_score = {"name": name, "title": "MD / CEO"}, score
+    return best
+
+
+def _yahoo_info(symbol: str) -> dict:
+    """Yahoo's profile for the NSE listing (tried twice), then for the BSE listing."""
     try:
         import yfinance as yf
-        info = yf.Ticker(f"{sym}.NS").info or {}
     except Exception:
-        return None
+        return {}
+    for suffix in (".NS", ".NS", ".BO"):
+        try:
+            info = yf.Ticker(f"{symbol}{suffix}").info or {}
+        except Exception:
+            info = {}
+        if info.get("companyOfficers") or info.get("longBusinessSummary"):
+            return info
+        time.sleep(0.5)
+    return {}
+
+
+def _from_yahoo(sym: str) -> dict | None:
+    info = _yahoo_info(sym)
     if not info:
         return None
     hq = ", ".join(x for x in (info.get("city"), info.get("state")) if x) or None
-    leader = None
-    for o in info.get("companyOfficers") or []:
-        title = (o.get("title") or "")
-        if re.search(r"\b(ceo|managing director|md)\b", title, re.I):
-            nm = re.sub(r"^(Mr|Ms|Mrs|Dr)\.?\s+", "", o.get("name") or "")
-            nm = re.split(r"\s+(?:B\.|M\.|Ph\.?D\b|CA\b|MBA\b|BE\b|BTech\b|MTech\b)", nm)[0]   # drop trailing degrees
-            leader = {"name": re.sub(r"\s+", " ", nm).strip(), "title": "MD / CEO"}
-            break
+    leader = _leader_from_officers(info.get("companyOfficers"))
     site = info.get("website")
     return {
         "paragraphs": _paragraphs(info.get("longBusinessSummary")),
@@ -139,12 +187,16 @@ def latest_annual_report(symbol: str, name: str | None) -> dict | None:
 def get_profile(symbol: str, name: str | None = None) -> dict:
     sym = symbol.strip().upper()
     base = _cache_get(f"p_{sym}", _PROFILE_TTL)
+    if base is not None and not base.get("leader") and _cache_get(f"p_{sym}", _LEADERLESS_TTL) is None:
+        base = None            # saved without an MD / CEO and old enough to try again
+    if base is not None and not base.get("incorporation_year"):
+        base = {**base, "incorporation_year": _year_from_text(base.get("paragraphs"))}     # no network needed
     if base is None:
         nse = _from_nse(sym)
         yh = None
-        need = (not nse) or not all(nse.get(k) for k in ("paragraphs", "headquarters", "leader", "website"))
-        if need:
-            yh = _from_yahoo(sym)
+        # Yahoo is read for every company: its officer list carries each person's title, so the MD / CEO it names is
+        # backed by evidence, whereas NSE's bare "ceoName" is sometimes another director (a Deputy MD).
+        yh = _from_yahoo(sym)
         base = {"paragraphs": [], "headquarters": None, "incorporation_year": None, "leader": None, "website": None, "source": None}
         for src in (nse, yh):  # NSE wins; Yahoo only fills what is still missing
             if not src:
@@ -152,6 +204,10 @@ def get_profile(symbol: str, name: str | None = None) -> dict:
             for k in ("paragraphs", "headquarters", "incorporation_year", "leader", "website"):
                 if not base[k] and src.get(k):
                     base[k] = src[k]
+        if yh and yh.get("leader"):
+            base["leader"] = yh["leader"]
+        if not base["incorporation_year"]:
+            base["incorporation_year"] = _year_from_text(base["paragraphs"])
         if any(base[k] for k in ("paragraphs", "headquarters", "incorporation_year", "leader", "website")):
             base["source"] = (nse or {}).get("source") if nse else (yh or {}).get("source")
             _cache_put(f"p_{sym}", base)

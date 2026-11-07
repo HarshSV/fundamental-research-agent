@@ -426,31 +426,35 @@ export function PriceChart({
 /** Details for one occurrence: rule, levels, what the agent knew when, and realised outcomes. */
 export function Detail({ o, catalogue }: { o: PatternOcc; catalogue: Record<string, CatalogueEntry> }) {
   const def = catalogue[o.pattern];
+  const dir = o.direction === "bullish" ? "var(--gain, #10b981)" : o.direction === "bearish" ? "var(--loss, #ef4444)" : "var(--text-secondary)";
+  const ret = (r: number | null | undefined) => (r == null ? "var(--text-tertiary)" : r > 0 ? "var(--gain, #10b981)" : r < 0 ? "var(--loss, #ef4444)" : "var(--text-secondary)");
+  const row = (label: string, value: React.ReactNode) => (
+    <div className="flex items-center justify-between gap-4 py-1.5">
+      <span style={{ color: "var(--text-tertiary)" }}>{label}</span>
+      <span className="nv-num" style={{ color: "var(--text-primary)" }}>{value}</span>
+    </div>
+  );
   return (
-    <div className="mt-3 space-y-2 border-t pt-3 text-xs" style={{ borderColor: "var(--border-subtle)" }}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded-full px-2 py-0.5 font-semibold" style={{ background: `${STATUS_COLOR[o.status]}22`, color: STATUS_COLOR[o.status] }}>
-          {STATUS_LABEL[o.status]}
-        </span>
-        {o.direction && <span style={{ color: "var(--text-secondary)" }}>{o.direction}</span>}
-        {o.maturity === "experimental" && (
-          <span className="rounded-full border px-2 py-0.5" style={{ borderColor: "#f59e0b66", color: "#f59e0b" }} title="Low-reliability definition">experimental</span>
-        )}
-        {o.reason && <span style={{ color: "var(--text-tertiary)" }}>({o.reason.replace(/_/g, " ")})</span>}
+    <div className="mt-3 space-y-4 border-t pt-4 text-xs" style={{ borderColor: "var(--border-subtle)" }}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1" style={{ color: "var(--text-tertiary)" }}>
+        <span>{STATUS_LABEL[o.status]}</span>
+        {o.direction && <><span>·</span><span className="font-medium capitalize" style={{ color: dir }}>{o.direction}</span></>}
+        {o.maturity === "experimental" && <><span>·</span><span title="Low-reliability definition">Experimental</span></>}
+        {o.reason && <><span>·</span><span>{o.reason.replace(/_/g, " ")}</span></>}
       </div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1" style={{ color: "var(--text-secondary)" }}>
-        <span>Started</span><span className="nv-num text-right">{fmtDate(o.start_ts)}</span>
-        <span>First seen</span><span className="nv-num text-right">{fmtDate(o.first_seen_ts)}</span>
-        {o.confirmed_ts != null && (<><span>Confirmed</span><span className="nv-num text-right">{fmtDate(o.confirmed_ts)} @ ₹{fmt(o.confirmed_price)}</span></>)}
-        {o.breakout_level != null && (<><span>Breakout level</span><span className="nv-num text-right">₹{fmt(o.breakout_level)}</span></>)}
-        {o.invalidation_level != null && (<><span>Invalidation</span><span className="nv-num text-right">₹{fmt(o.invalidation_level)}</span></>)}
+      <div className="divide-y divide-[var(--border-subtle)]">
+        {row("Started", fmtDate(o.start_ts))}
+        {row("First seen", fmtDate(o.first_seen_ts))}
+        {o.confirmed_ts != null && row("Confirmed", `${fmtDate(o.confirmed_ts)} @ ₹${fmt(o.confirmed_price)}`)}
+        {o.breakout_level != null && row("Breakout level", `₹${fmt(o.breakout_level)}`)}
+        {o.invalidation_level != null && row("Invalidation", `₹${fmt(o.invalidation_level)}`)}
       </div>
       <div>
-        <div className="mb-1 font-semibold" style={{ color: "var(--text-secondary)" }}>Status history</div>
-        <ol className="space-y-0.5">
+        <div className="mb-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Status history</div>
+        <ol className="space-y-1">
           {o.history.map((h, k) => (
-            <li key={k} className="flex justify-between gap-2">
-              <span style={{ color: STATUS_COLOR[h.status] }}>{STATUS_LABEL[h.status]}</span>
+            <li key={k} className="flex justify-between gap-3">
+              <span style={{ color: "var(--text-secondary)" }}>{STATUS_LABEL[h.status]}</span>
               <span className="nv-num" style={{ color: "var(--text-tertiary)" }}>{fmtDate(h.ts)}{h.price != null ? ` · ₹${fmt(h.price)}` : ""}</span>
             </li>
           ))}
@@ -458,20 +462,19 @@ export function Detail({ o, catalogue }: { o: PatternOcc; catalogue: Record<stri
       </div>
       {o.outcomes && (
         <div>
-          <div className="mb-1 font-semibold" style={{ color: "var(--text-secondary)" }}>Realised move after confirmation</div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="mb-1.5 font-semibold" style={{ color: "var(--text-secondary)" }}>Move after confirmation</div>
+          <div className="flex flex-wrap gap-2">
             {Object.entries(o.outcomes).map(([h, x]) => (
-              <span key={h} className="nv-num rounded px-1.5 py-0.5" style={{ border: `1px solid ${OUTCOME_COLOR[x.state]}66`, color: OUTCOME_COLOR[x.state] }}
-                title={`${OUTCOME_LABEL[x.state]} after ${h} bars`}>
-                {h}b: {x.ret == null ? OUTCOME_LABEL[x.state] : `${x.ret >= 0 ? "+" : ""}${(x.ret * 100).toFixed(2)}%`}
+              <span key={h} className="nv-num rounded-md px-2 py-1" style={{ background: "var(--overlay-weak)", color: ret(x.ret) }} title={`${OUTCOME_LABEL[x.state]} after ${h} bars`}>
+                {h} bars: {x.ret == null ? OUTCOME_LABEL[x.state] : `${x.ret >= 0 ? "+" : ""}${(x.ret * 100).toFixed(2)}%`}
               </span>
             ))}
           </div>
         </div>
       )}
-      {def && <p className="leading-snug" style={{ color: "var(--text-tertiary)" }}>{def.definition}</p>}
-      <p className="leading-snug" style={{ color: "var(--text-tertiary)" }}>
-        Status describes how the pattern is forming, not whether a trade will make money. Marker colour on confirmed patterns is what price actually did next.
+      {def && <p className="leading-relaxed" style={{ color: "var(--text-tertiary)" }}>{def.definition}</p>}
+      <p className="leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+        Status describes how the pattern is forming, not whether a trade will make money.
       </p>
     </div>
   );
