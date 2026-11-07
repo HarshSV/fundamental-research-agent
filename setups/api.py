@@ -24,7 +24,7 @@ def make_router(require_session, resolve_symbol):
     r = APIRouter()
 
     @r.get("/api/v1/outlook/{symbol}")
-    def stock_outlook(symbol: str, _: dict = Depends(require_session)):
+    def stock_outlook(symbol: str, window: str = "max", _: dict = Depends(require_session)):
         """The Forecast for one stock: outlook odds for the session / 5 / 20 sessions, one trade plan or "No trade", the
         Time Machine odds measured on that plan, and the evidence (trend, strength, quality, liquidity, segment)."""
         sym = resolve_symbol(symbol)
@@ -32,7 +32,10 @@ def make_router(require_session, resolve_symbol):
             raise HTTPException(status_code=400, detail="Symbol required.")
         from tools.live_chart_yf import get_candles
         intraday = get_candles(sym, interval="5m", period="60d")
-        daily = get_candles(sym, interval="1d", period="max")   # the stock's whole adjusted history (about 1996 onwards); tests/history_window_probe.py compared it with 5 years
+        # window "max" = the stock's whole adjusted history (about 1996 onwards); "5y" = the last five years only
+        # (tests/history_window_probe.py compared the two). The page lets the reader switch between them.
+        window = "5y" if window == "5y" else "max"
+        daily = get_candles(sym, interval="1d", period=window)
         if not daily:
             return {"symbol": sym, "source": "unavailable"}
         row, peers = None, []
@@ -45,7 +48,7 @@ def make_router(require_session, resolve_symbol):
         except Exception:
             pass
         out = outlook.build(sym, intraday, daily, row, peers, _quarters(sym))
-        return {**out, "source": "yfinance"}
+        return {**out, "source": "yfinance", "window": window, "sessions_used": len(daily)}
 
     @r.get("/api/v1/events/{symbol}")
     def stock_events(symbol: str, _: dict = Depends(require_session)):

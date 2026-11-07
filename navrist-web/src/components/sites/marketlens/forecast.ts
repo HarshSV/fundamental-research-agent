@@ -117,7 +117,8 @@ export interface Forecast {
   source?: string;
 }
 
-export const fetchForecast = (symbol: string) => fetchJson<Forecast>(`/api/v1/outlook/${symbol}`, { retries: 1 });
+export type FcWindow = "max" | "5y";
+export const fetchForecast = (symbol: string, window: FcWindow = "max") => fetchJson<Forecast>(`/api/v1/outlook/${symbol}?window=${window}`, { retries: 1 });
 
 /** Horizontal levels the forecast draws on the price chart: red / green / grey only. */
 export interface ChartLevel {

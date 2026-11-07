@@ -14,7 +14,7 @@ import {
 } from "./patterns";
 import { marketOpen } from "./marketHours";
 import { ForecastCard, News } from "./ForecastCard";
-import { fetchForecast, forecastCone, forecastLevels, type Forecast } from "./forecast";
+import { fetchForecast, forecastCone, forecastLevels, type FcWindow, type Forecast } from "./forecast";
 import type { ScanContext } from "./patternScan";
 import { Detail as PatternDetail, type Candle } from "./PriceChart";
 import { StockChart, type ChartStyle, type ScanOverlay } from "./StockChart";
@@ -261,6 +261,8 @@ export function StockView({
   const [chartStyle, setChartStyle] = useState<ChartStyle>("candles");
   // Forecast: outlook odds, one trade plan or "No trade", replay odds, evidence. Re-read every minute while the market is open.
   const [forecast, setForecast] = useState<{ sym: string; data: Forecast | null; error: boolean } | null>(null);
+  // which past the forecast learns from: the stock's whole history, or only the last five years
+  const [fcWindow, setFcWindow] = useState<FcWindow>("max");
   const [showForecastLevels, setShowForecastLevels] = useState(false);
   // Which basis each two-basis Key Metric shows; the switch beside the section title sets them all at once.
   const [views, setViews] = useState<Record<string, Basis>>({});
@@ -375,17 +377,17 @@ export function StockView({
   useEffect(() => {
     let alive = true;
     const run = () =>
-      fetchForecast(sym)
-        .then((d) => alive && setForecast({ sym, data: d, error: false }))
-        .catch(() => alive && setForecast((prev) => (prev?.sym === sym && prev.data ? prev : { sym, data: null, error: true })));
+      fetchForecast(sym, fcWindow)
+        .then((d) => alive && setForecast({ sym: `${sym}|${fcWindow}`, data: d, error: false }))
+        .catch(() => alive && setForecast((prev) => (prev?.sym === `${sym}|${fcWindow}` && prev.data ? prev : { sym: `${sym}|${fcWindow}`, data: null, error: true })));
     run();
     const t = open ? setInterval(run, 60000) : null;
     return () => {
       alive = false;
       if (t) clearInterval(t);
     };
-  }, [sym, open]);
-  const forecastData = forecast?.sym === sym ? forecast : null;
+  }, [sym, open, fcWindow]);
+  const forecastData = forecast?.sym === `${sym}|${fcWindow}` ? forecast : null;
   const coneData = useMemo(() => forecastCone(forecastData?.data ?? null), [forecastData]);
 
   // Pattern agent (backend): occurrences with their status lifecycle, per timeframe. The first run
@@ -765,7 +767,23 @@ export function StockView({
 
       <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
-          <SectionTitle beside={<News symbol={stock.symbol} />}>Forecast</SectionTitle>
+          <SectionTitle
+            beside={<News symbol={stock.symbol} />}
+            aside={
+              <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                <span className="hidden sm:inline">Learns from</span>
+                <SlidingTabs
+                  ariaLabel="Forecast history"
+                  size="sm"
+                  value={fcWindow}
+                  onChange={setFcWindow}
+                  options={[{ id: "max", label: "Full history" }, { id: "5y", label: "Last 5 years" }]}
+                />
+              </div>
+            }
+          >
+            Forecast
+          </SectionTitle>
           <ForecastCard
             data={forecastData?.data ?? null}
             error={Boolean(forecastData?.error)}
