@@ -895,8 +895,8 @@ export function StockView({
             {overview === null ? <Loading /> : overview.shareholding ? <ShareholdingPattern data={overview.shareholding} symbol={sym} /> : <Unavailable what="Shareholding pattern" />}
           </Card>
           <Card className="p-4 sm:p-6">
-            <SectionTitle>{finTab === "results" ? "Financial Result (Amount in ₹ Lakhs)" : "Financial Result"}</SectionTitle>
-            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} tab={finTab} onTab={setFinTab} standalone={overview.basis === "standalone"} /> : <Unavailable what="Quarterly financial results" />}
+            <SectionTitle>{finTab === "results" || finTab === "pat" ? "Financial Result (Amount in ₹ Lakhs)" : finTab === "fcf" ? "Financial Result (Amount in ₹ Crore)" : "Financial Result"}</SectionTitle>
+            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} tab={finTab} onTab={setFinTab} standalone={overview.basis === "standalone"} symbol={sym} /> : <Unavailable what="Quarterly financial results" />}
           </Card>
         </div>
       </section>

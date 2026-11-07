@@ -104,23 +104,47 @@ function dayLabel(p: string) {
   return `${Number(d)} ${MONTHS[Number(m) - 1] ?? m} ${y}`;
 }
 
-export type FinTab = "results" | "eps";
+export type FinTab = "results" | "pat" | "eps" | "fcf";
+
+interface FcfData { available: boolean; basis?: string; rows: { period: string; fcf_cr: number | null; cfo_cr: number | null }[] }
+
+// one bar group: a reported quarter, or (Free Cash Flow tab) a financial year
+interface Col { id: string; label: string; q: Quarter | null; fcf: number | null; cfo: number | null }
 
 /** Last four reported quarters, newest first (as on the exchange's page). Amounts in ₹ Lakhs; hover a quarter for
  *  its exact figures. A quarter whose value is unavailable draws no bar and reads "—" in the tooltip. */
-export function QuarterlyResults({ quarters, tab, onTab, standalone = false }: { quarters: Quarter[]; tab: FinTab; onTab: (t: FinTab) => void; standalone?: boolean }) {
+export function QuarterlyResults({ quarters, tab, onTab, standalone = false, symbol }: { quarters: Quarter[]; tab: FinTab; onTab: (t: FinTab) => void; standalone?: boolean; symbol?: string }) {
   const [hover, setHover] = useState<number | null>(null);
-  const last = quarters.slice(-4).reverse();
+  // Free cash flow is read only when its tab is first opened; it is yearly, so it has its own read.
+  const [fcf, setFcf] = useState<{ sym: string; data: FcfData | null; failed: boolean } | null>(null);
+  useEffect(() => {
+    if (tab !== "fcf" || !symbol || fcf?.sym === symbol) return;
+    let alive = true;
+    fetchJson<FcfData>(`/api/v1/stock-fcf/${symbol}`, { retries: 1 })
+      .then((d) => alive && setFcf({ sym: symbol, data: d, failed: false }))
+      .catch(() => alive && setFcf({ sym: symbol, data: null, failed: true }));
+    return () => { alive = false; };
+  }, [tab, symbol, fcf?.sym]);
+  const fcfNow = fcf && fcf.sym === symbol ? fcf : null;
+  const last: Col[] = tab === "fcf"
+    ? (fcfNow?.data?.rows ?? []).slice(-4).reverse().map((r) => ({ id: r.period, label: r.period.replace(" ", "\n"), q: null, fcf: r.fcf_cr, cfo: r.cfo_cr }))
+    : quarters.slice(-4).reverse().map((q) => ({ id: q.period, label: dayLabel(q.period).replace(/ (\d{4})$/, "\n$1"), q, fcf: null, cfo: null }));
   // ₹ Crore -> ₹ Lakhs
   const L = (v: number | null) => (v == null ? null : v * 100);
-  const series = tab === "results"
-    ? [
-        { key: "Total Income", color: BAR_COLORS.income, get: (q: Quarter) => L(q.total_income_cr) },
-        { key: "Profit Before Tax", color: BAR_COLORS.pbt, get: (q: Quarter) => L(q.pbt_cr) },
-        { key: "Net Profit/Loss", color: BAR_COLORS.net, get: (q: Quarter) => L(q.net_profit_cr) },
-      ]
-    : [{ key: "EPS", color: BAR_COLORS.income, get: (q: Quarter) => q.eps }];
-  const vals = last.flatMap((q) => series.map((s) => s.get(q))).filter((v): v is number => v != null);
+  const q$ = (f: (q: Quarter) => number | null) => (c: Col) => (c.q ? f(c.q) : null);
+  const series: { key: string; color: string; get: (c: Col) => number | null }[] =
+    tab === "results"
+      ? [
+          { key: "Total Income", color: BAR_COLORS.income, get: q$((q) => L(q.total_income_cr)) },
+          { key: "Profit Before Tax", color: BAR_COLORS.pbt, get: q$((q) => L(q.pbt_cr)) },
+          { key: "Net Profit/Loss", color: BAR_COLORS.net, get: q$((q) => L(q.net_profit_cr)) },
+        ]
+      : tab === "pat"
+        ? [{ key: "PAT", color: BAR_COLORS.net, get: q$((q) => L(q.net_profit_cr)) }]
+        : tab === "fcf"
+          ? [{ key: "Free Cash Flow", color: BAR_COLORS.income, get: (c: Col) => c.fcf }]
+          : [{ key: "EPS", color: BAR_COLORS.income, get: q$((q) => q.eps) }];
+  const vals = last.flatMap((c) => series.map((s) => s.get(c))).filter((v): v is number => v != null);
   const ticks = niceTicks(Math.min(...vals, 0), Math.max(...vals, 0));
   const top = ticks[ticks.length - 1];
   const bottom = ticks[0];
@@ -128,19 +152,35 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false }: {
   const H = 220;
   const y = (v: number) => ((top - v) / span) * H;
   const money = (v: number | null) =>
-    v == null ? "—" : tab === "eps" ? `₹${num(v, 2)}` : `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 2 })} L`;
-  const barW = tab === "eps" ? 36 : 16;
+    v == null ? "—" : tab === "eps" ? `₹${num(v, 2)}` : tab === "fcf" ? `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr` : `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 2 })} L`;
+  const barW = tab === "eps" || tab === "pat" || tab === "fcf" ? 36 : 16;
+
+  const tabsEl = (
+    <div className="mb-4 max-w-full overflow-x-auto">
+      <SlidingTabs ariaLabel="Financial view" options={[{ id: "results", label: "Results" }, { id: "eps", label: "Earnings Per Share" }, { id: "pat", label: "PAT" }, { id: "fcf", label: "Free Cash Flow" }]} value={tab} onChange={onTab} />
+    </div>
+  );
+  if (tab === "fcf" && !fcfNow?.data?.available) {
+    return (
+      <div>
+        {tabsEl}
+        {fcfNow === null ? (
+          <div className="h-40 animate-pulse rounded-lg" style={{ background: "var(--overlay-weak)" }} aria-label="Reading free cash flow" />
+        ) : (
+          <Unavailable what={fcfNow.failed ? "Free cash flow (it could not be read right now)" : "Free cash flow"} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div className="mb-4">
-        <SlidingTabs ariaLabel="Financial view" options={[{ id: "results", label: "Results" }, { id: "eps", label: "Earnings Per Share" }]} value={tab} onChange={onTab} />
-      </div>
+      {tabsEl}
       <div className="mb-3 flex flex-wrap gap-4 text-xs" style={{ color: "var(--text-secondary)" }}>
         {series.map((s) => (
           <span key={s.key} className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />
-            {s.key === "EPS" ? "Earnings Per Share" : s.key}
+            {s.key === "EPS" ? "Earnings Per Share" : s.key === "PAT" ? "PAT (Profit After Tax)" : s.key === "Free Cash Flow" ? "Free Cash Flow (₹ Crore, by financial year)" : s.key}
           </span>
         ))}
       </div>
@@ -158,7 +198,7 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false }: {
           </div>
           <div className="absolute inset-x-0 top-0 flex" style={{ height: H + 22 }}>
             {last.map((q, qi) => (
-              <div key={q.period} className="relative flex-1" onMouseEnter={() => setHover(qi)} onMouseMove={() => setHover(qi)}>
+              <div key={q.id} className="relative flex-1" onMouseEnter={() => setHover(qi)} onMouseMove={() => setHover(qi)}>
                 {hover === qi && <div className="absolute inset-x-1 top-0 rounded-sm" style={{ height: H + 22, background: "var(--overlay-weak)" }} />}
                 <div className="absolute inset-x-0 top-0 flex items-start justify-center gap-1" style={{ height: H }}>
                   {series.map((s) => {
@@ -172,7 +212,7 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false }: {
                     );
                   })}
                 </div>
-                <div className="absolute inset-x-0 whitespace-pre-line text-center text-[11px] leading-tight" style={{ top: H + 6, color: "var(--text-tertiary)" }}>{dayLabel(q.period).replace(/ (\d{4})$/, "\n$1")}</div>
+                <div className="absolute inset-x-0 whitespace-pre-line text-center text-[11px] leading-tight" style={{ top: H + 6, color: "var(--text-tertiary)" }}>{q.label}</div>
                 {hover === qi && (
                   <div
                     className="pointer-events-none absolute z-10 w-max rounded-lg px-3 py-2 text-xs shadow-lg"
@@ -183,10 +223,14 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false }: {
                       border: "1px solid var(--border-subtle)",
                     }}
                   >
-                    <div className="mb-1 font-medium" style={{ color: "var(--text-primary)" }}>{dayLabel(q.period)}</div>
+                    <div className="mb-1 font-medium" style={{ color: "var(--text-primary)" }}>{q.id === q.q?.period ? dayLabel(q.id) : q.id}</div>
                     {series.map((s) => (
                       <div key={s.key} style={{ color: s.color }}>{s.key} : {money(s.get(q))}</div>
                     ))}
+                    {tab === "pat" && q.q?.net_profit_cr != null && q.q.total_income_cr ? (
+                      <div style={{ color: "var(--text-secondary)" }}>PAT margin : {num((q.q.net_profit_cr / q.q.total_income_cr) * 100, 1)}%</div>
+                    ) : null}
+                    {tab === "fcf" && q.cfo != null ? <div style={{ color: "var(--text-secondary)" }}>Cash from operations : {money(q.cfo)}</div> : null}
                   </div>
                 )}
               </div>
@@ -195,7 +239,7 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false }: {
         </div>
       </div>
       <p className="mt-9 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-        {standalone ? "Standalone results (this company reports no consolidated accounts)" : "Consolidated results (parent plus subsidiaries)"}, latest four quarters, newest first. Source: Screener.in.
+        {standalone ? "Standalone results (this company reports no consolidated accounts)" : "Consolidated results (parent plus subsidiaries)"}, {tab === "fcf" ? "latest four financial years, newest first. Free cash flow is cash from operations less the fixed assets purchased, as Screener.in defines it; it is reported once a year." : "latest four quarters, newest first. PAT is the profit after tax Screener.in reports as net profit."} Source: Screener.in.
       </p>
     </div>
   );
