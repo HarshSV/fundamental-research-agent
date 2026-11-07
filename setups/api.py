@@ -32,7 +32,7 @@ def make_router(require_session, resolve_symbol):
             raise HTTPException(status_code=400, detail="Symbol required.")
         from tools.live_chart_yf import get_candles
         intraday = get_candles(sym, interval="5m", period="60d")
-        daily = get_candles(sym, interval="1d", period="5y")
+        daily = get_candles(sym, interval="1d", period="max")   # the stock's whole adjusted history (about 1996 onwards); tests/history_window_probe.py compared it with 5 years
         if not daily:
             return {"symbol": sym, "source": "unavailable"}
         row, peers = None, []
