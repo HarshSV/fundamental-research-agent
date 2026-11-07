@@ -374,7 +374,8 @@ function Verdict({ data }: { data: Forecast }) {
   const call = h.up == null ? null : h.call;
   const color = call === "up" ? GAIN : call === "down" ? LOSS : SOFT;
   const Icon = call === "up" ? ArrowUpRight : call === "down" ? ArrowDownRight : Minus;
-  const headline = h.up == null ? `Not enough history to forecast ${span}` : call === "up" ? `Likely to go up over ${span}` : call === "down" ? `Likely to go down over ${span}` : `Could go either way over ${span}`;
+  const odds = h.up == null ? "" : `: ${h.up}% up, ${h.down}% down`;
+  const headline = h.up == null ? `Not enough history to forecast ${span}` : call === "up" ? `Leans up over ${span}${odds}` : call === "down" ? `Leans down over ${span}${odds}` : `Too close to call over ${span}${odds}`;
   const lean = h.up == null ? null : call === "even" || call == null ? "The odds are about even" : `${h.conviction ? h.conviction[0].toUpperCase() + h.conviction.slice(1) : "Clear"} lean`;
   return (
     <div ref={ref} className="rounded-2xl border p-6 md:p-8" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
@@ -406,7 +407,7 @@ function Verdict({ data }: { data: Forecast }) {
             <div style={{ width: seen ? `${h.down}%` : 0, background: "var(--loss)", transition: reduced() ? "none" : `width 900ms ${EASE}` }} />
           </div>
           <p className="mt-3 text-sm" style={{ color: SOFT }}>
-            Out of 100 similar past setups, <b style={{ color: GAIN }}>{h.up}</b> went up, <b>{h.flat}</b> stayed flat and <b style={{ color: LOSS }}>{h.down}</b> went down.
+            Out of 100 similar past setups, <b style={{ color: GAIN }}>{h.up}</b> went up, <b>{h.flat}</b> stayed flat and <b style={{ color: LOSS }}>{h.down}</b> went down.{h.flat_band_pct != null ? <span style={{ color: MUTED }}> “Flat” means a move smaller than ±{h.flat_band_pct}% over {span}.</span> : null}
           </p>
           {h.price_low != null && h.price_high != null && (
             <p className="mt-2 text-sm" style={{ color: SOFT }}>

@@ -19,6 +19,7 @@ export interface Horizon {
   median?: number;
   p90?: number;
   samples?: number;
+  flat_band_pct?: number;
   basis?: "state" | "all" | "sessions";
   reason?: string;
 }
