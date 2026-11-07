@@ -73,7 +73,7 @@ function Unavailable({ what }: { what: string }) {
   );
 }
 
-const BAR_COLORS = { income: "#14b8a6", pbt: "#f59e0b", net: "#3b82f6" };
+const BAR_COLORS = { income: "#14b8a6", pbt: "#f59e0b", net: "#3b82f6", fcf: "#a855f7" };
 
 // Indian short format used on the axis: 80K, 1.6L, 2.4L (negatives keep the sign)
 function axisLabel(v: number) {
@@ -118,7 +118,7 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
   // Free cash flow is read only when its tab is first opened; it is yearly, so it has its own read.
   const [fcf, setFcf] = useState<{ sym: string; data: FcfData | null; failed: boolean } | null>(null);
   useEffect(() => {
-    if (tab !== "fcf" || !symbol || fcf?.sym === symbol) return;
+    if ((tab !== "fcf" && tab !== "results") || !symbol || fcf?.sym === symbol) return;
     let alive = true;
     fetchJson<FcfData>(`/api/v1/stock-fcf/${symbol}`, { retries: 1 })
       .then((d) => alive && setFcf({ sym: symbol, data: d, failed: false }))
@@ -126,6 +126,8 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
     return () => { alive = false; };
   }, [tab, symbol, fcf?.sym]);
   const fcfNow = fcf && fcf.sym === symbol ? fcf : null;
+  // "Mar 2026" -> "2026": the financial year that ends in that March
+  const fcfByYear = new Map<string, number | null>((fcfNow?.data?.rows ?? []).filter((r) => r.period.startsWith("Mar ")).map((r) => [r.period.slice(4), r.fcf_cr]));
   const last: Col[] = tab === "fcf"
     ? (fcfNow?.data?.rows ?? []).slice(-4).reverse().map((r) => ({ id: r.period, label: r.period.replace(" ", "\n"), q: null, fcf: r.fcf_cr, cfo: r.cfo_cr }))
     : quarters.slice(-4).reverse().map((q) => ({ id: q.period, label: dayLabel(q.period).replace(/ (\d{4})$/, "\n$1"), q, fcf: null, cfo: null }));
@@ -138,6 +140,8 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
           { key: "Total Income", color: BAR_COLORS.income, get: q$((q) => L(q.total_income_cr)) },
           { key: "Profit Before Tax", color: BAR_COLORS.pbt, get: q$((q) => L(q.pbt_cr)) },
           { key: "Net Profit/Loss", color: BAR_COLORS.net, get: q$((q) => L(q.net_profit_cr)) },
+          // free cash flow exists once a year: it sits on the quarter that closes the financial year (March), and the other quarters show "—"
+          { key: "Free Cash Flow (yearly)", color: BAR_COLORS.fcf, get: q$((q) => (q.period.slice(5, 7) === "03" ? L(fcfByYear.get(q.period.slice(0, 4)) ?? null) : null)) },
         ]
       : tab === "pat"
         ? [{ key: "PAT", color: BAR_COLORS.net, get: q$((q) => L(q.net_profit_cr)) }]
@@ -224,7 +228,7 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
                     }}
                   >
                     <div className="mb-1 font-medium" style={{ color: "var(--text-primary)" }}>{q.id === q.q?.period ? dayLabel(q.id) : q.id}</div>
-                    {series.map((s) => (
+                    {series.filter((s) => !(s.key === "Free Cash Flow (yearly)" && s.get(q) == null)).map((s) => (
                       <div key={s.key} style={{ color: s.color }}>{s.key} : {money(s.get(q))}</div>
                     ))}
                     {tab === "pat" && q.q?.net_profit_cr != null && q.q.total_income_cr ? (
@@ -239,7 +243,7 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
         </div>
       </div>
       <p className="mt-9 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-        {standalone ? "Standalone results (this company reports no consolidated accounts)" : "Consolidated results (parent plus subsidiaries)"}, {tab === "fcf" ? "latest four financial years, newest first. Free cash flow is cash from operations less the fixed assets purchased, as Screener.in defines it; it is reported once a year." : "latest four quarters, newest first. PAT is the profit after tax Screener.in reports as net profit."} Source: Screener.in.
+        {standalone ? "Standalone results (this company reports no consolidated accounts)" : "Consolidated results (parent plus subsidiaries)"}, {tab === "fcf" ? "latest four financial years, newest first. Free cash flow is cash from operations less the fixed assets purchased, as Screener.in defines it; it is reported once a year." : "latest four quarters, newest first. PAT is the profit after tax Screener.in reports as net profit."}{tab === "results" ? " Free cash flow is reported once a year, so its bar sits on the March quarter and the other quarters have none." : ""} Source: Screener.in.
       </p>
     </div>
   );

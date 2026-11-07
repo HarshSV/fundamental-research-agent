@@ -487,18 +487,22 @@ export function StockView({
     const bases = overview?.return_bases;
     if (!bases) return null;
     const end = quote?.ltp ?? daily?.[daily.length - 1]?.close ?? null;
-    return RETURNS.map(([label, key]) => {
+    const rows = RETURNS.map(([label, key]) => {
       const b = bases[key];
       return { label, pct: end != null && b ? (end / b.price - 1) * 100 : null };
     });
+    // Listed less than a year ago: the periods it has not lived through stay "—", and the return since the first close is added.
+    if (!bases["1Y"] && daily?.length && daily[0].close && end != null) rows.push({ label: "Since listing", pct: (end / daily[0].close - 1) * 100 });
+    return rows;
   })();
 
   const week52 = useMemo(() => {
     if (!daily?.length) return null;
     const cutoff = daily[daily.length - 1].time - 365 * DAY;
-    if (daily[0].time > cutoff + 7 * DAY) return null;
-    const win = daily.filter((c) => c.time >= cutoff);
-    return { low: Math.min(...win.map((c) => c.low)), high: Math.max(...win.map((c) => c.high)) };
+    // A stock listed less than a year ago has no 52-week window: its range since listing is shown instead, and labelled so.
+    const sinceListing = daily[0].time > cutoff + 7 * DAY;
+    const win = sinceListing ? daily : daily.filter((c) => c.time >= cutoff);
+    return { low: Math.min(...win.map((c) => c.low)), high: Math.max(...win.map((c) => c.high)), sinceListing };
   }, [daily]);
 
   // All-time extremes come from the backend's FULL price history (split/bonus-adjusted, not
@@ -852,7 +856,7 @@ export function StockView({
           <SectionTitle>Price Range</SectionTitle>
           <div className="mb-4 grid gap-4 md:grid-cols-2">
             <RangeBar title="Today's Range" low={quote?.low ?? null} high={quote?.high ?? null} now={ltp} lowLabel={inr(quote?.low)} highLabel={inr(quote?.high)} />
-            <RangeBar title="52 Week Range" low={week52?.low ?? null} high={week52?.high ?? null} now={ltp} lowLabel={inr(week52?.low)} highLabel={inr(week52?.high)} />
+            <RangeBar title={week52?.sinceListing ? "Range since listing (under 52 weeks of history)" : "52 Week Range"} low={week52?.low ?? null} high={week52?.high ?? null} now={ltp} lowLabel={inr(week52?.low)} highLabel={inr(week52?.high)} />
           </div>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {([
@@ -875,7 +879,7 @@ export function StockView({
       <section className="border-t py-10" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
           <SectionTitle>Returns Performance</SectionTitle>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-7">
+          <div className={`grid grid-cols-2 gap-4 md:grid-cols-4 ${(returns?.length ?? 7) > 7 ? "xl:grid-cols-8" : "lg:grid-cols-7"}`}>
             {(returns ?? RETURNS.map(([label]) => ({ label, pct: null as number | null }))).map((r) => (
               <Card key={r.label} className="text-center">
                 <div className="text-xs" style={{ color: "var(--text-secondary)" }}>{r.label}</div>
