@@ -224,7 +224,7 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
                 tabIndex={0}
                 aria-pressed={pinned === qi}
                 aria-label={`Show the figures for ${q.id === q.q?.period ? dayLabel(q.id) : q.id}`}
-                className="relative mx-1 flex-1 cursor-pointer overflow-hidden rounded-xl border outline-none transition-colors first:ml-0 last:mr-0"
+                className={`relative mx-1 flex-1 cursor-pointer rounded-xl border outline-none transition-colors first:ml-0 last:mr-0 ${hover === qi ? "z-20" : ""}`}
                 style={{ background: pinned === qi ? "var(--overlay)" : hover === qi ? "var(--overlay-weak)" : "transparent", borderColor: pinned === qi ? "var(--accent-border, var(--border-default))" : "var(--border-subtle)" }}
                 onMouseEnter={() => setHover(qi)}
                 onMouseMove={() => setHover(qi)}
@@ -259,11 +259,11 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
                     style={{
                       top: 24,
                       [qi >= last.length - 2 ? "right" : "left"]: "calc(50% + 8px)",
-                      background: "var(--surface-2, #0f0f14)",
+                      background: "#14141c",
                       border: "1px solid var(--border-subtle)",
                     }}
                   >
-                    <div className="mb-1 font-medium" style={{ color: "var(--text-primary)" }}>{q.id === q.q?.period ? dayLabel(q.id) : q.id}</div>
+                    <div className="mb-1 font-medium" style={{ color: "#f3f4f6" }}>{q.id === q.q?.period ? dayLabel(q.id) : q.id}</div>
                     {series.filter((s) => !(s.key === "Free Cash Flow (yearly)" && s.get(q) == null)).map((s) => (
                       <div key={s.key} style={{ color: s.color }}>{s.key === "EPS (right scale)" ? "EPS" : s.key} : {s.key === "EPS (right scale)" ? (s.get(q) == null ? "—" : `₹${num(s.get(q), 2)}`) : money(s.get(q))}</div>
                     ))}
