@@ -73,7 +73,9 @@ function Unavailable({ what }: { what: string }) {
   );
 }
 
-const BAR_COLORS = { income: "#14b8a6", pbt: "#f59e0b", net: "#3b82f6", fcf: "#a855f7" };
+// One vivid colour per measure, the same in Results and in that measure's own tab (PAT is the net profit, so it shares its blue).
+const BAR_COLORS = { income: "#10d9a8", pbt: "#ffae1a", net: "#4d8dff", fcf: "#b65cff", eps: "#ff5fa8" };
+const glow = (c: string) => `0 0 12px ${c}80, 0 0 3px ${c}`;
 
 // Indian short format used on the axis: 80K, 1.6L, 2.4L (negatives keep the sign)
 function axisLabel(v: number) {
@@ -115,6 +117,10 @@ interface Col { id: string; label: string; q: Quarter | null; fcf: number | null
  *  its exact figures. A quarter whose value is unavailable draws no bar and reads "—" in the tooltip. */
 export function QuarterlyResults({ quarters, tab, onTab, standalone = false, symbol }: { quarters: Quarter[]; tab: FinTab; onTab: (t: FinTab) => void; standalone?: boolean; symbol?: string }) {
   const [hover, setHover] = useState<number | null>(null);
+  // the tapped block: its figures open in a panel under the chart (a tab or symbol change closes it)
+  const [pin, setPin] = useState<{ key: string; i: number } | null>(null);
+  const pinKey = `${symbol ?? ""}|${tab}`;
+  const pinned = pin && pin.key === pinKey ? pin.i : null;
   // Free cash flow is read only when its tab is first opened; it is yearly, so it has its own read.
   const [fcf, setFcf] = useState<{ sym: string; data: FcfData | null; failed: boolean } | null>(null);
   useEffect(() => {
@@ -134,7 +140,7 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
   // ₹ Crore -> ₹ Lakhs
   const L = (v: number | null) => (v == null ? null : v * 100);
   const q$ = (f: (q: Quarter) => number | null) => (c: Col) => (c.q ? f(c.q) : null);
-  const series: { key: string; color: string; get: (c: Col) => number | null }[] =
+  const series: { key: string; color: string; get: (c: Col) => number | null; mult?: number }[] =
     tab === "results"
       ? [
           { key: "Total Income", color: BAR_COLORS.income, get: q$((q) => L(q.total_income_cr)) },
@@ -146,18 +152,33 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
       : tab === "pat"
         ? [{ key: "PAT", color: BAR_COLORS.net, get: q$((q) => L(q.net_profit_cr)) }]
         : tab === "fcf"
-          ? [{ key: "Free Cash Flow", color: BAR_COLORS.income, get: (c: Col) => c.fcf }]
-          : [{ key: "EPS", color: BAR_COLORS.income, get: q$((q) => q.eps) }];
-  const vals = last.flatMap((c) => series.map((s) => s.get(c))).filter((v): v is number => v != null);
+          ? [{ key: "Free Cash Flow", color: BAR_COLORS.fcf, get: (c: Col) => c.fcf }]
+          : [{ key: "EPS", color: BAR_COLORS.eps, get: q$((q) => q.eps) }];
+  const vals = last.flatMap((c) => series.filter((s) => s.key !== "EPS (right scale)").map((s) => s.get(c))).filter((v): v is number => v != null);
   const ticks = niceTicks(Math.min(...vals, 0), Math.max(...vals, 0));
   const top = ticks[ticks.length - 1];
   const bottom = ticks[0];
   const span = top - bottom || 1;
   const H = 220;
   const y = (v: number) => ((top - v) / span) * H;
+  // EPS (₹ per share) cannot share the lakh scale, so on Results it has its own scale on the right. Both scales put zero on the same
+  // line, and the right-hand labels sit on the same gridlines (a "nice" step), so a bar can be read against either side.
+  const epsVals = tab === "results" ? last.map((c) => c.q?.eps).filter((v): v is number => v != null) : [];
+  let epsK = 0;
+  if (epsVals.length) {
+    const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
+    const needUp = top > 0 ? Math.max(...epsVals, 0) / (top / step) : 0;
+    const needDown = bottom < 0 ? Math.max(-Math.min(...epsVals, 0), 0) / (-bottom / step) : 0;
+    const need = Math.max(needUp, needDown, 1e-6);
+    const mag = Math.pow(10, Math.floor(Math.log10(need)));
+    const stepR = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((m) => m >= need) ?? need;
+    epsK = stepR / step; // ₹ of EPS per one unit of the left scale
+  }
+  if (epsK) series.push({ key: "EPS (right scale)", color: BAR_COLORS.eps, get: (c: Col) => c.q?.eps ?? null, mult: 1 / epsK });
   const money = (v: number | null) =>
     v == null ? "—" : tab === "eps" ? `₹${num(v, 2)}` : tab === "fcf" ? `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr` : `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 2 })} L`;
-  const barW = tab === "eps" || tab === "pat" || tab === "fcf" ? 36 : 16;
+  const BOT = tab === "results" ? 58 : 26; // room under the bars for the date (and, on Results, that quarter EPS)
+  const barW = tab === "eps" || tab === "pat" || tab === "fcf" ? 36 : epsK ? 12 : 16;
 
   const tabsEl = (
     <div className="mb-4 max-w-full overflow-x-auto">
@@ -183,8 +204,8 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
       <div className="mb-3 flex flex-wrap gap-4 text-xs" style={{ color: "var(--text-secondary)" }}>
         {series.map((s) => (
           <span key={s.key} className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />
-            {s.key === "EPS" ? "Earnings Per Share" : s.key === "PAT" ? "PAT (Profit After Tax)" : s.key === "Free Cash Flow" ? "Free Cash Flow (₹ Crore, by financial year)" : s.key}
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color, boxShadow: glow(s.color) }} />
+            {s.key === "EPS (right scale)" ? "EPS (₹ per share, right scale)" : s.key === "EPS" ? "Earnings Per Share" : s.key === "PAT" ? "PAT (Profit After Tax)" : s.key === "Free Cash Flow" ? "Free Cash Flow (₹ Crore, by financial year)" : s.key}
           </span>
         ))}
       </div>
@@ -194,29 +215,44 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
             <span key={t} className="absolute right-1.5 -translate-y-1/2" style={{ top: y(t) }}>{axisLabel(t)}</span>
           ))}
         </div>
-        <div className="relative flex-1" style={{ height: H + 22 }}>
-          <div className="absolute inset-x-0 top-0" style={{ height: H }}>
-            {ticks.map((t) => (
-              <div key={t} className="absolute inset-x-0 border-t" style={{ top: y(t), borderColor: "var(--grid)" }} />
-            ))}
-          </div>
-          <div className="absolute inset-x-0 top-0 flex" style={{ height: H + 22 }}>
+        <div className="relative flex-1" style={{ height: H + BOT }}>
+          <div className="absolute inset-x-0 top-0 flex" style={{ height: H + BOT }}>
             {last.map((q, qi) => (
-              <div key={q.id} className="relative flex-1" onMouseEnter={() => setHover(qi)} onMouseMove={() => setHover(qi)}>
-                {hover === qi && <div className="absolute inset-x-1 top-0 rounded-sm" style={{ height: H + 22, background: "var(--overlay-weak)" }} />}
+              <div
+                key={q.id}
+                role="button"
+                tabIndex={0}
+                aria-pressed={pinned === qi}
+                aria-label={`Show the figures for ${q.id === q.q?.period ? dayLabel(q.id) : q.id}`}
+                className="relative mx-1 flex-1 cursor-pointer overflow-hidden rounded-xl border outline-none transition-colors first:ml-0 last:mr-0"
+                style={{ background: pinned === qi ? "var(--overlay)" : hover === qi ? "var(--overlay-weak)" : "transparent", borderColor: pinned === qi ? "var(--accent-border, var(--border-default))" : "var(--border-subtle)" }}
+                onMouseEnter={() => setHover(qi)}
+                onMouseMove={() => setHover(qi)}
+                onClick={() => setPin(pinned === qi ? null : { key: pinKey, i: qi })}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPin(pinned === qi ? null : { key: pinKey, i: qi }); } }}
+              >
+                <div className="pointer-events-none absolute inset-x-0 top-0" style={{ height: H }}>
+                  {ticks.map((t) => (
+                    <div key={t} className="absolute inset-x-0 border-t" style={{ top: y(t), borderColor: "var(--grid)" }} />
+                  ))}
+                </div>
                 <div className="absolute inset-x-0 top-0 flex items-start justify-center gap-1" style={{ height: H }}>
                   {series.map((s) => {
-                    const v = s.get(q);
-                    if (v == null) return <div key={s.key} style={{ width: barW }} />;
+                    const raw = s.get(q);
+                    if (raw == null) return <div key={s.key} style={{ width: barW }} />;
+                    const v = raw * (s.mult ?? 1);
                     const h = Math.max(Math.abs(y(v) - y(0)), 2);
                     return (
                       <div key={s.key} className="relative" style={{ width: barW, height: H }}>
-                        <div className="absolute w-full rounded-sm" style={{ background: s.color, height: h, top: v >= 0 ? y(0) - h : y(0) }} />
+                        <div className="absolute w-full rounded-sm" style={{ background: s.color, boxShadow: glow(s.color), height: h, top: v >= 0 ? y(0) - h : y(0) }} />
                       </div>
                     );
                   })}
                 </div>
                 <div className="absolute inset-x-0 whitespace-pre-line text-center text-[11px] leading-tight" style={{ top: H + 6, color: "var(--text-tertiary)" }}>{q.label}</div>
+                {tab === "results" && q.q?.eps != null && (
+                  <div className="absolute inset-x-0 text-center text-[11px] font-semibold" style={{ top: H + 36, color: BAR_COLORS.eps, textShadow: `0 0 8px ${BAR_COLORS.eps}66` }}>EPS ₹{num(q.q.eps, 2)}</div>
+                )}
                 {hover === qi && (
                   <div
                     className="pointer-events-none absolute z-10 w-max rounded-lg px-3 py-2 text-xs shadow-lg"
@@ -229,7 +265,7 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
                   >
                     <div className="mb-1 font-medium" style={{ color: "var(--text-primary)" }}>{q.id === q.q?.period ? dayLabel(q.id) : q.id}</div>
                     {series.filter((s) => !(s.key === "Free Cash Flow (yearly)" && s.get(q) == null)).map((s) => (
-                      <div key={s.key} style={{ color: s.color }}>{s.key} : {money(s.get(q))}</div>
+                      <div key={s.key} style={{ color: s.color }}>{s.key === "EPS (right scale)" ? "EPS" : s.key} : {s.key === "EPS (right scale)" ? (s.get(q) == null ? "—" : `₹${num(s.get(q), 2)}`) : money(s.get(q))}</div>
                     ))}
                     {tab === "pat" && q.q?.net_profit_cr != null && q.q.total_income_cr ? (
                       <div style={{ color: "var(--text-secondary)" }}>PAT margin : {num((q.q.net_profit_cr / q.q.total_income_cr) * 100, 1)}%</div>
@@ -241,10 +277,114 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
             ))}
           </div>
         </div>
+        {epsK ? (
+          <div className="relative w-10 shrink-0 text-left text-[11px]" style={{ height: H, color: BAR_COLORS.eps }} aria-hidden>
+            {ticks.map((t) => (
+              <span key={t} className="absolute left-1.5 -translate-y-1/2" style={{ top: y(t) }}>{t === 0 ? "0" : num(t * epsK, epsK >= 1 ? 0 : 1)}</span>
+            ))}
+          </div>
+        ) : null}
       </div>
-      <p className="mt-9 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+      {pinned !== null && last[pinned] && (
+        <BlockDetail tab={tab} col={last[pinned]} quarters={quarters} fcfRows={fcfNow?.data?.rows ?? []} fcfByYear={fcfByYear} onClose={() => setPin(null)} />
+      )}
+      <p className="mt-6 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
         {standalone ? "Standalone results (this company reports no consolidated accounts)" : "Consolidated results (parent plus subsidiaries)"}, {tab === "fcf" ? "latest four financial years, newest first. Free cash flow is cash from operations less the fixed assets purchased, as Screener.in defines it; it is reported once a year." : "latest four quarters, newest first. PAT is the profit after tax Screener.in reports as net profit."}{tab === "results" ? " Free cash flow is reported once a year, so its bar sits on the March quarter and the other quarters have none." : ""} Source: Screener.in.
       </p>
+    </div>
+  );
+}
+
+const GAINC = "var(--gain, #10b981)";
+const LOSSC = "var(--loss, #ef4444)";
+const pctOf = (cur: number | null | undefined, base: number | null | undefined) => (cur != null && base != null && base > 0 ? (cur / base - 1) * 100 : null);
+const signed = (v: number, d = 1) => `${v >= 0 ? "+" : "-"}${Math.abs(v).toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d })}`;
+
+interface DetailRow { label: string; value: string; color?: string }
+
+/** What a tapped block shows: that quarter's (or year's) figures and how they moved against the previous quarter and the same quarter
+ *  a year earlier. A comparison that cannot be made (no earlier figure, or a loss as the starting point) is left out, not shown as zero. */
+function BlockDetail({ tab, col, quarters, fcfRows, fcfByYear, onClose }: { tab: FinTab; col: Col; quarters: Quarter[]; fcfRows: FcfData["rows"]; fcfByYear: Map<string, number | null>; onClose: () => void }) {
+  const rows: DetailRow[] = [];
+  let title = col.id;
+  const inL = (cr: number | null | undefined) => (cr == null ? null : cr * 100);
+  const lakh = (v: number | null) => (v == null ? "—" : `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 2 })} L`);
+  const cr0 = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr`;
+  const move = (label: string, cur: number | null | undefined, prev: number | null | undefined, unit: "pct" | "eps") => {
+    if (cur == null || prev == null) return;
+    if (unit === "eps") {
+      const d = cur - prev;
+      const p = pctOf(cur, prev);
+      rows.push({ label, value: `${d >= 0 ? "+" : "-"}₹${num(Math.abs(d), 2)}${p != null ? ` (${signed(p)}%)` : ""}`, color: d >= 0 ? GAINC : LOSSC });
+    } else {
+      const p = pctOf(cur, prev);
+      if (p != null) rows.push({ label, value: `${signed(p)}%`, color: p >= 0 ? GAINC : LOSSC });
+    }
+  };
+
+  if (col.q) {
+    const q = col.q;
+    title = `${dayLabel(q.period)} quarter`;
+    const i = quarters.findIndex((x) => x.period === q.period);
+    const prev = i > 0 ? quarters[i - 1] : null;
+    const yoyQ = i >= 4 && quarters[i - 4].period.slice(5, 7) === q.period.slice(5, 7) && Number(quarters[i - 4].period.slice(0, 4)) === Number(q.period.slice(0, 4)) - 1 ? quarters[i - 4] : null;
+    const margin = q.net_profit_cr != null && q.total_income_cr ? (q.net_profit_cr / q.total_income_cr) * 100 : null;
+    if (tab === "results") {
+      rows.push({ label: "Total income", value: lakh(inL(q.total_income_cr)), color: BAR_COLORS.income });
+      rows.push({ label: "Profit before tax", value: lakh(inL(q.pbt_cr)), color: BAR_COLORS.pbt });
+      rows.push({ label: "Net profit (PAT)", value: lakh(inL(q.net_profit_cr)), color: BAR_COLORS.net });
+      if (margin != null) rows.push({ label: "PAT margin", value: `${num(margin, 1)}%` });
+      if (q.eps != null) rows.push({ label: "EPS", value: `₹${num(q.eps, 2)}`, color: BAR_COLORS.eps });
+      if (q.period.slice(5, 7) === "03") {
+        const f = fcfByYear.get(q.period.slice(0, 4));
+        if (f != null) rows.push({ label: "Free cash flow (financial year)", value: cr0(f), color: BAR_COLORS.fcf });
+      }
+      move("Income vs last quarter", q.total_income_cr, prev?.total_income_cr, "pct");
+      move("Income vs a year earlier", q.total_income_cr, yoyQ?.total_income_cr, "pct");
+      move("Net profit vs last quarter", q.net_profit_cr, prev?.net_profit_cr, "pct");
+      move("Net profit vs a year earlier", q.net_profit_cr, yoyQ?.net_profit_cr, "pct");
+    } else if (tab === "pat") {
+      rows.push({ label: "PAT (profit after tax)", value: lakh(inL(q.net_profit_cr)), color: BAR_COLORS.net });
+      rows.push({ label: "Profit before tax", value: lakh(inL(q.pbt_cr)), color: BAR_COLORS.pbt });
+      if (q.pbt_cr != null && q.net_profit_cr != null) rows.push({ label: "Tax and other items (PBT − PAT)", value: lakh(inL(q.pbt_cr - q.net_profit_cr)) });
+      if (margin != null) rows.push({ label: "PAT margin (PAT ÷ total income)", value: `${num(margin, 1)}%` });
+      move("PAT vs last quarter", q.net_profit_cr, prev?.net_profit_cr, "pct");
+      move("PAT vs a year earlier", q.net_profit_cr, yoyQ?.net_profit_cr, "pct");
+    } else {
+      rows.push({ label: "EPS (diluted)", value: q.eps == null ? "—" : `₹${num(q.eps, 2)}`, color: BAR_COLORS.eps });
+      move("Change vs last quarter", q.eps, prev?.eps, "eps");
+      move("Change vs a year earlier", q.eps, yoyQ?.eps, "eps");
+      const last4 = i >= 3 ? quarters.slice(i - 3, i + 1).map((x) => x.eps) : [];
+      if (last4.length === 4 && last4.every((x) => x != null)) rows.push({ label: "Last four quarters together", value: `₹${num((last4 as number[]).reduce((a, b) => a + b, 0), 2)}` });
+    }
+  } else {
+    title = `Financial year ended ${col.id}`;
+    const i = fcfRows.findIndex((r) => r.period === col.id);
+    const prev = i > 0 ? fcfRows[i - 1] : null;
+    rows.push({ label: "Free cash flow", value: col.fcf == null ? "—" : cr0(col.fcf), color: BAR_COLORS.fcf });
+    if (col.cfo != null) rows.push({ label: "Cash from operations", value: cr0(col.cfo) });
+    if (col.cfo != null && col.fcf != null) rows.push({ label: "Fixed assets purchased (operations − FCF)", value: cr0(col.cfo - col.fcf) });
+    if (col.cfo != null && col.cfo > 0 && col.fcf != null) rows.push({ label: "Share of operating cash left as FCF", value: `${num((col.fcf / col.cfo) * 100, 0)}%` });
+    if (prev?.fcf_cr != null && col.fcf != null) {
+      const d = col.fcf - prev.fcf_cr;
+      const p = pctOf(col.fcf, prev.fcf_cr);
+      rows.push({ label: `Change vs ${prev.period}`, value: `${d >= 0 ? "+" : "-"}${cr0(Math.abs(d))}${p != null ? ` (${signed(p)}%)` : ""}`, color: d >= 0 ? GAINC : LOSSC });
+    }
+  }
+  return (
+    <div className="mt-4 rounded-xl border p-4 text-sm" style={{ borderColor: "var(--border-subtle)", background: "var(--overlay-weak)" }}>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-semibold">{title}</span>
+        <button type="button" onClick={onClose} aria-label="Close" className="rounded px-2 text-lg leading-none hover:bg-[var(--overlay)]" style={{ color: "var(--text-tertiary)" }}>×</button>
+      </div>
+      <div className="grid gap-x-8 gap-y-1.5 sm:grid-cols-2">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-baseline justify-between gap-3">
+            <span style={{ color: "var(--text-secondary)" }}>{r.label}</span>
+            <span className="whitespace-nowrap font-medium" style={{ color: r.color }}>{r.value}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
