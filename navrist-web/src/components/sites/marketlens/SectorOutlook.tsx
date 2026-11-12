@@ -1,7 +1,7 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
-import { useEffect, useState } from "react";
+import { CalendarDays, ChevronDown, Info } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { fetchJson } from "@/lib/api";
 
 const GAIN = "var(--gain)";
@@ -9,6 +9,49 @@ const LOSS = "var(--loss)";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const pct = (v: number | null | undefined, d = 1) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(d)}%`);
 const tone = (v: number | null | undefined) => (v == null ? "var(--text-tertiary)" : v >= 0 ? GAIN : LOSS);
+
+/** A small button that opens a light popover, closed by a click elsewhere or Escape (the same idea as the News button on the stock page). */
+function Pop({ label, icon, children }: { label: string; icon: React.ReactNode; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const close = () => {
+    setShown(false);
+    setTimeout(() => setOpen(false), 200);
+  };
+  const toggle = () => {
+    if (open) return close();
+    setOpen(true);
+    requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
+  };
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => box.current && !box.current.contains(e.target as Node) && close();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && close();
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  });
+  return (
+    <div ref={box} className="relative">
+      <button onClick={toggle} aria-expanded={open} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm hover:opacity-80" style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)", background: "var(--surface-1)" }}>
+        {icon}
+        {label}
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 top-full z-30 mt-2 max-h-[28rem] w-[min(34rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border p-4 text-sm shadow-xl"
+          style={{ background: "var(--surface-1)", borderColor: "var(--border-default)", opacity: shown ? 1 : 0, transform: shown ? "none" : "translateY(-6px) scale(0.98)", transformOrigin: "top left", transition: "opacity 220ms ease, transform 220ms ease" }}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Tilt { direction: "up" | "down" | "none"; size: "none" | "slight" | "clear" }
 interface Hz {
@@ -145,7 +188,7 @@ function Reliability({ v }: { v: Res["validation"] }) {
   const h3 = v.horizons["3m"], h1 = v.horizons["1m"];
   const line = (g: Grp, usual: number | null, up: boolean) => (g.share == null ? "too few months" : `${g.share}% (${g.months.toLocaleString("en-IN")} months) against ${usual}% usually`);
   return (
-    <div className="mb-5 rounded-xl border p-4 text-sm" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+    <div>
       <div className="mb-1 font-semibold">How far can this be trusted?</div>
       <p className="mb-2 text-xs" style={{ color: "var(--text-secondary)" }}>
         I replayed the method on the past, month by month, using only what was known then ({h3.months_tested.toLocaleString("en-IN")} sector-months). Whenever the situation made a rise more likely by 10 points or more:
@@ -178,9 +221,10 @@ export function SectorOutlook() {
       <p className="mb-4 max-w-3xl text-sm" style={{ color: "var(--text-secondary)" }}>
         Odds for each sector over the next month and the next 3 months, from how that sector behaved after similar situations (as of {res.as_of}). The facts beside them are listed, not blended in. {res.note}
       </p>
-      <Reliability v={res.validation} />
-      {res.scheduled && (
-        <div className="mb-5 rounded-xl border p-4 text-sm" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <Pop label="How far can this be trusted?" icon={<Info className="h-4 w-4" aria-hidden />}><Reliability v={res.validation} /></Pop>
+        {res.scheduled && (
+        <Pop label="Scheduled events ahead" icon={<CalendarDays className="h-4 w-4" aria-hidden />}>
           <div className="mb-1 font-semibold">Scheduled events ahead (next 90 days)</div>
           {res.scheduled.events.length ? (
             <ul className="space-y-1 text-xs">
@@ -203,8 +247,9 @@ export function SectorOutlook() {
           <p className="mt-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
             The odds below are not adjusted for these. Results due and company actions for each sector are inside its row. {res.scheduled.note}
           </p>
-        </div>
-      )}
+        </Pop>
+        )}
+      </div>
       <div className="overflow-x-auto rounded-xl border" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
         <table className="w-full min-w-[820px] text-sm">
           <thead>

@@ -51,7 +51,11 @@ def _fomc() -> list[dict]:
             continue
         m2 = re.search(r"\d{4} FOMC Meetings", t[i + 20:])
         seg = t[i: i + 20 + m2.start()] if m2 else t[i: i + 1500]
+        last_month = 0
         for mon, a, b in re.findall(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})-(\d{1,2})", seg):
+            if MONTHS[mon] < last_month:            # the months run January to December within a year; a drop means the next year's table began
+                break
+            last_month = MONTHS[mon]
             try:
                 end = date(y, MONTHS[mon], int(b))
             except ValueError:
