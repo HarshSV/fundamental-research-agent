@@ -14,6 +14,7 @@ import {
 } from "./patterns";
 import { marketOpen } from "./marketHours";
 import { ForecastCard, News } from "./ForecastCard";
+import { ForecastStrip } from "./ForecastStrip";
 import { fetchForecast, forecastCone, forecastLevels, type FcWindow, type Forecast } from "./forecast";
 import type { ScanContext } from "./patternScan";
 import { Detail as PatternDetail, type Candle } from "./PriceChart";
@@ -635,6 +636,7 @@ export function StockView({
               they fill in as history builds up.
             </p>
           )}
+          <ForecastStrip data={forecastData?.data ?? null} />
           <div className="mb-3">
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <Switch

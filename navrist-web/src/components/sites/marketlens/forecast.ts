@@ -129,20 +129,25 @@ export interface ChartLevel {
   dashed?: boolean;
 }
 
+/** A price for a line label: paise for cheap stocks, whole rupees for dear ones. */
+const lvl = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: v < 100 ? 2 : 0 })}`;
+
 export function forecastLevels(f: Forecast | null): ChartLevel[] {
   const out: ChartLevel[] = [];
   if (!f) return out;
   const s = f.today?.setup;
   if (s?.range_high != null && s.range_low != null) {
-    out.push({ price: s.range_high, title: "Range high", color: "#8b8b9a", dashed: true });
-    out.push({ price: s.range_low, title: "Range low", color: "#8b8b9a", dashed: true });
+    out.push({ price: s.range_high, title: `Range high ${lvl(s.range_high)}`, color: "#8b8b9a", dashed: true });
+    out.push({ price: s.range_low, title: `Range low ${lvl(s.range_low)}`, color: "#8b8b9a", dashed: true });
   }
   for (const b of [f.today, f.swing]) {
     const p = b?.plan;
     if (!p) continue;
-    out.push({ price: p.entry, title: "Entry", color: "#e5e7eb" });
-    out.push({ price: p.stop, title: "Stop", color: "#ef4444", dashed: true });
-    out.push({ price: p.targets.find((t) => t.r === p.first_target_r)?.price ?? p.targets[0].price, title: "Target", color: "#10b981", dashed: true });
+    const tag = b === f.swing ? "Swing " : "";
+    out.push({ price: p.entry, title: `${tag}Entry ${lvl(p.entry)}`, color: "#e5e7eb" });
+    out.push({ price: p.stop, title: `${tag}Stop ${lvl(p.stop)}`, color: "#ef4444", dashed: true });
+    // every target of the plan, the nearer one brighter: "Target 1 (1x the risk)", "Target 2 (2x)"
+    p.targets.slice(0, 2).forEach((t, i) => out.push({ price: t.price, title: `${tag}Target ${i + 1} (${t.r}x) ${lvl(t.price)}`, color: i === 0 ? "#10b981" : "#34d399", dashed: true }));
   }
   return out;
 }
