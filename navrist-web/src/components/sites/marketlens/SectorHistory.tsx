@@ -70,6 +70,171 @@ function YearBars({ years }: { years: Year[] }) {
   );
 }
 
+interface EvRef { month: string; title: string; scope: string }
+interface Move { month: string; sector_return: number | null; market_return: number | null; excess: number | null; kind: string; events: EvRef[] }
+interface Reaction { month: string; title: string; scope: string; sector_month: number | null; market_month: number | null; sector_after_3m: number | null; market_after_3m: number | null; excess_month: number | null }
+interface EventsRes {
+  ready: boolean; available?: boolean; reason?: string; note?: string; from?: string; to?: string;
+  beta?: number | null; correlation?: number | null; up_capture?: number | null; down_capture?: number | null;
+  moves?: { outperformed: Move[]; underperformed: Move[] }; reactions?: Reaction[]; events_known?: number;
+}
+interface RecentRes {
+  stocks: number; orders: { time: string; symbol: string; name: string | null; subject: string; link: string | null }[]; orders_count: number;
+  deals: { date: string; kind: string; symbol: string; name: string | null; client: string | null; side: string | null; value_cr: number }[]; deals_count: number; deals_buy_cr: number; deals_sell_cr: number;
+  upcoming: { date: string; symbol: string; name: string | null; purpose: string | null }[]; upcoming_count: number;
+}
+interface HeadRes { ok: boolean; items: { date: string | null; title: string; source: string | null; link: string | null }[] }
+
+const Sub = ({ children }: { children: React.ReactNode }) => (
+  <div className="mb-2 mt-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>{children}</div>
+);
+
+function MoveRow({ m, sector }: { m: Move; sector: string }) {
+  const [heads, setHeads] = useState<HeadRes | "loading" | "failed" | null>(null);
+  const load = () => {
+    if (heads) return setHeads(null);
+    setHeads("loading");
+    fetchJson<HeadRes>(`/api/v1/market/sector-headlines?sector=${encodeURIComponent(sector)}&month=${m.month}`).then(setHeads).catch(() => setHeads("failed"));
+  };
+  return (
+    <li className="border-t py-2 text-sm first:border-t-0" style={{ borderColor: "var(--border-subtle)" }}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+        <span className="font-medium">{ym(`${m.month}-01`)}</span>
+        <span className="text-xs">
+          <span style={{ color: tone(m.sector_return) }}>sector {pct(m.sector_return)}</span>
+          <span style={{ color: "var(--text-tertiary)" }}> · all stocks </span>
+          <span style={{ color: tone(m.market_return) }}>{pct(m.market_return)}</span>
+        </span>
+      </div>
+      <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+        {m.kind === "moved with the market" ? "Mostly moved with the market" : `${pct(m.excess)} against the market: specific to this sector`}
+      </div>
+      {m.events.length ? (
+        <ul className="mt-1 space-y-0.5 text-xs">
+          {m.events.map((e) => <li key={e.month + e.title}>Around then: <b>{e.title}</b> <span style={{ color: "var(--text-tertiary)" }}>({ym(`${e.month}-01`)})</span></li>)}
+        </ul>
+      ) : (
+        <div className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>No event in our list around this month.</div>
+      )}
+      <button onClick={load} className="mt-1 text-xs underline" style={{ color: "var(--accent)" }}>{heads ? "Hide headlines" : "Headlines that month"}</button>
+      {heads === "loading" && <div className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>Searching…</div>}
+      {heads === "failed" && <div className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>Headlines could not be read right now.</div>}
+      {heads && typeof heads === "object" && (
+        heads.items.length ? (
+          <ul className="mt-1 space-y-1 text-xs">
+            {heads.items.map((h) => (
+              <li key={h.title}>{h.link ? <a href={h.link} target="_blank" rel="noopener noreferrer" className="hover:underline">{h.title}</a> : h.title}<span style={{ color: "var(--text-tertiary)" }}> · {h.source ?? ""} {h.date ?? ""}</span></li>
+            ))}
+            <li style={{ color: "var(--text-tertiary)" }}>Google News search; some items may be only loosely related.</li>
+          </ul>
+        ) : <div className="mt-1 text-xs" style={{ color: "var(--text-tertiary)" }}>No headlines found for that month.</div>
+      )}
+    </li>
+  );
+}
+
+function WhatMoved({ sector }: { sector: string }) {
+  const [ev, setEv] = useState<EventsRes | null>(null);
+  const [rc, setRc] = useState<RecentRes | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [all, setAll] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const q = encodeURIComponent(sector);
+    fetchJson<EventsRes>(`/api/v1/market/sector-events?sector=${q}`).then((d) => alive && setEv(d)).catch(() => alive && setFailed(true));
+    fetchJson<RecentRes>(`/api/v1/market/sector-recent?sector=${q}`).then((d) => alive && setRc(d)).catch(() => {});
+    return () => { alive = false; };
+  }, [sector]);
+  if (failed) return <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>What moved this sector could not be read right now.</p>;
+  if (!ev) return <div className="h-24 animate-pulse rounded-lg" style={{ background: "var(--overlay)" }} />;
+  if (!ev.available) return <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>{ev.reason ?? ev.note}</p>;
+  const reactions = [...(ev.reactions ?? [])].sort((a, b) => Math.abs(b.excess_month ?? 0) - Math.abs(a.excess_month ?? 0));
+  const shown = (all ? reactions : reactions.slice(0, 8)).sort((a, b) => a.month.localeCompare(b.month));
+  return (
+    <div className="border-t pt-5" style={{ borderColor: "var(--border-subtle)" }}>
+      <h3 className="mb-1 text-base font-semibold">What moved this sector</h3>
+      <p className="mb-3 text-xs" style={{ color: "var(--text-tertiary)" }}>{ev.note}</p>
+
+      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {[
+          { l: "Beta to all stocks", v: ev.beta == null ? "—" : ev.beta.toFixed(2), s: ev.beta == null ? "" : ev.beta > 1.1 ? "swings more than the market" : ev.beta < 0.9 ? "swings less than the market" : "moves about with the market" },
+          { l: "Gain captured in up months", v: ev.up_capture == null ? "—" : `${ev.up_capture}%`, s: "of the market's rise" },
+          { l: "Loss taken in down months", v: ev.down_capture == null ? "—" : `${ev.down_capture}%`, s: "of the market's fall" },
+          { l: "Moves with the market", v: ev.correlation == null ? "—" : ev.correlation.toFixed(2), s: "correlation, monthly" },
+        ].map((c) => (
+          <div key={c.l} className="rounded-lg border p-2.5" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+            <div className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>{c.l}</div>
+            <div className="text-base font-semibold">{c.v}</div>
+            <div className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>{c.s}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div>
+          <Sub>Months it beat the market the most</Sub>
+          <ul>{(ev.moves?.outperformed ?? []).map((m) => <MoveRow key={m.month} m={m} sector={sector} />)}</ul>
+        </div>
+        <div>
+          <Sub>Months it lagged the market the most</Sub>
+          <ul>{(ev.moves?.underperformed ?? []).map((m) => <MoveRow key={m.month} m={m} sector={sector} />)}</ul>
+        </div>
+      </div>
+
+      <Sub>How it reacted to known events</Sub>
+      {shown.length === 0 ? <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>None of the listed events fall inside this sector&apos;s history.</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[620px] text-sm">
+            <thead>
+              <tr className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                <th className="py-1 text-left font-normal">Event</th><th className="text-right font-normal">That month: sector</th><th className="text-right font-normal">all stocks</th>
+                <th className="text-right font-normal">Next 3 months: sector</th><th className="text-right font-normal">all stocks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((r) => (
+                <tr key={r.month + r.title} className="border-t" style={{ borderColor: "var(--border-subtle)" }}>
+                  <td className="py-1.5 pr-3">{r.title} <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>({ym(`${r.month}-01`)}{r.scope === "sectors" ? ", this sector" : ""})</span></td>
+                  <td className="text-right" style={{ color: tone(r.sector_month) }}>{pct(r.sector_month)}</td>
+                  <td className="text-right" style={{ color: tone(r.market_month) }}>{pct(r.market_month)}</td>
+                  <td className="text-right" style={{ color: tone(r.sector_after_3m) }}>{pct(r.sector_after_3m)}</td>
+                  <td className="text-right" style={{ color: tone(r.market_after_3m) }}>{pct(r.market_after_3m)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {reactions.length > 8 && <button onClick={() => setAll((v) => !v)} className="mt-2 text-xs underline" style={{ color: "var(--accent)" }}>{all ? "Show the 8 biggest" : `Show all ${reactions.length}`}</button>}
+        </div>
+      )}
+
+      {rc && rc.stocks > 0 && (
+        <div className="mt-6">
+          <Sub>Happening now among its {rc.stocks} companies</Sub>
+          <div className="grid gap-5 lg:grid-cols-3">
+            <div>
+              <div className="mb-1 text-sm font-medium">Order and contract announcements <span className="text-xs font-normal" style={{ color: "var(--text-tertiary)" }}>({rc.orders_count}, last 2 weeks)</span></div>
+              {rc.orders.length ? <ul className="space-y-1 text-xs">{rc.orders.slice(0, 5).map((o) => <li key={o.symbol + o.time}>{o.link ? <a href={o.link} target="_blank" rel="noopener noreferrer" className="hover:underline">{o.name ?? o.symbol}</a> : o.name ?? o.symbol}<span style={{ color: "var(--text-tertiary)" }}> · {o.time.slice(0, 11)}</span></li>)}</ul> : <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>None found.</p>}
+            </div>
+            <div>
+              <div className="mb-1 text-sm font-medium">Bulk and block deals <span className="text-xs font-normal" style={{ color: "var(--text-tertiary)" }}>({rc.deals_count}, last 30 days)</span></div>
+              {rc.deals.length ? (
+                <>
+                  <p className="mb-1 text-xs" style={{ color: "var(--text-secondary)" }}>Bought ₹{rc.deals_buy_cr.toLocaleString("en-IN")} Cr · sold ₹{rc.deals_sell_cr.toLocaleString("en-IN")} Cr</p>
+                  <ul className="space-y-1 text-xs">{rc.deals.slice(0, 5).map((d) => <li key={d.date + d.symbol + d.client + d.value_cr}>{d.name ?? d.symbol}: {d.side ?? ""} ₹{d.value_cr.toLocaleString("en-IN")} Cr <span style={{ color: "var(--text-tertiary)" }}>· {d.date}</span></li>)}</ul>
+                </>
+              ) : <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>None found.</p>}
+            </div>
+            <div>
+              <div className="mb-1 text-sm font-medium">Results and board meetings <span className="text-xs font-normal" style={{ color: "var(--text-tertiary)" }}>({rc.upcoming_count}, next 3 weeks)</span></div>
+              {rc.upcoming.length ? <ul className="space-y-1 text-xs">{rc.upcoming.slice(0, 6).map((u) => <li key={u.symbol + u.date}>{u.name ?? u.symbol}<span style={{ color: "var(--text-tertiary)" }}> · {u.date}</span></li>)}</ul> : <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>None announced yet.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Detail({ s }: { s: Sector }) {
   const roll = s.rolling ?? {};
   return (
@@ -127,6 +292,7 @@ function Detail({ s }: { s: Sector }) {
         <div className="flex justify-between"><span style={{ color: "var(--text-secondary)" }}>Now vs its own all-time peak</span><span style={{ color: tone(s.drawdown_now) }}>{pct(s.drawdown_now)}</span></div>
         <div className="flex justify-between"><span style={{ color: "var(--text-secondary)" }}>Stocks in it (start → now)</span><span>{s.members_start} → {s.members_now}</span></div>
       </div>
+      <div className="lg:col-span-2"><WhatMoved sector={s.sector} /></div>
     </div>
   );
 }

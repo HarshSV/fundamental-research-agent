@@ -267,3 +267,36 @@ def build(window: str = "full") -> dict:
     _cache.clear()
     _cache[key] = result
     return result
+
+_levels_cache: dict = {}
+
+
+def levels() -> dict | None:
+    """{"market": {month index: level}, "sectors": {name: {month index: level}}} from each sector's first reliable month (same rule as
+    build()), for the event studies. None when the history has not been built."""
+    store = _load()
+    if not store:
+        return None
+    key = os.path.getmtime(STORE)
+    if _levels_cache.get("key") == key:
+        return _levels_cache["v"]
+    rows = scan._load_all()
+    groups: dict[str, list] = {}
+    allm = []
+    for sym, rec in store.items():
+        sec = (rows.get(sym) or {}).get("sector")
+        if sec and rec.get("m"):
+            groups.setdefault(sec, []).append(rec["m"])
+            allm.append(rec["m"])
+    mk = _index_series(_group_returns(allm))
+    out = {}
+    for sec, members in groups.items():
+        series = _index_series(_group_returns(members))
+        need = max(MIN_MEMBERS, min(8, -(-len(members) // 2)))
+        first_ok = next((i for i, _, m in series if m >= need), None)
+        if len(members) >= MIN_MEMBERS and first_ok is not None:
+            out[sec] = {i: v for i, v, _ in series if i >= first_ok}
+    v = {"market": {i: v for i, v, _ in mk}, "sectors": out, "members": {s: [m for m in groups[s]] and [sym for sym, rec in store.items() if (rows.get(sym) or {}).get("sector") == s] for s in out}}
+    _levels_cache.clear()
+    _levels_cache.update(key=key, v=v)
+    return v

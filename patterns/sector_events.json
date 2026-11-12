@@ -1,0 +1,58 @@
+{
+  "note": "An editorial list of well-known events, with month precision. It is not exhaustive, and an event next to a move does not prove it caused the move. Add or correct entries here; every figure on the page is computed from prices, only the event names and months come from this list.",
+  "events": [
+    {"month": "1997-07", "title": "Asian financial crisis begins (Thai baht floated, 2 July)", "scope": "market"},
+    {"month": "1998-05", "title": "India's nuclear tests, followed by international sanctions", "scope": "market"},
+    {"month": "2000-03", "title": "Dot-com bubble peaks and bursts", "scope": "market"},
+    {"month": "2001-03", "title": "Ketan Parekh scam and market crash", "scope": "market"},
+    {"month": "2001-09", "title": "September 11 attacks in the US", "scope": "market"},
+    {"month": "2004-05", "title": "General election result surprises markets (17 May)", "scope": "market"},
+    {"month": "2006-05", "title": "Global sell-off in emerging markets", "scope": "market"},
+    {"month": "2008-01", "title": "Global sell-off after the 2007 peak (21 January)", "scope": "market"},
+    {"month": "2008-09", "title": "Lehman Brothers collapses (15 September)", "scope": "market"},
+    {"month": "2009-05", "title": "General election result: strong rally (18 May)", "scope": "market"},
+    {"month": "2011-08", "title": "US credit rating downgrade and euro-zone debt worries", "scope": "market"},
+    {"month": "2013-05", "title": "US Fed taper talk hits emerging markets and the rupee", "scope": "market"},
+    {"month": "2014-05", "title": "General election result: majority government (16 May)", "scope": "market"},
+    {"month": "2015-08", "title": "China devalues its currency; global sell-off (24 August)", "scope": "market"},
+    {"month": "2016-11", "title": "Demonetisation of Rs 500 and Rs 1,000 notes (8 November)", "scope": "market"},
+    {"month": "2017-07", "title": "GST comes into force (1 July)", "scope": "market"},
+    {"month": "2018-09", "title": "IL&FS default triggers a credit crunch", "scope": "sectors", "sectors": ["NBFC", "Banks", "Realty", "Construction"]},
+    {"month": "2019-09", "title": "Corporate tax cut announced (20 September)", "scope": "market"},
+    {"month": "2020-03", "title": "COVID-19 crash and national lockdown", "scope": "market"},
+    {"month": "2020-11", "title": "First effective COVID-19 vaccine news (9 November)", "scope": "market"},
+    {"month": "2022-02", "title": "Russia invades Ukraine (24 February); commodity prices surge", "scope": "market"},
+    {"month": "2022-05", "title": "RBI starts raising interest rates (4 May)", "scope": "market"},
+    {"month": "2024-06", "title": "General election result: sharp fall, then recovery (4 June)", "scope": "market"},
+    {"month": "2025-04", "title": "US announces sweeping tariffs (2 April)", "scope": "market"},
+
+    {"month": "2012-02", "title": "Supreme Court cancels 122 telecom (2G) licences (2 February)", "scope": "sectors", "sectors": ["Telecommunication"]},
+    {"month": "2016-09", "title": "Reliance Jio launches with free services (5 September)", "scope": "sectors", "sectors": ["Telecommunication"]},
+    {"month": "2019-10", "title": "Supreme Court AGR verdict against telecom companies (24 October)", "scope": "sectors", "sectors": ["Telecommunication"]},
+    {"month": "2021-09", "title": "Government telecom relief package (15 September)", "scope": "sectors", "sectors": ["Telecommunication"]},
+
+    {"month": "2015-12", "title": "RBI asset quality review of banks begins", "scope": "sectors", "sectors": ["Banks"]},
+    {"month": "2017-10", "title": "Rs 2.11 lakh crore recapitalisation of public sector banks announced (24 October)", "scope": "sectors", "sectors": ["Banks"]},
+    {"month": "2019-06", "title": "DHFL defaults on its debt", "scope": "sectors", "sectors": ["NBFC", "Banks", "Realty"]},
+    {"month": "2020-03", "title": "Yes Bank placed under moratorium (5 March)", "scope": "sectors", "sectors": ["Banks"]},
+
+    {"month": "2013-05", "title": "New drug price control order (DPCO 2013) notified", "scope": "sectors", "sectors": ["Pharmaceuticals"]},
+    {"month": "2014-01", "title": "US FDA import alert on a major Indian drug plant (Toansa)", "scope": "sectors", "sectors": ["Pharmaceuticals"]},
+
+    {"month": "2017-04", "title": "US moves to tighten H-1B visa rules (18 April)", "scope": "sectors", "sectors": ["Information Technology"]},
+
+    {"month": "2019-08", "title": "Vehicle sales fall by the most in two decades", "scope": "sectors", "sectors": ["Automobile & Auto Components"]},
+    {"month": "2020-04", "title": "BS-VI emission norms take effect (1 April)", "scope": "sectors", "sectors": ["Automobile & Auto Components"]},
+
+    {"month": "2017-05", "title": "RERA comes into full force (1 May)", "scope": "sectors", "sectors": ["Realty", "Construction", "Construction Materials (Cement)"]},
+
+    {"month": "2016-02", "title": "India imposes minimum import prices on steel", "scope": "sectors", "sectors": ["Metals & Mining"]},
+
+    {"month": "2012-07", "title": "Northern grid failure causes a blackout across north India (30 to 31 July)", "scope": "sectors", "sectors": ["Power"]},
+
+    {"month": "2014-10", "title": "Diesel prices deregulated (19 October) as crude oil falls", "scope": "sectors", "sectors": ["Oil, Gas & Consumable Fuels"]},
+    {"month": "2020-04", "title": "US crude oil futures turn negative (20 April)", "scope": "sectors", "sectors": ["Oil, Gas & Consumable Fuels"]},
+
+    {"month": "2019-04", "title": "Jet Airways suspends operations (17 April)", "scope": "sectors", "sectors": ["Services (Logistics/Transportation/Aviation)"]}
+  ]
+}
