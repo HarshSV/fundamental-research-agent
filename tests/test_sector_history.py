@@ -89,3 +89,47 @@ def test_unknown_sector_and_unbuilt_history(monkeypatch):
     monkeypatch.setattr(sector_history, "_load", lambda: {})
     sector_history._levels_cache.clear()
     assert sector_events.analyse("Alpha")["ready"] is False
+
+
+# ------------------------------------------------------------------ outlook
+def test_tilt_thresholds():
+    from patterns import sector_outlook as so
+    assert so._tilt(4) == {"direction": "none", "size": "none"}
+    assert so._tilt(7) == {"direction": "up", "size": "slight"}
+    assert so._tilt(-12) == {"direction": "down", "size": "clear"}
+
+
+def test_odds_report_tilt_against_usual(monkeypatch):
+    import numpy as np
+    from patterns import sector_outlook as so
+    usual = [(0.05, 0.01)] * 50 + [(-0.05, -0.01)] * 50                      # half the months rise clearly, half fall clearly
+    now = [(0.05, 0.01)] * 40 + [(-0.05, -0.01)] * 10                        # in this situation 80% rise
+    o = so._odds(now, 0.01, usual)
+    assert o["up"] == 80 and o["usual_up"] == 50 and o["tilt_up_points"] == 30 and o["tilt"] == {"direction": "up", "size": "clear"}
+    assert o["samples"] == 50 and o["flat"] == 0
+
+
+def test_estimate_falls_back_when_the_situation_is_rare():
+    from patterns import sector_outlook as so
+    month = [(0.02, 0.0)] * 40
+    own_all = month
+    few = [(0.02, 0.0)] * 5
+    assert so._estimate(1, (True, True, False), few, month, own_all)["basis"] == "all sectors, same situation"
+    assert so._estimate(1, (True, True, False), few, few, own_all)["basis"] == "all of this sector's months"
+    assert so._estimate(1, (True, True, False), few, few, few)["call"] is None
+
+
+def test_outlook_and_validation_on_made_up_sectors(monkeypatch):
+    _fake(monkeypatch)
+    from patterns import sector_outlook as so
+    so._cache.clear(); so._val_cache.clear()
+    monkeypatch.setattr(so, "_results_progress", lambda syms: {"available": False})
+    monkeypatch.setattr(so.market_analytics, "sectors", lambda: {"sectors": []})
+    monkeypatch.setattr(so.ex, "load", lambda name: [])
+    monkeypatch.setattr(so.sector_events, "recent", lambda sec: {"orders_count": 0, "deals_buy_cr": 0, "deals_sell_cr": 0, "deals_count": 0})
+    o = so.outlook()
+    assert o["ready"] and {s["sector"] for s in o["sectors"]} == {"Alpha", "Beta"}          # Tiny has too few stocks
+    v = o["validation"]
+    assert v["ready"] and v["horizons"]["3m"]["months_tested"] > 0
+    for s in o["sectors"]:
+        assert [h["id"] for h in s["horizons"]] == ["1m", "3m"] and s["situation"]
