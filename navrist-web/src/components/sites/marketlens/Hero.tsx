@@ -52,7 +52,7 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
       />
       <div className="relative mx-auto max-w-4xl px-4 pb-12 pt-16 text-center">
         <h1 className="mb-4 text-4xl font-bold leading-[1.15] tracking-tight lg:text-5xl">
-          NAVRIST AI.{" "}
+          <span className="brand-font">NAVRIST AI.</span>{" "}
           {/* The longest phrase is laid out invisibly in the same grid cell, so the headline keeps one fixed size and
               wrapping while the phrase types and deletes (otherwise the search box below jumps up and down). */}
           <span className="inline-grid text-left" style={{ color: "var(--accent)" }}>

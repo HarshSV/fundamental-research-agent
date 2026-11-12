@@ -194,7 +194,8 @@
 }
 
 /* Brand wordmark: one solid colour, no gradient */
-.brand-wordmark { color: var(--brand-text); letter-spacing: 0.02em; }
+.brand-wordmark { color: var(--brand-text); letter-spacing: 0.05em; font-family: var(--font-brand), var(--font-poppins), system-ui, sans-serif; font-weight: 800; }
+.brand-font { font-family: var(--font-brand), var(--font-poppins), system-ui, sans-serif; letter-spacing: 0.03em; }
 
 /* ---- Light theme ------------------------------------------------------------------------------------ */
 html.light { color-scheme: light; }
