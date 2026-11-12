@@ -2,7 +2,7 @@
 
 *Written 12 November 2026. This is the plain-language guide to everything the site does, how each thing is shown, and where its numbers come from. Technical detail is in [`PROJECT_DOCUMENTATION.md`](../PROJECT_DOCUMENTATION.md); the sector pages are explained further in [`SECTOR_AGENT.md`](SECTOR_AGENT.md) and the pattern tests in [`PATTERN_STUDY.md`](PATTERN_STUDY.md).*
 
-**What Navrist AI is:** a research website for Indian (NSE) stocks. You search a company, see its price, charts, results, shareholding and a forecast, scan the whole market for setups, and track the market by sector. It lives at **ai.navrist.com** and asks for one shared password.
+**What Navrist AI is:** a research website for Indian (NSE) stocks. You search a company, see its price, charts, results, shareholding and a forecast, scan the whole market for setups, and track the market by sector. It lives at **ai.navrist.com**.
 
 **How to read this list**
 * **Where** = how to reach it on the site. **How it is shown** = what you see. **Source** = where the numbers come from.
@@ -26,23 +26,11 @@
 
 | Feature | How it is shown | Source |
 |---|---|---|
-| **Login** | A password box before anything else. One shared site password; wrong guesses are limited | Our own (`auth.py`) |
 | **Index ticker** | A moving strip at the very top: NIFTY 50, BANK, NEXT 50, 100, 500, IT, AUTO with the day's change in green or red | Yahoo Finance |
 | **Top bar** | Navrist blue (#04295D) with the logo, then menus: **Screeners**, **Market Analytics**, **Tools**, **Watchlist**, **Journal**, a search box and a light / dark switch | Our own design |
-| **Light and dark mode** | Opens in light mode; your choice is remembered on your device only | Your browser |
-| **Phone layout** | The menus fold into a slide-in drawer; pages fit narrow screens | Our own design |
 | **Search** | Type a company name, symbol or sector; results appear as you type | Angel One stock list, NSE company names, our company table |
-| **Recent searches** | Your last stocks under the search box | Your browser |
 
-## 2. The landing page
-
-| Feature | How it is shown | Source |
-|---|---|---|
-| **Headline and big search box** | "NAVRIST AI." with a typing line, and a search box with example names | Our own |
-| **Browse by pattern** | Nine chips in a grid plus a **More (23)** button that reveals the rest with an animation. Green = bullish, red = bearish, white = either way depending on the shape. Tap a chip to open the filter for that pattern | Pattern rules: our own (32 patterns) |
-| **Popular Screens** | Ready-made stock lists grouped as Growth at a Discount, Income + Safety, Momentum + Breakout, Quality & Safety and Value Growth, each a pair of conditions (for example "High EPS + Low P/E") | Screener.in, Yahoo Finance, calculated by us |
-
-## 3. A stock's page
+## 2. A stock's page
 
 Open any company from search. The page runs top to bottom like this.
 
@@ -66,7 +54,7 @@ Open any company from search. The page runs top to bottom like this.
 | **About** | Company description, headquarters, year of incorporation, MD / CEO, website, a link to the latest annual report | NSE Market Lens (Yahoo as backup); annual report link from BSE |
 | **Peer Comparison** | A table of similar companies: price, market cap, P/E, ROCE | Screener.in |
 
-## 4. The Screeners menu
+## 3. The Screeners menu
 
 | Feature | How it is shown | Source |
 |---|---|---|
@@ -80,7 +68,7 @@ Open any company from search. The page runs top to bottom like this.
 | **Earnings and IPOs** | Earnings Gap Up and Positive Earnings Reaction (latest and previous quarter), IPO Setups | NSE results dates, Screener.in, our own calculation |
 | **Result lists** | Each scan shows a table (symbol, price, change, matched value, industry and small markers for ASM, price band, block deal, results soon) and opens a chart for any row | As above |
 
-## 5. The Market Analytics menu
+## 4. The Market Analytics menu
 
 | Feature | How it is shown | Source |
 |---|---|---|
@@ -93,7 +81,7 @@ Open any company from search. The page runs top to bottom like this.
 | **Sector Indices** | Every NSE index today | NSE |
 | **Top Gainers / Top Losers** | The day's movers | Our own calculation |
 
-## 6. The Tools menu
+## 5. The Tools menu
 
 | Feature | How it is shown | Source |
 |---|---|---|
@@ -105,7 +93,7 @@ Open any company from search. The page runs top to bottom like this.
 | **ASM List** | Stocks under additional surveillance | NSE |
 | **Bulk Deals / Block Deals** | The large trades of the day, who bought and sold | NSE (kept for 120 days from when we first read them) |
 
-## 7. Your own tools
+## 6. Your own tools
 
 | Feature | How it is shown | Source |
 |---|---|---|
@@ -114,36 +102,7 @@ Open any company from search. The page runs top to bottom like this.
 | **Alerts** | From a trade plan, set alerts for entry, stop, target and the 15:25 exit; a browser notification and an optional **Telegram** message | Our own; Telegram bot |
 | **Saved filters** | Create Screener filters you can save, load and share | Your browser |
 
-## 8. Built but not on the website you see at ai.navrist.com
-
-These exist in the backend and the older dashboard (`frontend/`, `frontend-dashboard/`), and are described in the main documentation:
-
-| Feature | What it does | Source | Status |
-|---|---|---|---|
-| **68 financial ratios** | Efficiency, liquidity, profitability, leverage, valuation, cash-flow, growth and bank ratios, each with a formula and a "Calculation Breakdown" of the inputs and pages used | Annual-report PDFs (BSE, NSE), NSE XBRL filings, Screener.in as a cross-check | Built; not on the Next.js site |
-| **Qualitative analysis A-U** | Topics scored from filings with evidence, with confidence tags | Annual reports and filings | Built with rules; **AI calls are switched off** |
-| **Manual document upload** | Upload an annual report and other filings and analyse them | Your files | Built; not on the Next.js site |
-| **PDF report** | A downloadable research report | Our own | Built |
-| **Ask Navrist chatbot** | A chat assistant | An AI model | **Switched off on purpose** |
-| **5-minute forecast pilot** | A calibrated range for the next five 5-minute bars | Angel One history | Pilot only |
-
-## 9. What the site does not have (so you do not look for it)
-
-* **No AI-written text.** Every sentence on the sector and forecast pages is a template filled with numbers.
-* **No price before about 1996.** BSE has yearly prices from 1991, but they are not adjusted for splits and bonus issues, so they are not used.
-* **No Volume Footprint, no insider-trading list, no Templates** (shared presets), and no index-based rotation graph. These came from a comparison with another site and are listed as not built.
-* **No future macro calendar beyond what is published:** US Fed dates, NSE holidays, company actions and results dates. RBI policy dates are not listed because no readable source gives them.
-* **Not a trading engine:** nothing places orders.
-* **About 750 stocks are scanned** (not the whole market), and only stocks listed today, so long-run figures look better than an investor actually earned.
-
-## 10. How reliable is it?
-
-* **Forecast and sector outlook:** tested on the past. The edge is small: the odds are a lean, not a call. The Sector Outlook page shows its own test results.
-* **Chart patterns:** tested on 100,541 past confirmations. Four bullish patterns have a small average gain (about 1% over 20 sessions after costs), most trades still lose, and bearish patterns gave no selling edge. See `PATTERN_STUDY.md`.
-* **Data can be late or missing.** Yahoo, NSE and Screener are free public sources; a source that fails shows "unavailable", never a made-up number. A missing value is shown as "—", never as zero.
-* **The site runs from the owner's PC** through a Cloudflare tunnel, so it is down whenever that PC is off.
-
-## 11. Where each source is read in the code (for the team)
+## 7. Where each source is read in the code (for the team)
 
 | Source | Main code |
 |---|---|
