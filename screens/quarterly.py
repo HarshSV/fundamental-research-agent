@@ -162,8 +162,10 @@ def _fetch(url: str) -> str | None:
 
 
 def fetch_one(sym: str) -> dict:
+    from tools import bse_universe
+    key = (bse_universe.info().get(sym) or {}).get("code") or sym        # Screener knows a BSE-only company by its BSE code
     # the consolidated page first; when it has no readable quarterly table (some companies' pages lack the period headings) the standalone page
-    for url in (f"https://www.screener.in/company/{sym}/consolidated/", f"https://www.screener.in/company/{sym}/"):
+    for url in (f"https://www.screener.in/company/{key}/consolidated/", f"https://www.screener.in/company/{key}/"):
         html = _fetch(url)
         rec = parse(html) if html else None
         if rec:
@@ -279,8 +281,9 @@ def latest_quarter(data: dict) -> str | None:
 
 # ------------------------------------------------------------------ build
 def _symbols() -> list[str]:
+    from tools import bse_universe
     from tools.nse_sector_map import all_symbols_by_sector
-    return sorted({s for syms in all_symbols_by_sector().values() for s in syms})
+    return sorted({s for syms in all_symbols_by_sector().values() for s in syms} | set(bse_universe.info()))
 
 
 def due(rec: dict | None, now: float) -> bool:

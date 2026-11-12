@@ -198,7 +198,7 @@ def options() -> dict:
 
     return {
         "indices": [{"id": k, "label": v} for k, v in scan.INDEX_LABEL.items()],
-        "sectors": sorted({u["sector"] for u in uni}),
+        "sectors": sorted({u["sector"] for u in uni if u.get("sector")}),
         "ma_periods": list(MA_PERIODS),
         "statuses": [{"id": "forming", "label": "Forming"}, {"id": "awaiting_breakout", "label": "Awaiting breakout"},
                      {"id": "confirmed", "label": "Confirmed (last %d sessions)" % scan.CONFIRMED_WINDOW_BARS}],

@@ -33,14 +33,26 @@ _cache: dict | None = None
 def _names() -> dict:
     try:
         with open(os.path.join(ROOT, "cache", "nse_company_names.json"), encoding="utf-8") as fh:
-            return json.load(fh)
+            names = json.load(fh)
     except Exception:
-        return {}
+        names = {}
+    try:
+        from tools import bse_universe
+        names.update({s: b["name"] for s, b in bse_universe.info().items() if s not in names})
+    except Exception:
+        pass
+    return names
 
 
 def universe_symbols() -> list[str]:
     from tools.nse_sector_map import all_symbols_by_sector
-    return sorted({s for syms in all_symbols_by_sector().values() for s in syms})
+    syms = {s for ss in all_symbols_by_sector().values() for s in ss}
+    try:        # plus the BSE-only companies (tools/bse_universe.py)
+        from tools import bse_universe
+        syms |= set(bse_universe.info())
+    except Exception:
+        pass
+    return sorted(syms)
 
 
 _cache_mtime = 0.0
@@ -142,6 +154,8 @@ def _nse_fill(sym: str, m: dict) -> list[str]:
 
 def _build_one(sym: str, name: str | None, fetch_candles) -> tuple[str, dict | None]:
     try:
+        from tools import bse_universe
+        bse_universe.prime(sym)            # a BSE-only company is read from Screener by its BSE code and from Yahoo by its trading symbol
         from tools.screener_scraper import fetch_screener_financials
         fin = None
         for attempt in range(3):               # Screener throttles under load: retry before recording "no fundamentals"

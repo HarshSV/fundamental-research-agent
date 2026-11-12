@@ -135,6 +135,8 @@ def sectors() -> dict:
     quad = rrg_quadrants(rows, "weekly", "nifty500") if bench else {}
     by: dict = {}
     for r in group:
+        if not r.get("sector") and r.get("exchange") == "BSE":      # BSE-only stocks have no NSE sector: not lumped into a made-up one
+            continue
         by.setdefault(r.get("sector") or "Unclassified", []).append(r)
     out = []
     for name, rs in by.items():

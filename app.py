@@ -898,9 +898,22 @@ def _sector_peers(sym, limit=6):
         sector = get_nse_sector(sym)
         rows = _scan._load_all()
         me = rows.get(sym)
-        if not sector or not me:
+        if not me:
             return []
-        same = [r for r in rows.values() if r.get("sector") == sector and isinstance(r.get("market_cap_cr"), (int, float))]
+        if sector:
+            same = [r for r in rows.values() if r.get("sector") == sector and isinstance(r.get("market_cap_cr"), (int, float))]
+        else:
+            # No NSE sector (a BSE-only company): peers are the scanned stocks in the same Screener industry (finest level, else
+            # the industry group). Without a classification yet there are no peers: never a guess.
+            from screens import quarterly as _q
+            qd = _q.load()
+            def _ind(s):
+                c = (qd.get(s) or {}).get("cls") or []
+                return (c[3] if len(c) > 3 else None) or (c[2] if len(c) > 2 else None)
+            mine = _ind(sym)
+            if not mine:
+                return []
+            same = [r for r in rows.values() if _ind(r["symbol"]) == mine and isinstance(r.get("market_cap_cr"), (int, float))]
         base = me.get("market_cap_cr") or 0
         same.sort(key=lambda r: abs(r["market_cap_cr"] - base))
         pick = same[: limit + 1]

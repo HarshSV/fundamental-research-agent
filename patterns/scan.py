@@ -68,6 +68,15 @@ def universe() -> list[dict]:
     for sector, syms in sm.all_symbols_by_sector().items():
         for s in syms:
             out.append({"symbol": s, "name": names.get(s) or s, "sector": sector})
+    seen = {o["symbol"] for o in out}
+    try:        # BSE-only companies (tools/bse_universe.py): no NSE sector or index, so those fields stay None, never guessed
+        from tools import bse_universe
+        for b in bse_universe.load():
+            if b["symbol"] not in seen:
+                out.append({"symbol": b["symbol"], "name": b["name"], "sector": None, "exchange": "BSE",
+                            "yahoo": b["yahoo"], "mktcap_cr": b.get("mktcap_cr")})
+    except Exception as e:
+        print(f"[pattern_scan] BSE-only universe not loaded: {e}", flush=True)
     return sorted(out, key=lambda x: x["symbol"])
 
 
@@ -170,7 +179,10 @@ def scan_one(item: dict) -> dict:
     sym = item["symbol"]
     try:
         from patterns import service
+        from tools import live_chart_yf
         from tools.live_chart_yf import get_candles
+        if item.get("yahoo"):       # a BSE-only company: priced under its BSE trading symbol (this worker has no company master loaded)
+            live_chart_yf._TICKER_CACHE[sym] = item["yahoo"]
         full = get_candles(sym, interval="1d", period="max")      # all-time measures need the whole history
         if not full or len(full) < 60:
             return {"symbol": sym, "ok": False, "reason": "not enough price history"}
@@ -181,7 +193,8 @@ def scan_one(item: dict) -> dict:
         times = [c["time"] for c in window]
         row = {
             "symbol": sym, "name": item["name"], "sector": item["sector"], "index": item.get("index"),
-            "as_of": last["time"], "market_cap_cr": _market_cap_cr(sym, last["close"]),
+            "as_of": last["time"], "exchange": item.get("exchange") or "NSE",
+            "market_cap_cr": _market_cap_cr(sym, last["close"]) or item.get("mktcap_cr"),   # BSE's own listed figure as the last resort
             **metrics(full),
             "resistance": resistance(full),
             "occurrences": _current(res.get("occurrences") or [], times),
