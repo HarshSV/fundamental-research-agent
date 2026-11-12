@@ -9,8 +9,8 @@ import { ActiveSetups } from "./ActiveSetups";
 import { Dropdown } from "./Dropdown";
 import { About, PeerTable, QuarterlyResults, ShareholdingPattern, Unavailable, type FinTab, type Overview, type Profile } from "./OverviewSections";
 import {
-  STATUS_LABEL, displayName, fetchCatalogue, fetchPatterns,
-  type CatalogueEntry, type PatternOcc, type PatternStatus, type PatternsResponse,
+  STATUS_LABEL, displayName, fetchCatalogue, fetchEvidence, fetchPatterns,
+  type CatalogueEntry, type EvidenceRes, type PatternOcc, type PatternStatus, type PatternsResponse,
 } from "./patterns";
 import { marketOpen } from "./marketHours";
 import { ForecastCard, News } from "./ForecastCard";
@@ -404,6 +404,7 @@ export function StockView({
   const [patternsByTf, setPatternsByTf] = useState<Record<string, PatternsResponse>>({});
   const [patternErrors, setPatternErrors] = useState<Record<string, string>>({});
   const [catalogue, setCatalogue] = useState<Record<string, CatalogueEntry>>({});
+  const [evidence, setEvidence] = useState<EvidenceRes | null>(null);
   const requestedTf = useRef(new Set<string>());
   const mounted = useRef(true);
   useEffect(() => {
@@ -424,6 +425,7 @@ export function StockView({
   useEffect(() => {
     let alive = true;
     fetchCatalogue().then((c) => alive && setCatalogue(c)).catch(() => {});
+    fetchEvidence().then((e) => alive && setEvidence(e)).catch(() => {});
     return () => {
       alive = false;
     };
@@ -681,7 +683,9 @@ export function StockView({
                 label="Patterns"
                 title={showPatterns ? "Hide pattern markers" : "Show pattern markers"}
               />
-              <div className="ml-auto">
+              <div className="ml-auto flex flex-wrap items-center gap-x-5 gap-y-2">
+                {!isIntraday && coneData && <Switch on={showCone} onChange={() => setShowCone((v) => !v)} label="Forecast" title="Shade where the price is likely to be over the next 5 and 20 sessions" />}
+                <Switch on={showVolume} onChange={() => setShowVolume((v) => !v)} label="Volume" />
                 <ChartLinesMenu groups={lineGroups} on={lineOn} onToggle={toggleLine} onReset={() => setLineOn(DEFAULT_LINES)} count={Object.entries(lineOn).filter(([k, v]) => v && !(isIntraday && k.startsWith("sma"))).length} />
               </div>
               {showPatterns && (
@@ -694,6 +698,13 @@ export function StockView({
                 </span>
               )}
             </div>
+            {showPatterns && (
+              <p className="nv-rise mt-3 text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                ▲ bullish below the candle, ▼ bearish above it. Colour shows what happened 5 sessions later:
+                <b style={{ color: "#10b981" }}> green</b> gained, <b style={{ color: "#ef4444" }}>red</b> fell, <b style={{ color: "#3b82f6" }}>blue</b> too recent to know, grey flat.
+                Big, labelled arrows are patterns developing now; small faded ones are old. Developing patterns also draw their outline, breakout, fail level and a rule-of-thumb target.
+              </p>
+            )}
             {showPatterns && (
               <div className="nv-rise mt-3 flex flex-wrap items-center gap-2 text-xs">
                 {(Object.keys(STATUS_LABEL) as PatternStatus[]).map((st) => (
@@ -785,10 +796,6 @@ export function StockView({
                 ]}
               />
             </div>
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-              {!isIntraday && coneData && <Switch on={showCone} onChange={() => setShowCone((v) => !v)} label="Forecast" title="Shade where the price is likely to be over the next 5 and 20 sessions" />}
-              <Switch on={showVolume} onChange={() => setShowVolume((v) => !v)} label="Volume" />
-            </div>
           </div>
           {showPatterns && selectedOcc && (
             <Card className="mt-4">
@@ -802,7 +809,7 @@ export function StockView({
               <PatternDetail o={selectedOcc} catalogue={catalogue} />
             </Card>
           )}
-          {showPatterns && <ActiveSetups occs={activeOccs} catalogue={catalogue} ltp={ltp} selectedId={selectedId} onSelect={setSelectedId} />}
+          {showPatterns && <ActiveSetups occs={activeOccs} catalogue={catalogue} ltp={ltp} selectedId={selectedId} onSelect={setSelectedId} evidence={evidence} />}
         </div>
       </section>
 

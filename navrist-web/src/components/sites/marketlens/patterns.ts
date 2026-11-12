@@ -106,6 +106,17 @@ export const fetchPatterns = (sym: string, timeframe = "1d") =>
     usable: (d) => d.source !== "unavailable" || timeframe !== "1d",
   });
 
+export interface PatternEvidence { events: number; mean_excess_pct: number; median_excess_pct: number; win_pct: number; real_effect: boolean; reverse_effect: boolean }
+export interface EvidenceRes { available: boolean; events_total?: number; period?: [string, string]; cost_pct?: number; patterns: Record<string, PatternEvidence> }
+export const fetchEvidence = () => fetchJson<EvidenceRes>("/api/v1/patterns/evidence");
+
+/** The classic "measured move": from the breakout level, as far again as the pattern is deep (breakout to invalidation). A rule of thumb, not a forecast. */
+export function measuredTarget(o: PatternOcc): number | null {
+  if (o.breakout_level == null || o.invalidation_level == null || !o.direction) return null;
+  const h = Math.abs(o.breakout_level - o.invalidation_level);
+  return o.direction === "bullish" ? o.breakout_level + h : o.breakout_level - h;
+}
+
 export async function fetchCatalogue(): Promise<Record<string, CatalogueEntry>> {
   const d = await fetchJson<{ patterns: CatalogueEntry[] }>("/api/v1/patterns/catalogue");
   return Object.fromEntries(d.patterns.map((p) => [p.id, p]));

@@ -40,3 +40,6 @@
 
 ## vectorbt
 Installing vectorbt in a fresh environment failed here: Windows Application Control blocked a pandas library file in the new folder. No attempt was made to bypass the policy, and the environment was removed. The event study needs only numpy, pandas and scipy, which the project already has. A stop-and-target simulator can be written with numpy, or vectorbt installed once the policy allows it.
+
+## Where it shows in the app
+The stock page's Active setups cards (and `GET /api/v1/patterns/evidence`) read `data/research/pattern_study.json` and show, for each forming or awaiting pattern, its measured-move target and what the study found for that pattern (small proven edge / no proven edge / went the other way). The chart draws the two developing patterns nearest the price (outline, breakout, fail level, rule-of-thumb target) with large labelled arrows; old confirmed arrows are small and faded. Re-run `python -m research.pattern_study` to refresh the numbers.

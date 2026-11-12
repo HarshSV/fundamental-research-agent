@@ -6,7 +6,7 @@ import {
 } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ConePrimitive, type Cone } from "./cone";
-import { OUTCOME_COLOR, STATUS_COLOR, markerOf, type MarkerKind, type PatternOcc } from "./patterns";
+import { OUTCOME_COLOR, STATUS_COLOR, markerOf, measuredTarget, type MarkerKind, type PatternOcc } from "./patterns";
 import type { Resistance, ScanOccurrence } from "./patternScan";
 import type { Candle } from "./PriceChart";
 
@@ -274,17 +274,23 @@ export function StockChart({
     }
     groups.current = g;
     const list: SeriesMarker<Time>[] = [];
+    const idxOf = new Map(bars.map((b, i) => [String(b.time), i]));
+    const nice = (id: string) => id.replace(/-and-/g, " & ").replace(/-/g, " ");
     for (const [k, items] of g) {
       items.sort((a, b) => rank(a) - rank(b));
       const lead = items[0];
       const bearish = lead.direction === "bearish";
+      const live = lead.status === "forming" || lead.status === "awaiting_breakout";
+      const recent = bars.length - 1 - (idxOf.get(k) ?? 0) <= 90;
+      const picked = items.some((o) => o.occ_id === selectedId);
       list.push({
         time: bars.find((b) => String(b.time) === k)?.time as Time,
         position: bearish ? "aboveBar" : "belowBar",
         shape: bearish ? "arrowDown" : "arrowUp",
-        color: KIND_COLOR[markerOf(lead).kind],
-        size: items.some((o) => o.occ_id === selectedId) ? 2 : 1,
-        text: items.length > 1 ? String(items.length) : "",
+        // a developing pattern or a recent one is drawn big and solid; an old one small and faded, so what matters stands out
+        color: KIND_COLOR[markerOf(lead).kind] + (live || recent || picked ? "" : "66"),
+        size: live || picked ? 3 : recent ? 2 : 1,
+        text: live ? `${nice(lead.pattern)}${lead.status === "forming" ? " (forming)" : " (waiting)"}` : items.length > 1 ? String(items.length) : "",
       });
     }
     list.sort((a, b) => (after(a.time, b.time) ? 1 : -1));
@@ -306,6 +312,21 @@ export function StockChart({
       const r = scan.resistance;
       addLine(Math.max(r.first_ts, t0), r.level, t1, r.level, "#ef4444", 3);
       level(r.level, "#ef4444", `Resistance ×${r.touches}`, LineStyle.Solid);
+    }
+    // patterns that are developing now are drawn without being picked: their outline, the breakout, where they fail, and the measured-move target
+    const last = bars[bars.length - 1].close;
+    const developing = occs
+      .filter((o) => (o.status === "forming" || o.status === "awaiting_breakout") && o.occ_id !== selectedId && o.breakout_level != null)
+      .sort((a, b) => Math.abs((a.breakout_level as number) - last) - Math.abs((b.breakout_level as number) - last))
+      .slice(0, 2); // the two nearest the price: more would bury the chart
+    for (const o of developing) {
+      const col = o.direction === "bearish" ? css("--loss", "#ef4444") : o.direction === "bullish" ? css("--gain", "#10b981") : "#f59e0b";
+      for (const ln of o.lines) addLine(ln.ts0, ln.y0, ln.ts1, ln.y1, col, 1);
+      const nm = o.pattern.replace(/-and-/g, " & ").replace(/-/g, " ");
+      level(o.breakout_level as number, "#f59e0b", `${nm}: ${o.direction === "bearish" ? "breakdown" : "breakout"}`);
+      if (o.invalidation_level != null) level(o.invalidation_level, css("--loss", "#ef4444"), `${nm}: fails`);
+      const tg = measuredTarget(o);
+      if (tg != null) level(tg, col, `${nm}: target (rule)`);
     }
     for (const lv of levels ?? []) level(lv.price, lv.color, lv.title, lv.dashed ? LineStyle.Dashed : LineStyle.Solid);
   }, [data, occs, selectedId, scan, levels, chartStyle, showVolume, intraday, height]);
