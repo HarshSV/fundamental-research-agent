@@ -256,7 +256,8 @@ html.light .ml header.sticky .menu-panel {
   --accent: #3a2e7d;
   --accent-surface: #3a2e7d1c;
 }
-html.light .ml .ml-logo { background: #ffffff; padding: 3px; }
+/* the logo sits on a white tile in both themes: its dark mark vanishes on the blue bar otherwise */
+.ml .ml-logo { background: #ffffff; padding: 3px; }
 .ml .menu-heading { color: var(--accent); font-weight: 700; letter-spacing: 0.14em; border-bottom: 1px solid var(--border-subtle); padding-bottom: 6px; margin-bottom: 8px; }
 html.light .ml header.sticky { box-shadow: 0 2px 10px rgba(4, 41, 93, 0.3); }
 
