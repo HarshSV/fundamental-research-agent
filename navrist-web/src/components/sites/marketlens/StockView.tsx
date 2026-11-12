@@ -635,7 +635,7 @@ export function StockView({
                 {open ? (
                   <button
                     onClick={() => setLive((v) => !v)}
-                    title={live ? "Live updates on — click to turn off" : "Turn on live updates for the selected range"}
+                    title={live ? "Live updates on. Click to turn off" : "Turn on live updates for the selected range"}
                     className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors"
                     style={{ background: live ? "#dc2626" : "transparent", color: live ? "#fff" : "var(--text-secondary)" }}
                   >

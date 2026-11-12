@@ -81,7 +81,6 @@ export function ChartLinesMenu({ groups, on, onToggle, onReset, count }: { group
                     <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border" style={{ borderColor: checked ? o.color : "var(--border-default)", background: checked ? o.color : "transparent" }}>
                       {checked && <Check className="h-3 w-3" strokeWidth={3} style={{ color: "#fff" }} aria-hidden />}
                     </span>
-                    <span className="h-0.5 w-4 shrink-0 rounded" style={{ background: o.color }} aria-hidden />
                     <span className="min-w-0 flex-1">
                       <span style={{ color: "var(--text-primary)" }}>{o.label}</span>
                       {(o.disabled || o.hint) && <span className="block text-[11px]" style={{ color: "var(--text-tertiary)" }}>{o.disabled ?? o.hint}</span>}

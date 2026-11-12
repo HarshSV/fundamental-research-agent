@@ -331,7 +331,7 @@ export function Header() {
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- a full load is intended: it resets the open stock */}
           <a
             href="/"
-            aria-label="NAVRIST AI — home"
+            aria-label="NAVRIST AI home"
             className="flex min-w-0 shrink-0 items-center gap-2 rounded-lg outline-none transition-transform hover:scale-[1.01] focus-visible:ring-2 focus-visible:ring-[var(--btn-primary-bg)] sm:gap-3"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -66,6 +66,6 @@ export function alertsForPlan(sym: string, name: string, plan: Plan, price: numb
   }
   out.push(mk("stop", plan.stop, long ? "below" : "above", `${name}: stop ${fmt(plan.stop)} hit`));
   out.push(mk("target", t1.price, long ? "above" : "below", `${name}: target ${fmt(t1.price)} hit`));
-  if (sameDay) out.push(mk("exit", null, null, `${name}: 15:25 — close the trade before the market shuts`));
+  if (sameDay) out.push(mk("exit", null, null, `${name}: 15:25, close the trade before the market shuts`));
   return out.filter((a) => a.price == null || price == null || (a.dir === "above" ? price < a.price : price > a.price));
 }

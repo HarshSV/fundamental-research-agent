@@ -99,7 +99,7 @@ export function StockList({
         <div className="py-16 text-center text-sm" style={{ color: "var(--text-tertiary)" }}>Loading…</div>
       ) : rows.length === 0 ? (
         <div className="rounded-xl border py-16 text-center text-sm" style={{ borderColor: "var(--border-subtle)", color: "var(--text-tertiary)" }}>
-          {building ? "No matches yet — the screening data is still being prepared." : "No companies match these criteria."}
+          {building ? "No matches yet. The screening data is still being prepared." : "No companies match these criteria."}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
