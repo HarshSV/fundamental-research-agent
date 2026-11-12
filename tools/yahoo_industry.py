@@ -48,15 +48,60 @@ def _save(data: dict) -> None:
 
 
 def due(rec: dict | None, now: float) -> bool:
-    if not rec or "fund" not in rec:              # records from before the fundamentals snapshot existed are read again
+    if not rec or "fund" not in rec or "similar" not in rec or "roce" not in rec:     # older records (before these existed) are read again
         return True
     age = now - rec.get("at", 0)
     return age > (FRESH_SECONDS if rec.get("industry") else RETRY_SECONDS)
 
 
-def fetch_one(sym: str) -> dict:
-    """{"sector", "industry", "at"}; both None when Yahoo has nothing (or could not be reached)."""
-    out = {"sector": None, "industry": None, "at": time.time(), "fund": {}}
+def _roce(t) -> float | None:
+    """ROCE % = EBIT / capital employed (total assets less current liabilities), both from the latest annual statements Yahoo has. None
+    when either figure is missing or capital employed is not positive (never zero, never a guess). Screener's own ROCE is used instead
+    wherever that company has been read from Screener."""
+    try:
+        isnum = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v == v
+        inc, bs = t.income_stmt, t.balance_sheet
+        if inc is None or bs is None or inc.empty or bs.empty:
+            return None
+        ebit = None
+        for row in ("EBIT", "Operating Income"):
+            if row in inc.index and isnum(inc.at[row, inc.columns[0]]):
+                ebit = float(inc.at[row, inc.columns[0]])
+                break
+        col = bs.columns[0]
+        ta = bs.at["Total Assets", col] if "Total Assets" in bs.index else None
+        cl = bs.at["Current Liabilities", col] if "Current Liabilities" in bs.index else None
+        if ebit is None or not isnum(ta) or not isnum(cl) or ta - cl <= 0:
+            return None
+        return round(ebit / float(ta - cl) * 100.0, 2)
+    except Exception:
+        return None
+
+
+def _similar(ticker: str) -> list | None:
+    """Yahoo's "similar stocks" list for a ticker (up to 5, as base symbols without .NS / .BO), [] when it has none, None when the call
+    failed (so it is tried again). An independent signal from the industry label."""
+    try:
+        import requests
+        r = requests.get(f"https://query2.finance.yahoo.com/v6/finance/recommendationsbysymbol/{ticker}",
+                         headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        if r.status_code == 404:
+            return []
+        if r.status_code != 200:
+            return None
+        res = (r.json().get("finance") or {}).get("result") or []
+        syms = ((res[0] if res else {}).get("recommendedSymbols") or [])
+        return [s["symbol"].rsplit(".", 1)[0].upper() for s in syms if s.get("symbol")]
+    except Exception:
+        return None
+
+
+def fetch_one(sym: str, old: dict | None = None) -> dict:
+    """{"sector", "industry", "fund", "similar", "at"}; None / empty when Yahoo has nothing (or could not be reached). A fresh earlier
+    read of the sector, industry and figures is reused; only what is missing is asked for again."""
+    reuse = bool(old and "fund" in old and time.time() - old.get("at", 0) < FRESH_SECONDS and (old.get("industry") or old.get("fund")))
+    out = {"sector": old.get("sector"), "industry": old.get("industry"), "at": old.get("at"), "fund": old.get("fund") or {}} if reuse \
+        else {"sector": None, "industry": None, "at": time.time(), "fund": {}}
     try:
         import warnings
         warnings.filterwarnings("ignore")
@@ -64,10 +109,19 @@ def fetch_one(sym: str) -> dict:
         from tools import bse_universe
         from tools.live_chart_yf import _to_symbol
         bse_universe.prime(sym)                       # a BSE-only company is priced by `<trading symbol>.BO`
-        info = yf.Ticker(_to_symbol(sym)).info or {}
-        out["sector"] = info.get("sector") or None
-        out["industry"] = info.get("industry") or None
-        out["fund"] = _fund(info)
+        ticker = _to_symbol(sym)
+        if not reuse:
+            info = yf.Ticker(ticker).info or {}
+            out["sector"] = info.get("sector") or None
+            out["industry"] = info.get("industry") or None
+            out["fund"] = _fund(info)
+        sim = old.get("similar") if (old and "similar" in old) else _similar(ticker)
+        if sim is not None:
+            out["similar"] = sim
+        if old and "roce" in old:
+            out["roce"] = old["roce"]
+        else:
+            out["roce"] = _roce(yf.Ticker(ticker))          # None when Yahoo has no statements (recorded, so it is not asked for again soon)
     except Exception:
         pass
     return out
@@ -104,7 +158,7 @@ def build(force: bool = False) -> None:
     from concurrent.futures import ThreadPoolExecutor
 
     def one(s):
-        r = fetch_one(s)
+        r = fetch_one(s, data.get(s))
         time.sleep(PAUSE)
         return s, r
 

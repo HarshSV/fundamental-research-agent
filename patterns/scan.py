@@ -352,18 +352,26 @@ def _load_all() -> dict:
     try:
         files = [f for f in os.listdir(SYMBOL_DIR) if f.endswith(".json")]
         stamp = (len(files), max((os.path.getmtime(os.path.join(SYMBOL_DIR, f)) for f in files), default=0.0),
-                 os.path.getmtime(FUNDAMENTALS_FILE) if os.path.exists(FUNDAMENTALS_FILE) else 0.0,
-                 os.path.getmtime(YAHOO_FUND_FILE) if os.path.exists(YAHOO_FUND_FILE) else 0.0)
+                 os.path.getmtime(FUNDAMENTALS_FILE) if os.path.exists(FUNDAMENTALS_FILE) else 0.0)
     except FileNotFoundError:
         return {}
     if stamp == _mem["stamp"]:
+        _overlay_yahoo(_mem["rows"])          # cheap: only the Yahoo figures may have changed (the collector saves every few seconds)
         return _mem["rows"]
+    # One rebuild at a time: a stock page asks for the rows from several requests at once, and each of them used to redo the whole
+    # join of ~3,000 files (4 seconds each) in parallel. The others wait for the first and reuse its result.
+    with _build_lock:
+        if stamp == _mem["stamp"]:
+            _overlay_yahoo(_mem["rows"])
+            return _mem["rows"]
+        return _rebuild_rows(files, stamp)
+
+
+_build_lock = threading.Lock()
+
+
+def _rebuild_rows(files: list, stamp: tuple) -> dict:
     funda = _fundamentals()
-    try:
-        from tools import yahoo_industry
-        yahoo_fund = yahoo_industry.load()
-    except Exception:
-        yahoo_fund = {}
     rows = {}
     for f in files:
         try:
@@ -372,13 +380,7 @@ def _load_all() -> dict:
         except Exception:
             continue
         fd = funda.get(r["symbol"]) or {}
-        if not fd.get("fund_ok"):
-            # No usable Screener row (Screener rate-limits us, so most BSE-only companies have none yet): Yahoo's headline figures from
-            # tools/yahoo_industry.py, marked as Yahoo's. A figure Yahoo does not give stays None and never matches a filter.
-            yf_ = ((yahoo_fund.get(r["symbol"]) or {}).get("fund")) or {}
-            if yf_:
-                fd = {"pe": yf_.get("pe"), "eps": yf_.get("eps"), "debt_equity": yf_.get("debt_equity"), "promoter": yf_.get("promoter"),
-                      "div_yield": yf_.get("div_yield"), "fund_at": (yahoo_fund.get(r["symbol"]) or {}).get("at"), "fund_src": "yahoo"}
+        r["_scr_ok"] = bool(fd.get("fund_ok"))
         r["fund_at"] = fd.get("fund_at") if isinstance(fd.get("fund_at"), (int, float)) else None
         r["fund_src"] = fd.get("fund_src")
         for k in ("pe", "eps", "eps_growth", "debt_equity", "promoter", "div_yield", "payout", "net_profit_cr", "volatility"):
@@ -398,7 +400,40 @@ def _load_all() -> dict:
         else:
             r["rs"] = None
     _mem["stamp"], _mem["rows"], _mem["at"] = stamp, rows, time.monotonic()
+    _mem["ystamp"] = None
+    _overlay_yahoo(rows)
     return rows
+
+
+def _overlay_yahoo(rows: dict) -> None:
+    """For a stock with no usable Screener fundamentals row (Screener rate-limits us, so most BSE-only companies have none yet), use Yahoo's
+    headline figures from tools/yahoo_industry.py, marked as Yahoo's. A figure Yahoo does not give stays None and never matches a filter.
+    Cheap (one pass over the rows), and redone only when the Yahoo file changed: the heavy join of ~3,000 files does not depend on it."""
+    try:
+        ymt = os.path.getmtime(YAHOO_FUND_FILE) if os.path.exists(YAHOO_FUND_FILE) else 0.0
+        if _mem.get("ystamp") == ymt:
+            return
+        from tools import yahoo_industry
+        from screens.metrics import is_financial
+        yd = yahoo_industry.load()
+        for r in rows.values():
+            if r.get("_scr_ok"):
+                continue
+            rec = yd.get(r["symbol"]) or {}
+            yf_ = rec.get("fund") or {}
+            if not yf_:
+                continue
+            r["fund_at"] = rec.get("at") if isinstance(rec.get("at"), (int, float)) else None
+            r["fund_src"] = "yahoo"
+            for k in ("pe", "eps", "debt_equity", "promoter", "div_yield"):
+                v = yf_.get(k)
+                r[k] = v if isinstance(v, (int, float)) else None
+            if is_financial(r.get("sector")):
+                r["debt_equity"] = None
+            r["free_float"] = (100.0 - r["promoter"]) if isinstance(r.get("promoter"), (int, float)) else None
+        _mem["ystamp"] = ymt
+    except Exception:
+        pass
 
 
 def benchmarks() -> dict:

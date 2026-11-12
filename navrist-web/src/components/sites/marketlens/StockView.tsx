@@ -989,9 +989,14 @@ export function StockView({
           {overview === null ? <Loading /> : overview.peers?.length ? (
             <>
               <PeerTable peers={overview.peers} current={stock.symbol} onSelect={onOpenStock ? openPeer : undefined} />
+              {overview.peers_source === "mixed" && (
+                <p className="mt-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                  Screener.in has no peer table for this company, so these are companies that {overview.peers_used?.length ? overview.peers_used.join(", ") : "several sources"} group with it, those that more sources agree on first and then closest in market cap. ROCE is Screener.in's where we have read it, otherwise worked out from Yahoo's latest annual statements (EBIT over total assets less current liabilities); a dash means neither is available.
+                </p>
+              )}
               {overview.peers_source === "sector" && (
                 <p className="mt-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
-                  Screener.in has no peer table for this company, so these are companies in the same NSE sector closest in market cap. ROCE is not available for them.
+                  Screener.in has no peer table for this company, so these are companies in the same NSE sector closest in market cap. ROCE is Screener.in's where we have read it, otherwise worked out from Yahoo's latest annual statements; a dash means neither is available.
                 </p>
               )}
             </>

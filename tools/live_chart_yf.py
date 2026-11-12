@@ -141,7 +141,36 @@ def _have_yf() -> bool:
     return bool(_HAVE_YF)
 
 
+_CANDLE_CACHE: dict = {}
+_CANDLE_LOCKS: dict = {}
+_CANDLE_LOCKS_GUARD = __import__("threading").Lock()
+_CANDLE_TTL = {"1m": 20, "2m": 20, "5m": 30, "15m": 60, "30m": 60, "60m": 120}      # seconds; a daily or longer series: 300
+
+
 def get_candles(symbol: str, interval: str = "5m", period: str | None = None):
+    """get_candles_uncached with a short memory and one read at a time per series. A stock page asks for the same history from six
+    or more endpoints at once (chart, outlook, overview, patterns...), and each was a separate provider round trip: identical requests
+    now share one. A failed read (None) is not remembered, and a hit is only reused for a few seconds (intraday) or minutes (daily)."""
+    key = (str(symbol).strip().upper(), interval, period)
+    ttl = _CANDLE_TTL.get(interval, 300)
+    hit = _CANDLE_CACHE.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return list(hit[1])
+    with _CANDLE_LOCKS_GUARD:
+        lock = _CANDLE_LOCKS.setdefault(key, __import__("threading").Lock())
+    with lock:                                   # the others wait here for the first read, then find it in the memory
+        hit = _CANDLE_CACHE.get(key)
+        if hit and time.time() - hit[0] < ttl:
+            return list(hit[1])
+        out = get_candles_uncached(symbol, interval, period)
+        if out:
+            if len(_CANDLE_CACHE) > 400:
+                _CANDLE_CACHE.clear()
+            _CANDLE_CACHE[key] = (time.time(), out)
+        return list(out) if out else out
+
+
+def get_candles_uncached(symbol: str, interval: str = "5m", period: str | None = None):
     """Returns a list of {time (unix seconds), open, high, low, close,
     volume} dicts, oldest first, or None if unavailable. Never raises,
     never fabricates a bar - a gap in the source data is just a gap.

@@ -438,6 +438,20 @@ def startup_event():
     live_chart_yf.set_ticker_candidates_provider(_yahoo_ticker_candidates)
     threading.Thread(target=load_scrip_master_async, daemon=True).start()
     threading.Thread(target=warm_live_scraper_async, daemon=True).start()
+
+    def _warm_rows():
+        # Join the ~3,000 scanned-stock files once at startup, so the first stock page does not pay for it (and wait on it) itself.
+        try:
+            from patterns import scan as _scan
+            from screens import quarterly as _qq
+            from tools import yahoo_industry as _yi
+            _scan._load_all()
+            _qq.load()
+            _yi.load()
+            print("[HTTP] Scanned-stock table warmed.")
+        except Exception as e:
+            print(f"[HTTP WARNING] table warmup failed: {e}")
+    threading.Thread(target=_warm_rows, daemon=True).start()
     threading.Thread(target=_precompute_loop, daemon=True).start()
     threading.Thread(target=_ratio_precompute_once, daemon=True).start()
 
@@ -858,7 +872,7 @@ def stock_eps(symbol: str, _: dict = Depends(auth.require_session)):
         fut = _EPS_JOBS[sym] = _EPS_POOL.submit(_annual_eps_result, sym, name)
     if not fut.done():
         try:
-            return fut.result(timeout=6)  # fast path: already cached/DB-backed
+            return fut.result(timeout=1.5)  # fast path: already cached/DB-backed (the page polls every 5s; a longer wait here held every page for 6s)
         except Exception:
             return {"symbol": sym, "eps": None, "eps_reported": None, "period": None, "basis": None, "reason": None, "pending": True}
     res = fut.result()
@@ -896,56 +910,88 @@ def stock_pledge(symbol: str, _: dict = Depends(auth.require_session)):
     return {"symbol": sym, "source": "NSE pledge filings", "status": res.get("status", "unavailable"), "rows": rows}
 
 
-def _sector_peers(sym, limit=6):
-    """Peer rows from our own scanned universe (same NSE sector, closest by market cap) for when Screener has no peer table
-    (not listed there yet / unreachable). Shaped like Screener's peers; ROCE is not in our data, so it stays null."""
+def _roce_of(sym):
+    """ROCE % from Screener's quarterly read (screens/quarterly.py) when that company has been read; None otherwise (never a guess)."""
+    try:
+        from screens import quarterly as _q
+        from tools import yahoo_industry as _yi
+        isnum = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v == v
+        v = (_q.load().get(sym) or {}).get("roce")
+        if isnum(v):
+            return float(v)
+        v = (_yi.load().get(sym) or {}).get("roce")        # else Yahoo's statements (EBIT / capital employed, tools/yahoo_industry.py)
+        return float(v) if isnum(v) else None
+    except Exception:
+        return None
+
+
+def _peer_row(r, rank):
+    return {"name": r.get("name") or r["symbol"], "symbol": r["symbol"], "rank": rank, "metrics": {
+        "currentPrice": {"value": r.get("price")}, "priceToEarning": {"value": r.get("pe")},
+        "marketCapitalization": {"value": r.get("market_cap_cr")}, "returnOnCapitalEmployed": {"value": _roce_of(r["symbol"])}}}
+
+
+def _peers_and_source(sym, limit=6):
+    """(peers, source, used) from our own scanned universe, for when Screener has no peer table (rate-limited, not listed there, or a
+    company it has not classified). A company with an NSE sector gets the companies of that sector closest by market cap
+    (source "sector"). Any other (a BSE-only company), or a sector with too few, gets peers chosen by several independent sources
+    voting (tools/peer_finder.py: Screener industry, Yahoo industry, Yahoo's similar stocks, NSE sector; source "mixed", `used` lists
+    the sources that contributed). Shaped like Screener's peers; ROCE is not in our data, so it stays null. ([], "sector", []) when
+    no source knows the company: never a guess."""
     try:
         from tools.nse_sector_map import get_nse_sector
         from patterns import scan as _scan
-        sector = get_nse_sector(sym)
         rows = _scan._load_all()
         me = rows.get(sym)
-        if not me:
-            return []
-        if sector:
+        sector = get_nse_sector(sym)
+        pick, source, used = [], "sector", []
+        if sector and me:
             same = [r for r in rows.values() if r.get("sector") == sector and isinstance(r.get("market_cap_cr"), (int, float))]
-        else:
-            # No NSE sector (a BSE-only company): peers are the scanned stocks in the same Screener industry (finest level, else
-            # the industry group). Without a classification yet there are no peers: never a guess.
-            from screens import quarterly as _q
-            qd = _q.load()
-            def _ind(s):
-                c = (qd.get(s) or {}).get("cls") or []
-                return (c[3] if len(c) > 3 else None) or (c[2] if len(c) > 2 else None)
-            mine = _ind(sym)
-            same = []
-            if mine:
-                same = [r for r in rows.values() if _ind(r["symbol"]) == mine and isinstance(r.get("market_cap_cr"), (int, float))]
-            if len(same) < 2:
-                # Screener has not classified it yet (or it is alone in its industry): use Yahoo's industry (tools/yahoo_industry.py)
-                from tools import yahoo_industry as _yi
-                yd = _yi.load()
-                ymine = (yd.get(sym) or {}).get("industry")
-                if not ymine:
-                    return []
-                same = [r for r in rows.values() if (yd.get(r["symbol"]) or {}).get("industry") == ymine and isinstance(r.get("market_cap_cr"), (int, float))]
-        base = me.get("market_cap_cr") or 0
-        same.sort(key=lambda r: abs(r["market_cap_cr"] - base))
-        pick = same[: limit + 1]
-        if me not in pick:
-            pick = [me] + pick[:limit]
-        pick.sort(key=lambda r: -r["market_cap_cr"])
-        return [{"name": r.get("name") or r["symbol"], "symbol": r["symbol"], "rank": i + 1, "metrics": {
-                    "currentPrice": {"value": r.get("price")}, "priceToEarning": {"value": r.get("pe")},
-                    "marketCapitalization": {"value": r.get("market_cap_cr")}, "returnOnCapitalEmployed": {"value": None}}}
-                for i, r in enumerate(pick)]
+            base = me.get("market_cap_cr") or 0
+            same.sort(key=lambda r: abs(r["market_cap_cr"] - base))
+            pick = same[: limit + 1]
+            if me not in pick:
+                pick = [me] + pick[:limit]
+        if len(pick) < 3:
+            from tools import bse_universe, peer_finder
+            cap = (me or {}).get("market_cap_cr")
+            if cap is None:
+                cap = (bse_universe.info().get(sym) or bse_universe.suspended().get(sym) or {}).get("mktcap_cr")
+            found, used = peer_finder.find(sym, rows, limit, cap)
+            if found:
+                pick, source = ([me] if me else []) + found, "mixed"
+        if not pick:
+            return [], "sector", []
+        pick.sort(key=lambda r: -(r.get("market_cap_cr") or 0))
+        return [_peer_row(r, i + 1) for i, r in enumerate(pick)], source, used
     except Exception:
-        return []
+        return [], "sector", []
+
+
+def _sector_peers(sym, limit=6):
+    return _peers_and_source(sym, limit)[0]
+
+
+def _screener_or_fallback_peers(data, sym):
+    """Screener's own peer table when the read has one, else the multi-source peers."""
+    sp = data.get("screener_peers") or []
+    if sp:
+        return {"peers_source": "screener", "peers_used": ["Screener peer table"],
+                "peers": [dict(p, name=html.unescape(str(p.get("name") or "")), symbol=html.unescape(str(p.get("symbol") or "")).upper()) for p in sp]}
+    peers, source, used = _peers_and_source(sym)
+    return {"peers_source": source, "peers_used": used, "peers": peers}
+
 
 def _nse_overview(sym):
     """Headline Key Metrics from NSE's company record (Market Lens) for a stock Screener cannot give. Only positive figures
     are used for ratios where that API reports 0 for "not available" (a real zero and a missing value look the same);
     net margin may be negative, so only an exact 0 is skipped."""
+    try:        # a BSE-only company is not in NSE's record: do not wait for NSE to say so
+        from tools import bse_universe as _bu
+        if sym in _bu.info() or sym in _bu.suspended():
+            return {}
+    except Exception:
+        pass
     try:
         import requests
         from tools.company_profile import _UA
@@ -1003,9 +1049,19 @@ def _yahoo_overview(sym):
     right now (Screener rate-limits us). Same shape as `_nse_overview`. Yahoo reports 0 both for a real zero and for "not available"
     (profit margin, dividend yield, growth), so a zero is unknown here, never shown; a missing figure stays None. Cached 6 hours.
     Returns {} when Yahoo has nothing useful (a fresh listing)."""
+    import json
     hit = _YAHOO_OV_CACHE.get(sym)
     if hit and time.time() - hit[0] < 6 * 3600:
         return hit[1]
+    disk = os.path.join(_BASE_DIR, "cache", "yahoo_overview", re.sub(r"[^A-Za-z0-9_.-]", "_", sym) + ".json")
+    try:        # saved for 24 hours: survives a restart, and a second visitor does not wait for Yahoo again
+        if os.path.exists(disk) and time.time() - os.path.getmtime(disk) < 24 * 3600:
+            with open(disk, encoding="utf-8") as fh:
+                saved = json.load(fh)
+            _YAHOO_OV_CACHE[sym] = (time.time(), saved)
+            return saved
+    except Exception:
+        pass
     out = {}
     try:
         import calendar
@@ -1068,6 +1124,13 @@ def _yahoo_overview(sym):
     except Exception:
         out = {}
     _YAHOO_OV_CACHE[sym] = (time.time(), out)
+    if out:
+        try:
+            os.makedirs(os.path.dirname(disk), exist_ok=True)
+            with open(disk, "w", encoding="utf-8") as fh:
+                json.dump(out, fh)
+        except Exception:
+            pass
     return out
 
 
@@ -1092,20 +1155,29 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     if not sym:
         raise HTTPException(status_code=400, detail="Symbol required.")
     name = next((c["name"] for c in STOCK_REGISTRY if c["symbol"] == sym), None)
-    # All-time high / low over the FULL price history (split/bonus-adjusted, not dividend-adjusted).
-    ath = atl = None
-    return_bases = {}
-    try:
-        from tools.live_chart_yf import get_candles
-        hist = get_candles(sym, interval="1d", period="max")
-        if hist:
-            hi = max(hist, key=lambda c: c["high"])
-            lo = min(hist, key=lambda c: c["low"])
-            ath = {"price": hi["high"], "time": hi["time"]}
-            atl = {"price": lo["low"], "time": lo["time"]}
-            return_bases = _return_bases(hist)
-    except Exception:  # pragma: no cover - extremes are a display nicety; absent -> null
-        pass
+    # All-time high / low over the FULL price history (split/bonus-adjusted, not dividend-adjusted). Read in parallel with Screener
+    # and Yahoo below: the three are independent, and waiting for them one after the other made the page slow.
+    def _extremes():
+        try:
+            from tools.live_chart_yf import get_candles
+            hist = get_candles(sym, interval="1d", period="max")
+            if hist:
+                hi = max(hist, key=lambda c: c["high"])
+                lo = min(hist, key=lambda c: c["low"])
+                return {"price": hi["high"], "time": hi["time"]}, {"price": lo["low"], "time": lo["time"]}, _return_bases(hist)
+        except Exception:  # pragma: no cover - extremes are a display nicety; absent -> null
+            pass
+        return None, None, {}
+
+    _ex_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    _ex_fut = _ex_pool.submit(_extremes)
+    _yh_fut = _ex_pool.submit(_yahoo_overview, sym)        # warms the Yahoo fallback (cached) while Screener is being asked
+
+    def _join_extremes():
+        try:
+            return _ex_fut.result(timeout=20)
+        except Exception:
+            return None, None, {}
 
     from tools.screener_scraper import fetch_screener_financials
     # Bounded wait: a company Screener does not know yet (a fresh listing) or an unreachable Screener must not hold the page
@@ -1119,8 +1191,16 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
         _pool.shutdown(wait=False)
     if not data:
         # Screener unreachable or has no page that parses: NSE's own company record still carries the headline figures
+        ath, atl, return_bases = _join_extremes()
+        _pp, _ps, _pu = _peers_and_source(sym)
+        try:
+            _yh = _yh_fut.result(timeout=15)
+        except Exception:
+            _yh = {}
         return {"symbol": sym, "source": "unavailable", "all_time_high": ath, "all_time_low": atl, "return_bases": return_bases,
-                "peers": _sector_peers(sym), "peers_source": "sector", **(_nse_overview(sym) or _yahoo_overview(sym))}
+                "peers": _pp, "peers_source": _ps, "peers_used": _pu, **(_nse_overview(sym) or _yh)}
+
+    ath, atl, return_bases = _join_extremes()
 
     def cr(v):
         return round(v / 1e7, 2) if isinstance(v, (int, float)) else None
@@ -1189,9 +1269,7 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
         "about": info.get("longBusinessSummary"),
         "quarterly": quarterly,
         "shareholding": data.get("shareholding") or None,
-        "peers_source": "screener" if data.get("screener_peers") else "sector",
-        "peers": [dict(p, name=html.unescape(str(p.get("name") or "")), symbol=html.unescape(str(p.get("symbol") or "")).upper())
-                  for p in (data.get("screener_peers") or [])] or _sector_peers(sym),
+        **_screener_or_fallback_peers(data, sym),
     }
 
 # Future-bar forecasting (probabilistic, validated) - see forecast/api.py. Additive: the endpoints

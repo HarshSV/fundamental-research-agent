@@ -60,6 +60,12 @@ def _paragraphs(raw: str | None) -> list[str]:
 
 
 def _from_nse(sym: str) -> dict | None:
+    try:        # a BSE-only company is not in NSE's record: do not wait for NSE to say so
+        from tools import bse_universe
+        if sym in bse_universe.info() or sym in bse_universe.suspended():
+            return None
+    except Exception:
+        pass
     try:
         r = requests.get(f"https://marketlens.nseindia.com/api/stocks/{sym}", headers=_UA, timeout=20)
         d = (r.json() or {}).get("data") if r.status_code == 200 else None

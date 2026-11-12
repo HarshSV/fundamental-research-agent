@@ -1,6 +1,8 @@
 """HTTP surface for the forecast. Mounted from app.py."""
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from . import engine, outlook
@@ -18,6 +20,9 @@ def _quarters(sym: str) -> dict | None:
         return None
     finally:
         pool.shutdown(wait=False)
+
+
+_OUTLOOK_CACHE: dict = {}
 
 
 def make_router(require_session, resolve_symbol):
@@ -43,12 +48,21 @@ def make_router(require_session, resolve_symbol):
             from patterns import scan
             rows = scan._load_all()
             row = rows.get(sym)
-            if row:
+            if row and row.get("sector"):             # a stock with no sector (a BSE-only company) has no sector peers: not "every stock with no sector"
                 peers = [x for x in rows.values() if x.get("sector") == row.get("sector")]
         except Exception:
             pass
+        # the same answer for 2 minutes unless a new bar arrived: the page asks twice (and again on each visit) and the build takes seconds
+        key = (sym, window, daily[-1]["time"], daily[-1]["close"], (intraday[-1]["time"] if intraday else None))
+        hit = _OUTLOOK_CACHE.get(key)
+        if hit and time.time() - hit[0] < 120:
+            return hit[1]
         out = outlook.build(sym, intraday, daily, row, peers, _quarters(sym))
-        return {**out, "source": "yfinance", "window": window, "sessions_used": len(daily)}
+        res = {**out, "source": "yfinance", "window": window, "sessions_used": len(daily)}
+        if len(_OUTLOOK_CACHE) > 300:
+            _OUTLOOK_CACHE.clear()
+        _OUTLOOK_CACHE[key] = (time.time(), res)
+        return res
 
     @r.get("/api/v1/events/{symbol}")
     def stock_events(symbol: str, _: dict = Depends(require_session)):

@@ -46,7 +46,8 @@ export interface Overview {
   quarterly?: Quarter[];
   shareholding?: Shareholding | null;
   peers?: Peer[];
-  peers_source?: "screener" | "sector";
+  peers_source?: "screener" | "sector" | "mixed";
+  peers_used?: string[];
   basis?: "consolidated" | "standalone";
   is_financial?: boolean;
   ratios?: {
