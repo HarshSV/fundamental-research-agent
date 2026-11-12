@@ -20,7 +20,7 @@ DATA_DIR = os.environ.get("SCREENS_DATA_DIR", os.path.join(ROOT, "data", "screen
 PATH = os.path.join(DATA_DIR, "universe.json")
 STALE_SECONDS = 24 * 3600
 FUND_STALE_SECONDS = 20 * 3600   # fundamentals are read from Screener again once they are older than this
-WORKERS = 2  # kept low on purpose: four parallel workers got the Screener site timing out on us
+WORKERS = 1  # kept low on purpose: four workers got Screener timing out on us, and two with 3,100 companies got HTTP 429 (which also blanks the stock pages)
 
 _lock = threading.Lock()
 _FUNDAMENTAL_KEYS = ("eps", "pe", "market_cap_cr", "promoter", "div_yield", "payout", "cover", "debt_equity",
@@ -156,12 +156,17 @@ def _build_one(sym: str, name: str | None, fetch_candles) -> tuple[str, dict | N
     try:
         from tools import bse_universe
         bse_universe.prime(sym)            # a BSE-only company is read from Screener by its BSE code and from Yahoo by its trading symbol
-        from tools.screener_scraper import fetch_screener_financials
+        from tools.screener_scraper import fetch_screener_financials, wait_if_down
+        from tools import screener_scraper as _sc
+        time.sleep(5.0)                    # a read is 3 or more requests and Screener rate-limits us at about one request every 3 seconds
         fin = None
-        for attempt in range(3):               # Screener throttles under load: retry before recording "no fundamentals"
+        for attempt in range(8):               # Screener throttles under load: retry before recording "no fundamentals"
+            wait_if_down()                     # paused after an HTTP 429: wait it out instead of recording a Yahoo-only row
             fin = fetch_screener_financials(sym, name, fresh=True)
             if fin and fin.get("info"):
                 break
+            if time.time() >= _sc._DOWN_UNTIL and attempt >= 2:
+                break                          # not rate-limited and still nothing: this company really has no usable page
             time.sleep(1.5 * (attempt + 1))
         if not (fin and fin.get("info")):
             # Banks / some companies have no income-statement layout the full parser accepts; their headline ratios
@@ -209,6 +214,12 @@ def build(fetch_candles, force: bool = False) -> bool:
             now = time.time()
             todo = [s for s in syms if force or s not in data or not data[s].get("fund_ok") or now - (data[s].get("fund_at") or 0) > FUND_STALE_SECONDS
                     or partial_due(data[s], now)]
+            try:        # BSE-only companies first (their stock pages have no saved Screener read yet), the biggest first
+                from tools import bse_universe
+                info = bse_universe.info()
+                todo.sort(key=lambda s: (0, -(info[s].get("mktcap_cr") or 0)) if s in info else (1, 0))
+            except Exception:
+                pass
             _state["total"] = len(todo)
             since_save = 0
             with ThreadPoolExecutor(max_workers=WORKERS) as ex:

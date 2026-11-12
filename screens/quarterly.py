@@ -23,8 +23,8 @@ DIR = os.environ.get("SCREENS_DATA_DIR", os.path.join(ROOT, "data", "screens"))
 PATH = os.path.join(DIR, "quarterly.json")
 STALE_SECONDS = 20 * 3600
 MISSING_RETRY_SECONDS = 10 * 60
-WORKERS = 2          # Screener timed out when we used four; two is polite enough
-PAUSE = 0.35
+WORKERS = 1          # Screener timed out at four workers and answered HTTP 429 (to the stock pages as well) at two with 3,100 companies: one, slowly
+PAUSE = 3.0
 QUARTERS = 12
 
 _lock = threading.Lock()
@@ -147,14 +147,19 @@ def parse(html: str) -> dict | None:
 def _fetch(url: str) -> str | None:
     """The page text, retrying a few times (Screener sometimes answers slowly); None on 404 or after the retries."""
     import tools.screener_scraper as sc
-    for attempt in range(4):
+    for attempt in range(6):
         try:
+            sc.wait_if_down()                # shared with the stock pages and the fundamentals build: nobody asks while Screener is blocking us
             s = sc._http.Session(impersonate="chrome") if sc._HAVE_CFFI else sc._http.Session()
             r = s.get(url, timeout=30)
             if r.status_code == 200 and len(r.text) > 2000:
+                sc.note_ok()
                 return r.text
             if r.status_code == 404:
                 return None
+            if r.status_code == 429:         # rate-limited: pause everyone for longer each time (hammering keeps the block alive)
+                sc.note_429(url)
+                continue
         except Exception:
             pass
         time.sleep(2 * (attempt + 1))

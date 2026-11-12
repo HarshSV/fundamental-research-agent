@@ -966,7 +966,7 @@ export function StockView({
           </Card>
           <Card className="p-4 sm:p-6">
             <SectionTitle>{finTab === "results" || finTab === "pat" ? "Financial Result (Amount in ₹ Lakhs)" : finTab === "fcf" ? "Financial Result (Amount in ₹ Crore)" : "Financial Result"}</SectionTitle>
-            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} tab={finTab} onTab={setFinTab} standalone={overview.basis === "standalone"} symbol={sym} /> : <Unavailable what="Quarterly financial results" />}
+            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} tab={finTab} onTab={setFinTab} standalone={overview.basis === "standalone"} symbol={sym} fromYahoo={overview.source === "yahoo"} /> : <Unavailable what="Quarterly financial results" />}
           </Card>
         </div>
       </section>
@@ -994,7 +994,7 @@ export function StockView({
             <Card>
               <Unavailable what="Peer comparison" />
               <p className="px-4 pb-4 text-center text-xs" style={{ color: "var(--text-tertiary)" }}>
-                Peers come from Screener.in and our NSE sector list; this company is in neither yet (usually a very recent listing).
+                Peers come from Screener.in, our NSE sector list, or other companies in the same industry. This company has none of these yet: a very recent listing, or a BSE-listed company whose industry has not been classified yet (that runs in the background and can take hours).
               </p>
             </Card>
           )}

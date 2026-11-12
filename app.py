@@ -980,6 +980,82 @@ def _nse_overview(sym):
     return out
 
 
+_YAHOO_OV_CACHE: dict = {}
+
+
+def _yahoo_overview(sym):
+    """Key metrics, about text and the latest quarters from Yahoo Finance, for a company that Screener (and NSE's own record) cannot give
+    right now (Screener rate-limits us). Same shape as `_nse_overview`. Yahoo reports 0 both for a real zero and for "not available"
+    (profit margin, dividend yield, growth), so a zero is unknown here, never shown; a missing figure stays None. Cached 6 hours.
+    Returns {} when Yahoo has nothing useful (a fresh listing)."""
+    hit = _YAHOO_OV_CACHE.get(sym)
+    if hit and time.time() - hit[0] < 6 * 3600:
+        return hit[1]
+    out = {}
+    try:
+        import calendar
+        import yfinance as yf
+        from tools.live_chart_yf import _to_symbol
+        from screens.metrics import is_financial
+        from tools.nse_sector_map import get_nse_sector
+        t = yf.Ticker(_to_symbol(sym))
+        info = t.info or {}
+        isnum = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v == v
+        pos = lambda k: info.get(k) if isnum(info.get(k)) and info.get(k) > 0 else None
+        nz = lambda k: info.get(k) if isnum(info.get(k)) and info.get(k) != 0 else None
+        fin = is_financial(get_nse_sector(sym))
+
+        def cr(v):
+            return round(v / 1e7, 2) if isnum(v) else None
+
+        quarterly = []
+        try:
+            qs = t.quarterly_income_stmt
+            if qs is not None and not qs.empty:
+                for col in sorted(qs.columns):
+                    g = lambda row: (float(qs.at[row, col]) if row in qs.index and isnum(qs.at[row, col]) else None)
+                    q = {"period": col.strftime("%Y-%m-%d"), "total_income_cr": cr(g("Total Revenue")), "pbt_cr": cr(g("Pretax Income")),
+                         "net_profit_cr": cr(g("Net Income")), "eps": g("Diluted EPS")}
+                    if q["total_income_cr"] is not None or q["net_profit_cr"] is not None:
+                        quarterly.append(q)
+        except Exception:
+            quarterly = []
+        quarterly = quarterly[-13:]
+        q_eps = [q["eps"] for q in quarterly][-4:]
+        eps_ttm = sum(q_eps) if len(q_eps) == 4 and all(isnum(x) for x in q_eps) else (info.get("trailingEps") if isnum(info.get("trailingEps")) else None)
+        mcap = pos("marketCap")
+        de = pos("debtToEquity")
+        out = {
+            "source": "yahoo",
+            "market_cap_cr": cr(mcap),
+            "face_value": None,
+            "pe": round(pos("trailingPE"), 2) if pos("trailingPE") else None,
+            "eps_ttm": round(eps_ttm, 2) if isnum(eps_ttm) else None,
+            "debt_to_equity": None if fin or de is None else round(de / 100.0, 2),      # Yahoo gives it in per cent
+            "book_value": round(pos("bookValue"), 2) if pos("bookValue") else None,
+            "about": info.get("longBusinessSummary") or None,
+            "quarterly": quarterly,
+            "is_financial": fin,
+            "ratios": {
+                "annual_label": None,
+                "roe": {"ttm": None, "annual": round(nz("returnOnEquity") * 100.0, 2) if nz("returnOnEquity") is not None else None},
+                "net_margin": {"ttm": None, "annual": round(nz("profitMargins") * 100.0, 2) if nz("profitMargins") is not None else None},
+                "revenue_growth": {"ttm": None, "annual": round(nz("revenueGrowth") * 100.0, 2) if nz("revenueGrowth") is not None else None},
+                "interest_coverage": None,
+                "book_value": round(pos("bookValue"), 2) if pos("bookValue") else None,
+                "dividend_yield": round(pos("dividendYield"), 2) if pos("dividendYield") else None,        # Yahoo reports it in per cent
+                "promoter": round(pos("heldPercentInsiders") * 100.0, 2) if pos("heldPercentInsiders") else None,   # Yahoo's "insiders" are the promoters
+            },
+        }
+        useful = out["market_cap_cr"] or out["pe"] or out["about"] or quarterly
+        if not useful:
+            out = {}
+    except Exception:
+        out = {}
+    _YAHOO_OV_CACHE[sym] = (time.time(), out)
+    return out
+
+
 def _key_ratios(data, sym):
     """ROE, net margin, revenue growth and interest coverage on TTM and annual bases (screens/key_ratios.py)."""
     try:
@@ -1029,7 +1105,7 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     if not data:
         # Screener unreachable or has no page that parses: NSE's own company record still carries the headline figures
         return {"symbol": sym, "source": "unavailable", "all_time_high": ath, "all_time_low": atl, "return_bases": return_bases,
-                "peers": _sector_peers(sym), "peers_source": "sector", **_nse_overview(sym)}
+                "peers": _sector_peers(sym), "peers_source": "sector", **(_nse_overview(sym) or _yahoo_overview(sym))}
 
     def cr(v):
         return round(v / 1e7, 2) if isinstance(v, (int, float)) else None

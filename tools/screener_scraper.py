@@ -79,6 +79,25 @@ def _write_cache(key, payload):
 _DOWN_UNTIL = 0.0   # circuit breaker: after a connection failure, skip Screener for a few minutes instead of waiting 20s a call
 
 
+_STREAK_429 = 0
+
+
+def note_429(url="") -> int:
+    """Screener answered HTTP 429: pause every Screener request, for longer each time it happens again in a row (2, 4, 8, 16, 30 minutes):
+    asking again every two minutes kept the block alive. Returns the pause in seconds."""
+    global _DOWN_UNTIL, _STREAK_429
+    _STREAK_429 += 1
+    pause = min(120 * 2 ** (_STREAK_429 - 1), 1800)
+    _DOWN_UNTIL = max(_DOWN_UNTIL, time.time() + pause)
+    print(f"[screener] HTTP 429 (rate-limited, {_STREAK_429} in a row); pausing Screener requests for {pause}s ({url})", flush=True)
+    return pause
+
+
+def note_ok() -> None:
+    global _STREAK_429
+    _STREAK_429 = 0
+
+
 def _get(url):
     global _DOWN_UNTIL
     if time.time() < _DOWN_UNTIL:
@@ -91,7 +110,12 @@ def _get(url):
             s.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0"})
         r = s.get(url, timeout=25)
         if r.status_code == 200 and len(r.text) > 2000:
+            note_ok()
             return r.text
+        if r.status_code == 429:
+            # Screener is rate-limiting this machine. Stop asking for a while (longer each time): every further request prolongs the
+            # block, and the stock pages then fall back to the last saved copy instead of showing nothing.
+            note_429(url)
     except Exception as e:
         print(f"[screener] GET failed ({url}): {e}")
         if "connect" in str(e).lower() or "timed out" in str(e).lower():
@@ -579,7 +603,42 @@ def _has_columns(html: str) -> bool:
     return i >= 0 and "data-date-key" in html[i:i + 12000]
 
 
+def wait_if_down(max_wait=2400):
+    """Block until Screener requests are no longer paused after an HTTP 429 (for the background builds; a page request must not wait)."""
+    end = time.time() + max_wait
+    while time.time() < min(_DOWN_UNTIL, end):
+        time.sleep(min(30.0, max(0.5, _DOWN_UNTIL - time.time())))
+
+
+STALE_FIN_SECONDS = 30 * 86400      # a saved copy this old is still better than "unavailable" when Screener cannot be reached
+BSE_FIN_TTL = 7 * 86400              # BSE-only companies: few readers and slowly changing figures; a read costs 3 or more Screener requests and Screener
+                                     # rate-limits us at about one request every 3 seconds, so a saved read is kept for a week (the slow background build refreshes it)
+
+
 def fetch_screener_financials(symbol, name=None, fresh=False):
+    """Screener financials; when the live read fails (rate-limited, unreachable) the last saved copy is returned instead of nothing
+    (unless `fresh`, which the background builds use: they must know whether the read really worked). Never raises."""
+    sym = symbol.strip().upper().replace(".NS", "")
+    key = f"fin3_{sym}"
+    if not fresh:
+        try:
+            from tools import bse_universe
+            if bse_universe.info().get(sym):                       # BSE-only: keep a read for 12 hours instead of 2
+                hit = _read_cache(key, BSE_FIN_TTL)
+                if hit is not None:
+                    return hit
+        except Exception:
+            pass
+    data = _fetch_screener_financials_live(symbol, name, fresh)
+    if data is None and not fresh:
+        stale = _read_cache(key, STALE_FIN_SECONDS)
+        if stale is not None:
+            print(f"[screener] {sym}: live read failed; serving the saved copy")
+            return stale
+    return data
+
+
+def _fetch_screener_financials_live(symbol, name=None, fresh=False):
     """
     PRIMARY financials source. Parse the full P&L / balance sheet / cash flow /
     quarterly tables + key ratios off the Screener.in company page in ONE GET.
