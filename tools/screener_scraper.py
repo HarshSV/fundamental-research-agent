@@ -312,8 +312,9 @@ def fetch_concall_list(symbol, name=None):
 _SYMBOL_MAP = {"TATAMOTORS": "TMCV"}  # NSE symbol -> Screener slug where they differ (M&M and BAJAJ-AUTO now resolve as-is)
 try:        # a BSE-only company: Screener knows it by its BSE code, which is not always searchable by the BSE trading symbol
     from tools import bse_universe as _bse_universe
-    for _s, _b in _bse_universe.info().items():
-        _SYMBOL_MAP.setdefault(_s, _b["code"])
+    for _grp in (_bse_universe.info(), _bse_universe.suspended()):       # trading and suspended BSE-only companies
+        for _s, _b in _grp.items():
+            _SYMBOL_MAP.setdefault(_s, _b["code"])
 except Exception:
     pass
 

@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIR = os.path.join(ROOT, "data", "bse")
 OUT = os.path.join(DIR, "bse_only_universe.json")
 _FUND = re.compile(r"mutual fund|asset management|\betf\b|exchange traded|index fund|\breit\b|\binvit\b|bees\b", re.I)
-_RIGHTS = re.compile(r"-RE\d?$")        # a rights entitlement (a temporary right to buy new shares), not a company
+_RIGHTS = re.compile(r"-\s*RE\d?$")     # a rights entitlement (a temporary right to buy new shares), not a company; BSE sometimes writes "- RE3"
 
 
 def build() -> list[dict]:
@@ -53,6 +53,54 @@ def load() -> list[dict]:
         return []
 
 
+SUSP_OUT = os.path.join(DIR, "bse_suspended_universe.json")
+
+
+def build_suspended() -> list[dict]:
+    """Listed but suspended BSE equities that are not on NSE and not already in the trading BSE-only list (data/bse/bse_other_lists.json,
+    key eq_susp). They are searchable and have a stock page (last chart and Screener figures), but are NOT scanned or read in the background
+    builds: nothing trades, and each Screener read costs rate-limit budget."""
+    with open(os.path.join(DIR, "bse_other_lists.json"), encoding="utf-8") as fh:
+        rows = json.load(fh).get("eq_susp", [])
+    with open(os.path.join(DIR, "nse_isin.json"), encoding="utf-8") as fh:
+        nse = json.load(fh)["nse_isin"]
+    nse_syms = set(nse.values())
+    trading = {b["symbol"] for b in load()} | {b["code"] for b in load()}
+    out, seen = [], set()
+    for x in rows:
+        sym = (x.get("id") or "").strip().upper()
+        code = str(x.get("c") or "")
+        if (not sym or x.get("isin") in nse or _FUND.search(x.get("n") or "") or _RIGHTS.search(sym)
+                or sym in trading or code in trading or sym in seen):
+            continue
+        rekeyed = sym in nse_syms        # same short name as a different NSE company: keyed by BSE code, and no Yahoo ticker (ambiguous)
+        if rekeyed:
+            sym = f"{sym}-{code}"
+        seen.add(sym)
+        try:
+            mc = float(x["mc"])
+        except (KeyError, TypeError, ValueError):
+            mc = None
+        out.append({"symbol": sym, "name": (x.get("n") or sym).strip(), "code": code, "isin": x.get("isin") or None, "mktcap_cr": mc,
+                    "yahoo": None if rekeyed else f"{sym}.BO", "status": "Suspended"})
+    out.sort(key=lambda r: r["symbol"])
+    with open(SUSP_OUT, "w", encoding="utf-8") as fh:
+        json.dump(out, fh, ensure_ascii=False)
+    return out
+
+
+def suspended() -> dict:
+    """{symbol: record} of the suspended list (re-read when the file changes)."""
+    try:
+        mt = os.path.getmtime(SUSP_OUT)
+    except OSError:
+        return {}
+    if _info_cache.get("smt") != mt:
+        with open(SUSP_OUT, encoding="utf-8") as fh:
+            _info_cache.update(smt=mt, sdata={b["symbol"]: b for b in json.load(fh)})
+    return _info_cache["sdata"]
+
+
 _info_cache: dict = {}
 
 
@@ -70,7 +118,7 @@ def info() -> dict:
 def prime(sym: str) -> bool:
     """Teach this process how to reach a BSE-only company: Screener by its BSE code, Yahoo by its trading symbol. A worker process has
     no company master loaded, so without this the symbol would be tried as an NSE one. False for an NSE company."""
-    b = info().get(sym)
+    b = info().get(sym) or suspended().get(sym)
     if not b:
         return False
     try:

@@ -614,6 +614,11 @@ export function StockView({
               {String(stock.primary_exchange)}
             </span>
           ) : null}
+          {stock.status === "Suspended" ? (
+            <span className="rounded-full border px-3 py-0.5 text-xs" title="Listed on BSE but not trading. The chart and figures are the last available ones." style={{ color: "#e5a54b", borderColor: "#e5a54b" }}>
+              Suspended
+            </span>
+          ) : null}
           <WatchStar symbol={stock.symbol} name={String(name)} />
         </div>
         <div className="mt-2 text-sm" style={{ color: "var(--text-tertiary)" }}>{stock.symbol}</div>

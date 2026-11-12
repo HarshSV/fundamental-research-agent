@@ -346,9 +346,16 @@ def _rebuild_company_universe():
         except Exception:
             nse_index = set()
         listed = _NSE_LISTED | _CURATED_SYMBOLS | nse_index
+        try:
+            from tools import bse_universe as _bu
+            _susp = _bu.suspended()
+        except Exception:
+            _susp = {}
         for sym in order:
             item = base[sym]
             item["exchanges"] = (["NSE"] if sym in listed else []) + (["BSE"] if item.get("bse_code") else [])
+            if sym in _susp:
+                item["status"] = "Suspended"
         _COMPANY_UNIVERSE = [base[s] for s in order]
         _COMPANY_INDEX = CompanyIndex(_COMPANY_UNIVERSE)
         _UNIVERSE_LOADED_AT = time.time()
@@ -911,9 +918,17 @@ def _sector_peers(sym, limit=6):
                 c = (qd.get(s) or {}).get("cls") or []
                 return (c[3] if len(c) > 3 else None) or (c[2] if len(c) > 2 else None)
             mine = _ind(sym)
-            if not mine:
-                return []
-            same = [r for r in rows.values() if _ind(r["symbol"]) == mine and isinstance(r.get("market_cap_cr"), (int, float))]
+            same = []
+            if mine:
+                same = [r for r in rows.values() if _ind(r["symbol"]) == mine and isinstance(r.get("market_cap_cr"), (int, float))]
+            if len(same) < 2:
+                # Screener has not classified it yet (or it is alone in its industry): use Yahoo's industry (tools/yahoo_industry.py)
+                from tools import yahoo_industry as _yi
+                yd = _yi.load()
+                ymine = (yd.get(sym) or {}).get("industry")
+                if not ymine:
+                    return []
+                same = [r for r in rows.values() if (yd.get(r["symbol"]) or {}).get("industry") == ymine and isinstance(r.get("market_cap_cr"), (int, float))]
         base = me.get("market_cap_cr") or 0
         same.sort(key=lambda r: abs(r["market_cap_cr"] - base))
         pick = same[: limit + 1]

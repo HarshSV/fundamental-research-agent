@@ -183,6 +183,7 @@ def describe(item, match=None, alias_symbols=None):
         "bse_code": item.get("bse_code") or None,
         "exchanges": exchanges,
         "primary_exchange": exchanges[0] if exchanges else None,
+        "status": item.get("status") or None,        # "Suspended" for a listed company that is not trading
     }
     if alias_symbols:
         out["alias_symbols"] = list(alias_symbols)

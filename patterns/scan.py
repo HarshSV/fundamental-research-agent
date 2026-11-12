@@ -27,6 +27,7 @@ SYMBOL_DIR = os.path.join(DATA_DIR, "symbols")
 INDEX_FILE = os.path.join(DATA_DIR, "indices.json")
 BENCH_FILE = os.path.join(DATA_DIR, "benchmarks.json")
 FUNDAMENTALS_FILE = os.path.join(ROOT, "data", "screens", "universe.json")
+YAHOO_FUND_FILE = os.path.join(ROOT, "data", "screens", "yahoo_industry.json")      # Yahoo industry and headline figures (tools/yahoo_industry.py)
 IST_OFFSET = 19800
 DAY = 86400
 
@@ -351,12 +352,18 @@ def _load_all() -> dict:
     try:
         files = [f for f in os.listdir(SYMBOL_DIR) if f.endswith(".json")]
         stamp = (len(files), max((os.path.getmtime(os.path.join(SYMBOL_DIR, f)) for f in files), default=0.0),
-                 os.path.getmtime(FUNDAMENTALS_FILE) if os.path.exists(FUNDAMENTALS_FILE) else 0.0)
+                 os.path.getmtime(FUNDAMENTALS_FILE) if os.path.exists(FUNDAMENTALS_FILE) else 0.0,
+                 os.path.getmtime(YAHOO_FUND_FILE) if os.path.exists(YAHOO_FUND_FILE) else 0.0)
     except FileNotFoundError:
         return {}
     if stamp == _mem["stamp"]:
         return _mem["rows"]
     funda = _fundamentals()
+    try:
+        from tools import yahoo_industry
+        yahoo_fund = yahoo_industry.load()
+    except Exception:
+        yahoo_fund = {}
     rows = {}
     for f in files:
         try:
@@ -365,6 +372,13 @@ def _load_all() -> dict:
         except Exception:
             continue
         fd = funda.get(r["symbol"]) or {}
+        if not fd.get("fund_ok"):
+            # No usable Screener row (Screener rate-limits us, so most BSE-only companies have none yet): Yahoo's headline figures from
+            # tools/yahoo_industry.py, marked as Yahoo's. A figure Yahoo does not give stays None and never matches a filter.
+            yf_ = ((yahoo_fund.get(r["symbol"]) or {}).get("fund")) or {}
+            if yf_:
+                fd = {"pe": yf_.get("pe"), "eps": yf_.get("eps"), "debt_equity": yf_.get("debt_equity"), "promoter": yf_.get("promoter"),
+                      "div_yield": yf_.get("div_yield"), "fund_at": (yahoo_fund.get(r["symbol"]) or {}).get("at"), "fund_src": "yahoo"}
         r["fund_at"] = fd.get("fund_at") if isinstance(fd.get("fund_at"), (int, float)) else None
         r["fund_src"] = fd.get("fund_src")
         for k in ("pe", "eps", "eps_growth", "debt_equity", "promoter", "div_yield", "payout", "net_profit_cr", "volatility"):
