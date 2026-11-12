@@ -744,8 +744,11 @@ export function StockView({
                 ]}
               />
             </div>
-            <div className="flex items-center gap-5">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               {!isIntraday && coneData && <Switch on={showCone} onChange={() => setShowCone((v) => !v)} label="Forecast" title="Shade where the price is likely to be over the next 5 and 20 sessions" />}
+              {forecastLevels(forecastData?.data ?? null).length > 0 && (
+                <Switch on={showForecastLevels} onChange={() => setShowForecastLevels((v) => !v)} label="Entry, stop, target" title="Draw the forecast's range, entry, stop-loss and target lines on the chart" />
+              )}
               <Switch on={showVolume} onChange={() => setShowVolume((v) => !v)} label="Volume" />
             </div>
           </div>
