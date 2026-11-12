@@ -19,6 +19,7 @@ export interface ScanOverlay {
 }
 
 const IST = 19800;
+const SMA_COLORS: Record<number, string> = { 20: "#f59e0b", 50: "#3b82f6", 100: "#a855f7", 200: "#ec4899" };
 const KIND_COLOR: Record<MarkerKind, string> = {
   forming: STATUS_COLOR.forming,
   awaiting: STATUS_COLOR.awaiting_breakout,
@@ -64,7 +65,7 @@ function toBars(cs: Candle[], intraday: boolean) {
  * the stock was opened from a scanner, that scan's pattern lines, levels and horizontal resistance.
  */
 export function StockChart({
-  candles, dataKey, intraday, chartStyle, showVolume, occs, selectedId, onSelect, scan, levels, cone, height = 440,
+  candles, dataKey, intraday, chartStyle, showVolume, occs, selectedId, onSelect, scan, levels, cone, averages, history, projectFrom, height = 440,
 }: {
   candles: Candle[];
   dataKey: string; // changes when the DATASET changes (range switch), not on live updates: refits the view
@@ -77,6 +78,9 @@ export function StockChart({
   scan?: ScanOverlay | null;
   levels?: { price: number; title: string; color: string; dashed?: boolean }[];
   cone?: Cone | null; // the forecast fan drawn to the right of the last bar (daily charts only)
+  averages?: number[]; // simple moving averages to draw, in days (daily charts only)
+  history?: Candle[]; // the full daily history the averages are worked out from (the shown range alone is too short for a 200-day average)
+  projectFrom?: Cone | null; // when set, each average continues to the right as a dashed line, assuming the price follows the forecast's middle
   height?: number;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -338,6 +342,77 @@ export function StockChart({
     // only when the fan appears or the dataset changes: a live tick must not undo the user's panning
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coneOn, dataKey, intraday, height]);
+
+  // 6. moving averages, and where each would go if the price follows the middle of the forecast
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || intraday || !averages?.length || !history?.length || !data.bars.length) return;
+    const hist = toBars(history, false).bars;
+    const lastShown = String(data.bars[data.bars.length - 1].time);
+    const firstShown = String(data.bars[0].time);
+    const upto = hist.filter((b) => String(b.time) <= lastShown);
+    if (!upto.length) return;
+    const closes = upto.map((b) => b.close);
+    const made: ISeriesApi<"Line">[] = [];
+    const nextDays = (from: string, n: number) => {
+      const out: string[] = [];
+      const d = new Date(`${from}T00:00:00Z`);
+      while (out.length < n) {
+        d.setUTCDate(d.getUTCDate() + 1);
+        if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) out.push(d.toISOString().slice(0, 10));
+      }
+      return out;
+    };
+    // the price path the projection assumes: a straight line from the last price to the forecast's middle at each horizon
+    let path: number[] = [];
+    if (projectFrom && projectFrom.points.length) {
+      const knots = [{ k: 0, v: projectFrom.anchor }, ...projectFrom.points.map((p) => ({ k: p.k, v: p.mid }))];
+      const kMax = knots[knots.length - 1].k;
+      for (let k = 1; k <= kMax; k++) {
+        const i = knots.findIndex((q) => q.k >= k);
+        const a = knots[i - 1];
+        const b = knots[i];
+        path.push(a.v + ((b.v - a.v) * (k - a.k)) / (b.k - a.k));
+      }
+    }
+    const future = path.length ? nextDays(lastShown, path.length) : [];
+    for (const n of averages) {
+      if (closes.length < n) continue;
+      const color = SMA_COLORS[n] ?? "#94a3b8";
+      const pts: { time: Time; value: number }[] = [];
+      let sum = 0;
+      for (let i = 0; i < closes.length; i++) {
+        sum += closes[i];
+        if (i >= n) sum -= closes[i - n];
+        if (i >= n - 1 && String(upto[i].time) >= firstShown) pts.push({ time: upto[i].time, value: sum / n });
+      }
+      if (!pts.length) continue;
+      const ln = chart.addSeries(LineSeries, { color, lineWidth: 1, title: `SMA ${n}`, priceLineVisible: false, crosshairMarkerVisible: false });
+      ln.setData(pts);
+      made.push(ln);
+      if (path.length) {
+        const run = [...closes];
+        const proj: { time: Time; value: number }[] = [pts[pts.length - 1]];
+        path.forEach((p, k) => {
+          run.push(p);
+          const tail = run.slice(-n);
+          proj.push({ time: future[k] as Time, value: tail.reduce((a, b) => a + b, 0) / n });
+        });
+        const pl = chart.addSeries(LineSeries, { color, lineWidth: 1, lineStyle: LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+        pl.setData(proj);
+        made.push(pl);
+      }
+    }
+    return () => {
+      for (const s of made) {
+        try {
+          chart.removeSeries(s);
+        } catch {
+          /* the chart was already torn down */
+        }
+      }
+    };
+  }, [averages, history, projectFrom, data, intraday, chartStyle, showVolume, height]);
 
   const last = data.bars[data.bars.length - 1];
   const shown = hover ?? last ?? null;

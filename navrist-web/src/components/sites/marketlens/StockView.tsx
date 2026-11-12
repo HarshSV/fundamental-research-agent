@@ -15,6 +15,7 @@ import {
 import { marketOpen } from "./marketHours";
 import { ForecastCard, News } from "./ForecastCard";
 import { ForecastStrip } from "./ForecastStrip";
+import { ChartLinesMenu, type LineGroup } from "./ChartLinesMenu";
 import { fetchForecast, forecastCone, forecastLevels, type FcWindow, type Forecast } from "./forecast";
 import type { ScanContext } from "./patternScan";
 import { Detail as PatternDetail, type Candle } from "./PriceChart";
@@ -72,6 +73,8 @@ const LOSS = "#f93c65";
 function fmt(v: number | null | undefined, digits = 2) {
   return v == null ? "—" : v.toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
+const SMA_PERIODS = [20, 50, 100, 200];
+const SMA_COLORS: Record<number, string> = { 20: "#f59e0b", 50: "#3b82f6", 100: "#a855f7", 200: "#ec4899" };
 const inr = (v: number | null | undefined) => (v == null ? "—" : `₹${fmt(v)}`);
 
 // All data calls retry transient failures (network error, 5xx, provider returning nothing) before giving up.
@@ -264,7 +267,12 @@ export function StockView({
   const [forecast, setForecast] = useState<{ sym: string; data: Forecast | null; error: boolean } | null>(null);
   // which past the forecast learns from: the stock's whole history, or only the last five years
   const [fcWindow, setFcWindow] = useState<FcWindow>("max");
-  const [showForecastLevels, setShowForecastLevels] = useState(false);
+  // Which lines the chart draws. By default only today's trade plan (entry, stop, two targets); the rest are one tap away in "Chart lines".
+  const DEFAULT_LINES: Record<string, boolean> = { today: true };
+  const [lineOn, setLineOn] = useState<Record<string, boolean>>(DEFAULT_LINES);
+  const toggleLine = (id: string) => setLineOn((m) => ({ ...m, [id]: !m[id] }));
+  const showForecastLevels = Boolean(lineOn.today);
+  const setShowForecastLevels = (f: (v: boolean) => boolean) => setLineOn((m) => ({ ...m, today: f(Boolean(m.today)) }));
   // Which basis each two-basis Key Metric shows; the switch beside the section title sets them all at once.
   const [views, setViews] = useState<Record<string, Basis>>({});
   const [showMore, setShowMore] = useState(false);
@@ -517,6 +525,31 @@ export function StockView({
 
   const scanOverlay: ScanOverlay | null = scan ? { occurrence: scan.occurrence, resistance: scan.showResistance ? scan.resistance : null } : null;
 
+  // the lines the chart can draw, and the ones switched on
+  const allLevels = forecastLevels(forecastData?.data ?? null);
+  const has = (g: string) => allLevels.some((l) => l.group === g);
+  const noPlan = forecastData?.data ? "No plan for this stock right now" : "Waiting for the forecast";
+  const chartLevels = [
+    ...allLevels.filter((l) => lineOn[l.group]),
+    ...(lineOn.wk52 && week52 ? [{ price: week52.high, title: `52-week high ${inr(week52.high)}`, color: "#f59e0b", dashed: true, group: "wk52" as const }, { price: week52.low, title: `52-week low ${inr(week52.low)}`, color: "#f59e0b", dashed: true, group: "wk52" as const }] : []),
+  ];
+  const lineGroups: LineGroup[] = [
+    {
+      title: "Trade plan (from the forecast)",
+      options: [
+        { id: "today", label: "Today's plan", hint: "Entry, stop-loss, targets 1 and 2", color: "#10b981", disabled: has("today") ? undefined : noPlan },
+        { id: "swing", label: "Swing plan", hint: "Entry, stop-loss, targets, up to 10 sessions", color: "#34d399", disabled: has("swing") ? undefined : noPlan },
+        { id: "range", label: "Opening range", hint: "Today's range high and low", color: "#8b8b9a", disabled: has("range") ? undefined : noPlan },
+      ],
+    },
+    { title: "Price levels", options: [{ id: "wk52", label: "52-week high and low", color: "#f59e0b", disabled: week52 ? undefined : "Not enough history" }] },
+    {
+      title: "Moving averages (daily chart)",
+      note: "Dashed = where the average would go if the price follows the middle of the forecast fan.",
+      options: SMA_PERIODS.map((n) => ({ id: `sma${n}`, label: `${n}-day average`, color: SMA_COLORS[n], disabled: isIntraday ? "Switch to a daily range" : !daily || daily.length < n ? "Not enough history" : undefined })),
+    },
+  ];
+
   const pct = quote?.change_pct;
   const up = (pct ?? 0) >= 0;
   const ltp = quote?.ltp ?? null;
@@ -705,8 +738,11 @@ export function StockView({
               selectedId={selectedId}
               onSelect={setSelectedId}
               scan={scanOverlay}
-              levels={showForecastLevels ? forecastLevels(forecastData?.data ?? null) : undefined}
+              levels={chartLevels}
               cone={showCone && !isIntraday ? coneData : null}
+              averages={isIntraday ? undefined : SMA_PERIODS.filter((n) => lineOn[`sma${n}`])}
+              history={daily ?? undefined}
+              projectFrom={coneData}
             />
             {switching && (
               <span
@@ -748,9 +784,7 @@ export function StockView({
             </div>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               {!isIntraday && coneData && <Switch on={showCone} onChange={() => setShowCone((v) => !v)} label="Forecast" title="Shade where the price is likely to be over the next 5 and 20 sessions" />}
-              {forecastLevels(forecastData?.data ?? null).length > 0 && (
-                <Switch on={showForecastLevels} onChange={() => setShowForecastLevels((v) => !v)} label="Entry, stop, target" title="Draw the forecast's range, entry, stop-loss and target lines on the chart" />
-              )}
+              <ChartLinesMenu groups={lineGroups} on={lineOn} onToggle={toggleLine} onReset={() => setLineOn(DEFAULT_LINES)} count={Object.entries(lineOn).filter(([k, v]) => v && !(isIntraday && k.startsWith("sma"))).length} />
               <Switch on={showVolume} onChange={() => setShowVolume((v) => !v)} label="Volume" />
             </div>
           </div>

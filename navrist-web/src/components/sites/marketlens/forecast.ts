@@ -127,27 +127,30 @@ export interface ChartLevel {
   title: string;
   color: string;
   dashed?: boolean;
+  group: "today" | "range" | "swing" | "wk52";
 }
 
 /** A price for a line label: paise for cheap stocks, whole rupees for dear ones. */
 const lvl = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: v < 100 ? 2 : 0 })}`;
 
+/** All the forecast's lines, each tagged with its group so the page can show only the ones asked for. */
 export function forecastLevels(f: Forecast | null): ChartLevel[] {
   const out: ChartLevel[] = [];
   if (!f) return out;
   const s = f.today?.setup;
   if (s?.range_high != null && s.range_low != null) {
-    out.push({ price: s.range_high, title: `Range high ${lvl(s.range_high)}`, color: "#8b8b9a", dashed: true });
-    out.push({ price: s.range_low, title: `Range low ${lvl(s.range_low)}`, color: "#8b8b9a", dashed: true });
+    out.push({ price: s.range_high, title: `Range high ${lvl(s.range_high)}`, color: "#8b8b9a", dashed: true, group: "range" });
+    out.push({ price: s.range_low, title: `Range low ${lvl(s.range_low)}`, color: "#8b8b9a", dashed: true, group: "range" });
   }
   for (const b of [f.today, f.swing]) {
     const p = b?.plan;
     if (!p) continue;
     const tag = b === f.swing ? "Swing " : "";
-    out.push({ price: p.entry, title: `${tag}Entry ${lvl(p.entry)}`, color: "#e5e7eb" });
-    out.push({ price: p.stop, title: `${tag}Stop ${lvl(p.stop)}`, color: "#ef4444", dashed: true });
+    const group = b === f.swing ? "swing" : "today";
+    out.push({ price: p.entry, title: `${tag}Entry ${lvl(p.entry)}`, color: "#e5e7eb", group });
+    out.push({ price: p.stop, title: `${tag}Stop ${lvl(p.stop)}`, color: "#ef4444", dashed: true, group });
     // every target of the plan, the nearer one brighter: "Target 1 (1x the risk)", "Target 2 (2x)"
-    p.targets.slice(0, 2).forEach((t, i) => out.push({ price: t.price, title: `${tag}Target ${i + 1} (${t.r}x) ${lvl(t.price)}`, color: i === 0 ? "#10b981" : "#34d399", dashed: true }));
+    p.targets.slice(0, 2).forEach((t, i) => out.push({ price: t.price, title: `${tag}Target ${i + 1} (${t.r}x) ${lvl(t.price)}`, color: i === 0 ? "#10b981" : "#34d399", dashed: true, group }));
   }
   return out;
 }
