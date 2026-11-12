@@ -13,7 +13,8 @@ const LONGEST_PHRASE = TYPED_PHRASES.reduce((a, b) => (b.length > a.length ? b :
  *  proven. The bearish patterns showed no selling edge in that study, so they are behind "More". */
 const TOP_PATTERNS = [
   "pocket-pivot", "order-block", "falling-wedge", "undercut-and-rally",
-  "cup-and-handle", "vcp", "double-bottom", "high-tight-flag", "triple-bottom", "flat-base",
+  "cup-and-handle", "vcp", "double-bottom",
+  "head-and-shoulders", "double-top", "rising-wedge",      // well-known bearish ones, so the row shows both directions (see the note under the chips)
 ];
 const BOX_HINTS =["IT Services", "Banks", "Pharmaceuticals", "Tata Steel"];
 
@@ -21,6 +22,9 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
   const typed = useTyped(TYPED_PHRASES);
   const hint = useTyped(BOX_HINTS);
   const [more, setMore] = useState(false);
+  // the first ten in their set order, then (after "More") the rest in catalogue order
+  const first = TOP_PATTERNS.map((id) => patterns.find((p) => p.id === id)).filter((p): p is CatalogueEntry => Boolean(p));
+  const ordered = more ? [...first, ...patterns.filter((p) => !TOP_PATTERNS.includes(p.id))] : first;
 
   return (
     <div
@@ -84,32 +88,34 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
         <div id="navrist-patterns" className="mb-4 scroll-mt-28 text-xs" style={{ color: "var(--text-tertiary)" }}>
           Browse by pattern
         </div>
-        <div className="flex flex-wrap justify-center gap-2.5">
-          {(more ? patterns : patterns.filter((p) => TOP_PATTERNS.includes(p.id)).sort((a, b) => TOP_PATTERNS.indexOf(a.id) - TOP_PATTERNS.indexOf(b.id))).map((p, i) => (
-            <span key={p.id} className={`pat-glow pat-glow-${p.bias ?? "both"}`} style={{ ["--pat-delay" as string]: `${-((i * 0.7) % 4.5)}s` }}>
-              <button
-                onClick={() => onPattern(p.id)}
-                title={`${p.category}${p.bias ? ` · ${p.bias === "both" ? "direction depends on the structure" : p.bias}` : ""}: ${p.definition}`}
-                className="rounded-full px-3.5 py-2.5 text-xs transition-colors sm:py-1.5 duration-200 hover:bg-[var(--overlay)] hover:text-[var(--text-primary)]"
-                style={{ background: "var(--surface-1)", color: "var(--text-secondary)" }}
-              >
-                {p.name}
-              </button>
-            </span>
+        <div className="mx-auto grid max-w-4xl grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-5">
+          {ordered.map((p, i) => (
+            <div key={p.id} className={i >= TOP_PATTERNS.length ? "chip-in" : undefined} style={i >= TOP_PATTERNS.length ? { animationDelay: `${Math.min((i - TOP_PATTERNS.length) * 40, 600)}ms` } : undefined}>
+              <span className={`pat-glow pat-glow-${p.bias ?? "both"} w-full`} style={{ ["--pat-delay" as string]: `${-((i * 0.7) % 4.5)}s` }}>
+                <button
+                  onClick={() => onPattern(p.id)}
+                  title={`${p.category}${p.bias ? ` · ${p.bias === "both" ? "direction depends on the structure" : p.bias}` : ""}: ${p.definition}`}
+                  className="flex min-h-[40px] w-full items-center justify-center rounded-full px-3 py-1.5 text-center text-xs leading-tight transition-colors duration-200 hover:bg-[var(--overlay)] hover:text-[var(--text-primary)]"
+                  style={{ background: "var(--surface-1)", color: "var(--text-secondary)" }}
+                >
+                  {p.name}
+                </button>
+              </span>
+            </div>
           ))}
           {patterns.length > TOP_PATTERNS.length && (
             <button
               type="button"
               onClick={() => setMore((v) => !v)}
               aria-expanded={more}
-              className="rounded-full px-3 py-2.5 text-xs font-semibold transition-colors sm:py-1.5 hover:bg-[var(--overlay)]"
-              style={{ color: "var(--accent)" }}
+              className="flex min-h-[40px] w-full items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-[var(--overlay)]"
+              style={{ color: "var(--accent)", border: "1px dashed var(--border-default)" }}
             >
-              {more ? "Less" : "More"}
+              {more ? "Less" : `More (${patterns.length - TOP_PATTERNS.length})`}
             </button>
           )}
-          {patterns.length === 0 && !patternsError && <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>Loading patterns…</span>}
-          {patternsError && <span className="text-xs" style={{ color: "#f5a9a9" }}>Could not load patterns: {patternsError}</span>}
+          {patterns.length === 0 && !patternsError && <span className="col-span-full text-xs" style={{ color: "var(--text-tertiary)" }}>Loading patterns…</span>}
+          {patternsError && <span className="col-span-full text-xs" style={{ color: "#f5a9a9" }}>Could not load patterns: {patternsError}</span>}
         </div>
         <p className="mx-auto mt-4 max-w-2xl text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
           A confirmed pattern is not a forecast. In a test on about 100,000 past confirmations, only the first four chips showed a small average gain

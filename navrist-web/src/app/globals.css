@@ -163,7 +163,7 @@
   font-size: 15px;
 }
 /* Top bar: a coloured band (deep indigo) in both themes, so the bar and its menus read as a header */
-.ml { --bar-bg: #1c1741; --bar-border: #4a3fa0; }
+.ml { --bar-bg: #04295d; --bar-border: #1d5aa8; }
 .ml .no-scrollbar { scrollbar-width: none; }
 .ml .no-scrollbar::-webkit-scrollbar { display: none; }
 
@@ -209,8 +209,8 @@ html.light .ml {
   --border-default: #b1bad3;
   --glass-bg: #fffffff2;
   --glass-border: #b1bad3;
-  --accent: #3a2e7d;
-  --accent-surface: #3a2e7d1c;
+  --accent: #04295d;
+  --accent-surface: #04295d1c;
   --accent-border: #3a2e7d59;
   --btn-primary-bg: #3a2e7d;
   --btn-primary-hover: #4b3fa0;
@@ -219,8 +219,8 @@ html.light .ml {
   --gold: #e65c1b;
   --shadow-md: 0 2px 8px rgba(35, 45, 90, 0.13), 0 1px 2px rgba(35, 45, 90, 0.08);
   --shadow-accent: 0 4px 16px #3a2e7d33;
-  --overlay-weak: rgba(58, 46, 125, 0.07);
-  --overlay: rgba(58, 46, 125, 0.12);
+  --overlay-weak: rgba(4, 41, 93, 0.07);
+  --overlay: rgba(4, 41, 93, 0.12);
   --overlay-strong: rgba(58, 46, 125, 0.18);
   --grid: rgba(50, 65, 104, 0.16);
   --crosshair: rgba(32, 34, 36, 0.55);
@@ -231,7 +231,7 @@ html.light .ml {
 }
 
 /* light theme: the bar is the brand indigo, so everything inside it switches to light-on-dark; menu panels switch back */
-html.light .ml { --bar-bg: #3a2e7d; --bar-border: #2a2060; }
+html.light .ml { --bar-bg: #04295d; --bar-border: #021c40; }
 html.light .ml header.sticky {
   --text-primary: #ffffff;
   --text-secondary: #ebe9ff;
@@ -258,7 +258,7 @@ html.light .ml header.sticky .menu-panel {
 }
 html.light .ml .ml-logo { background: #ffffff; padding: 3px; }
 .ml .menu-heading { color: var(--accent); font-weight: 700; letter-spacing: 0.14em; border-bottom: 1px solid var(--border-subtle); padding-bottom: 6px; margin-bottom: 8px; }
-html.light .ml header.sticky { box-shadow: 0 2px 10px rgba(35, 25, 90, 0.25); }
+html.light .ml header.sticky { box-shadow: 0 2px 10px rgba(4, 41, 93, 0.3); }
 
 /* ---- Table headers: readable at a glance in both themes ---------------------------------------- */
 .ml thead tr { border-bottom: 1px solid var(--border-default); }
@@ -349,6 +349,11 @@ html:not([data-view]) .hdr-search, [data-view="home"] .hdr-search { display: non
 @media (prefers-reduced-motion: reduce) {
   .pat-glow { animation: none; }
 }
+
+/* pattern chips revealed by "More": each rises and fades in, one after another */
+@keyframes chip-in { from { opacity: 0; transform: translateY(10px) scale(0.94); } to { opacity: 1; transform: none; } }
+.chip-in { animation: chip-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@media (prefers-reduced-motion: reduce) { .chip-in { animation: none; } }
 
 /* mobile menu drawer: slides in from the left over a fading backdrop, and slides back out when closed */
 @keyframes drawer-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
