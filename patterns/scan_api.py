@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from . import exchange_data, market_analytics, market_feeds, market_lists, scan
+from . import exchange_data, market_analytics, market_feeds, market_lists, scan, sector_history
 from .registry import BY_NAME
 from .screen_engine import SPECIAL
 
@@ -67,6 +67,16 @@ def make_router(require_session):
         if name == "past-winners":
             return market_feeds.past_winners(year or None)
         raise HTTPException(status_code=404, detail=f"Unknown list {name!r}.")
+
+    @r.get("/api/v1/market/sector-history")
+    def market_sector_history(window: str = "full", _: dict = Depends(require_session)):
+        """Each sector's history since about 1996 (equal-weighted from its stocks' adjusted prices): yearly returns, deepest fall,
+        rolling returns, seasonality, strength against all stocks. window = full | 5y."""
+        return sector_history.build("5y" if window == "5y" else "full")
+
+    @r.post("/api/v1/market/sector-history/refresh")
+    def market_sector_history_refresh(_: dict = Depends(require_session)):
+        return sector_history.start_refresh_background()
 
     @r.get("/api/v1/market/industries")
     def market_industries(weighting: str = "equal", _: dict = Depends(require_session)):

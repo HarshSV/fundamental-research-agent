@@ -5,8 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchJson } from "@/lib/api";
 import { SlidingTabs } from "./controls";
 import { navigateTo } from "./scanners";
+import { SectorHistory } from "./SectorHistory";
 
-export type AnalyticsTab = "sectors" | "industries" | "rrg" | "breadth";
+export type AnalyticsTab = "sectors" | "history" | "industries" | "rrg" | "breadth";
 
 const GAIN = "var(--gain)";
 const LOSS = "var(--loss)";
@@ -397,7 +398,7 @@ function Breadth() {
 }
 
 // ------------------------------------------------------------------ page
-const TITLES: Record<AnalyticsTab, string> = { sectors: "Sector Analytics", industries: "Industry Analytics", rrg: "Relative Rotation Graph (RRG)", breadth: "Market Breadth" };
+const TITLES: Record<AnalyticsTab, string> = { sectors: "Sector Analytics", history: "Sector History", industries: "Industry Analytics", rrg: "Relative Rotation Graph (RRG)", breadth: "Market Breadth" };
 
 export function MarketAnalytics({ tab, onTab, onBack }: { tab: AnalyticsTab; onTab: (t: AnalyticsTab) => void; onBack: () => void }) {
   return (
@@ -407,9 +408,9 @@ export function MarketAnalytics({ tab, onTab, onBack }: { tab: AnalyticsTab; onT
       </button>
       <h1 className="text-3xl font-bold tracking-tight">{TITLES[tab]}</h1>
       <div className="mb-6 mt-4 max-w-full overflow-x-auto">
-        <SlidingTabs ariaLabel="Market analytics" value={tab} onChange={onTab} options={[{ id: "sectors", label: "Sectors" }, { id: "industries", label: "Industries" }, { id: "rrg", label: "RRG" }, { id: "breadth", label: "Breadth" }]} />
+        <SlidingTabs ariaLabel="Market analytics" value={tab} onChange={onTab} options={[{ id: "sectors", label: "Sectors" }, { id: "history", label: "Sector History" }, { id: "industries", label: "Industries" }, { id: "rrg", label: "RRG" }, { id: "breadth", label: "Breadth" }]} />
       </div>
-      {tab === "sectors" ? <Sectors /> : tab === "industries" ? <Industries /> : tab === "rrg" ? <Rrg /> : <Breadth />}
+      {tab === "sectors" ? <Sectors /> : tab === "history" ? <SectorHistory /> : tab === "industries" ? <Industries /> : tab === "rrg" ? <Rrg /> : <Breadth />}
     </div>
   );
 }

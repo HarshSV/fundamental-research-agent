@@ -46,7 +46,7 @@ interface Menu {
 
 const scanner = (id: string) => () => navigateTo({ type: "scanner", id });
 const feed = (name: FeedName, kind?: "bulk" | "block") => () => navigateTo({ type: "feed", name, kind });
-const analytics = (tab: "sectors" | "industries" | "rrg" | "breadth") => () => navigateTo({ type: "analytics", tab });
+const analytics = (tab: "sectors" | "history" | "industries" | "rrg" | "breadth") => () => navigateTo({ type: "analytics", tab });
 
 /** The top menu, in the order a trader works: build a scan, find a setup, check volume and gaps, then the market as a whole. */
 const MENUS: Menu[] = [
@@ -111,6 +111,7 @@ const MENUS: Menu[] = [
         title: "Top down",
         items: [
           { label: "Sector Analytics", hint: "Which sectors lead and lag", run: analytics("sectors") },
+          { label: "Sector History", hint: "Each sector since about 1996: years, falls, seasons", run: analytics("history") },
           { label: "Industry Analytics", hint: "The strongest industry groups", run: analytics("industries") },
           { label: "RRG", hint: "Sector rotation across four quadrants", run: analytics("rrg") },
           { label: "Market Breadth", hint: "How many stocks take part in the move", run: analytics("breadth") },

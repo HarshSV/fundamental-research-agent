@@ -48,7 +48,7 @@ export const OPEN_NAV_EVENT = "navrist-nav";
 export type NavTarget =
   | { type: "scanner"; id: string }
   | { type: "multi" }
-  | { type: "analytics"; tab: "sectors" | "industries" | "rrg" | "breadth" }
+  | { type: "analytics"; tab: "sectors" | "history" | "industries" | "rrg" | "breadth" }
   | { type: "feed"; name: FeedName; kind?: "bulk" | "block" }
   | { type: "sector"; name: string }
   | { type: "watchlist" }
