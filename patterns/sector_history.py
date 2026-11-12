@@ -227,6 +227,8 @@ def build(window: str = "full") -> dict:
         return {"ready": False, "note": "The sector history has not been built yet.", **status()}
     rows = scan._load_all()
     mt = os.path.getmtime(STORE)
+    if time.time() - mt > 7 * 86400 and not _state["running"]:      # the store is a week old: top it up in the background, serve what we have
+        start_refresh_background()
     key = (mt, window)
     if key in _cache:
         return _cache[key]

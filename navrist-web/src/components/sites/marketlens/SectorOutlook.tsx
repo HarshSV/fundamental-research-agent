@@ -22,11 +22,15 @@ interface Row {
   scenarios: { market_down_10: number; market_up_10: number; beta: number | null } | null;
   results: { available: boolean; quarter?: string; reported?: number; of?: number; median_sales_yoy?: number | null; median_profit_yoy?: number | null; profit_up_share?: number | null };
   flow: { orders_2w: number | null; deals_buy_cr: number | null; deals_sell_cr: number | null; deals_count: number | null };
-  upcoming: { results_due_21d: number; seasonal_next_3: { month: number; average: number; positive_share: number | null; years: number }[] };
+  upcoming: {
+    results_due_21d: number; seasonal_next_3: { month: number; average: number; positive_share: number | null; years: number }[];
+    actions?: { ok: boolean; count: number; kinds: Record<string, number>; items: { date: string; symbol: string; name: string; subject: string }[] };
+  };
 }
+interface Scheduled { events: { date: string; title: string; scope: string; source: string; expected: boolean }[]; unreadable: string[]; rbi_headlines: { title: string; link: string; date: string }[]; note: string }
 interface Grp { months: number; share: number | null }
 interface Val { months_tested: number; usual_rose: number | null; usual_beat_market: number | null; tilt_up_rose: Grp; tilt_down_rose: Grp; tilt_up_beat: Grp; tilt_down_beat: Grp }
-interface Res { ready: boolean; note?: string; as_of?: string; sectors: Row[]; validation?: { ready: boolean; horizons: Record<string, Val>; meaning: string } }
+interface Res { ready: boolean; note?: string; as_of?: string; sectors: Row[]; scheduled?: Scheduled; validation?: { ready: boolean; horizons: Record<string, Val>; meaning: string } }
 
 function TiltChip({ h }: { h: Hz }) {
   const t = h.tilt;
@@ -100,6 +104,7 @@ function Detail({ r }: { r: Row }) {
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Upcoming and flow</div>
           <ul className="space-y-1 text-sm">
             <li className="flex justify-between"><span style={{ color: "var(--text-secondary)" }}>Results due in the next 3 weeks</span><span>{r.upcoming.results_due_21d} stocks</span></li>
+            <li className="flex justify-between"><span style={{ color: "var(--text-secondary)" }}>Dividends, bonus, splits and buy-backs, next 30 days</span><span>{r.upcoming.actions?.ok ? (r.upcoming.actions.count ? Object.entries(r.upcoming.actions.kinds).map(([k, v]) => `${v} ${k}`).join(", ") : "none") : "could not be read"}</span></li>
             <li className="flex justify-between"><span style={{ color: "var(--text-secondary)" }}>Order announcements, last 2 weeks</span><span>{r.flow.orders_2w ?? "—"}</span></li>
             <li className="flex justify-between"><span style={{ color: "var(--text-secondary)" }}>Bulk and block deals, 30 days</span><span>bought ₹{(r.flow.deals_buy_cr ?? 0).toLocaleString("en-IN")} Cr · sold ₹{(r.flow.deals_sell_cr ?? 0).toLocaleString("en-IN")} Cr</span></li>
           </ul>
@@ -174,6 +179,32 @@ export function SectorOutlook() {
         Odds for each sector over the next month and the next 3 months, from how that sector behaved after similar situations (as of {res.as_of}). The facts beside them are listed, not blended in. {res.note}
       </p>
       <Reliability v={res.validation} />
+      {res.scheduled && (
+        <div className="mb-5 rounded-xl border p-4 text-sm" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+          <div className="mb-1 font-semibold">Scheduled events ahead (next 90 days)</div>
+          {res.scheduled.events.length ? (
+            <ul className="space-y-1 text-xs">
+              {res.scheduled.events.map((e) => (
+                <li key={e.date + e.title} className="flex flex-wrap justify-between gap-x-3">
+                  <span>{e.title}{e.expected ? " (expected)" : ""}</span>
+                  <span style={{ color: "var(--text-tertiary)" }}>{e.date} · {e.source}</span>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>No dated events found.</p>}
+          {res.scheduled.rbi_headlines.length > 0 && (
+            <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+              RBI policy dates: no source we can read gives them, so see {res.scheduled.rbi_headlines.slice(0, 2).map((h, i) => (
+                <span key={h.link}>{i ? " · " : ""}<a href={h.link} target="_blank" rel="noopener noreferrer" className="underline">{h.title.slice(0, 70)}</a></span>
+              ))}.
+            </p>
+          )}
+          {res.scheduled.unreadable.length > 0 && <p className="mt-1 text-xs" style={{ color: "#f5a9a9" }}>Could not read: {res.scheduled.unreadable.join("; ")}.</p>}
+          <p className="mt-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
+            The odds below are not adjusted for these. Results due and company actions for each sector are inside its row. {res.scheduled.note}
+          </p>
+        </div>
+      )}
       <div className="overflow-x-auto rounded-xl border" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
         <table className="w-full min-w-[820px] text-sm">
           <thead>

@@ -33,6 +33,8 @@ def _fake(monkeypatch):
         store[sym] = {"at": 0, "m": _months(2000, 120, lambda i: 0.0)}
         rows[sym] = {"sector": "Tiny"}
     monkeypatch.setattr(sector_history, "_load", lambda: store)
+    monkeypatch.setattr(sector_history, "start_refresh_background", lambda: {})      # a test must never fetch prices or write the real store
+    monkeypatch.setattr(sector_history, "_save", lambda d: None)
     monkeypatch.setattr(sector_history.scan, "_load_all", lambda: rows)
     monkeypatch.setattr(sector_history.os.path, "getmtime", lambda p: 1.0 + len(sector_history._levels_cache) * 0)
     sector_history._cache.clear()
@@ -133,3 +135,47 @@ def test_outlook_and_validation_on_made_up_sectors(monkeypatch):
     assert v["ready"] and v["horizons"]["3m"]["months_tested"] > 0
     for s in o["sectors"]:
         assert [h["id"] for h in s["horizons"]] == ["1m", "3m"] and s["situation"]
+
+
+# ------------------------------------------------------------------ scheduled events
+def test_fomc_parser_takes_two_day_meetings_of_the_right_year(monkeypatch):
+    from patterns import upcoming as up
+    html = ("<h4>2026 FOMC Meetings</h4> January 27-28 Statement April 08 Minutes March 17-18 "
+            "<h4>2027 FOMC Meetings</h4> January 26-27 June 8-9 <h4>2028 FOMC Meetings</h4> January 25-26")
+
+    class R:
+        text = html
+    monkeypatch.setattr(up.requests, "get", lambda *a, **k: R())
+    monkeypatch.setattr(up, "date", type("D", (), {"today": staticmethod(lambda: __import__("datetime").date(2026, 11, 12)), "fromisoformat": None}))
+    # the module uses date(y, m, d) and date.today(); give it a callable that also builds dates
+    import datetime as _dt
+
+    class FakeDate(_dt.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 11, 12)
+    monkeypatch.setattr(up, "date", FakeDate)
+    got = [e["date"] for e in up._fomc()]
+    assert got == ["2026-01-28", "2026-03-18", "2027-01-27", "2027-06-09"]           # single-day lines and the 2028 section are left out
+
+
+def test_market_events_only_those_with_a_date_ahead(monkeypatch):
+    from patterns import upcoming as up
+    import datetime as _dt
+
+    class FakeDate(_dt.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 11, 12)
+    monkeypatch.setattr(up, "date", FakeDate)
+    up._cache.clear()
+    monkeypatch.setattr(up, "_fomc", lambda: [{"date": "2026-12-09", "title": "Fed", "scope": "market", "source": "federalreserve.gov"}, {"date": "2026-01-28", "title": "Old", "scope": "market"}])
+    monkeypatch.setattr(up, "_holidays", lambda: [])
+    monkeypatch.setattr(up, "_manual", lambda: [{"date": "2027-02-01", "title": "Budget", "expected": True}])
+    monkeypatch.setattr(up, "_rbi_headlines", lambda: [])
+    m = up.market(120)
+    assert [e["title"] for e in m["events"]] == ["Fed", "Budget"] and m["events"][1]["expected"] is True
+    assert m["unreadable"] == []
+    monkeypatch.setattr(up, "_fomc", lambda: (_ for _ in ()).throw(RuntimeError("down")))
+    up._cache.clear()
+    assert "fed: down" in up.market(120)["unreadable"][0]                              # an unreadable source is reported, not guessed

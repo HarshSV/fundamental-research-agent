@@ -1,0 +1,6 @@
+{
+  "note": "Dates kept by hand for events no feed gives us. Every entry needs a date (YYYY-MM-DD) and a title; set expected true when the date follows a convention and is not yet confirmed. Entries whose date has passed are ignored. Add RBI policy dates here once you have them from the RBI's own calendar.",
+  "events": [
+    {"date": "2027-02-01", "title": "Union Budget (presented on 1 February since 2017)", "scope": "market", "expected": true, "source": "kept by hand"}
+  ]
+}

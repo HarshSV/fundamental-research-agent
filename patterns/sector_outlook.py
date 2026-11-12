@@ -22,7 +22,7 @@ from datetime import date, datetime, timedelta
 import numpy as np
 
 from . import exchange_data as ex
-from . import market_analytics, scan, sector_events, sector_history
+from . import market_analytics, scan, sector_events, sector_history, upcoming
 
 MIN_STATE = 30
 HORIZONS = (("1m", 1), ("3m", 3))
@@ -289,9 +289,9 @@ def outlook() -> dict:
                     "drivers": drivers, "scenarios": scen, "results": res,
                     "flow": {"orders_2w": rc.get("orders_count"), "deals_buy_cr": rc.get("deals_buy_cr"), "deals_sell_cr": rc.get("deals_sell_cr"),
                              "deals_count": rc.get("deals_count")},
-                    "upcoming": {"results_due_21d": up_res, "seasonal_next_3": _seasonal_next(sec, built)}})
+                    "upcoming": {"results_due_21d": up_res, "seasonal_next_3": _seasonal_next(sec, built), "actions": upcoming.sector_actions(sec)}})
     out.sort(key=lambda x: -(x["horizons"][1].get("tilt_up_points") if x["horizons"][1].get("tilt_up_points") is not None else -999))
-    res = {"ready": True, "as_of": _label(max(max(L) for L in lv["sectors"].values())), "sectors": out, "validation": validation(),
+    res = {"ready": True, "as_of": _label(max(max(L) for L in lv["sectors"].values())), "sectors": out, "validation": validation(), "scheduled": upcoming.market(90),
            "note": "Odds are how this sector behaved after similar situations, not a prediction. The facts beside them are not blended into the odds."}
     _cache.clear()
     _cache[key] = res
