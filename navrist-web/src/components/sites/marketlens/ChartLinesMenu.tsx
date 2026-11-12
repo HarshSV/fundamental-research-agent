@@ -21,20 +21,15 @@ export interface LineGroup {
 /** The chart's filter: a small button that opens a list of the lines the chart can draw, each switched on or off. Closes on a click elsewhere or Escape. */
 export function ChartLinesMenu({ groups, on, onToggle, onReset, count }: { groups: LineGroup[]; on: Record<string, boolean>; onToggle: (id: string) => void; onReset: () => void; count: number }) {
   const [open, setOpen] = useState(false);
-  const [shown, setShown] = useState(false);
   const [alignRight, setAlignRight] = useState(true);
   const box = useRef<HTMLDivElement>(null);
-  const close = () => {
-    setShown(false);
-    setTimeout(() => setOpen(false), 180);
-  };
+  const close = () => setOpen(false);
   const toggle = () => {
     if (open) return close();
     // open towards the side with room: the button can sit at the left or the right of the controls row
     const r = box.current?.getBoundingClientRect();
     if (r) setAlignRight(r.left + r.width / 2 > window.innerWidth / 2);
     setOpen(true);
-    requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
   };
   useEffect(() => {
     if (!open) return;
@@ -61,37 +56,38 @@ export function ChartLinesMenu({ groups, on, onToggle, onReset, count }: { group
       </button>
       {open && (
         <div
-          className={`absolute bottom-full z-30 mb-2 max-h-[26rem] w-[min(20rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border p-3 text-sm shadow-xl sm:bottom-auto sm:top-full sm:mb-0 sm:mt-2 ${alignRight ? "right-0" : "left-0"}`}
-          style={{ background: "var(--surface-1)", borderColor: "var(--border-default)", opacity: shown ? 1 : 0, transform: shown ? "none" : "translateY(-6px) scale(0.98)", transformOrigin: alignRight ? "top right" : "top left", transition: "opacity 180ms ease, transform 180ms ease" }}
+          className={`menu-pop absolute top-full z-30 mt-2 w-[min(23rem,calc(100vw-2rem))] rounded-lg border p-3 text-sm shadow-xl ${alignRight ? "right-0" : "left-0"}`}
+          style={{ background: "var(--surface-1)", borderColor: "var(--border-default)", transformOrigin: alignRight ? "top right" : "top left" }}
         >
           {groups.map((g) => (
-            <div key={g.title} className="mb-3 last:mb-1">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>{g.title}</div>
-              {g.options.map((o) => {
-                const checked = Boolean(on[o.id]) && !o.disabled;
-                return (
-                  <button
-                    key={o.id}
-                    type="button"
-                    disabled={Boolean(o.disabled)}
-                    onClick={() => onToggle(o.id)}
-                    title={o.disabled}
-                    className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left hover:bg-[var(--overlay-weak)] disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border" style={{ borderColor: checked ? o.color : "var(--border-default)", background: checked ? o.color : "transparent" }}>
-                      {checked && <Check className="h-3 w-3" strokeWidth={3} style={{ color: "#fff" }} aria-hidden />}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span style={{ color: "var(--text-primary)" }}>{o.label}</span>
-                      {(o.disabled || o.hint) && <span className="block text-[11px]" style={{ color: "var(--text-tertiary)" }}>{o.disabled ?? o.hint}</span>}
-                    </span>
-                  </button>
-                );
-              })}
-              {g.note && <p className="mt-1 px-1.5 text-[11px] leading-snug" style={{ color: "var(--text-tertiary)" }}>{g.note}</p>}
+            <div key={g.title} className="mb-2.5">
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>{g.title}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {g.options.map((o) => {
+                  const checked = Boolean(on[o.id]) && !o.disabled;
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      disabled={Boolean(o.disabled)}
+                      aria-pressed={checked}
+                      onClick={() => onToggle(o.id)}
+                      title={o.disabled ?? o.hint}
+                      className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ borderColor: checked ? o.color : "var(--border-default)", background: checked ? `${o.color}26` : "transparent", color: "var(--text-primary)" }}
+                    >
+                      <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full" style={{ background: checked ? o.color : "transparent", border: checked ? "none" : `1.5px solid ${o.color}` }}>
+                        {checked && <Check className="h-2.5 w-2.5" strokeWidth={3} style={{ color: "#fff" }} aria-hidden />}
+                      </span>
+                      {o.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {g.note && <p className="mt-1.5 text-[11px] leading-snug" style={{ color: "var(--text-tertiary)" }}>{g.note}</p>}
             </div>
           ))}
-          <button type="button" onClick={onReset} className="mt-1 w-full rounded-md py-1.5 text-xs underline" style={{ color: "var(--text-secondary)" }}>Back to the default (today&apos;s plan only)</button>
+          <button type="button" onClick={onReset} className="w-full rounded-md py-1 text-xs underline" style={{ color: "var(--text-secondary)" }}>Back to the default (today&apos;s plan only)</button>
         </div>
       )}
     </div>

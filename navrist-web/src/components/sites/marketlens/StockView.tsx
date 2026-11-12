@@ -542,11 +542,11 @@ export function StockView({
         { id: "range", label: "Opening range", hint: "Today's range high and low", color: "#8b8b9a", disabled: has("range") ? undefined : noPlan },
       ],
     },
-    { title: "Price levels", options: [{ id: "wk52", label: "52-week high and low", color: "#f59e0b", disabled: week52 ? undefined : "Not enough history" }] },
+    { title: "Price levels", options: [{ id: "wk52", label: "52-week high/low", color: "#f59e0b", disabled: week52 ? undefined : "Not enough history" }] },
     {
       title: "Moving averages (daily chart)",
-      note: "Dashed = where the average would go if the price follows the middle of the forecast fan.",
-      options: SMA_PERIODS.map((n) => ({ id: `sma${n}`, label: `${n}-day average`, color: SMA_COLORS[n], disabled: isIntraday ? "Switch to a daily range" : !daily || daily.length < n ? "Not enough history" : undefined })),
+      note: "Dashed continuation: where the average goes if the price follows the middle of the forecast.",
+      options: SMA_PERIODS.map((n) => ({ id: `sma${n}`, label: `${n}-day`, color: SMA_COLORS[n], disabled: isIntraday ? "Switch to a daily range" : !daily || daily.length < n ? "Not enough history" : undefined })),
     },
   ];
 
@@ -681,6 +681,9 @@ export function StockView({
                 label="Patterns"
                 title={showPatterns ? "Hide pattern markers" : "Show pattern markers"}
               />
+              <div className="ml-auto">
+                <ChartLinesMenu groups={lineGroups} on={lineOn} onToggle={toggleLine} onReset={() => setLineOn(DEFAULT_LINES)} count={Object.entries(lineOn).filter(([k, v]) => v && !(isIntraday && k.startsWith("sma"))).length} />
+              </div>
               {showPatterns && (
                 <span className="nv-rise text-xs" style={{ color: "var(--text-tertiary)" }}>
                   {patterns !== null
@@ -784,7 +787,6 @@ export function StockView({
             </div>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               {!isIntraday && coneData && <Switch on={showCone} onChange={() => setShowCone((v) => !v)} label="Forecast" title="Shade where the price is likely to be over the next 5 and 20 sessions" />}
-              <ChartLinesMenu groups={lineGroups} on={lineOn} onToggle={toggleLine} onReset={() => setLineOn(DEFAULT_LINES)} count={Object.entries(lineOn).filter(([k, v]) => v && !(isIntraday && k.startsWith("sma"))).length} />
               <Switch on={showVolume} onChange={() => setShowVolume((v) => !v)} label="Volume" />
             </div>
           </div>

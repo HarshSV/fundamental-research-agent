@@ -352,6 +352,11 @@ html:not([data-view]) .hdr-search, [data-view="home"] .hdr-search { display: non
   .pat-glow { animation: none; }
 }
 
+/* small popovers (the chart lines filter) fade and drop in; a CSS animation, so it needs no script to run */
+@keyframes menu-pop { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: none; } }
+.menu-pop { animation: menu-pop 180ms ease both; }
+@media (prefers-reduced-motion: reduce) { .menu-pop { animation: none; } }
+
 /* pattern chips revealed by "More": each rises and fades in, one after another */
 @keyframes chip-in { from { opacity: 0; transform: translateY(10px) scale(0.94); } to { opacity: 1; transform: none; } }
 @keyframes chip-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(10px) scale(0.94); } }
