@@ -32,8 +32,9 @@
 * Overlapping 20-session windows and events in the same month are not independent; the monthly grouping handles most of this, not all.
 * The detectors are untuned; this is a baseline, not a verdict on the ideas.
 
-## What it means for Navrist (not applied yet)
-* The landing-page **top 10 patterns** (Cup & Handle, VCP, Head & Shoulders, Double Bottom, Symmetrical Triangle, Double Top, Ascending Triangle, Inverse H&S, Descending Triangle, Rectangle) came from general reputation, not measurement. By this study, only pocket-pivot, order-block, falling-wedge and undercut-and-rally have a measurable effect, and it is small.
+## What it means for Navrist
+*Applied 2026-11-12: the landing-page chips (`Hero.tsx`, `TOP_PATTERNS`) now lead with pocket-pivot, order-block, falling-wedge and undercut-and-rally, then Cup & Handle, VCP, Double Bottom, High Tight Flag, Triple Bottom and Flat Base; the bearish patterns sit behind "More"; a note under the chips says a confirmed pattern is not a forecast.*
+* The previous landing-page **top 10 patterns** (Cup & Handle, VCP, Head & Shoulders, Double Bottom, Symmetrical Triangle, Double Top, Ascending Triangle, Inverse H&S, Descending Triangle, Rectangle) came from general reputation, not measurement. By this study, only pocket-pivot, order-block, falling-wedge and undercut-and-rally have a measurable effect, and it is small.
 * The pattern pages should say that confirmation is **not** a forecast, and bearish patterns should not be presented as sell signals without a caveat.
 * Next steps: tune detector thresholds on the first half and test them on the second half; add trade-plan (stop and target) simulation; repeat when more history is stored.
 

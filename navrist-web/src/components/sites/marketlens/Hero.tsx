@@ -8,10 +8,12 @@ import type { CatalogueEntry } from "./patterns";
 import { useTyped } from "./typing";
 
 const LONGEST_PHRASE = TYPED_PHRASES.reduce((a, b) => (b.length > a.length ? b : a), "");
-/** The chips shown first on the landing page (5 bullish, 3 bearish, 2 either way); the rest sit behind "More". */
+/** The chips shown first on the landing page; the rest sit behind "More". The first four are the only patterns with a measured, if small,
+ *  average gain after costs (docs/PATTERN_STUDY.md, 100,541 past confirmations); the other six are well known and positive on average but not
+ *  proven. The bearish patterns showed no selling edge in that study, so they are behind "More". */
 const TOP_PATTERNS = [
-  "cup-and-handle", "vcp", "head-and-shoulders", "double-bottom", "symmetrical-triangle",
-  "double-top", "ascending-triangle", "inverse-head-and-shoulders", "descending-triangle", "rectangle",
+  "pocket-pivot", "order-block", "falling-wedge", "undercut-and-rally",
+  "cup-and-handle", "vcp", "double-bottom", "high-tight-flag", "triple-bottom", "flat-base",
 ];
 const BOX_HINTS =["IT Services", "Banks", "Pharmaceuticals", "Tata Steel"];
 
@@ -109,6 +111,10 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
           {patterns.length === 0 && !patternsError && <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>Loading patterns…</span>}
           {patternsError && <span className="text-xs" style={{ color: "#f5a9a9" }}>Could not load patterns: {patternsError}</span>}
         </div>
+        <p className="mx-auto mt-4 max-w-2xl text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+          A confirmed pattern is not a forecast. In a test on about 100,000 past confirmations, only the first four chips showed a small average gain
+          (about 1% over 20 sessions, after costs), and most trades still lost money; the bearish patterns gave no selling edge. Chips are ordered by that test, not by reputation.
+        </p>
       </div>
 
     </div>
