@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { openSearch } from "./searchEvents";
 import { TYPED_PHRASES } from "./data";
@@ -14,17 +14,30 @@ const LONGEST_PHRASE = TYPED_PHRASES.reduce((a, b) => (b.length > a.length ? b :
 const TOP_PATTERNS = [
   "pocket-pivot", "order-block", "falling-wedge", "undercut-and-rally",
   "cup-and-handle", "vcp", "double-bottom",
-  "head-and-shoulders", "double-top", "rising-wedge",      // well-known bearish ones, so the row shows both directions (see the note under the chips)
+  "head-and-shoulders", "double-top",                      // well-known bearish ones, so the row shows both directions
 ];
 const BOX_HINTS =["IT Services", "Banks", "Pharmaceuticals", "Tata Steel"];
 
 export function Hero({ patterns, patternsError, onPattern }: { patterns: CatalogueEntry[]; patternsError: string; onPattern: (id: string) => void }) {
   const typed = useTyped(TYPED_PHRASES);
   const hint = useTyped(BOX_HINTS);
-  const [more, setMore] = useState(false);
+  // "closed" -> "open" (the rest rise in) -> "closing" (they sink out, last first) -> "closed"
+  const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const toggle = () => {
+    if (timer.current) clearTimeout(timer.current);
+    if (phase === "open") {
+      setPhase("closing");
+      timer.current = setTimeout(() => setPhase("closed"), 760);
+    } else {
+      setPhase("open");
+    }
+  };
   // the first ten in their set order, then (after "More") the rest in catalogue order
   const first = TOP_PATTERNS.map((id) => patterns.find((p) => p.id === id)).filter((p): p is CatalogueEntry => Boolean(p));
-  const ordered = more ? [...first, ...patterns.filter((p) => !TOP_PATTERNS.includes(p.id))] : first;
+  const rest = patterns.filter((p) => !TOP_PATTERNS.includes(p.id));
+  const ordered = phase === "closed" ? first : [...first, ...rest];
 
   return (
     <div
@@ -90,7 +103,11 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
         </div>
         <div className="mx-auto grid max-w-4xl grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-5">
           {ordered.map((p, i) => (
-            <div key={p.id} className={i >= TOP_PATTERNS.length ? "chip-in" : undefined} style={i >= TOP_PATTERNS.length ? { animationDelay: `${Math.min((i - TOP_PATTERNS.length) * 40, 600)}ms` } : undefined}>
+            <div
+              key={p.id}
+              className={i >= first.length ? (phase === "closing" ? "chip-out" : "chip-in") : undefined}
+              style={i >= first.length ? { animationDelay: `${phase === "closing" ? Math.min((ordered.length - 1 - i) * 22, 400) : Math.min((i - first.length) * 40, 600)}ms` } : undefined}
+            >
               <span className={`pat-glow pat-glow-${p.bias ?? "both"} w-full`} style={{ ["--pat-delay" as string]: `${-((i * 0.7) % 4.5)}s` }}>
                 <button
                   onClick={() => onPattern(p.id)}
@@ -106,21 +123,17 @@ export function Hero({ patterns, patternsError, onPattern }: { patterns: Catalog
           {patterns.length > TOP_PATTERNS.length && (
             <button
               type="button"
-              onClick={() => setMore((v) => !v)}
-              aria-expanded={more}
+              onClick={toggle}
+              aria-expanded={phase === "open"}
               className="flex min-h-[40px] w-full items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-[var(--overlay)]"
               style={{ color: "var(--accent)", border: "1px dashed var(--border-default)" }}
             >
-              {more ? "Less" : `More (${patterns.length - TOP_PATTERNS.length})`}
+              {phase === "open" ? "Less" : `More (${rest.length})`}
             </button>
           )}
           {patterns.length === 0 && !patternsError && <span className="col-span-full text-xs" style={{ color: "var(--text-tertiary)" }}>Loading patterns…</span>}
           {patternsError && <span className="col-span-full text-xs" style={{ color: "#f5a9a9" }}>Could not load patterns: {patternsError}</span>}
         </div>
-        <p className="mx-auto mt-4 max-w-2xl text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-          A confirmed pattern is not a forecast. In a test on about 100,000 past confirmations, only the first four chips showed a small average gain
-          (about 1% over 20 sessions, after costs), and most trades still lost money; the bearish patterns gave no selling edge. Chips are ordered by that test, not by reputation.
-        </p>
       </div>
 
     </div>
