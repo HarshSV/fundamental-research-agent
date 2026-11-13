@@ -68,5 +68,5 @@
 | Feature | What you see | Source |
 |---|---|---|
 | Watchlist | Stars, notes, priorities, share | Browser |
-| Journal | Trade log, statistics, CSV | Browser |
+| Journal (hidden from the top bar for now) | Trade log, statistics, CSV | Browser |
 | Alerts | Entry, stop, target, 15:25 exit; Telegram optional | Own |

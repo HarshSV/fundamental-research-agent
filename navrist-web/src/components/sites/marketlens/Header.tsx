@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, BookOpen, ChevronDown, Menu, Moon, Search, SlidersHorizontal, Star, Sun, X } from "lucide-react";
+import { BarChart3, ChevronDown, Menu, Moon, Search, SlidersHorizontal, Star, Sun, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { SlidingTabs } from "./controls";
 import { OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
@@ -141,10 +141,9 @@ const MENUS: Menu[] = [
   },
 ];
 
-/** Top-level links without a dropdown, as on ChartsMaze: the watchlist and the trade journal */
+/** Top-level links without a dropdown, as on ChartsMaze: the watchlist (the trade journal link was removed for now) */
 const DIRECT: { label: string; icon: typeof Star; run: () => void }[] = [
   { label: "Watchlist", icon: Star, run: () => navigateTo({ type: "watchlist" }) },
-  { label: "Journal", icon: BookOpen, run: () => navigateTo({ type: "journal" }) },
 ];
 
 function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; onToggle: () => void; onPick: (i: Item) => void }) {
