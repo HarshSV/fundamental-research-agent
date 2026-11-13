@@ -117,7 +117,7 @@ interface Col { id: string; label: string; q: Quarter | null; fcf: number | null
 
 /** Last four reported quarters, newest first (as on the exchange's page). Amounts in ₹ Lakhs; hover a quarter for
  *  its exact figures. A quarter whose value is unavailable draws no bar and reads "—" in the tooltip. */
-export function QuarterlyResults({ quarters, tab, onTab, standalone = false, symbol, fromYahoo = false, periodMonths = null }: { quarters: Quarter[]; tab: FinTab; onTab: (t: FinTab) => void; standalone?: boolean; symbol?: string; fromYahoo?: boolean; periodMonths?: number | null }) {
+export function QuarterlyResults({ quarters, tab, onTab, symbol }: { quarters: Quarter[]; tab: FinTab; onTab: (t: FinTab) => void; symbol?: string }) {
   const [hover, setHover] = useState<number | null>(null);
   // the tapped block: its figures open in a panel under the chart (a tab or symbol change closes it)
   const [pin, setPin] = useState<{ key: string; i: number } | null>(null);
@@ -290,9 +290,6 @@ export function QuarterlyResults({ quarters, tab, onTab, standalone = false, sym
       {pinned !== null && last[pinned] && (
         <BlockDetail tab={tab} col={last[pinned]} quarters={quarters} fcfRows={fcfNow?.data?.rows ?? []} fcfByYear={fcfByYear} onClose={() => setPin(null)} />
       )}
-      <p className="mt-6 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-        {fromYahoo ? "Quarterly results from Yahoo Finance (the accounting basis is not stated; Screener.in could not be reached just now, so they are replaced by Screener.in's figures when it can)." : <>{standalone ? "Standalone results (this company reports no consolidated accounts)" : "Consolidated results (parent plus subsidiaries)"}, {tab === "fcf" ? "latest four financial years, newest first. Free cash flow is cash from operations less the fixed assets purchased, as Screener.in defines it; it is reported once a year." : `latest four ${periodMonths === 6 ? "half-years (this company reports half-yearly)" : periodMonths === 12 ? "financial years" : "quarters"}, newest first. PAT is the profit after tax Screener.in reports as net profit.`}{tab === "results" ? " Free cash flow is reported once a year, so its bar sits on the March quarter and the other quarters have none." : ""} Source: Screener.in.</>}
-      </p>
     </div>
   );
 }

@@ -971,7 +971,7 @@ export function StockView({
           </Card>
           <Card className="p-4 sm:p-6">
             <SectionTitle>{finTab === "results" || finTab === "pat" ? "Financial Result (Amount in ₹ Lakhs)" : finTab === "fcf" ? "Financial Result (Amount in ₹ Crore)" : "Financial Result"}</SectionTitle>
-            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} tab={finTab} onTab={setFinTab} standalone={overview.basis === "standalone"} symbol={sym} fromYahoo={overview.source === "yahoo"} periodMonths={overview.period_months ?? null} /> : <Unavailable what="Quarterly financial results" />}
+            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} tab={finTab} onTab={setFinTab} symbol={sym} /> : <Unavailable what="Quarterly financial results" />}
           </Card>
         </div>
       </section>
@@ -991,12 +991,12 @@ export function StockView({
               <PeerTable peers={overview.peers} current={stock.symbol} onSelect={onOpenStock ? openPeer : undefined} />
               {overview.peers_source === "mixed" && (
                 <p className="mt-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
-                  Screener.in has no peer table for this company, so these are companies that {overview.peers_used?.length ? overview.peers_used.join(", ") : "several sources"} group with it, those that more sources agree on first and then closest in market cap. ROCE is Screener.in's where we have read it, otherwise worked out from Yahoo's latest annual statements (EBIT over total assets less current liabilities); a dash means neither is available.
+                  Screener.in has no peer table for this company, so these are companies that {overview.peers_used?.length ? overview.peers_used.join(", ") : "several sources"} group with it, those that more sources agree on first and then closest in market cap. ROCE is Screener.in&apos;s where we have read it, otherwise worked out from Yahoo&apos;s latest annual statements (EBIT over total assets less current liabilities); a dash means neither is available.
                 </p>
               )}
               {overview.peers_source === "sector" && (
                 <p className="mt-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
-                  Screener.in has no peer table for this company, so these are companies in the same NSE sector closest in market cap. ROCE is Screener.in's where we have read it, otherwise worked out from Yahoo's latest annual statements; a dash means neither is available.
+                  Screener.in has no peer table for this company, so these are companies in the same NSE sector closest in market cap. ROCE is Screener.in&apos;s where we have read it, otherwise worked out from Yahoo&apos;s latest annual statements; a dash means neither is available.
                 </p>
               )}
             </>

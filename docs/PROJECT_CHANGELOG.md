@@ -99,6 +99,9 @@ Sankey -> icicle diagrams, multi-year comparison, segment-revenue extraction and
 ### 2026-10-09 - Documentation pass (this change set)
 * Added `PROJECT_DOCUMENTATION.md`, `docs/FINANCIAL_RATIO_AUDIT.md`, `docs/PROJECT_CHANGELOG.md`; no application code changed. Findings recorded as new open issues: **M-13** Bharti Airtel DPS 0 `verified`, **M-14** unextracted bank balances as 0, **M-15** broken `tests/final_validation.py`, **M-18** password in history, **M-19** live price for historical years.
 
+### 2026-11-13 - Results footnote removed from the stock page
+* *Change:* at the owner's request the grey note under the Financial Result chart ("Consolidated results (parent plus subsidiaries), latest four quarters... Source: Screener.in.", and its Yahoo and half-yearly variants) was removed (`OverviewSections.tsx`; the now-unused props were dropped from `QuarterlyResults`). The basis and source of the figures are therefore no longer stated on the page; they remain in the documentation (B.20).
+
 ### 2026-11-13 - Popular Screens removed from the front page; EPS TTM and live-quote fixes
 * *Change:* the "Popular Screens" section under the pattern chips on the landing page was removed at the owner's request (`HomeScreen.tsx`; the `PopularScreens.tsx` component and the screen-detail page are left in the code, unused from the front page). Same day: period-aware EPS (TTM) for half-yearly reporters, a live quote outside its own day range is not believed, and `tools/uuid_utils_fallback.py` keeps the backend starting while Windows Application Control blocks `uuid_utils` (see [B.20](../PROJECT_DOCUMENTATION.md#b20-stage-19---every-bse-listed-company-2026-11-12), M-40).
 
