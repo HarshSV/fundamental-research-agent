@@ -99,6 +99,9 @@ Sankey -> icicle diagrams, multi-year comparison, segment-revenue extraction and
 ### 2026-10-09 - Documentation pass (this change set)
 * Added `PROJECT_DOCUMENTATION.md`, `docs/FINANCIAL_RATIO_AUDIT.md`, `docs/PROJECT_CHANGELOG.md`; no application code changed. Findings recorded as new open issues: **M-13** Bharti Airtel DPS 0 `verified`, **M-14** unextracted bank balances as 0, **M-15** broken `tests/final_validation.py`, **M-18** password in history, **M-19** live price for historical years.
 
+### 2026-11-13 - Chart patterns listed in the Screeners menu, shaded by direction
+* *Change:* the Screeners menu has a new rail group **Chart Patterns** that lists all 32 patterns from the catalogue (`/api/v1/patterns/catalogue`), shaded green (19 bullish), red (7 bearish) and grey (6 either way) like the home-page chips, bullish first; picking one opens that pattern's scan (`navigateTo({type: "scanner", id})`, the same as tapping its chip). The same list is in the phone drawer. The old "Chart Patterns" link, which scrolls the home page to the chips, is kept and renamed "Patterns on the Home Page" (`Header.tsx`). The long list scrolls inside the menu.
+
 ### 2026-11-13 - Tools menu hidden
 * *Change:* at the owner's request the **Tools** menu (Results Calendar, Order Wins, Past Winners, Recent IPOs, Circuit Revision List, ASM List, Bulk Deals, Block Deals) was removed from the top bar and the phone drawer for now (`Header.tsx`, the `MENUS` entry only). The pages and their backend feeds are unchanged and can be put back by restoring that entry. Same day: filter searches no longer time out (about 2 s instead of 42 s) and an inside bar must have actually traded.
 

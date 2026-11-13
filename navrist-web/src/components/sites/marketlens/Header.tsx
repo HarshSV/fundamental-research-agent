@@ -1,9 +1,10 @@
 "use client";
 
 import { BarChart3, BookOpen, ChevronDown, Menu, Moon, Search, SlidersHorizontal, Star, Sun, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { SlidingTabs } from "./controls";
 import { OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
+import { fetchCatalogue } from "./patterns";
 import { navigateTo, type FeedName } from "./scanners";
 import { Ticker } from "./Ticker";
 
@@ -32,8 +33,18 @@ function toggleTheme() {
 interface Item {
   label: string;
   hint?: string;
+  /** A chart pattern's direction: its row is shaded green (bullish), red (bearish) or grey (either way), as on the home page. */
+  bias?: "bullish" | "bearish" | "both";
   run: () => void;
 }
+
+const BIAS_STYLE = {
+  bullish: { color: "#10b981", bg: "rgba(16,185,129,.14)", label: "Bullish" },
+  bearish: { color: "#ef4444", bg: "rgba(239,68,68,.14)", label: "Bearish" },
+  both: { color: "#9ca3af", bg: "rgba(156,163,175,.16)", label: "Either direction" },
+} as const;
+const biasStyle = (it: Item): CSSProperties | undefined =>
+  it.bias ? { background: BIAS_STYLE[it.bias].bg, borderLeft: `3px solid ${BIAS_STYLE[it.bias].color}` } : undefined;
 interface Group {
   title: string;
   items: Item[];
@@ -60,7 +71,7 @@ const MENUS: Menu[] = [
           { label: "Create Screener", hint: "Your own rules: technicals, patterns, fundamentals", run: () => window.dispatchEvent(new Event(OPEN_SCREENER_EVENT)) },
           { label: "Multiple Scans", hint: "Stocks that appear in all the scanners you pick", run: () => navigateTo({ type: "multi" }) },
           { label: "Horizontal Resistance", hint: "Price pressing on a level three highs have touched", run: scanner("horizontal-resistance") },
-          { label: "Chart Patterns", hint: "VCP, flags, cup & handle, double bottom and more", run: () => navigateTo({ type: "home", scroll: "patterns" }) },
+          { label: "Patterns on the Home Page", hint: "The pattern chips, with the screens behind them", run: () => navigateTo({ type: "home", scroll: "patterns" }) },
         ],
       },
       {
@@ -177,7 +188,7 @@ function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; 
                   </button>
                 ))}
               </div>
-              <ul className="min-w-0 flex-1 space-y-0.5">
+              <ul className="min-w-0 flex-1 space-y-0.5 overflow-y-auto pr-1" style={{ maxHeight: "min(62vh, 440px)" }}>
                 {menu.groups[Math.min(active, menu.groups.length - 1)].items.map((it) => (
                   <li key={it.label}>
                     <button
@@ -185,7 +196,8 @@ function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; 
                       role="menuitem"
                       onClick={() => onPick(it)}
                       className="block w-full rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-[var(--overlay-weak)] hover:text-[var(--accent)]"
-                      style={{ color: "var(--text-primary)" }}
+                      style={{ color: "var(--text-primary)", ...biasStyle(it) }}
+                      title={it.bias ? BIAS_STYLE[it.bias].label : undefined}
                     >
                       {it.label}
                       {it.hint && <span className="mt-0.5 block text-[11px] font-normal leading-snug" style={{ color: "var(--text-tertiary)" }}>{it.hint}</span>}
@@ -205,7 +217,8 @@ function NavMenu({ menu, open, onToggle, onPick }: { menu: Menu; open: boolean; 
                       role="menuitem"
                       onClick={() => onPick(it)}
                       className="block w-full rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-[var(--overlay-weak)] hover:text-[var(--accent)]"
-                      style={{ color: "var(--text-primary)" }}
+                      style={{ color: "var(--text-primary)", ...biasStyle(it) }}
+                      title={it.bias ? BIAS_STYLE[it.bias].label : undefined}
                     >
                       {it.label}
                       {it.hint && <span className="mt-0.5 block text-[11px] font-normal leading-snug" style={{ color: "var(--text-tertiary)" }}>{it.hint}</span>}
@@ -236,6 +249,27 @@ export function Header() {
     return () => clearTimeout(t);
   }, [drawer]);
   const [section, setSection] = useState<string | null>("screeners");
+  // every chart pattern, shaded by direction, as a group of the Screeners menu; each opens that pattern's scan
+  const [patternItems, setPatternItems] = useState<Item[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetchCatalogue()
+      .then((cat) => {
+        if (!alive) return;
+        const rank = { bullish: 0, bearish: 1, both: 2 } as const;
+        setPatternItems(
+          Object.values(cat)
+            .map((p): Item => ({ label: p.name, bias: p.bias ?? "both", run: () => navigateTo({ type: "scanner", id: p.id }) }))
+            .sort((a, b) => rank[a.bias ?? "both"] - rank[b.bias ?? "both"] || a.label.localeCompare(b.label)),
+        );
+      })
+      .catch(() => { /* the menu simply has no pattern list until the catalogue loads */ });
+    return () => { alive = false; };
+  }, []);
+  const menus = useMemo(
+    () => MENUS.map((m) => (m.id === "screeners" && patternItems.length ? { ...m, groups: [...m.groups, { title: "Chart Patterns", items: patternItems }] } : m)),
+    [patternItems],
+  );
   const bar = useRef<HTMLDivElement>(null);
 
   const pick = useCallback((it: Item) => {
@@ -322,7 +356,7 @@ export function Header() {
           </a>
           {/* desktop: the top menu, just beside the logo */}
           <nav className="ml-2 hidden items-center gap-1 lg:flex" aria-label="Main">
-            {MENUS.map((m) => (
+            {menus.map((m) => (
               <NavMenu key={m.id} menu={m} open={menu === m.id} onToggle={() => setMenu((x) => (x === m.id ? null : m.id))} onPick={pick} />
             ))}
             {DIRECT.map((d) => (
@@ -377,7 +411,7 @@ export function Header() {
                   <d.icon className="h-4 w-4" style={{ color: "var(--accent)" }} /> {d.label}
                 </button>
               ))}
-              {MENUS.map((m) => (
+              {menus.map((m) => (
                 <div key={m.id} className="mb-1">
                   <button
                     type="button"
@@ -395,7 +429,7 @@ export function Header() {
                         <div key={g.title} className="mb-1">
                           <div className="menu-heading mx-3 mt-2 text-[11px] uppercase">{g.title}</div>
                           {g.items.map((it) => (
-                            <button key={it.label} type="button" onClick={() => pick(it)} className="flex min-h-[44px] w-full items-center rounded-lg px-3 text-left text-sm hover:bg-[var(--overlay-weak)]" style={{ color: "var(--text-secondary)" }}>
+                            <button key={it.label} type="button" onClick={() => pick(it)} className="flex min-h-[44px] w-full items-center rounded-lg px-3 text-left text-sm hover:bg-[var(--overlay-weak)]" style={{ color: "var(--text-secondary)", ...biasStyle(it) }}>
                               {it.label}
                             </button>
                           ))}
