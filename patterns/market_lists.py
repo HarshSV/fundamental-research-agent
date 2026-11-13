@@ -26,7 +26,12 @@ def _num(v) -> bool:
 
 
 def _bars(r: dict) -> list:
-    return [c for c in (r.get("candles") or []) if len(c) >= 6 and all(_num(x) for x in c[:6])]
+    """The row's valid daily bars. Kept on the row object: every scanner and measure asks for them (several times per stock, for about
+    3,000 stocks, on every search), and rows are shared between refreshes, so this is worked out once per stock and not per search."""
+    b = r.get("_bars")
+    if b is None:
+        b = r["_bars"] = [c for c in (r.get("candles") or []) if len(c) >= 6 and all(_num(x) for x in c[:6])]
+    return b
 
 
 def _pct(a: float, b: float):
@@ -260,6 +265,9 @@ def annotate(rows: dict) -> None:
             v = r.get(src)
             r[key] = None if not _num(v) or n < 2 else int(round(1 + 98 * bisect.bisect_left(vals, v) / (n - 1)))
     for r in rows.values():
+        if r.get("_ann"):                    # this row object was annotated already (rows are shared between refreshes): skip the heavy part
+            continue
+        r["_ann"] = True
         b = _bars(r)
         vr = _volume_ratio(r)
         r["rvol"] = round(vr[0], 2) if vr else None

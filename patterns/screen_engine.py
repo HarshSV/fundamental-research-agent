@@ -6,6 +6,7 @@ value is unknown - an unknown value is not treated as zero."""
 from __future__ import annotations
 
 import time
+import math
 import statistics
 from collections import Counter
 from datetime import datetime, timezone
@@ -123,8 +124,9 @@ def _zscore(series: list[float], w: int) -> list[float]:
     out = []
     for i in range(w - 1, len(series)):
         win = series[i - w + 1:i + 1]
-        sd = statistics.pstdev(win)
-        out.append(100.0 + (series[i] - statistics.fmean(win)) / sd if sd else 100.0)
+        m = math.fsum(win) / w
+        sd = math.sqrt(math.fsum((x - m) * (x - m) for x in win) / w)     # population standard deviation (statistics.pstdev used exact fractions: 100x slower)
+        out.append(100.0 + (series[i] - m) / sd if sd else 100.0)
     return out
 
 
@@ -139,9 +141,10 @@ def rrg_quadrants(rows: dict, timeframe: str = "daily", benchmark: str = "nifty5
     bench = scan.benchmarks().get(benchmark)
     if not bench:
         return {}
-    key = (id(rows), len(rows), timeframe, benchmark, bench[-1][0], trail, group)
-    if key in _rrg_cache:
-        return _rrg_cache[key]
+    key = (len(rows), timeframe, benchmark, bench[-1][0], trail, group)
+    hit = _rrg_cache.get(key)
+    if hit and time.time() - hit[0] < 300:        # the rows are re-read while a rescan runs: do not recompute the rotation for each one
+        return hit[1]
     bdays = {_day(t): c for t, c in bench}
     sums: dict = {}
     for r in rows.values():
@@ -177,8 +180,9 @@ def rrg_quadrants(rows: dict, timeframe: str = "daily", benchmark: str = "nifty5
                        "ratio": round(a, 2), "momentum": round(m, 2)}
         if trail:                                      # the last `trail` (ratio, momentum) points: the sector's path on the rotation graph
             out[sector]["trail"] = [[round(x, 2), round(y, 2)] for x, y in zip(ratio[-trail:], mom[-trail:])]
-    _rrg_cache.clear()
-    _rrg_cache[key] = out
+    _rrg_cache[key] = (time.time(), out)
+    for k in [k for k, v in _rrg_cache.items() if time.time() - v[0] > 900]:
+        del _rrg_cache[k]
     return out
 
 

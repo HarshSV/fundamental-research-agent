@@ -352,17 +352,17 @@ def _load_all() -> dict:
     try:
         files = [f for f in os.listdir(SYMBOL_DIR) if f.endswith(".json")]
         stamp = (len(files), max((os.path.getmtime(os.path.join(SYMBOL_DIR, f)) for f in files), default=0.0),
-                 os.path.getmtime(FUNDAMENTALS_FILE) if os.path.exists(FUNDAMENTALS_FILE) else 0.0)
+                 )
     except FileNotFoundError:
         return {}
     if stamp == _mem["stamp"]:
-        _overlay_yahoo(_mem["rows"])          # cheap: only the Yahoo figures may have changed (the collector saves every few seconds)
+        _overlay(_mem["rows"])          # cheap: only the fundamentals (Screener builds, Yahoo collector) may have changed
         return _mem["rows"]
     # One rebuild at a time: a stock page asks for the rows from several requests at once, and each of them used to redo the whole
     # join of ~3,000 files (4 seconds each) in parallel. The others wait for the first and reuse its result.
     with _build_lock:
         if stamp == _mem["stamp"]:
-            _overlay_yahoo(_mem["rows"])
+            _overlay(_mem["rows"])
             return _mem["rows"]
         return _rebuild_rows(files, stamp)
 
@@ -371,67 +371,84 @@ _build_lock = threading.Lock()
 
 
 def _rebuild_rows(files: list, stamp: tuple) -> dict:
-    funda = _fundamentals()
-    rows = {}
+    """Bring the row table up to date with the per-stock files. The first call reads all ~3,000 of them (about 8 seconds); after that only
+    the files whose modification time changed are read again. A background rescan rewrites a few files every few seconds, and re-reading all
+    of them each time (28 seconds under load) made every filter search time out. A NEW dict is built each time (a search may be iterating
+    the old one), but the unchanged row objects are shared, so their annotations are kept. The fundamentals are laid over afterwards by
+    `_overlay`."""
+    old = _mem["rows"] or {}
+    fm = dict(_mem.get("fm") or {})
+    rows = dict(old)
+    present, changed = set(), False
     for f in files:
+        present.add(f)
+        try:
+            mt = os.path.getmtime(os.path.join(SYMBOL_DIR, f))
+        except OSError:
+            continue
+        sym = f[:-5]
+        if fm.get(f) == mt and sym in rows:
+            continue
         try:
             with open(os.path.join(SYMBOL_DIR, f), encoding="utf-8") as fh:
                 r = json.load(fh)
         except Exception:
             continue
-        fd = funda.get(r["symbol"]) or {}
-        r["_scr_ok"] = bool(fd.get("fund_ok"))
-        r["fund_at"] = fd.get("fund_at") if isinstance(fd.get("fund_at"), (int, float)) else None
-        r["fund_src"] = fd.get("fund_src")
-        for k in ("pe", "eps", "eps_growth", "debt_equity", "promoter", "div_yield", "payout", "net_profit_cr", "volatility"):
-            v = fd.get(k)
-            r[k] = v if isinstance(v, (int, float)) else None
-        from screens.metrics import is_financial
-        if is_financial(r.get("sector")):
-            r["debt_equity"] = None
-        r["free_float"] = (100.0 - r["promoter"]) if isinstance(r.get("promoter"), (int, float)) else None
         rows[r["symbol"]] = r
-    raws = sorted(r["rs_raw"] for r in rows.values() if isinstance(r.get("rs_raw"), (int, float)))
-    for r in rows.values():                      # RS rating 1-99: where the stock's performance ranks among all scanned stocks
-        v = r.get("rs_raw")
-        if isinstance(v, (int, float)) and len(raws) > 1:
-            import bisect
-            r["rs"] = max(1, min(99, round(bisect.bisect_left(raws, v) / (len(raws) - 1) * 98 + 1)))
-        else:
-            r["rs"] = None
+        fm[f] = mt
+        changed = True
+    for f in [f for f in fm if f not in present]:
+        rows.pop(f[:-5], None)
+        fm.pop(f, None)
+        changed = True
+    if changed or not old:
+        raws = sorted(r["rs_raw"] for r in rows.values() if isinstance(r.get("rs_raw"), (int, float)))
+        for r in rows.values():                      # RS rating 1-99: where the stock's performance ranks among all scanned stocks
+            v = r.get("rs_raw")
+            if isinstance(v, (int, float)) and len(raws) > 1:
+                import bisect
+                r["rs"] = max(1, min(99, round(bisect.bisect_left(raws, v) / (len(raws) - 1) * 98 + 1)))
+            else:
+                r["rs"] = None
+    _mem["fm"] = fm
     _mem["stamp"], _mem["rows"], _mem["at"] = stamp, rows, time.monotonic()
-    _mem["ystamp"] = None
-    _overlay_yahoo(rows)
+    _mem["ostamp"] = None
+    _overlay(rows)
     return rows
 
 
-def _overlay_yahoo(rows: dict) -> None:
-    """For a stock with no usable Screener fundamentals row (Screener rate-limits us, so most BSE-only companies have none yet), use Yahoo's
-    headline figures from tools/yahoo_industry.py, marked as Yahoo's. A figure Yahoo does not give stays None and never matches a filter.
-    Cheap (one pass over the rows), and redone only when the Yahoo file changed: the heavy join of ~3,000 files does not depend on it."""
+def _overlay(rows: dict) -> None:
+    """Lay the fundamentals over the rows: Screener's row (data/screens/universe.json) where it has a usable one, else Yahoo's headline
+    figures from tools/yahoo_industry.py, marked as Yahoo's (Screener rate-limits us, so most BSE-only companies have no Screener row yet).
+    A figure that is not given stays None and never matches a filter. One cheap pass over the rows, redone only when either file changed."""
     try:
+        fmt = os.path.getmtime(FUNDAMENTALS_FILE) if os.path.exists(FUNDAMENTALS_FILE) else 0.0
         ymt = os.path.getmtime(YAHOO_FUND_FILE) if os.path.exists(YAHOO_FUND_FILE) else 0.0
-        if _mem.get("ystamp") == ymt:
+        if _mem.get("ostamp") == (fmt, ymt):
             return
         from tools import yahoo_industry
         from screens.metrics import is_financial
+        funda = _fundamentals()
         yd = yahoo_industry.load()
         for r in rows.values():
-            if r.get("_scr_ok"):
-                continue
-            rec = yd.get(r["symbol"]) or {}
-            yf_ = rec.get("fund") or {}
-            if not yf_:
-                continue
-            r["fund_at"] = rec.get("at") if isinstance(rec.get("at"), (int, float)) else None
-            r["fund_src"] = "yahoo"
-            for k in ("pe", "eps", "debt_equity", "promoter", "div_yield"):
-                v = yf_.get(k)
+            sym = r["symbol"]
+            fd = funda.get(sym) or {}
+            r["_scr_ok"] = bool(fd.get("fund_ok"))
+            if not r["_scr_ok"]:
+                rec = yd.get(sym) or {}
+                yf_ = rec.get("fund") or {}
+                if yf_:
+                    fd = {"pe": yf_.get("pe"), "eps": yf_.get("eps"), "debt_equity": yf_.get("debt_equity"), "promoter": yf_.get("promoter"),
+                          "div_yield": yf_.get("div_yield"), "fund_at": rec.get("at"), "fund_src": "yahoo"}
+            r["fund_at"] = fd.get("fund_at") if isinstance(fd.get("fund_at"), (int, float)) else None
+            r["fund_src"] = fd.get("fund_src")
+            for k in ("pe", "eps", "eps_growth", "debt_equity", "promoter", "div_yield", "payout", "net_profit_cr", "volatility"):
+                v = fd.get(k)
                 r[k] = v if isinstance(v, (int, float)) else None
             if is_financial(r.get("sector")):
                 r["debt_equity"] = None
             r["free_float"] = (100.0 - r["promoter"]) if isinstance(r.get("promoter"), (int, float)) else None
-        _mem["ystamp"] = ymt
+        _mem["ostamp"] = (fmt, ymt)
     except Exception:
         pass
 
