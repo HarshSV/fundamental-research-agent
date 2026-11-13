@@ -134,7 +134,9 @@ def _inside_bar(r, weekly=False, filtered=False):
         if len(b) < 2:
             return None
         ph, pl, h, l = b[-2][2], b[-2][3], b[-1][2], b[-1][3]
-    if not (h <= ph and l >= pl) or ph <= pl:
+        if not (b[-1][5] > 0):             # nothing traded in the latest session (an illiquid stock's flat, filled-in bar): not an inside bar
+            return None
+    if not (h <= ph and l >= pl) or ph <= pl or h <= l:       # h <= l: a bar with no range at all is not "inside" anything
         return None
     ratio = (h - l) / (ph - pl) * 100.0
     if filtered:                     # the "filtered" variant: only a clearly narrower bar, in an uptrend
