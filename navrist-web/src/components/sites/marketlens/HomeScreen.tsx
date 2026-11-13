@@ -16,7 +16,6 @@ import { PatternFilterModal } from "./PatternFilterModal";
 import { PatternScanPage } from "./PatternScanPage";
 import { fetchCatalogue, type CatalogueEntry } from "./patterns";
 import { RESISTANCE_ID, SCREENER_ID, emptyFilters, fetchScanOptions, loadSaved, withDefaults, type ScanContext, type ScanFilters, type ScanOptions } from "./patternScan";
-import { PopularScreens } from "./PopularScreens";
 import {
   fetchScreen, fetchSector, fetchSectors, type ScreenResult, type SectorInfo, type SectorResult,
 } from "./screens";
@@ -246,9 +245,6 @@ export function HomeScreen() {
     : (
       <>
         <Hero patterns={catalogue} patternsError={patternsError} onPattern={openPattern} />
-        <div className="mx-auto w-full max-w-7xl px-4 py-10">
-          <PopularScreens onOpen={(id) => push({ kind: "screen", id })} />
-        </div>
       </>
     );
   return (
