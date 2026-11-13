@@ -99,6 +99,9 @@ Sankey -> icicle diagrams, multi-year comparison, segment-revenue extraction and
 ### 2026-10-09 - Documentation pass (this change set)
 * Added `PROJECT_DOCUMENTATION.md`, `docs/FINANCIAL_RATIO_AUDIT.md`, `docs/PROJECT_CHANGELOG.md`; no application code changed. Findings recorded as new open issues: **M-13** Bharti Airtel DPS 0 `verified`, **M-14** unextracted bank balances as 0, **M-15** broken `tests/final_validation.py`, **M-18** password in history, **M-19** live price for historical years.
 
+### 2026-11-13 - Tools menu hidden
+* *Change:* at the owner's request the **Tools** menu (Results Calendar, Order Wins, Past Winners, Recent IPOs, Circuit Revision List, ASM List, Bulk Deals, Block Deals) was removed from the top bar and the phone drawer for now (`Header.tsx`, the `MENUS` entry only). The pages and their backend feeds are unchanged and can be put back by restoring that entry. Same day: filter searches no longer time out (about 2 s instead of 42 s) and an inside bar must have actually traded.
+
 ### 2026-11-13 - Free cash flow: no more "could not be read right now" for companies like Infosys
 * *Historical:* the FCF tab depended on a live Screener read; during a Screener rate limit (HTTP 429) it retried for about 15 seconds, timed out and showed "could not be read right now". *Change:* `tools/screener_fcf.py` keeps figures 7 days, saves FCF from every full Screener read, serves the last saved copy on failure, never waits on a paused Screener, falls back to Yahoo's annual Free Cash Flow when it is in rupees, and reports `read_failed` so the page retries and words the message correctly (`setups/api.py`, `OverviewSections.tsx`); `python -m tools.screener_fcf` warms the NSE companies. *Current:* 12 of 12 large companies read; a Screener pause no longer blanks the tab. *Unresolved:* BSE-only companies are filled as their pages are read or by Yahoo (M-39).
 

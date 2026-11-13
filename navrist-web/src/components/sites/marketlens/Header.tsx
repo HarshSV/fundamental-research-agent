@@ -128,30 +128,6 @@ const MENUS: Menu[] = [
       },
     ],
   },
-  {
-    id: "tools",
-    label: "Tools",
-    groups: [
-      {
-        title: "Results and winners",
-        items: [
-          { label: "Results Calendar", hint: "Who filed, who is due", run: feed("results-calendar") },
-          { label: "Order Wins", hint: "Order and contract announcements", run: feed("order-wins") },
-          { label: "Past Winners", hint: "The best of each year", run: feed("past-winners") },
-          { label: "Recent IPOs", hint: "Everything listed in the last year", run: feed("recent-ipos") },
-        ],
-      },
-      {
-        title: "Exchange lists",
-        items: [
-          { label: "Circuit Revision List", hint: "Price-band changes", run: feed("circuit-revisions") },
-          { label: "ASM List", hint: "Additional surveillance", run: feed("asm") },
-          { label: "Bulk Deals", run: feed("deals", "bulk") },
-          { label: "Block Deals", run: feed("deals", "block") },
-        ],
-      },
-    ],
-  },
 ];
 
 /** Top-level links without a dropdown, as on ChartsMaze: the watchlist and the trade journal */

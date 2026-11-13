@@ -51,7 +51,7 @@
 | Sector Indices | All NSE indices | NSE |
 | Top Gainers / Losers | The day's movers | Own |
 
-## 4. Tools
+## 4. Tools (hidden from the menu for now, 13 Nov 2026)
 
 | Feature | What you see | Source |
 |---|---|---|
