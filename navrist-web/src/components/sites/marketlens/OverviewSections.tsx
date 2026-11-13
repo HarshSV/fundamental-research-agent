@@ -110,7 +110,7 @@ function dayLabel(p: string) {
 
 export type FinTab = "results" | "pat" | "eps" | "fcf";
 
-interface FcfData { available: boolean; basis?: string; rows: { period: string; fcf_cr: number | null; cfo_cr: number | null }[] }
+interface FcfData { available: boolean; read_failed?: boolean; basis?: string; rows: { period: string; fcf_cr: number | null; cfo_cr: number | null }[] }
 
 // one bar group: a reported quarter, or (Free Cash Flow tab) a financial year
 interface Col { id: string; label: string; q: Quarter | null; fcf: number | null; cfo: number | null }
@@ -125,6 +125,8 @@ export function QuarterlyResults({ quarters, tab, onTab, symbol }: { quarters: Q
   const pinned = pin && pin.key === pinKey ? pin.i : null;
   // Free cash flow is read only when its tab is first opened; it is yearly, so it has its own read.
   const [fcf, setFcf] = useState<{ sym: string; data: FcfData | null; failed: boolean } | null>(null);
+  const [fcfTries, setFcfTries] = useState<{ sym: string; n: number }>({ sym: "", n: 0 });
+  const fcfTry = fcfTries.sym === symbol ? fcfTries.n : 0;      // retries are counted per company
   useEffect(() => {
     if ((tab !== "fcf" && tab !== "results") || !symbol || fcf?.sym === symbol) return;
     let alive = true;
@@ -132,7 +134,13 @@ export function QuarterlyResults({ quarters, tab, onTab, symbol }: { quarters: Q
       .then((d) => alive && setFcf({ sym: symbol, data: d, failed: false }))
       .catch(() => alive && setFcf({ sym: symbol, data: null, failed: true }));
     return () => { alive = false; };
-  }, [tab, symbol, fcf?.sym]);
+  }, [tab, symbol, fcf?.sym, fcfTry]);
+  // Screener could not be read just now (it rate-limits us): ask again a few times, 15 seconds apart, before giving up
+  useEffect(() => {
+    if (!(fcf?.failed || fcf?.data?.read_failed) || fcfTry >= 3) return;
+    const t = setTimeout(() => { setFcf(null); setFcfTries({ sym: symbol ?? "", n: fcfTry + 1 }); }, 15000);
+    return () => clearTimeout(t);
+  }, [fcf, fcfTry, symbol]);
   const fcfNow = fcf && fcf.sym === symbol ? fcf : null;
   // "Mar 2026" -> "2026": the financial year that ends in that March
   const fcfByYear = new Map<string, number | null>((fcfNow?.data?.rows ?? []).filter((r) => r.period.startsWith("Mar ")).map((r) => [r.period.slice(4), r.fcf_cr]));
@@ -194,7 +202,7 @@ export function QuarterlyResults({ quarters, tab, onTab, symbol }: { quarters: Q
         {fcfNow === null ? (
           <div className="h-40 animate-pulse rounded-lg" style={{ background: "var(--overlay-weak)" }} aria-label="Reading free cash flow" />
         ) : (
-          <Unavailable what={fcfNow.failed ? "Free cash flow (it could not be read right now)" : "Free cash flow"} />
+          <Unavailable what={fcfNow.failed || fcfNow.data?.read_failed ? "Free cash flow (it could not be read right now; trying again)" : "Free cash flow"} />
         )}
       </div>
     );

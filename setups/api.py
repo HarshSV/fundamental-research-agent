@@ -92,9 +92,10 @@ def make_router(require_session, resolve_symbol):
         sym = resolve_symbol(symbol)
         if not sym:
             raise HTTPException(status_code=400, detail="Symbol required.")
-        from tools.screener_fcf import free_cash_flow
-        res = free_cash_flow(sym)
-        return {"symbol": sym, "available": res is not None, **(res or {"rows": []})}
+        from tools.screener_fcf import free_cash_flow_status
+        res, status = free_cash_flow_status(sym)
+        # read_failed: Screener could not be read and nothing is saved (the page says so and tries again); not "no FCF for this company"
+        return {"symbol": sym, "available": res is not None, "read_failed": status == "unreadable", **(res or {"rows": []})}
 
     @r.get("/api/v1/setups/{symbol}")
     def stock_setups(symbol: str, session: str | None = None, _: dict = Depends(require_session)):

@@ -691,6 +691,11 @@ def _fetch_screener_financials_live(symbol, name=None, fresh=False):
         if not html or 'id="profit-loss"' not in html:
             return None
 
+        try:        # the same page carries the cash-flow table: keep its free cash flow so the FCF tab needs no request of its own
+            from tools import screener_fcf
+            screener_fcf.store_from_html(sym, html, basis)
+        except Exception:
+            pass
         income = _build_income_grid(_parse_data_table(html, "profit-loss"))
         # Validation gate: no revenue -> unusable, let the fallback chain take over.
         if not income or not any("Total Revenue" in col for col in income.values()):

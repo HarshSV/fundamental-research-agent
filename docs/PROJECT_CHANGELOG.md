@@ -99,6 +99,9 @@ Sankey -> icicle diagrams, multi-year comparison, segment-revenue extraction and
 ### 2026-10-09 - Documentation pass (this change set)
 * Added `PROJECT_DOCUMENTATION.md`, `docs/FINANCIAL_RATIO_AUDIT.md`, `docs/PROJECT_CHANGELOG.md`; no application code changed. Findings recorded as new open issues: **M-13** Bharti Airtel DPS 0 `verified`, **M-14** unextracted bank balances as 0, **M-15** broken `tests/final_validation.py`, **M-18** password in history, **M-19** live price for historical years.
 
+### 2026-11-13 - Free cash flow: no more "could not be read right now" for companies like Infosys
+* *Historical:* the FCF tab depended on a live Screener read; during a Screener rate limit (HTTP 429) it retried for about 15 seconds, timed out and showed "could not be read right now". *Change:* `tools/screener_fcf.py` keeps figures 7 days, saves FCF from every full Screener read, serves the last saved copy on failure, never waits on a paused Screener, falls back to Yahoo's annual Free Cash Flow when it is in rupees, and reports `read_failed` so the page retries and words the message correctly (`setups/api.py`, `OverviewSections.tsx`); `python -m tools.screener_fcf` warms the NSE companies. *Current:* 12 of 12 large companies read; a Screener pause no longer blanks the tab. *Unresolved:* BSE-only companies are filled as their pages are read or by Yahoo (M-39).
+
 ### 2026-11-13 - Results footnote removed from the stock page
 * *Change:* at the owner's request the grey note under the Financial Result chart ("Consolidated results (parent plus subsidiaries), latest four quarters... Source: Screener.in.", and its Yahoo and half-yearly variants) was removed (`OverviewSections.tsx`; the now-unused props were dropped from `QuarterlyResults`). The basis and source of the figures are therefore no longer stated on the page; they remain in the documentation (B.20).
 
