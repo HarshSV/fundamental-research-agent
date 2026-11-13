@@ -8,6 +8,7 @@ import sys
 # verify against the machine's own trusted roots. No-op on the Linux cloud box.
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import tools.ssl_bootstrap  # noqa: E402  (must run before requests/yfinance/Angel)
+import tools.uuid_utils_fallback  # noqa: E402,F401  (before langchain: a stand-in when Windows blocks uuid_utils' compiled file)
 
 import asyncio
 import concurrent.futures
@@ -616,6 +617,12 @@ def live_quote(symbol: str = "", _: dict = Depends(auth.require_session)):
         q = get_live_scraper().fetch_live_quote(sym)
     except Exception as e:
         q, err = None, str(e)
+    if q and q.get("ltp") is not None:
+        # An illiquid scrip's feed row can be internally inconsistent (e.g. day open/high/low 99.54 but last price 12.54, an old close):
+        # a last price outside the day's own range is not believed, and the fallback provider is used instead.
+        lo, hi, lt = q.get("low"), q.get("high"), q.get("ltp")
+        if all(isinstance(v, (int, float)) and v > 0 for v in (lo, hi, lt)) and (lt < lo * 0.97 or lt > hi * 1.03):
+            q = None
     if not q or q.get("ltp") is None:
         # Angel only knows NSE instruments. Fall back to the same exchange-aware
         # provider lookup the live chart uses, so a BSE-only company still gets a
@@ -1041,6 +1048,27 @@ def _nse_overview(sym):
     return out
 
 
+def _ttm_eps(quarterly):
+    """(EPS over the last 12 months, months per reported period) from reported results, oldest first: the sum of the last 4 quarterly
+    columns, the last 2 half-yearly ones (many BSE SME companies report half-yearly) or the last 1 annual one, decided by the spacing of
+    the reported periods. Summing "four quarters" of a half-yearly reporter added two years of earnings. (None, months) when the needed
+    periods are missing or not consecutive: never a guess."""
+    pts = [(r.get("period"), r.get("eps")) for r in quarterly if r.get("period")]
+    if len(pts) < 2:
+        return None, None
+    mon = [int(p[:4]) * 12 + int(p[5:7]) for p, _ in pts][-5:]
+    gap = min(b - a for a, b in zip(mon, mon[1:]))          # the smallest gap is the reporting frequency; a missing column only makes a gap larger
+    months = 3 if gap <= 4 else 6 if gap <= 7 else 12
+    n = 12 // months
+    last = pts[-n:]
+    if len(last) < n or not all(isinstance(e, (int, float)) and not isinstance(e, bool) and e == e for _, e in last):
+        return None, months
+    m = [int(p[:4]) * 12 + int(p[5:7]) for p, _ in last]
+    if any(abs((b - a) - months) > 1 for a, b in zip(m, m[1:])):
+        return None, months
+    return sum(e for _, e in last), months
+
+
 _YAHOO_OV_CACHE: dict = {}
 
 
@@ -1092,8 +1120,9 @@ def _yahoo_overview(sym):
         except Exception:
             quarterly = []
         quarterly = quarterly[-13:]
-        q_eps = [q["eps"] for q in quarterly][-4:]
-        eps_ttm = sum(q_eps) if len(q_eps) == 4 and all(isnum(x) for x in q_eps) else (info.get("trailingEps") if isnum(info.get("trailingEps")) else None)
+        eps_ttm, _pm = _ttm_eps(quarterly)
+        if eps_ttm is None:
+            eps_ttm = info.get("trailingEps") if isnum(info.get("trailingEps")) else None
         mcap = pos("marketCap")
         de = pos("debtToEquity")
         out = {
@@ -1246,8 +1275,7 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     # Trailing-twelve-month EPS = sum of the last four reported quarters (all four must be known). P/E is
     # price / that EPS and only when it is positive - negative or missing earnings give None ("not
     # meaningful"), never a made-up number.
-    q_eps = [r["eps"] for r in quarterly][-4:]
-    eps_ttm = sum(q_eps) if len(q_eps) == 4 and all(isinstance(x, (int, float)) for x in q_eps) else None
+    eps_ttm, period_months = _ttm_eps(quarterly)
     price = info.get("currentPrice")
     pe = screener_pe(info) or (round(price / eps_ttm, 2) if (eps_ttm and eps_ttm > 0 and price) else None)
 
@@ -1258,6 +1286,7 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
         "face_value": data.get("face_value"),
         "debt_to_equity": de,
         "eps_ttm": eps_ttm,
+        "period_months": period_months,        # 3 quarterly, 6 half-yearly (many SMEs), 12 annual
         "all_time_high": ath,
         "return_bases": return_bases,
         "all_time_low": atl,

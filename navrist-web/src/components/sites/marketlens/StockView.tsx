@@ -971,7 +971,7 @@ export function StockView({
           </Card>
           <Card className="p-4 sm:p-6">
             <SectionTitle>{finTab === "results" || finTab === "pat" ? "Financial Result (Amount in ₹ Lakhs)" : finTab === "fcf" ? "Financial Result (Amount in ₹ Crore)" : "Financial Result"}</SectionTitle>
-            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} tab={finTab} onTab={setFinTab} standalone={overview.basis === "standalone"} symbol={sym} fromYahoo={overview.source === "yahoo"} /> : <Unavailable what="Quarterly financial results" />}
+            {overview === null ? <Loading /> : overview.quarterly?.length ? <QuarterlyResults quarters={overview.quarterly} tab={finTab} onTab={setFinTab} standalone={overview.basis === "standalone"} symbol={sym} fromYahoo={overview.source === "yahoo"} periodMonths={overview.period_months ?? null} /> : <Unavailable what="Quarterly financial results" />}
           </Card>
         </div>
       </section>
