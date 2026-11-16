@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchJson } from "@/lib/api";
 import { SlidingTabs } from "./controls";
 import { navigateTo } from "./scanners";
+import { AnalyticsTabs } from "./AnalyticsTabs";
 import { SectorHistory } from "./SectorHistory";
 import { SectorOutlook } from "./SectorOutlook";
 
@@ -407,10 +408,8 @@ export function MarketAnalytics({ tab, onTab, onBack }: { tab: AnalyticsTab; onT
       <button onClick={onBack} className="mb-3 flex min-h-[44px] items-center gap-2 text-sm hover:text-[var(--accent)] sm:mb-5 sm:min-h-0" style={{ color: "var(--text-secondary)" }}>
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
-      <h1 className="text-3xl font-bold tracking-tight">{TITLES[tab]}</h1>
-      <div className="mb-6 mt-4 max-w-full overflow-x-auto">
-        <SlidingTabs ariaLabel="Market analytics" value={tab} onChange={onTab} options={[{ id: "sectors", label: "Sectors" }, { id: "history", label: "Sector History" }, { id: "outlook", label: "Sector Outlook" }, { id: "industries", label: "Industries" }, { id: "rrg", label: "RRG" }, { id: "breadth", label: "Breadth" }]} />
-      </div>
+      <AnalyticsTabs value={tab} />
+      <h1 className="mb-6 text-3xl font-bold tracking-tight">{TITLES[tab]}</h1>
       {tab === "sectors" ? <Sectors /> : tab === "history" ? <SectorHistory /> : tab === "outlook" ? <SectorOutlook /> : tab === "industries" ? <Industries /> : tab === "rrg" ? <Rrg /> : <Breadth />}
     </div>
   );

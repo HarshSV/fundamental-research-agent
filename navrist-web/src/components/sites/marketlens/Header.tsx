@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { SlidingTabs } from "./controls";
 import { OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
 import { fetchCatalogue } from "./patterns";
-import { navigateTo, type FeedName } from "./scanners";
+import { navigateTo } from "./scanners";
 import { Ticker } from "./Ticker";
 
 export const THEME_KEY = "navrist_theme";
@@ -56,8 +56,6 @@ interface Menu {
 }
 
 const scanner = (id: string) => () => navigateTo({ type: "scanner", id });
-const feed = (name: FeedName, kind?: "bulk" | "block") => () => navigateTo({ type: "feed", name, kind });
-const analytics = (tab: "sectors" | "history" | "outlook" | "industries" | "rrg" | "breadth") => () => navigateTo({ type: "analytics", tab });
 
 /** The top menu, in the order a trader works: build a scan, find a setup, check volume and gaps, then the market as a whole. */
 const MENUS: Menu[] = [
@@ -113,35 +111,11 @@ const MENUS: Menu[] = [
       },
     ],
   },
-  {
-    id: "analytics",
-    label: "Market Analytics",
-    groups: [
-      {
-        title: "Top down",
-        items: [
-          { label: "Sector Analytics", hint: "Which sectors lead and lag", run: analytics("sectors") },
-          { label: "Sector History", hint: "Each sector since about 1996: years, falls, seasons", run: analytics("history") },
-          { label: "Sector Outlook", hint: "Odds for the next 1 and 3 months, with the facts", run: analytics("outlook") },
-          { label: "Industry Analytics", hint: "The strongest industry groups", run: analytics("industries") },
-          { label: "RRG", hint: "Sector rotation across four quadrants", run: analytics("rrg") },
-          { label: "Market Breadth", hint: "How many stocks take part in the move", run: analytics("breadth") },
-          { label: "Sector Indices", hint: "Every NSE index today", run: feed("sector-indices") },
-        ],
-      },
-      {
-        title: "Movers",
-        items: [
-          { label: "Top Gainers", run: scanner("top-gainers") },
-          { label: "Top Losers", run: scanner("top-losers") },
-        ],
-      },
-    ],
-  },
 ];
 
 /** Top-level links without a dropdown, as on ChartsMaze: the watchlist (the trade journal link was removed for now) */
 const DIRECT: { label: string; icon: typeof Star; run: () => void }[] = [
+  { label: "Sector Analytics", icon: BarChart3, run: () => navigateTo({ type: "analytics", tab: "sectors" }) },
   { label: "Watchlist", icon: Star, run: () => navigateTo({ type: "watchlist" }) },
 ];
 

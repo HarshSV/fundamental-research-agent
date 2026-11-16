@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertHost } from "./AlertHost";
+import { isAnalyticsFamily } from "./AnalyticsTabs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CompanyHit } from "@/lib/api";
 import { OPEN_SCREENER_EVENT, OPEN_SEARCH_EVENT } from "./searchEvents";
@@ -191,6 +192,9 @@ export function HomeScreen() {
       if (!t) return;
       setModal(null);
       setMulti(null);
+      // moving between the Sector Analytics toggles replaces the page instead of stacking another one on Back
+      const toFamily = t.type === "analytics" || (t.type === "feed" && t.name === "sector-indices") || (t.type === "scanner" && (t.id === "top-gainers" || t.id === "top-losers"));
+      if (toFamily) setStack((st) => (st.length > 1 && isAnalyticsFamily(st[st.length - 1] as { kind: string; name?: string; pattern?: string }) ? st.slice(0, -1) : st));
       if (t.type === "scanner") {
         if (isListScanner(t.id)) openList(t.id);
         else openPattern(t.id);

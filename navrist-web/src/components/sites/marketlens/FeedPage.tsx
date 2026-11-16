@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, ExternalLink } from "lucide-react";
+import { AnalyticsTabs } from "./AnalyticsTabs";
 import { useEffect, useMemo, useState } from "react";
 import { fetchJson } from "@/lib/api";
 import { SlidingTabs } from "./controls";
@@ -146,6 +147,7 @@ export function FeedPage({ name, kind, onBack, onOpenStock }: { name: FeedName; 
       <button onClick={onBack} className="mb-3 flex min-h-[44px] items-center gap-2 text-sm hover:text-[var(--accent)] sm:mb-5 sm:min-h-0" style={{ color: "var(--text-secondary)" }}>
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
+      {name === "sector-indices" && <AnalyticsTabs value="indices" />}
       <h1 className="text-3xl font-bold tracking-tight">{name === "deals" ? (deal === "bulk" ? "Bulk Deals" : "Block Deals") : meta.title}{data?.quarter && name === "results-calendar" ? ` · ${data.quarter} quarter` : ""}</h1>
       <p className="mt-2 max-w-3xl text-sm" style={{ color: "var(--text-secondary)" }}>{meta.blurb}</p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
