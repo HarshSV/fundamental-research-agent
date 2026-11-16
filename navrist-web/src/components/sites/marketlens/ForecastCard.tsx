@@ -24,6 +24,15 @@ function Label({ children }: { children: React.ReactNode }) {
   return <div className="mb-3 text-xs font-medium uppercase tracking-wider" style={{ color: MUTED }}>{children}</div>;
 }
 
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border p-5" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-0)" }}>
+      <div className="mb-3 text-sm font-semibold">{title}</div>
+      {children}
+    </div>
+  );
+}
+
 /** True once the element has scrolled into view (once). */
 function useInView<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -71,7 +80,7 @@ const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
 /** One label / value line of the facts list; never split across columns. */
 function Fact({ label, value, tone }: { label: string; value: string; tone: "good" | "bad" | null }) {
   return (
-    <div className="flex justify-between gap-4 break-inside-avoid py-1 text-sm">
+    <div className="flex justify-between gap-4 break-inside-avoid border-b py-2 text-sm last:border-b-0" style={{ borderColor: "var(--border-subtle)" }}>
       <span style={{ color: MUTED }}>{label}</span>
       <span className="nv-num text-right font-medium" style={{ color: tone === "good" ? GAIN : tone === "bad" ? LOSS : "var(--text-primary)" }}>{value}</span>
     </div>
@@ -129,40 +138,89 @@ function Outlook({ h, index }: { h: Horizon; index: number }) {
   );
 }
 
-function OddsLine({ odds, replay, daily }: { odds?: Odds | null; replay?: Replay | null; daily: boolean }) {
+/** A stacked bar with a legend underneath: each part is a count or a percentage, drawn in proportion. */
+function Split({ title, note, parts }: { title: string; note?: string; parts: { label: string; value: number; shown: string; color: string }[] }) {
+  const total = parts.reduce((s, p) => s + p.value, 0);
+  if (total <= 0) return null;
   return (
-    <div className="mt-4 space-y-2 border-t pt-4 text-sm" style={{ borderColor: "var(--border-subtle)" }}>
-      {odds && odds.target != null && (
-        <p>
-          <span style={{ color: MUTED }}>{n(odds.paths, 0)} simulated continuations: </span>
-          target first <b style={{ color: GAIN }}>{odds.target}%</b>, stop first <b style={{ color: LOSS }}>{odds.stop}%</b>, neither{" "}
-          <b>{odds.open}%</b>
-          <span style={{ color: MUTED }}> (the entry is reached in {odds.enters}%)</span>
-        </p>
-      )}
-      {replay && !daily && replay.trades != null && (
-        <p>
-          <span style={{ color: MUTED }}>{replay.session_rule ? `The same plan on this stock's past ${replay.sessions} days in this state: ` : `Same rule on the last ${replay.sessions} sessions (${replay.trades} trades): `}</span>
-          target <b style={{ color: GAIN }}>{replay.target}</b>, stop <b style={{ color: LOSS }}>{replay.stop}</b>, neither <b>{replay.open}</b>
-        </p>
-      )}
-      {replay && daily && replay.n != null && (
-        <p>
-          <span style={{ color: MUTED }}>{replay.trend_rule ? "The same rule on this stock's past days in this state" : "This setup has appeared"} ({replay.n}): </span>
-          {replay.target != null ? (
-            <>target <b style={{ color: GAIN }}>{replay.target}</b>, stop <b style={{ color: LOSS }}>{replay.stop}</b>, neither <b>{replay.open}</b></>
-          ) : replay.win == null ? (
-            <span style={{ color: MUTED }}>too few to measure</span>
-          ) : (
-            <>
-              up after {replay.horizon} sessions <b style={{ color: replay.win >= 50 ? GAIN : LOSS }}>{replay.win}%</b> of the time, typical{" "}
-              <b style={{ color: (replay.median ?? 0) >= 0 ? GAIN : LOSS }}>{sgn(replay.median ?? undefined)}</b>
-            </>
-          )}
-        </p>
-      )}
+    <div>
+      <div className="flex items-baseline justify-between gap-3 text-xs">
+        <span className="font-medium" style={{ color: SOFT }}>{title}</span>
+        {note && <span style={{ color: MUTED }}>{note}</span>}
+      </div>
+      <div className="mt-2 flex h-2 overflow-hidden rounded-full" style={{ background: "var(--overlay)" }} role="img" aria-label={parts.map((p) => `${p.label} ${p.shown}`).join(", ")}>
+        {parts.map((p) => (p.value > 0 ? <div key={p.label} style={{ width: `${(p.value / total) * 100}%`, background: p.color }} /> : null))}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+        {parts.map((p) => (
+          <span key={p.label} className="flex items-center gap-1.5" style={{ color: MUTED }}>
+            <span className="h-2 w-2 rounded-full" style={{ background: p.color }} />
+            {p.label} <b className="nv-num" style={{ color: "var(--text-primary)" }}>{p.shown}</b>
+          </span>
+        ))}
+      </div>
     </div>
   );
+}
+
+const NEUTRAL = "var(--text-tertiary)";
+
+function OddsLine({ odds, replay, daily }: { odds?: Odds | null; replay?: Replay | null; daily: boolean }) {
+  const blocks: React.ReactNode[] = [];
+  if (odds && odds.target != null && odds.stop != null) {
+    blocks.push(
+      <Split key="sim" title="Simulated outcomes" note={`${n(odds.paths, 0)} simulated paths · entry reached in ${odds.enters}%`}
+        parts={[
+          { label: "Target first", value: odds.target, shown: `${odds.target}%`, color: "var(--gain)" },
+          { label: "Stop first", value: odds.stop, shown: `${odds.stop}%`, color: "var(--loss)" },
+          { label: "Neither", value: odds.open ?? 0, shown: `${odds.open ?? 0}%`, color: NEUTRAL },
+        ]} />,
+    );
+  }
+  if (replay && !daily && replay.trades != null && replay.target != null) {
+    blocks.push(
+      <Split key="rep" title="The same plan on past days" note={replay.session_rule ? `${replay.sessions} past days in this state` : `last ${replay.sessions} sessions · ${replay.trades} trades`}
+        parts={[
+          { label: "Target", value: replay.target, shown: String(replay.target), color: "var(--gain)" },
+          { label: "Stop", value: replay.stop ?? 0, shown: String(replay.stop ?? 0), color: "var(--loss)" },
+          { label: "Neither", value: replay.open ?? 0, shown: String(replay.open ?? 0), color: NEUTRAL },
+        ]} />,
+    );
+  }
+  if (replay && daily && replay.n != null) {
+    const note = `${replay.trend_rule ? "past days in this state" : "past appearances"} · ${replay.n}`;
+    if (replay.target != null) {
+      blocks.push(
+        <Split key="rep" title="The same rule on past days" note={note}
+          parts={[
+            { label: "Target", value: replay.target, shown: String(replay.target), color: "var(--gain)" },
+            { label: "Stop", value: replay.stop ?? 0, shown: String(replay.stop ?? 0), color: "var(--loss)" },
+            { label: "Neither", value: replay.open ?? 0, shown: String(replay.open ?? 0), color: NEUTRAL },
+          ]} />,
+      );
+    } else {
+      blocks.push(
+        <div key="rep" className="text-xs">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="font-medium" style={{ color: SOFT }}>History of this setup</span>
+            <span style={{ color: MUTED }}>{note}</span>
+          </div>
+          <p className="mt-1.5 text-sm" style={{ color: SOFT }}>
+            {replay.win == null ? (
+              <span style={{ color: MUTED }}>Too few cases to measure.</span>
+            ) : (
+              <>
+                Up after {replay.horizon} sessions <b style={{ color: replay.win >= 50 ? GAIN : LOSS }}>{replay.win}%</b> of the time, typical move{" "}
+                <b style={{ color: (replay.median ?? 0) >= 0 ? GAIN : LOSS }}>{sgn(replay.median ?? undefined)}</b>
+              </>
+            )}
+          </p>
+        </div>,
+      );
+    }
+  }
+  if (!blocks.length) return null;
+  return <div className="mt-5 space-y-4 border-t pt-5" style={{ borderColor: "var(--border-subtle)" }}>{blocks}</div>;
 }
 
 function EdgeLine({ b }: { b: TradeBlock }) {
@@ -171,55 +229,91 @@ function EdgeLine({ b }: { b: TradeBlock }) {
   const color = b.edge.label === "favourable" ? GAIN : b.edge.label === "against" ? LOSS : SOFT;
   const word = b.edge.label === "favourable" ? "Odds favour this trade" : b.edge.label === "against" ? "Odds are against this trade" : "Odds are about even";
   return (
-    <p className="mt-3 text-sm">
+    <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-3 py-2 text-sm" style={{ background: "var(--overlay-weak)" }}>
       <b style={{ color }}>{word}</b>
-      <span style={{ color: MUTED }}> · {v > 0 ? "+" : ""}{n(v)} for every 1 of risk</span>
-    </p>
+      <span className="text-xs" style={{ color: MUTED }}>{v > 0 ? "+" : ""}{n(v)} gained for every 1 risked</span>
+    </div>
+  );
+}
+
+/** Stop, entry and targets on one price line, so the trade can be read at a glance. */
+function Ladder({ p }: { p: Plan }) {
+  const pts = [
+    { k: "stop", price: p.stop, color: "var(--loss)" },
+    { k: "entry", price: p.entry, color: "var(--text-primary)" },
+    ...p.targets.slice(0, 2).map((t, i) => ({ k: `t${i}`, price: t.price, color: "var(--gain)" })),
+  ];
+  const lo = Math.min(...pts.map((x) => x.price));
+  const hi = Math.max(...pts.map((x) => x.price));
+  if (!(hi > lo)) return null;
+  const at = (v: number) => `${4 + ((v - lo) / (hi - lo)) * 92}%`;
+  const seg = (a: number, b: number, color: string) => {
+    const l = Math.min(a, b);
+    const r = Math.max(a, b);
+    return <div className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full" style={{ left: at(l), width: `calc(${at(r)} - ${at(l)})`, background: color, opacity: 0.55 }} />;
+  };
+  const far = p.targets[Math.min(1, p.targets.length - 1)]?.price ?? p.entry;
+  return (
+    <div className="relative mt-5 h-5" aria-hidden>
+      <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full" style={{ background: "var(--overlay)" }} />
+      {seg(p.stop, p.entry, "var(--loss)")}
+      {seg(p.entry, far, "var(--gain)")}
+      {pts.map((x) => (
+        <span key={x.k} className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2" style={{ left: at(x.price), background: x.color, borderColor: "var(--surface-1)" }} />
+      ))}
+    </div>
+  );
+}
+
+function Tile({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
+  return (
+    <div className="rounded-lg px-3 py-2.5" style={{ background: "var(--overlay-weak)" }}>
+      <div className="text-[11px] uppercase tracking-wide" style={{ color: MUTED }}>{label}</div>
+      <div className="nv-num mt-0.5 text-base font-semibold" style={{ color }}>{value}</div>
+      {sub && <div className="mt-0.5 text-[11px] leading-snug" style={{ color: MUTED }}>{sub}</div>}
+    </div>
   );
 }
 
 function Trade({ title, b, daily, onAlert, hasAlerts }: { title: string; b: TradeBlock; daily: boolean; onAlert: () => void; hasAlerts: boolean }) {
   const p: Plan | null | undefined = b.plan;
   const t1 = p?.targets[0];
+  const long = p?.side === "long";
+  const accent = p ? (long ? GAIN : LOSS) : SOFT;
   return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="font-medium">{title}</span>
-        <span className="text-lg font-semibold" style={{ color: p ? (p.side === "long" ? GAIN : LOSS) : SOFT }}>
+    <div className="flex h-full flex-col rounded-2xl border p-5" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-0)" }}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-medium" style={{ color: SOFT }}>{title}</span>
+        <span className="rounded-full px-3 py-1 text-xs font-semibold" style={{ color: accent, background: "var(--overlay-weak)" }}>
           {p ? `${p.action} ${inr(p.entry)}` : "No trade"}
         </span>
       </div>
       {p && t1 ? (
         <>
-          <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
-            <div>
-              <div className="text-xs" style={{ color: MUTED }}>Stop</div>
-              <div className="nv-num font-semibold" style={{ color: LOSS }}>{inr(p.stop)}</div>
-              <div className="text-xs" style={{ color: MUTED }}>{n(p.risk_pct)}% · {inr(p.risk_per_share)} a share</div>
-            </div>
-            {p.targets.slice(0, 2).map((t) => (
-              <div key={t.r}>
-                <div className="text-xs" style={{ color: MUTED }}>Target</div>
-                <div className="nv-num font-semibold" style={{ color: GAIN }}>{inr(t.price)}</div>
-                <div className="text-xs" style={{ color: MUTED }}>{t.r}× the risk</div>
-              </div>
+          <Ladder p={p} />
+          <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            <Tile label="Stop" value={inr(p.stop)} sub={`${n(p.risk_pct)}% risk · ${inr(p.risk_per_share)} a share`} color="var(--loss)" />
+            <Tile label="Entry" value={inr(p.entry)} sub={p.action} color="var(--text-primary)" />
+            {p.targets.slice(0, 2).map((t, i) => (
+              <Tile key={t.r} label={`Target ${i + 1}`} value={inr(t.price)} sub={`${t.r}× the risk`} color="var(--gain)" />
             ))}
           </div>
           <EdgeLine b={b} />
-          <p className="mt-2 text-xs" style={{ color: MUTED }}>
-            Stop at {p.stop_basis}. {p.exit_rule}
-          </p>
-          {b.note && <p className="mt-1 text-xs" style={{ color: MUTED }}>{b.note}</p>}
-          {p.warnings.map((w) => (
-            <p key={w} className="mt-1 text-xs" style={{ color: LOSS }}>{w}</p>
-          ))}
-          <button onClick={onAlert} disabled={hasAlerts} className="mt-3 rounded-full border px-3 py-1 text-xs font-medium enabled:hover:border-[var(--accent-border)] disabled:opacity-60"
+          <ul className="mt-4 space-y-1.5 text-xs leading-relaxed" style={{ color: MUTED }}>
+            <li>Stop at {p.stop_basis}.</li>
+            <li>{p.exit_rule}</li>
+            {b.note && <li>{b.note}</li>}
+            {p.warnings.map((w) => (
+              <li key={w} style={{ color: LOSS }}>{w}</li>
+            ))}
+          </ul>
+          <button onClick={onAlert} disabled={hasAlerts} className="mt-4 self-start rounded-full border px-3.5 py-1.5 text-xs font-medium enabled:hover:border-[var(--accent-border)] disabled:opacity-60"
             style={{ borderColor: "var(--border-default)", color: SOFT }}>
             {hasAlerts ? "Alerts set for this stock" : "Alert me at the entry, stop and target"}
           </button>
         </>
       ) : (
-        <p className="mt-1 text-sm" style={{ color: SOFT }}>{b.decision.reason}</p>
+        <p className="mt-4 text-sm leading-relaxed" style={{ color: SOFT }}>{b.decision.reason}</p>
       )}
       {(b.odds || b.replay) && <OddsLine odds={b.odds} replay={b.replay} daily={daily} />}
     </div>
@@ -469,7 +563,7 @@ function ForecastBody({
 
       <div className="mt-10">
         <Label>When to buy and when to get out</Label>
-        <div className="grid items-start gap-x-14 gap-y-8 md:grid-cols-2">
+        <div className="grid items-stretch gap-5 lg:grid-cols-2">
           <Trade title={data.market_open && !data.session_late ? "Today" : "Next session"} b={data.today} daily={false} hasAlerts={alerts.length > 0} onAlert={() => data.today.plan && setFor(data.today.plan, true)} />
           <Trade title="Swing, up to 10 sessions" b={data.swing} daily hasAlerts={alerts.length > 0} onAlert={() => data.swing.plan && setFor(data.swing.plan, false)} />
         </div>
@@ -496,22 +590,22 @@ function ForecastBody({
               {hasLevels && <Switch on={showLevels} onChange={onToggleLevels} label="Levels on chart" />}
             </span>
           </div>
-          <div className="grid items-start gap-x-14 gap-y-10 md:grid-cols-2">
-            <div>
-              <Label>Outlook</Label>
+          <div className="grid items-start gap-5 lg:grid-cols-2">
+            <Panel title="Outlook by horizon">
               {data.outlook.map((h, i) => <Outlook key={data.symbol + h.id} h={h} index={i} />)}
-            </div>
+            </Panel>
             {data.levels && data.levels.length > 0 && (
-              <div>
-                <Label>Levels to watch</Label>
+              <Panel title="Levels to watch">
                 {data.levels.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
-              </div>
+              </Panel>
             )}
           </div>
-          {/* The evidence runs as one list that flows down the left column and on into the right, so the two columns end level. */}
-          <div className="mt-10 border-t pt-8 md:columns-2 md:gap-x-14" style={{ borderColor: "var(--border-subtle)" }}>
-            <div className="break-after-avoid"><Label>What the forecast rests on</Label></div>
-            {data.evidence.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
+          <div className="mt-5">
+            <Panel title="What the forecast rests on">
+              <div className="md:columns-2 md:gap-x-12">
+                {data.evidence.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
+              </div>
+            </Panel>
           </div>
         </div>
       )}
