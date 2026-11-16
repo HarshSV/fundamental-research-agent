@@ -2,7 +2,7 @@
 
 import { SlidingTabs } from "./controls";
 import { Check, ChevronDown, Share2, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { CatalogueEntry } from "./patterns";
 import {
   FLAG_DEFS, MCAP_KEY, RANGE_DEFS, RESISTANCE_ID, SCREENER_ID, deleteSaved, emptyFilters, isSpecial, loadSaved, parseShareCode, saveFilter, shareCode,
@@ -177,8 +177,8 @@ function RangeRow({ def, f, set }: { def: RangeDef; f: ScanFilters; set: (k: str
   );
 }
 
-function RangeList({ tab, f, set }: { tab: Tab; f: ScanFilters; set: (k: string, v: { on: boolean; min: number | null; max: number | null }) => void }) {
-  return <>{RANGE_DEFS.filter((d) => d.tab === tab).map((d) => <RangeRow key={d.key} def={d} f={f} set={set} />)}</>;
+function RangeList({ tab, f, set, before }: { tab: Tab; f: ScanFilters; set: (k: string, v: { on: boolean; min: number | null; max: number | null }) => void; before?: Record<string, React.ReactNode> }) {
+  return <>{RANGE_DEFS.filter((d) => d.tab === tab).map((d) => <Fragment key={d.key}>{before?.[d.key]}<RangeRow def={d} f={f} set={set} /></Fragment>)}</>;
 }
 
 function MaSection({
@@ -708,39 +708,23 @@ export function PatternFilterModal({
                   </label>
                 </Section>
                 <Section title="Returns, volume and volatility" hint="Tick a row to use it">
-                  <RangeList tab="misc" f={f} set={setRange} />
+                  <RangeList
+                    tab="misc"
+                    f={f}
+                    set={setRange}
+                    before={{
+                      gap_pct: (
+                        <Row on={f.gapFill.on} onToggle={(on) => patch({ gapFill: { ...f.gapFill, on } })} hint="The most recent gap up that qualifies: a later low has entered the gap but stayed above the close before it, and the latest close is still above that close">
+                          <span className="min-w-[10.5rem] flex-1">Gap filling: a gap up of at least</span>
+                          <Num value={f.gapFill.minGap} onChange={(minGap) => patch({ gapFill: { ...f.gapFill, on: true, minGap } })} placeholder="2" width="w-16" />
+                          <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>% in the last</span>
+                          <Num value={f.gapFill.lookback} onChange={(lookback) => patch({ gapFill: { ...f.gapFill, on: true, lookback: lookback == null ? null : Math.round(lookback) } })} placeholder="14" width="w-16" />
+                          <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>sessions, partly filled since</span>
+                        </Row>
+                      ),
+                    }}
+                  />
                   <p className="mt-1 pl-7 text-xs" style={{ color: "var(--text-tertiary)" }}>To rank by value traded, set Sort to &ldquo;Traded value, latest session&rdquo; on the results page: only stocks that traded in the latest session are ranked.</p>
-                </Section>
-
-                <Section title="Gaps" hint="Opening gaps in the last few sessions, not today's">
-                  <Row on={f.gapFill.on} onToggle={(on) => patch({ gapFill: { ...f.gapFill, on } })} hint="The most recent gap up that qualifies: a later low has entered the gap but stayed above the close before it, and the latest close is still above that close">
-                    <span>Gap up of at least</span>
-                    <Num value={f.gapFill.minGap} onChange={(minGap) => patch({ gapFill: { ...f.gapFill, on: true, minGap } })} placeholder="2" width="w-16" />
-                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>% in the last</span>
-                    <Num value={f.gapFill.lookback} onChange={(lookback) => patch({ gapFill: { ...f.gapFill, on: true, lookback: lookback == null ? null : Math.round(lookback) } })} placeholder="14" width="w-16" />
-                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>sessions, partly filled since</span>
-                  </Row>
-                </Section>
-
-                <Section title="Earnings reaction" hint="How the price reacted to a quarter's results. Uses the NSE filing time: results after 3:30 pm IST react on the next session.">
-                  <div className="mb-2">
-                    <SlidingTabs ariaLabel="Results quarter" size="sm" value={f.earnings.quarter} onChange={(quarter) => patch({ earnings: { ...f.earnings, quarter } })} options={[{ id: "latest", label: "Latest quarter" }, { id: "previous", label: "Previous quarter" }]} />
-                  </div>
-                  <Row on={f.earnings.on && f.earnings.gap != null} onToggle={(on) => patch({ earnings: { ...f.earnings, on: on || f.earnings.bestGain != null || f.earnings.holds, gap: on ? (f.earnings.gap ?? 3) : null } })}>
-                    <span>Reaction session opened at least</span>
-                    <Num value={f.earnings.gap} onChange={(gap) => patch({ earnings: { ...f.earnings, on: true, gap } })} placeholder="3" width="w-16" />
-                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>% above the pre-results close</span>
-                  </Row>
-                  <Row on={f.earnings.on && f.earnings.bestGain != null} onToggle={(on) => patch({ earnings: { ...f.earnings, on: on || f.earnings.gap != null || f.earnings.holds, bestGain: on ? (f.earnings.bestGain ?? 5) : null } })}>
-                    <span>Best close within</span>
-                    <Pick label="Sessions after" value={f.earnings.sessions} onChange={(sessions) => patch({ earnings: { ...f.earnings, sessions } })} options={[1, 2, 3, 5, 10, 15, 20].map((v) => ({ v, label: `${v} sessions` }))} />
-                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>after it is at least</span>
-                    <Num value={f.earnings.bestGain} onChange={(bestGain) => patch({ earnings: { ...f.earnings, on: true, bestGain } })} placeholder="5" width="w-16" />
-                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>% above the pre-results close</span>
-                  </Row>
-                  <Row on={f.earnings.on && f.earnings.holds} onToggle={(holds) => patch({ earnings: { ...f.earnings, on: holds || f.earnings.gap != null || f.earnings.bestGain != null, holds } })}>
-                    <span>Latest close is still above the pre-results close</span>
-                  </Row>
                 </Section>
               </>
             )}

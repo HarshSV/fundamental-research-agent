@@ -97,16 +97,6 @@ const MENUS: Menu[] = [
           { label: "Shorting Scanner", run: scanner("shorting") },
         ],
       },
-      {
-        title: "Earnings and IPOs",
-        items: [
-          { label: "Earnings Gap Up · latest quarter", run: scanner("earnings-gap-up") },
-          { label: "Earnings Gap Up · previous", run: scanner("earnings-gap-up-prev") },
-          { label: "Positive Earnings Reaction · latest", run: scanner("positive-earnings-reaction") },
-          { label: "Positive Earnings Reaction · previous", run: scanner("positive-earnings-reaction-prev") },
-          { label: "IPO Setups", run: scanner("ipo-setups") },
-        ],
-      },
     ],
   },
 ];

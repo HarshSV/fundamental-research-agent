@@ -141,8 +141,6 @@ export interface ScanFilters {
   rsHigh: { on: boolean; benchmark: "nifty50" | "nifty500"; lookback: number; tolerance: number | null };
   /** a gap up of at least `minGap` % within the last `lookback` sessions that price has partly filled */
   gapFill: { on: boolean; minGap: number | null; lookback: number | null };
-  /** the price reaction to the latest or previous quarter's results */
-  earnings: { on: boolean; quarter: "latest" | "previous"; gap: number | null; bestGain: number | null; sessions: number; holds: boolean };
   /** match Horizontal Resistance OR the close spread, not both */
   anyOf: { on: boolean };
 }
@@ -174,7 +172,6 @@ export const emptyFilters = (): ScanFilters => ({
   insideBar: { on: false, maxRatio: null },
   rsHigh: { on: false, benchmark: "nifty500", lookback: 252, tolerance: 0.1 },
   gapFill: { on: false, minGap: 2, lookback: 14 },
-  earnings: { on: false, quarter: "latest", gap: null, bestGain: null, sessions: 5, holds: false },
   anyOf: { on: false },
 });
 
@@ -350,9 +347,6 @@ export function serialize(f: ScanFilters): Record<string, unknown> {
   if (f.insideBar.on) b.inside_bar = { timeframe: f.setupTf, ...(f.insideBar.maxRatio != null ? { max_ratio: f.insideBar.maxRatio } : {}) };
   if (f.rsHigh.on && f.rsHigh.tolerance != null) b.rs_near_high = { benchmark: f.rsHigh.benchmark, lookback: f.rsHigh.lookback, tolerance: f.rsHigh.tolerance };
   if (f.gapFill.on && f.gapFill.minGap != null && f.gapFill.lookback != null) b.gap_fill = { min_gap: f.gapFill.minGap, lookback: f.gapFill.lookback };
-  if (f.earnings.on && (f.earnings.gap != null || f.earnings.bestGain != null || f.earnings.holds)) {
-    b.earnings = { quarter: f.earnings.quarter, sessions: f.earnings.sessions, holds: f.earnings.holds, ...(f.earnings.gap != null ? { gap: f.earnings.gap } : {}), ...(f.earnings.bestGain != null ? { best_gain: f.earnings.bestGain } : {}) };
-  }
   if (f.anyOf.on) b.any_of = { on: true };
   return b;
 }
@@ -408,11 +402,6 @@ export function describeFilters(f: ScanFilters, opts: ScanOptions | null): strin
   if (f.insideBar.on) out.push(`${frame === "weekly" ? "Weekly" : "Daily"} inside bar${f.insideBar.maxRatio != null ? ` (range ≤ ${f.insideBar.maxRatio}% of the prior bar)` : ""}`);
   if (f.rsHigh.on && f.rsHigh.tolerance != null) out.push(`RS line within ${f.rsHigh.tolerance}% of its ${f.rsHigh.lookback}-session high (vs ${f.rsHigh.benchmark === "nifty50" ? "Nifty 50" : "Nifty 500"})`);
   if (f.gapFill.on && f.gapFill.minGap != null && f.gapFill.lookback != null) out.push(`Gap up ≥ ${f.gapFill.minGap}% in the last ${f.gapFill.lookback} sessions, partly filled`);
-  if (f.earnings.on) {
-    const e = f.earnings;
-    const bits = [e.gap != null ? `opened ≥ ${e.gap}% up` : "", e.bestGain != null ? `closed ≥ ${e.bestGain}% up within ${e.sessions} sessions` : "", e.holds ? "still above the pre-results close" : ""].filter(Boolean);
-    if (bits.length) out.push(`${e.quarter === "latest" ? "Latest" : "Previous"} results: ${bits.join(", ")}`);
-  }
   return out;
 }
 
