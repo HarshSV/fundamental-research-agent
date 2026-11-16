@@ -85,6 +85,7 @@ export function StockChart({
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const savedRange = useRef<{ from: number; to: number } | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null>(null);
   const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
@@ -147,7 +148,9 @@ export function StockChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    const range = chart.timeScale().getVisibleLogicalRange();
+    // the view was saved by the previous series' cleanup, before removing it (an empty chart loses its position)
+    const range = savedRange.current ?? chart.timeScale().getVisibleLogicalRange();
+    savedRange.current = null;
     const gain = css("--gain", "#10b981");
     const loss = css("--loss", "#ef4444");
     const { bars, ticks } = dataRef.current;
@@ -168,6 +171,7 @@ export function StockChart({
     else chart.timeScale().fitContent();
     return () => {
       try {
+        savedRange.current = chart.timeScale().getVisibleLogicalRange();
         chart.removeSeries(series);
         if (volRef.current) chart.removeSeries(volRef.current);
       } catch {
