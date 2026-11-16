@@ -236,8 +236,8 @@ export function PatternScanPage({
 
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-8">
-      <button onClick={onBack} className="mb-3 flex min-h-[44px] items-center gap-2 text-sm hover:text-[var(--accent)] sm:mb-5 sm:min-h-0" style={{ color: "var(--text-secondary)" }}>
+    <div className="relative mx-auto w-full max-w-7xl px-4 py-8">
+      <button onClick={onBack} className="mb-3 flex min-h-[44px] items-center gap-2 text-sm hover:text-[var(--accent)] sm:mb-5 sm:min-h-0 min-[1440px]:absolute min-[1440px]:right-full min-[1440px]:top-8 min-[1440px]:mb-0 min-[1440px]:mr-3 min-[1440px]:min-h-0 min-[1440px]:whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
       {(pattern.id === "top-gainers" || pattern.id === "top-losers") && <AnalyticsTabs value={pattern.id === "top-gainers" ? "gainers" : "losers"} />}
