@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 const EASE = "cubic-bezier(.22,.61,.36,1)";
 const ON = "#10b981";
@@ -51,16 +51,28 @@ export function SlidingTabs<T extends string>({
 }) {
   const n = options.length;
   const idx = options.findIndex((o) => o.id === value);
+  const box = useRef<HTMLDivElement>(null);
+  // when the row is squeezed the options are no longer equal width, so the highlight follows the chosen button itself
+  const [pos, setPos] = useState<{ left: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const on = box.current?.querySelector<HTMLElement>('[aria-pressed="true"]');
+      setPos(on ? { left: on.offsetLeft, width: on.offsetWidth } : null);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [value, n]);
   return (
-    <div className="relative inline-grid rounded-lg p-[3px]" style={{ background: "var(--overlay-weak)", gridAutoFlow: "column", gridAutoColumns: "1fr" }} role="group" aria-label={ariaLabel}>
+    <div ref={box} className="relative inline-grid rounded-lg p-[3px]" style={{ background: "var(--overlay-weak)", gridAutoFlow: "column", gridAutoColumns: "1fr" }} role="group" aria-label={ariaLabel}>
       <span
         aria-hidden
-        className="absolute inset-y-[3px] left-[3px] rounded-md"
+        className="absolute inset-y-[3px] left-0 rounded-md"
         style={{
-          width: `calc((100% - 6px) / ${n})`,
+          width: pos ? pos.width : `calc((100% - 6px) / ${n})`,
           background: "var(--text-primary)",
           opacity: idx < 0 ? 0 : 0.16,
-          transform: `translateX(${Math.max(idx, 0) * 100}%)`,
+          transform: pos ? `translateX(${pos.left}px)` : `translateX(calc(3px + ${Math.max(idx, 0) * 100}%))`,
           transition: `transform 320ms ${EASE}, opacity 250ms ease`,
         }}
       />
