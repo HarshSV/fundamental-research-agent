@@ -925,7 +925,11 @@ export function StockView({
 
       <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
-          <SectionTitle>Price Range</SectionTitle>
+          <SectionTitle
+            beside={ltp != null ? <span className="nv-num text-xl font-semibold" style={{ color: pct == null ? undefined : up ? GAIN : LOSS }}>{inr(ltp)}</span> : undefined}
+          >
+            Price Range
+          </SectionTitle>
           <div className="mb-4 grid gap-4 md:grid-cols-2">
             <RangeBar title="Today's Range" low={quote?.low ?? null} high={quote?.high ?? null} now={ltp} lowLabel={inr(quote?.low)} highLabel={inr(quote?.high)} />
             <RangeBar title={week52?.sinceListing ? "Range since listing (under 52 weeks of history)" : "52 Week Range"} low={week52?.low ?? null} high={week52?.high ?? null} now={ltp} lowLabel={inr(week52?.low)} highLabel={inr(week52?.high)} />
