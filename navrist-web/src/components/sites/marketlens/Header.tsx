@@ -70,7 +70,6 @@ const MENUS: Menu[] = [
         items: [
           { label: "Create Screener", hint: "Your own rules: technicals, patterns, fundamentals", run: () => window.dispatchEvent(new Event(OPEN_SCREENER_EVENT)) },
           { label: "Multiple Scans", hint: "Stocks that appear in all the scanners you pick", run: () => navigateTo({ type: "multi" }) },
-          { label: "Horizontal Resistance", hint: "Price pressing on a level three highs have touched", run: scanner("horizontal-resistance") },
           { label: "Patterns on the Home Page", hint: "The pattern chips, with the screens behind them", run: () => navigateTo({ type: "home", scroll: "patterns" }) },
         ],
       },
