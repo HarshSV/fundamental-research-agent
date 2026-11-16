@@ -101,16 +101,17 @@ def _gap_up(r):
     return {"value": g, "text": f"Gap {g:+.2f}%", "note": "opened above the previous close" + ("; gap already filled in the session" if filled else "")}
 
 
-def _gap_filling(r):
-    """A gap up of at least 2% in the last 15 sessions (not today) that price has since come back into, without closing it completely."""
+def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK - 1):
+    """A gap up of at least `min_gap` % within the `lookback` sessions before today (14 = what the scanner has always used, though its
+    menu says 15) that price has since come back into, without closing it completely. The most recent qualifying gap is the one judged."""
     b = _bars(r)
     n = len(b)
-    if n < GAP_LOOKBACK + 2:
+    if lookback < 1 or n < lookback + 3:
         return None
     last = b[-1]
-    for i in range(n - 2, n - 1 - GAP_LOOKBACK, -1):
+    for i in range(n - 2, n - 2 - lookback, -1):
         g = _pct(b[i][1], b[i - 1][4])
-        if g is None or g < GAP_MIN * 100:
+        if g is None or g < min_gap:
             continue
         floor, top = b[i - 1][4], b[i][1]            # the gap zone: previous close .. gap-day open
         low_since = min(x[3] for x in b[i + 1:])
@@ -281,6 +282,7 @@ def annotate(rows: dict) -> None:
         r["vs_ema10"] = _pct(r["price"], e10) if _num(r.get("price")) and _num(e10) else None
         r["ma200_turn"] = ma200_turnaround(r)
         vols = [x[5] for x in b[-20:]]
+        r["traded_value_cr"] = (b[-1][4] * b[-1][5] / 1e7) if b and b[-1][5] > 0 else None     # latest close x latest session volume; None when nothing traded
         r["turnover_20d_cr"] = (r["price"] * (sum(vols) / 20) / 1e7) if len(vols) == 20 and _num(r.get("price")) else None
         r["fvg_d"] = _fvg([[x[1], x[2], x[3], x[4]] for x in b], 10, 2.0) if len(b) >= 12 else None
         w = _weeks(b)
@@ -326,7 +328,7 @@ def _reaction(r: dict, ts: str | None):
         return None
     window = b[idx: idx + RESULT_SESSIONS_AFTER + 1]
     return {"gap": (b[idx][1] / pre - 1.0) * 100.0, "best": (max(x[4] for x in window) / pre - 1.0) * 100.0, "hold": (b[-1][4] / pre - 1.0) * 100.0,
-            "date": str(day)}
+            "date": str(day), "_i": idx, "_pre": pre}      # _i / _pre: where the reaction session is and the close before it (for check_earnings)
 
 
 def annotate_exchange(rows: dict) -> None:
@@ -440,6 +442,92 @@ def _industry_ranks(rows: dict) -> None:
         rank = {ind: n + 1 for n, ind in enumerate(order)}
         for r in rows.values():
             r[field] = rank.get(r.get("industry"))
+
+
+# ------------------------------------------------------------------ Create Screener controls that reproduce the preset scanners
+# Each check_* takes the stock row and the control's settings and answers True / False. A stock whose measure cannot be worked out
+# (too few bars, no volume, no benchmark, no results date) answers False: an unknown value never passes a filter and is never zero.
+# A control with no usable settings is ignored (True).
+def _num_or(v, default=None):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return default
+    return x if x == x else default
+
+
+def check_tight(r: dict, spec: dict) -> bool:
+    """The last `bars` closes (daily or weekly; the current, possibly unfinished, week counts) sit within `max_spread` % of each other:
+    (highest close - lowest close) / average close x 100."""
+    n, limit = _num_or((spec or {}).get("bars")), _num_or((spec or {}).get("max_spread"))
+    if n is None or n < 2 or limit is None:
+        return True
+    n = int(n)
+    closes = [w[3] for w in _weeks(_bars(r))[-n:]] if (spec or {}).get("timeframe") == "weekly" else [x[4] for x in _bars(r)[-n:]]
+    if len(closes) < n:
+        return False
+    mean = sum(closes) / n
+    return mean > 0 and (max(closes) - min(closes)) / mean * 100.0 <= limit
+
+
+def check_inside(r: dict, spec: dict) -> bool:
+    """The latest bar (daily or weekly) traded inside the one before it: high at or under the prior high, low at or over the prior low, both
+    bars with a real range (and, daily, the latest bar with volume). `max_ratio` also caps its range as a % of the prior bar's range."""
+    if (spec or {}).get("timeframe") == "weekly":
+        w = _weeks(_bars(r))
+        if len(w) < 2:
+            return False
+        ph, pl, h, l = w[-2][1], w[-2][2], w[-1][1], w[-1][2]
+    else:
+        b = _bars(r)
+        if len(b) < 2 or not (b[-1][5] > 0):
+            return False
+        ph, pl, h, l = b[-2][2], b[-2][3], b[-1][2], b[-1][3]
+    if not (h <= ph and l >= pl) or ph <= pl or h <= l:
+        return False
+    cap = _num_or((spec or {}).get("max_ratio"))
+    return cap is None or (h - l) / (ph - pl) * 100.0 <= cap
+
+
+def check_rs_near_high(r: dict, benches: dict | None, spec: dict) -> bool:
+    """The stock's relative-strength line (close / benchmark close, matched by day) is within `tolerance` % of its highest value over the
+    last `lookback` matched sessions."""
+    spec = spec or {}
+    bench = (benches or {}).get(spec.get("benchmark") or "nifty500")
+    n, tol = _num_or(spec.get("lookback"), RS_LINE_BARS), _num_or(spec.get("tolerance"), 0.1)
+    cl = r.get("closes") or []
+    if not bench or n < 2 or len(cl) < n + 5:
+        return False
+    n = int(n)
+    bd = _benchmark_by_day(bench)
+    line = [c / bd[(t + IST) // DAY] for t, c in cl if c and bd.get((t + IST) // DAY)]
+    return len(line) >= n and line[-1] >= max(line[-n:]) * (1.0 - tol / 100.0)
+
+
+def check_gap_fill(r: dict, spec: dict) -> bool:
+    """An opening gap of at least `min_gap` % within the last `lookback` sessions (not today's) that price has partly filled and not closed."""
+    mg, lb = _num_or((spec or {}).get("min_gap")), _num_or((spec or {}).get("lookback"))
+    if mg is None or lb is None:
+        return True
+    return _gap_filling(r, mg, int(lb)) is not None
+
+
+def check_earnings(r: dict, spec: dict) -> bool:
+    """The price reaction to the latest (or previous) quarter's results: the reaction session's opening gap (`gap`, %), the best close within
+    `sessions` sessions after it (`best_gain`, % over the pre-results close) and, if `holds`, the latest close still above that pre-results close."""
+    spec = spec or {}
+    x = r.get("er2" if spec.get("quarter") == "previous" else "er")
+    if not x:
+        return False
+    gap, best = _num_or(spec.get("gap")), _num_or(spec.get("best_gain"))
+    if gap is not None and x["gap"] < gap:
+        return False
+    if best is not None:
+        n = int(max(0, _num_or(spec.get("sessions"), RESULT_SESSIONS_AFTER)))
+        window = _bars(r)[x["_i"]: x["_i"] + n + 1]
+        if not window or (max(c[4] for c in window) / x["_pre"] - 1.0) * 100.0 < best:
+            return False
+    return not spec.get("holds") or x["hold"] > 0
 
 
 # id -> (name, group, definition, sort direction: -1 largest first, 1 smallest first)

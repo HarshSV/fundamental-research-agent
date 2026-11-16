@@ -51,6 +51,7 @@ RANGE_FIELDS = {
     "rvol": lambda r: r.get("rvol"),
     "gap_pct": lambda r: r.get("gap_pct"),
     "range_20d": lambda r: r.get("range_20d"),
+    "traded_value": lambda r: r.get("traded_value_cr"),            # latest close x latest session volume, Rs crore (None when nothing traded)
     "vs_ema10": lambda r: r.get("vs_ema10"),
     "rs_1m": lambda r: r.get("rs_1m"),
     "rs_3m": lambda r: r.get("rs_3m"),
@@ -81,6 +82,7 @@ FLAGS = {
 SORTS = {
     "market_cap": ("market_cap_cr", -1), "rs": ("rs", -1), "ret_1m": ("ret_1m", -1), "ret_3m": ("ret_3m", -1),
     "pct_52w_high": ("pct_from_52w_high", 1), "turnover": ("turnover_30d_cr", -1), "pe": ("pe", 1),
+    "traded_value": ("traded_value_cr", -1),         # a ranking: only stocks that traded in the latest session are eligible (see search)
 }
 
 
@@ -224,7 +226,16 @@ def options() -> dict:
 
 
 # ------------------------------------------------------------------ the screen
-def _stock_passes(r: dict, f: dict, quad: dict | None, state: bool = True) -> bool:
+def _any_of_active(f: dict) -> bool:
+    """The "match either" group: Horizontal Resistance OR the close-spread (tight setup) control, instead of both."""
+    return bool((f.get("any_of") or {}).get("on")) and bool((f.get("resistance") or {}).get("require")) and bool(f.get("tight"))
+
+
+def _dma50_only(spec) -> bool:
+    return bool(spec) and [str(p) for p in spec.get("periods") or []] == ["50"] and spec.get("side", "above") == "above"
+
+
+def _stock_passes(r: dict, f: dict, quad: dict | None, state: bool = True, benches: dict | None = None) -> bool:
     """Every filter that describes the stock itself (not the pattern it shows). `state=False` leaves out the horizontal
     resistance filter, which describes where the stock is right now (used by the backtest)."""
     ind, sec = f.get("indices") or {}, f.get("sectors") or {}
@@ -235,7 +246,9 @@ def _stock_passes(r: dict, f: dict, quad: dict | None, state: bool = True) -> bo
     for key, getter in RANGE_FIELDS.items():
         if key in f and not _in_range(getter(r), f[key]):
             return False
-    if not _ma_ok(r, "ema", f.get("ema")) or not _ma_ok(r, "sma", f.get("dma")):
+    # In a "match either" group the Price-above-DMA-50 filter belongs to the tight-setup side only (as in the IPO Setups scanner), not to resistance
+    scoped_dma = state and _any_of_active(f) and _dma50_only(f.get("dma"))
+    if not _ma_ok(r, "ema", f.get("ema")) or (not scoped_dma and not _ma_ok(r, "sma", f.get("dma"))):
         return False
     if (f.get("ma200_turn") or {}).get("require") and r.get("ma200_turn") is not True:
         return False
@@ -276,10 +289,28 @@ def _stock_passes(r: dict, f: dict, quad: dict | None, state: bool = True) -> bo
             return False
     if state:
         res = f.get("resistance")
+        res_ok = True
         if res and res.get("require"):
             have = r.get("resistance")
-            if not have or (res.get("states") and have["state"] not in res["states"]):
+            res_ok = bool(have) and not (res.get("states") and have["state"] not in res["states"])
+        tight = f.get("tight")
+        if _any_of_active(f):
+            tight_ok = market_lists.check_tight(r, tight) and (not scoped_dma or _ma_ok(r, "sma", f.get("dma")))
+            if not (res_ok or tight_ok):
                 return False
+        else:
+            if not res_ok:
+                return False
+            if tight and not market_lists.check_tight(r, tight):
+                return False
+        if f.get("inside_bar") and not market_lists.check_inside(r, f["inside_bar"]):
+            return False
+        if f.get("rs_near_high") and not market_lists.check_rs_near_high(r, benches, f["rs_near_high"]):
+            return False
+        if f.get("gap_fill") and not market_lists.check_gap_fill(r, f["gap_fill"]):
+            return False
+        if f.get("earnings") and not market_lists.check_earnings(r, f["earnings"]):
+            return False
     return True
 
 
@@ -328,6 +359,8 @@ def search(pattern, f: dict, include_candles: bool = False) -> dict:
     bench = (scan.benchmarks().get("nifty500") or None) if (lst == "rs-high-before-price-high" or scans) else None
     if pattern == "horizontal-resistance":
         f["resistance"] = {**(f.get("resistance") or {}), "require": True}
+    benches = scan.benchmarks() if f.get("rs_near_high") else None
+    ranked_by_value = f.get("sort") == "traded_value"
     quad = None
     if (f.get("rrg") or {}).get("quadrants"):
         quad = rrg_quadrants(rows, f["rrg"].get("timeframe", "daily"), f["rrg"].get("benchmark", "nifty50"))
@@ -375,14 +408,16 @@ def search(pattern, f: dict, include_candles: bool = False) -> dict:
                 matched.append(sid)
             if not ok:
                 continue
-        if not _stock_passes(r, f, quad):
+        if not _stock_passes(r, f, quad, True, benches):
             continue
+        if ranked_by_value and not _num(r.get("traded_value_cr")):
+            continue                              # a ranking by traded value covers only stocks that traded in the latest session
         if q and q not in r["symbol"].lower() and q not in (r.get("name") or "").lower():
             continue
         best = (sorted(occ, key=lambda o: (_STATUS_RANK.get(o["status"], 9), -(o.get("end_ts") or 0)))[0] if occ else None)
         row = {k: r.get(k) for k in ("symbol", "name", "sector", "index", "price", "market_cap_cr", "ret_1m", "ret_3m", "ret_1y",
                                       "pct_from_52w_high", "pct_from_52w_low", "pct_from_ath", "rs", "turnover_30d_cr", "pe",
-                                      "eps_growth", "debt_equity", "promoter", "div_yield", "net_profit_cr", "free_float", "as_of")}
+                                      "eps_growth", "debt_equity", "promoter", "div_yield", "net_profit_cr", "free_float", "as_of", "traded_value_cr")}
         row["adr5"] = (r.get("adr") or {}).get("5")
         row["resistance"] = r.get("resistance")
         row["occurrence"] = best

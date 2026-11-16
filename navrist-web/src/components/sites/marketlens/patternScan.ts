@@ -75,6 +75,7 @@ export const RANGE_DEFS: RangeDef[] = [
   { key: "fii_qoq_pp", label: "FII holding change, latest quarter", tab: "fundamentals", unit: "pp", hint: "Percentage points of the company held by FIIs, latest quarter against the one before" },
   // exchange data - Miscellaneous tab
   { key: "turnover_20d_cr", label: "Price × 20-day average volume", tab: "misc", unit: "₹ Cr", minOnly: true, hint: "Latest price times the average volume of the last 20 sessions: at least" },
+  { key: "traded_value", label: "Latest session traded value", tab: "misc", unit: "₹ Cr", minOnly: true, hint: "Latest close times the latest session's volume. A stock that did not trade in the latest session is left out." },
   { key: "float_cr", label: "Float shares", tab: "misc", unit: "Cr", hint: "Shares outstanding (market cap / price) times free float %" },
   { key: "ind_rank_1w", label: "Industry 1-week rank (1 = best)", tab: "misc", hint: "Enter a maximum, for example 10 for the ten best industries" },
   { key: "ind_rank_1m", label: "Industry 1-month rank (1 = best)", tab: "misc" },
@@ -130,6 +131,20 @@ export interface ScanFilters {
   adr: { on: boolean; days: number; min: number | null };
   rrg: { on: boolean; quadrants: Quadrant[]; timeframe: "daily" | "weekly"; benchmark: "nifty50" | "nifty500" };
   resistance: { on: boolean; states: ("near" | "breakout")[] };
+  /** Daily or weekly bars: used by the close-spread and inside-bar controls */
+  setupTf: "daily" | "weekly";
+  /** the last `bars` closes lie within `spread` % of each other: (highest - lowest) / average x 100 */
+  tight: { on: boolean; bars: number; spread: number | null };
+  /** the latest bar traded inside the one before; `maxRatio` caps its range as a % of the prior bar's */
+  insideBar: { on: boolean; maxRatio: number | null };
+  /** the relative-strength line (stock / benchmark) is within `tolerance` % of its high over `lookback` sessions */
+  rsHigh: { on: boolean; benchmark: "nifty50" | "nifty500"; lookback: number; tolerance: number | null };
+  /** a gap up of at least `minGap` % within the last `lookback` sessions that price has partly filled */
+  gapFill: { on: boolean; minGap: number | null; lookback: number | null };
+  /** the price reaction to the latest or previous quarter's results */
+  earnings: { on: boolean; quarter: "latest" | "previous"; gap: number | null; bestGain: number | null; sessions: number; holds: boolean };
+  /** match Horizontal Resistance OR the close spread, not both */
+  anyOf: { on: boolean };
 }
 
 const off = (): RangeState => ({ on: false, min: null, max: null });
@@ -154,6 +169,13 @@ export const emptyFilters = (): ScanFilters => ({
   adr: { on: false, days: 5, min: null },
   rrg: { on: false, quadrants: ["leading", "improving"], timeframe: "daily", benchmark: "nifty50" },
   resistance: { on: false, states: ["near", "breakout"] },
+  setupTf: "daily",
+  tight: { on: false, bars: 5, spread: 2.5 },
+  insideBar: { on: false, maxRatio: null },
+  rsHigh: { on: false, benchmark: "nifty500", lookback: 252, tolerance: 0.1 },
+  gapFill: { on: false, minGap: 2, lookback: 14 },
+  earnings: { on: false, quarter: "latest", gap: null, bestGain: null, sessions: 5, holds: false },
+  anyOf: { on: false },
 });
 
 /** Filters from an older saved copy, filled in with any filter added since. */
@@ -219,6 +241,7 @@ export interface ScanRow {
   pct_from_ath: number | null;
   rs: number | null;
   turnover_30d_cr: number | null;
+  traded_value_cr?: number | null; // latest close x latest session volume, Rs crore
   adr5: number | null;
   pe: number | null;
   eps_growth: number | null;
@@ -323,6 +346,14 @@ export function serialize(f: ScanFilters): Record<string, unknown> {
   if (f.adr.on && f.adr.min != null) b.adr = { days: f.adr.days, min: f.adr.min };
   if (f.rrg.on && f.rrg.quadrants.length) b.rrg = { quadrants: f.rrg.quadrants, timeframe: f.rrg.timeframe, benchmark: f.rrg.benchmark };
   if (f.resistance.on) b.resistance = { require: true, states: f.resistance.states };
+  if (f.tight.on && f.tight.spread != null) b.tight = { timeframe: f.setupTf, bars: f.tight.bars, max_spread: f.tight.spread };
+  if (f.insideBar.on) b.inside_bar = { timeframe: f.setupTf, ...(f.insideBar.maxRatio != null ? { max_ratio: f.insideBar.maxRatio } : {}) };
+  if (f.rsHigh.on && f.rsHigh.tolerance != null) b.rs_near_high = { benchmark: f.rsHigh.benchmark, lookback: f.rsHigh.lookback, tolerance: f.rsHigh.tolerance };
+  if (f.gapFill.on && f.gapFill.minGap != null && f.gapFill.lookback != null) b.gap_fill = { min_gap: f.gapFill.minGap, lookback: f.gapFill.lookback };
+  if (f.earnings.on && (f.earnings.gap != null || f.earnings.bestGain != null || f.earnings.holds)) {
+    b.earnings = { quarter: f.earnings.quarter, sessions: f.earnings.sessions, holds: f.earnings.holds, ...(f.earnings.gap != null ? { gap: f.earnings.gap } : {}), ...(f.earnings.bestGain != null ? { best_gain: f.earnings.bestGain } : {}) };
+  }
+  if (f.anyOf.on) b.any_of = { on: true };
   return b;
 }
 
@@ -369,7 +400,19 @@ export function describeFilters(f: ScanFilters, opts: ScanOptions | null): strin
   if (f.uptrend.on) out.push(`${f.uptrend.period} MA rising ≥ ${f.uptrend.months} month${f.uptrend.months > 1 ? "s" : ""}`);
   if (f.adr.on && f.adr.min != null) out.push(`${f.adr.days}-day ADR > ${f.adr.min}%`);
   if (f.rrg.on) out.push(`${f.rrg.quadrants.join("/")} sectors (${f.rrg.timeframe}, vs ${f.rrg.benchmark === "nifty50" ? "Nifty 50" : "Nifty 500"})`);
-  if (f.resistance.on) out.push(`Horizontal resistance: ${f.resistance.states.join(" / ")}`);
+  const frame = f.setupTf === "weekly" ? "weekly" : "daily";
+  const resText = f.resistance.on ? `Horizontal resistance: ${f.resistance.states.join(" / ")}` : "";
+  const tightText = f.tight.on && f.tight.spread != null ? `Last ${f.tight.bars} ${frame} closes within ${f.tight.spread}%` : "";
+  if (f.anyOf.on && resText && tightText) out.push(`Either ${resText.toLowerCase()} or ${tightText.toLowerCase()}`);
+  else out.push(...[resText, tightText].filter(Boolean));
+  if (f.insideBar.on) out.push(`${frame === "weekly" ? "Weekly" : "Daily"} inside bar${f.insideBar.maxRatio != null ? ` (range ≤ ${f.insideBar.maxRatio}% of the prior bar)` : ""}`);
+  if (f.rsHigh.on && f.rsHigh.tolerance != null) out.push(`RS line within ${f.rsHigh.tolerance}% of its ${f.rsHigh.lookback}-session high (vs ${f.rsHigh.benchmark === "nifty50" ? "Nifty 50" : "Nifty 500"})`);
+  if (f.gapFill.on && f.gapFill.minGap != null && f.gapFill.lookback != null) out.push(`Gap up ≥ ${f.gapFill.minGap}% in the last ${f.gapFill.lookback} sessions, partly filled`);
+  if (f.earnings.on) {
+    const e = f.earnings;
+    const bits = [e.gap != null ? `opened ≥ ${e.gap}% up` : "", e.bestGain != null ? `closed ≥ ${e.bestGain}% up within ${e.sessions} sessions` : "", e.holds ? "still above the pre-results close" : ""].filter(Boolean);
+    if (bits.length) out.push(`${e.quarter === "latest" ? "Latest" : "Previous"} results: ${bits.join(", ")}`);
+  }
   return out;
 }
 

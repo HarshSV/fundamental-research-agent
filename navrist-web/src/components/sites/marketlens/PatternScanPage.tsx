@@ -49,7 +49,7 @@ function ResistanceBadge({ row }: { row: ScanRow }) {
 type Col = { key: string; label: string; left?: boolean; cell: (r: ScanRow) => React.ReactNode };
 
 /** The columns of the two list layouts (Technicals / Fundamentals) for this scanner. */
-function columns(kind: "technicals" | "fundamentals", pattern: CatalogueEntry, withResistance: boolean, withPatterns = false): Col[] {
+function columns(kind: "technicals" | "fundamentals", pattern: CatalogueEntry, withResistance: boolean, withPatterns = false, withTraded = false): Col[] {
   const plain_special = isSpecial(pattern.id) && !withPatterns;
   const stock: Col = {
     key: "stock", label: "Stock", left: true,
@@ -103,6 +103,7 @@ function columns(kind: "technicals" | "fundamentals", pattern: CatalogueEntry, w
     { key: "rs", label: "RS", cell: (r) => <span className="font-semibold">{r.rs ?? "—"}</span> },
     sector, cap,
     { key: "price", label: "Price", cell: (r) => `₹${num(r.price)}` },
+    ...(withTraded ? [{ key: "tv", label: "Traded value (₹ Cr)", cell: (r: ScanRow) => num(r.traded_value_cr, 1) }] : []),
     state,
     ...(plain_special ? [] : [{ key: "brk", label: "Breakout", cell: (r: ScanRow) => (r.occurrence?.breakout == null ? "—" : `₹${num(r.occurrence.breakout)}`) }]),
     { key: "r1", label: "1M", cell: (r) => <span style={{ color: tone(r.ret_1m) }}>{pct(r.ret_1m)}</span> },
@@ -143,7 +144,7 @@ async function downloadCsv(pattern: CatalogueEntry, filters: ScanFilters, q: str
 
 const SORTS: [string, string][] = [
   ["status", "Closest to breakout"], ["market_cap", "Market cap"], ["rs", "RS rating"], ["ret_1m", "1M return"],
-  ["ret_3m", "3M return"], ["pct_52w_high", "Nearest 52W high"], ["turnover", "Traded value"], ["pe", "Lowest P/E"], ["name", "Name"],
+  ["ret_3m", "3M return"], ["pct_52w_high", "Nearest 52W high"], ["turnover", "Traded value, 30-day average"], ["traded_value", "Traded value, latest session"], ["pe", "Lowest P/E"], ["name", "Name"],
 ];
 
 /**
@@ -231,7 +232,7 @@ export function PatternScanPage({
   // the stock page opens with this scan's marking on its chart (pattern lines and levels, horizontal resistance)
   const open = (r: ScanRow) =>
     onOpenStock({ symbol: r.symbol, name: r.name }, { pattern: special ? (r.occurrence?.pattern ?? null) : pattern.id, occurrence: r.occurrence, resistance: r.resistance, showResistance: drawResistance });
-  const cols = useMemo(() => columns(colset, pattern, drawResistance, patternMode && special), [colset, pattern, drawResistance, patternMode, special]);
+  const cols = useMemo(() => columns(colset, pattern, drawResistance, patternMode && special, sort === "traded_value"), [colset, pattern, drawResistance, patternMode, special, sort]);
   const sorts: [string, string][] = [...(isListScanner(pattern.id) ? [["signal", "Strongest signal"] as [string, string]] : []), ...SORTS.filter(([k]) => !(!patternMode && k === "status"))];
 
 

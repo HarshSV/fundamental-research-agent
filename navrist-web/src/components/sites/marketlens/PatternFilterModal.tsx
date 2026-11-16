@@ -384,6 +384,22 @@ export function PatternFilterModal({
                 </button>
               </div>
             )}
+            {pattern.id === SCREENER_ID && (
+              <label
+                className={`mt-1.5 flex items-center justify-end gap-2 text-xs ${f.resistance.on && f.tight.on ? "cursor-pointer" : "opacity-50"}`}
+                style={{ color: "var(--text-secondary)" }}
+                title="Instead of requiring both, keep a stock that has a horizontal resistance OR a tight close spread. Other filters (such as Listed after) still apply to both."
+              >
+                <input
+                  type="checkbox"
+                  checked={f.anyOf.on && f.resistance.on && f.tight.on}
+                  disabled={!(f.resistance.on && f.tight.on)}
+                  onChange={(e) => patch({ anyOf: { on: e.target.checked } })}
+                  className="h-3.5 w-3.5 accent-[#b7b4e7]"
+                />
+                Match either: horizontal resistance or close spread
+              </label>
+            )}
             <div className="mt-3 flex gap-1" role="tablist">
               {tabs.map((t) => (
                 <button
@@ -513,6 +529,40 @@ export function PatternFilterModal({
                     <Pick label="Benchmark" value={f.rrg.benchmark} onChange={(benchmark) => patch({ rrg: { ...f.rrg, on: true, benchmark } })} options={(options?.rrg.benchmarks ?? [{ id: "nifty50", label: "Nifty 50" }]).map((b) => ({ v: b.id as "nifty50" | "nifty500", label: b.label }))} />
                     {options && !options.rrg.available && <span className="text-xs" style={{ color: "#f5a9a9" }}>Benchmark data arrives with the next market scan.</span>}
                   </Row>
+                </Section>
+
+                <Section title="Setups" hint="Close spread and inside bar, on daily or weekly bars. The current week counts, even if unfinished.">
+                  <div className="mb-2">
+                    <SlidingTabs ariaLabel="Setup timeframe" size="sm" value={f.setupTf} onChange={(setupTf) => patch({ setupTf })} options={[{ id: "daily", label: "Daily" }, { id: "weekly", label: "Weekly" }]} />
+                  </div>
+                  <Row on={f.tight.on} onToggle={(on) => patch({ tight: { ...f.tight, on } })} hint="(highest close - lowest close) / average close x 100">
+                    <span>Last</span>
+                    <Pick label="Bars" value={f.tight.bars} onChange={(bars) => patch({ tight: { ...f.tight, on: true, bars } })} options={[2, 3, 4, 5, 6, 8, 10, 15, 20].map((v) => ({ v, label: `${v} ${f.setupTf === "weekly" ? "weeks" : "days"}` }))} />
+                    <span>of closes within</span>
+                    <Num value={f.tight.spread} onChange={(spread) => patch({ tight: { ...f.tight, on: true, spread } })} placeholder="e.g. 2.5" width="w-20" />
+                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>% of each other</span>
+                  </Row>
+                  <Row on={f.insideBar.on} onToggle={(on) => patch({ insideBar: { ...f.insideBar, on } })} hint="The latest bar's high is at or under the prior bar's high and its low at or over the prior low; both bars need a range, and a daily bar needs volume">
+                    <span>Inside bar: latest {f.setupTf === "weekly" ? "week" : "session"} inside the prior one</span>
+                    <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                      <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>range at most</span>
+                      <Num value={f.insideBar.maxRatio} onChange={(maxRatio) => patch({ insideBar: { ...f.insideBar, on: true, maxRatio } })} placeholder="Any" width="w-20" />
+                      <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>% of the prior range</span>
+                    </span>
+                  </Row>
+                  <p className="mt-1 pl-7 text-xs" style={{ color: "var(--text-tertiary)" }}>For &ldquo;price above the 50-day average&rdquo;, tick DMA 50 above.</p>
+                </Section>
+
+                <Section title="Relative strength line" hint="The stock's price divided by the benchmark, day by day">
+                  <Row on={f.rsHigh.on} onToggle={(on) => patch({ rsHigh: { ...f.rsHigh, on } })}>
+                    <span>RS line within</span>
+                    <Num value={f.rsHigh.tolerance} onChange={(tolerance) => patch({ rsHigh: { ...f.rsHigh, on: true, tolerance } })} placeholder="0.1" width="w-20" />
+                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>% below its high of the last</span>
+                    <Pick label="Lookback" value={f.rsHigh.lookback} onChange={(lookback) => patch({ rsHigh: { ...f.rsHigh, on: true, lookback } })} options={[21, 63, 126, 252].map((v) => ({ v, label: `${v} sessions` }))} />
+                    <span>vs</span>
+                    <Pick label="RS benchmark" value={f.rsHigh.benchmark} onChange={(benchmark) => patch({ rsHigh: { ...f.rsHigh, on: true, benchmark } })} options={[{ v: "nifty500", label: "Nifty 500" }, { v: "nifty50", label: "Nifty 50" }]} />
+                  </Row>
+                  <p className="mt-1 pl-7 text-xs" style={{ color: "var(--text-tertiary)" }}>To make it &ldquo;before the price high&rdquo;, also set % from 52W high to at least 2.</p>
                 </Section>
 
               </>
@@ -659,6 +709,38 @@ export function PatternFilterModal({
                 </Section>
                 <Section title="Returns, volume and volatility" hint="Tick a row to use it">
                   <RangeList tab="misc" f={f} set={setRange} />
+                  <p className="mt-1 pl-7 text-xs" style={{ color: "var(--text-tertiary)" }}>To rank by value traded, set Sort to &ldquo;Traded value, latest session&rdquo; on the results page: only stocks that traded in the latest session are ranked.</p>
+                </Section>
+
+                <Section title="Gaps" hint="Opening gaps in the last few sessions, not today's">
+                  <Row on={f.gapFill.on} onToggle={(on) => patch({ gapFill: { ...f.gapFill, on } })} hint="The most recent gap up that qualifies: a later low has entered the gap but stayed above the close before it, and the latest close is still above that close">
+                    <span>Gap up of at least</span>
+                    <Num value={f.gapFill.minGap} onChange={(minGap) => patch({ gapFill: { ...f.gapFill, on: true, minGap } })} placeholder="2" width="w-16" />
+                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>% in the last</span>
+                    <Num value={f.gapFill.lookback} onChange={(lookback) => patch({ gapFill: { ...f.gapFill, on: true, lookback: lookback == null ? null : Math.round(lookback) } })} placeholder="14" width="w-16" />
+                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>sessions, partly filled since</span>
+                  </Row>
+                </Section>
+
+                <Section title="Earnings reaction" hint="How the price reacted to a quarter's results. Uses the NSE filing time: results after 3:30 pm IST react on the next session.">
+                  <div className="mb-2">
+                    <SlidingTabs ariaLabel="Results quarter" size="sm" value={f.earnings.quarter} onChange={(quarter) => patch({ earnings: { ...f.earnings, quarter } })} options={[{ id: "latest", label: "Latest quarter" }, { id: "previous", label: "Previous quarter" }]} />
+                  </div>
+                  <Row on={f.earnings.on && f.earnings.gap != null} onToggle={(on) => patch({ earnings: { ...f.earnings, on: on || f.earnings.bestGain != null || f.earnings.holds, gap: on ? (f.earnings.gap ?? 3) : null } })}>
+                    <span>Reaction session opened at least</span>
+                    <Num value={f.earnings.gap} onChange={(gap) => patch({ earnings: { ...f.earnings, on: true, gap } })} placeholder="3" width="w-16" />
+                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>% above the pre-results close</span>
+                  </Row>
+                  <Row on={f.earnings.on && f.earnings.bestGain != null} onToggle={(on) => patch({ earnings: { ...f.earnings, on: on || f.earnings.gap != null || f.earnings.holds, bestGain: on ? (f.earnings.bestGain ?? 5) : null } })}>
+                    <span>Best close within</span>
+                    <Pick label="Sessions after" value={f.earnings.sessions} onChange={(sessions) => patch({ earnings: { ...f.earnings, sessions } })} options={[1, 2, 3, 5, 10, 15, 20].map((v) => ({ v, label: `${v} sessions` }))} />
+                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>after it is at least</span>
+                    <Num value={f.earnings.bestGain} onChange={(bestGain) => patch({ earnings: { ...f.earnings, on: true, bestGain } })} placeholder="5" width="w-16" />
+                    <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>% above the pre-results close</span>
+                  </Row>
+                  <Row on={f.earnings.on && f.earnings.holds} onToggle={(holds) => patch({ earnings: { ...f.earnings, on: holds || f.earnings.gap != null || f.earnings.bestGain != null, holds } })}>
+                    <span>Latest close is still above the pre-results close</span>
+                  </Row>
                 </Section>
               </>
             )}
