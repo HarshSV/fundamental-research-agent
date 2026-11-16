@@ -1,6 +1,6 @@
 "use client";
 
-import { SlidingTabs, Switch } from "./controls";
+import { SlidingTabs } from "./controls";
 import { Check, ChevronDown, Share2, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { CatalogueEntry } from "./patterns";
@@ -367,17 +367,21 @@ export function PatternFilterModal({
             <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }} title={pattern.definition}>{pattern.definition}</p>
             {note && <p className="mt-1 text-xs" style={{ color: "var(--accent-text, #b7b4e7)" }} role="status">{note}</p>}
             {pattern.id === SCREENER_ID && (
-              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg px-3 py-2" style={{ background: "var(--overlay-weak)" }}>
-                <Switch
-                  on={f.resistance.on}
-                  onChange={() => patch({ resistance: { ...f.resistance, on: !f.resistance.on, states: f.resistance.states.length ? f.resistance.states : ["near", "breakout"] } })}
-                  label="Horizontal resistance"
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={f.resistance.on}
+                  onClick={() => patch({ resistance: { ...f.resistance, on: !f.resistance.on, states: f.resistance.states.length ? f.resistance.states : ["near", "breakout"] } })}
                   title="Keep only stocks pressing on a price level that at least three separate highs have touched"
-                />
-                {f.resistance.on && (options?.resistance_states ?? [{ id: "near", label: "Near (up to 5% below)" }, { id: "breakout", label: "Breakout (last 3 sessions)" }]).map((st) => (
-                  <Tick key={st.id} checked={f.resistance.states.includes(st.id as "near" | "breakout")} label={st.label}
-                    onChange={(on) => patch({ resistance: { ...f.resistance, states: toggle(f.resistance.states, st.id as "near" | "breakout", on) } })} />
-                ))}
+                  className="flex items-center gap-2 text-xs font-medium"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Horizontal resistance
+                  <span className="relative h-4 w-7 rounded-full transition-colors" style={{ background: f.resistance.on ? "#10b981" : "#ef4444" }}>
+                    <span className="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all" style={{ left: f.resistance.on ? "14px" : "2px" }} />
+                  </span>
+                </button>
               </div>
             )}
             <div className="mt-3 flex gap-1" role="tablist">
