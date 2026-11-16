@@ -13,7 +13,7 @@ export function ForecastStrip({ data }: { data: Forecast | null }) {
   if (!rows.length) return null;
   const dp = (rows[0].price_mid ?? data?.price ?? 1000) < 100 ? 2 : 0;
   return (
-    <div className="mb-3 grid gap-2 sm:grid-cols-3" aria-label="Forecast">
+    <div className="mb-8 grid gap-2 sm:grid-cols-3" aria-label="Forecast">
       {rows.map((h) => {
         const call = h.call;
         const color = call === "up" ? "var(--gain)" : call === "down" ? "var(--loss)" : "var(--text-secondary)";

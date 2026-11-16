@@ -662,13 +662,15 @@ export function StockView({
               </div>
             }
           >
-            Price Chart
+            Forecast Highlights
             {live && (
               <span className="ml-3 align-middle text-xs font-normal" style={{ color: "#f87171" }}>
                 ● Live · {liveAt ? `updated ${liveAt.toLocaleTimeString("en-IN", { hour12: false })}` : "connecting…"}
               </span>
             )}
           </SectionTitle>
+          <ForecastStrip data={forecastData?.data ?? null} />
+          <SectionTitle>Price Chart</SectionTitle>
           {thinHistory && daily && (
             <p className="mb-3 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "#f59e0b55", background: "#f59e0b12", color: "#f5c46a" }}>
               Recently listed: only {daily.length} trading day{daily.length === 1 ? "" : "s"} of price history so far, so
@@ -676,7 +678,6 @@ export function StockView({
               they fill in as history builds up.
             </p>
           )}
-          <ForecastStrip data={forecastData?.data ?? null} />
           <div className="mb-3">
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <Switch
