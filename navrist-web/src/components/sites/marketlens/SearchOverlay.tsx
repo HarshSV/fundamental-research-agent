@@ -248,21 +248,6 @@ export function SearchOverlay({
                   ))}
                 </div>
               )}
-              <h3 className="mb-3 text-base font-semibold">Browse Patterns</h3>
-              <div className="ov-late flex flex-wrap gap-2">
-                {patterns.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => onSelectPattern(p.id)}
-                    title={p.category}
-                    className="rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors hover:border-[var(--accent-border)] hover:bg-[var(--accent-surface)] hover:text-[var(--accent)]"
-                    style={{ background: "var(--surface-2, var(--surface-1))", borderColor: "var(--border-default)", color: "var(--text-primary)" }}
-                  >
-                    {p.name}
-                  </button>
-                ))}
-                {patterns.length === 0 && <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>Loading patterns…</span>}
-              </div>
             </div>
           ) : rows.length > 0 ? (
             rows.map((r, i) => {
