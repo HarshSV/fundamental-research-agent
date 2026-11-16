@@ -605,7 +605,7 @@ export function StockView({
     <div className="w-full">
       <section className="relative mx-auto w-full max-w-7xl px-4 pb-8 pt-8">
         <button onClick={onBack} className="mb-3 flex min-h-[44px] items-center gap-2 text-sm hover:text-[var(--accent)] sm:mb-5 sm:min-h-0 min-[1440px]:absolute min-[1440px]:right-full min-[1440px]:top-8 min-[1440px]:mb-0 min-[1440px]:mr-3 min-[1440px]:min-h-0 min-[1440px]:whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
-          <ArrowLeft className="h-4 w-4" /> Back to search
+          <ArrowLeft className="h-4 w-4" /> Back
         </button>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-3xl font-bold tracking-tight">{name}</h1>
