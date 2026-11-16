@@ -1,10 +1,9 @@
 "use client";
 
 import { BarChart3, ChevronDown, Menu, Moon, Search, SlidersHorizontal, Star, Sun, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { SlidingTabs } from "./controls";
 import { OPEN_SCREENER_EVENT, openSearch } from "./searchEvents";
-import { fetchCatalogue } from "./patterns";
 import { navigateTo } from "./scanners";
 import { Ticker } from "./Ticker";
 
@@ -220,27 +219,7 @@ export function Header() {
     return () => clearTimeout(t);
   }, [drawer]);
   const [section, setSection] = useState<string | null>("screeners");
-  // every chart pattern, shaded by direction, as a group of the Screeners menu; each opens that pattern's scan
-  const [patternItems, setPatternItems] = useState<Item[]>([]);
-  useEffect(() => {
-    let alive = true;
-    fetchCatalogue()
-      .then((cat) => {
-        if (!alive) return;
-        const rank = { bullish: 0, bearish: 1, both: 2 } as const;
-        setPatternItems(
-          Object.values(cat)
-            .map((p): Item => ({ label: p.name, bias: p.bias ?? "both", run: () => navigateTo({ type: "scanner", id: p.id }) }))
-            .sort((a, b) => rank[a.bias ?? "both"] - rank[b.bias ?? "both"] || a.label.localeCompare(b.label)),
-        );
-      })
-      .catch(() => { /* the menu simply has no pattern list until the catalogue loads */ });
-    return () => { alive = false; };
-  }, []);
-  const menus = useMemo(
-    () => MENUS.map((m) => (m.id === "screeners" && patternItems.length ? { ...m, groups: [...m.groups, { title: "Chart Patterns", items: patternItems }] } : m)),
-    [patternItems],
-  );
+  const menus = MENUS;
   const bar = useRef<HTMLDivElement>(null);
 
   const pick = useCallback((it: Item) => {
