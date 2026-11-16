@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { SlidingTabs } from "./controls";
 import { navigateTo } from "./scanners";
 
@@ -25,8 +26,15 @@ export function AnalyticsTabs({ value }: { value: SectorTab }) {
     else if (t === "losers") navigateTo({ type: "scanner", id: "top-losers" });
     else navigateTo({ type: "analytics", tab: t });
   };
+  const row = useRef<HTMLDivElement>(null);
+  // on a narrow screen the row scrolls sideways: bring the chosen toggle into view
+  useEffect(() => {
+    const box = row.current;
+    const on = box?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (box && on) box.scrollTo({ left: on.offsetLeft - (box.clientWidth - on.offsetWidth) / 2 });
+  }, [value]);
   return (
-    <div className="mb-6 mt-1 max-w-full overflow-x-auto">
+    <div ref={row} className="mb-6 mt-1 max-w-full overflow-x-auto">
       <SlidingTabs ariaLabel="Sector analytics" value={value} onChange={go} options={OPTIONS} />
     </div>
   );
