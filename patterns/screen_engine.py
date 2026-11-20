@@ -5,6 +5,7 @@ option; nothing ticked means no restriction. A range filter ({min, max}) with ei
 value is unknown - an unknown value is not treated as zero."""
 from __future__ import annotations
 
+import threading
 import time
 import math
 import statistics
@@ -333,9 +334,21 @@ def _markers(r: dict) -> list:
     return m
 
 
+_ann_lock = threading.Lock()
+_ann_state: dict = {"rows": None, "at": 0.0}
+ANNOTATE_EVERY = 60.0        # seconds between full re-annotations of the same table (a re-built table is annotated at once)
+
+
 def _rows() -> dict:
     rows = scan._load_all()
-    market_lists.annotate(rows)
+    # annotate() re-ranks every industry and re-reads every stock's results for ~3,000 stocks (about 1.7 s of CPU). Doing that on EVERY
+    # search, from several searches at once (the screener page fires a few) alongside the background jobs, made a search take over
+    # 30 s, which the web proxy cuts off as "request failed 500". So: once per minute at most, one thread at a time, the others wait for it.
+    if _ann_state["rows"] is not rows or time.monotonic() - _ann_state["at"] > ANNOTATE_EVERY:
+        with _ann_lock:
+            if _ann_state["rows"] is not rows or time.monotonic() - _ann_state["at"] > ANNOTATE_EVERY:
+                market_lists.annotate(rows)
+                _ann_state["rows"], _ann_state["at"] = rows, time.monotonic()
     try:  # keep the exchange feeds and the Screener quarterly data fresh in the background (never blocks a search)
         from . import exchange_data
         from screens import quarterly

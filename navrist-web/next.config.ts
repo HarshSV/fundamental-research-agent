@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["ai.navrist.com"],
   // Hide the round "N" dev badge (a development-only indicator; a production build never shows it).
   devIndicators: false,
+  // The proxy to the backend gives up after 30 s by default and answers 500 ("socket hang up"); a heavy screener search can take longer.
+  experimental: { proxyTimeout: 180_000 },
   // Same-origin proxy to the Navrist FastAPI backend.
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${BACKEND_URL}/api/:path*` }];
