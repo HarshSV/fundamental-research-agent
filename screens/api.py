@@ -25,8 +25,10 @@ def make_router(require_session, fetch_candles):
         except Exception as e:  # pragma: no cover
             print(f"[screens] resume skipped: {e}")
 
+    import os
     import threading
-    threading.Thread(target=_resume, daemon=True, name="screens-resume").start()
+    if os.environ.get("NAVRIST_ROLE", "all").strip().lower() in ("all", "worker"):     # a long job: not in the process that answers requests
+        threading.Thread(target=_resume, daemon=True, name="screens-resume").start()
 
     def _name(sym: str) -> str:
         return universe._names().get(sym, sym)

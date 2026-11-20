@@ -15,11 +15,18 @@ function Start-Hidden([string]$file, [string]$arguments, [string]$dir, [string]$
     -RedirectStandardOutput (Join-Path $logs "$name.log") -RedirectStandardError (Join-Path $logs "$name.err.log") | Out-Null
 }
 
-$last = @{ api = [datetime]::MinValue; web = [datetime]::MinValue }
+function Test-Worker { [bool](Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -match 'worker\.py' }) }
+
+$last = @{ api = [datetime]::MinValue; web = [datetime]::MinValue; worker = [datetime]::MinValue }
 while ($true) {
   if (-not (Test-Port 8000) -and ((Get-Date) - $last.api).TotalSeconds -gt 60) {
-    Start-Hidden (Join-Path $root "venv\Scripts\python.exe") "app.py" $root "api"
+    # The API only answers requests (NAVRIST_ROLE=api); the long background jobs run in worker.py, started below.
+    Start-Hidden "cmd.exe" "/c set NAVRIST_ROLE=api&& `"$(Join-Path $root 'venv\Scripts\python.exe')`" app.py" $root "api"
     $last.api = Get-Date
+  }
+  if (-not (Test-Worker) -and ((Get-Date) - $last.worker).TotalSeconds -gt 60) {
+    Start-Hidden (Join-Path $root "venv\Scripts\python.exe") "worker.py" $root "worker"
+    $last.worker = Get-Date
   }
   if (-not (Test-Port 3100) -and ((Get-Date) - $last.web).TotalSeconds -gt 60) {
     # Serves the PRODUCTION build (folder .next-prod, made by scripts\build_web.ps1). If no build exists yet, fall back to the

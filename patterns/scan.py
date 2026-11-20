@@ -49,6 +49,7 @@ PATTERN_YEARS = 5                   # the pattern engine's window
 
 _lock = threading.Lock()
 _mem: dict = {"stamp": None, "rows": {}, "at": 0.0}
+FILE_CHECK_EVERY = 3.0          # seconds between looks at the per-stock files' modified times
 RELOAD_WHILE_BUSY_SECONDS = 30      # while a scan / fundamentals build is writing files, the joined rows are rebuilt at most this often
 
 
@@ -349,12 +350,17 @@ def _load_all() -> dict:
     # whole site crawl while it ran. During one, hand out the rows built a moment ago.
     if _mem["rows"] and time.monotonic() - _mem["at"] < RELOAD_WHILE_BUSY_SECONDS and _background_busy():
         return _mem["rows"]
+    # Looking at ~3,000 files' modified times took a noticeable slice of every search (and a search asks for the rows three times),
+    # so check them at most every few seconds; a rewritten file shows up that much later.
+    if _mem["rows"] and time.monotonic() - _mem.get("checked", 0.0) < FILE_CHECK_EVERY:
+        return _mem["rows"]
     try:
         files = [f for f in os.listdir(SYMBOL_DIR) if f.endswith(".json")]
         stamp = (len(files), max((os.path.getmtime(os.path.join(SYMBOL_DIR, f)) for f in files), default=0.0),
                  )
     except FileNotFoundError:
         return {}
+    _mem["checked"] = time.monotonic()
     if stamp == _mem["stamp"]:
         _overlay(_mem["rows"])          # cheap: only the fundamentals (Screener builds, Yahoo collector) may have changed
         return _mem["rows"]

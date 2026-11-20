@@ -420,6 +420,15 @@ def warm_live_scraper_async():
         print(f"[HTTP WARNING] Live scraper warmup failed (will lazy-init on demand): {e}")
 
 
+# NAVRIST_ROLE decides which half of the work this process does:
+#   "all"    (default) everything in one process, as before;
+#   "api"    only answers web requests - the heavy background jobs run in a second process (worker.py), so a long job can never
+#            starve a screener search (a search that takes over 30 s is cut off by the web proxy as a 500);
+#   "worker" only the background jobs: price alerts, the pattern autoscan and the report / ratio precompute.
+_ROLE = os.environ.get("NAVRIST_ROLE", "all").strip().lower()
+RUNS_BACKGROUND_JOBS = _ROLE in ("all", "worker")
+
+
 @app.on_event("startup")
 def startup_event():
     # Every `/api/v1/*` ratio endpoint runs via `asyncio.to_thread`, which
@@ -453,8 +462,14 @@ def startup_event():
         except Exception as e:
             print(f"[HTTP WARNING] table warmup failed: {e}")
     threading.Thread(target=_warm_rows, daemon=True).start()
-    threading.Thread(target=_precompute_loop, daemon=True).start()
-    threading.Thread(target=_ratio_precompute_once, daemon=True).start()
+    if RUNS_BACKGROUND_JOBS:
+        start_precompute_jobs()
+
+
+def start_precompute_jobs():
+    """The report precompute loop and the one-off ratio precompute (started here in the "all" role, by worker.py in the "worker" role)."""
+    threading.Thread(target=_precompute_loop, daemon=True, name="report-precompute").start()
+    threading.Thread(target=_ratio_precompute_once, daemon=True, name="ratio-precompute").start()
 
 @app.get("/api/search-symbols")
 def search_symbols(q: str = "", _: dict = Depends(auth.require_session)):
@@ -1334,7 +1349,7 @@ except Exception as _su_err:  # pragma: no cover
 try:
     from notify.api import make_router as _make_notify_router
     app.include_router(_make_notify_router(auth.require_session))
-    if os.environ.get("NAVRIST_ALERTS_WORKER", "1") == "1":
+    if os.environ.get("NAVRIST_ALERTS_WORKER", "1") == "1" and RUNS_BACKGROUND_JOBS:
         from notify import worker as _alert_worker
 
         def _alert_price(sym):
@@ -1349,7 +1364,7 @@ except Exception as _al_err:  # pragma: no cover
 try:
     from patterns.scan_api import make_router as _make_scan_router
     app.include_router(_make_scan_router(auth.require_session))
-    if os.environ.get("NAVRIST_AUTOSCAN", "1") == "1":
+    if os.environ.get("NAVRIST_AUTOSCAN", "1") == "1" and RUNS_BACKGROUND_JOBS:
         from patterns import scan as _scan_mod
         threading.Thread(target=_scan_mod.autoscan_loop, daemon=True, name="pattern-autoscan").start()
 except Exception as _sc_err:  # pragma: no cover
