@@ -3,6 +3,7 @@
 import { CandlestickSeries, ColorType, HistogramSeries, LineSeries, LineStyle, createChart, type Time } from "lightweight-charts";
 import { useEffect, useRef } from "react";
 import type { Resistance, ScanOccurrence } from "./patternScan";
+import { removeChartSafely } from "./chartDispose";
 
 type Bar = [number, number, number, number, number, number]; // t, o, h, l, c, v
 
@@ -81,11 +82,16 @@ export function TvChart({
     }
 
     chart.timeScale().fitContent();
-    const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
+    // a resize callback already queued when the chart is removed would touch a disposed chart ("Object is disposed")
+    let gone = false;
+    const ro = new ResizeObserver(() => {
+      if (!gone) chart.applyOptions({ width: el.clientWidth });
+    });
     ro.observe(el);
     return () => {
+      gone = true;
       ro.disconnect();
-      chart.remove();
+      removeChartSafely(chart);
     };
   }, [bars, occurrence, resistance, height]);
 

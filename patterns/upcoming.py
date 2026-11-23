@@ -1,7 +1,6 @@
 """Scheduled events ahead, for the sector outlook. Only events with a published date are listed; nothing is guessed.
 
 Sources (each read when first needed and kept for a few hours; a source that cannot be read is reported, never replaced by a guess):
-  * US Federal Reserve policy meetings        federalreserve.gov/monetarypolicy/fomccalendars.htm (two-day meetings; single-day lines are minutes)
   * NSE trading holidays                       nseindia.com holiday-master
   * Company actions with ex-dates ahead        nseindia.com corporates-corporateActions (dividends, bonus, splits, buy-backs, rights), grouped by sector
   * Results and board meetings                 the NSE event calendar already read by patterns/exchange_data.py
@@ -26,7 +25,6 @@ MANUAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "upcoming_even
 UA = {"User-Agent": "Mozilla/5.0"}
 TTL = 6 * 3600
 _cache: dict = {}
-MONTHS = {m: i + 1 for i, m in enumerate(["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"])}
 ACTION_WORDS = ("dividend", "bonus", "split", "sub-division", "buy back", "buyback", "rights")
 
 
@@ -40,28 +38,6 @@ def _cached(key: str, fn):
         val = {"ok": False, "items": [], "error": str(e)[:120]}
     _cache[key] = (time.time(), val)
     return val
-
-
-def _fomc() -> list[dict]:
-    t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", requests.get("https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm", headers=UA, timeout=30).text))
-    out = []
-    for y in (date.today().year, date.today().year + 1):
-        i = t.find(f"{y} FOMC Meetings")
-        if i < 0:
-            continue
-        m2 = re.search(r"\d{4} FOMC Meetings", t[i + 20:])
-        seg = t[i: i + 20 + m2.start()] if m2 else t[i: i + 1500]
-        last_month = 0
-        for mon, a, b in re.findall(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})-(\d{1,2})", seg):
-            if MONTHS[mon] < last_month:            # the months run January to December within a year; a drop means the next year's table began
-                break
-            last_month = MONTHS[mon]
-            try:
-                end = date(y, MONTHS[mon], int(b))
-            except ValueError:
-                continue
-            out.append({"date": end.isoformat(), "title": f"US Federal Reserve policy decision ({mon} {a}-{b})", "scope": "market", "source": "federalreserve.gov"})
-    return out
 
 
 def _holidays() -> list[dict]:
@@ -118,7 +94,7 @@ def market(days: int = 60) -> dict:
     """Events ahead that affect every sector, soonest first, with a note for each source that could not be read."""
     today = date.today().isoformat()
     end = (date.today() + timedelta(days=days)).isoformat()
-    srcs = {"fed": _cached("fomc", _fomc), "holidays": _cached("hol", _holidays), "manual": _cached("man", _manual)}
+    srcs = {"holidays": _cached("hol", _holidays), "manual": _cached("man", _manual)}
     items = []
     for k, v in srcs.items():
         for e in v["items"]:

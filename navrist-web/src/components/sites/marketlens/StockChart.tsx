@@ -9,6 +9,7 @@ import { ConePrimitive, type Cone } from "./cone";
 import { OUTCOME_COLOR, STATUS_COLOR, markerOf, measuredTarget, type MarkerKind, type PatternOcc } from "./patterns";
 import type { Resistance, ScanOccurrence } from "./patternScan";
 import type { Candle } from "./PriceChart";
+import { removeChartSafely } from "./chartDispose";
 
 export type ChartStyle = "candles" | "line";
 
@@ -130,11 +131,16 @@ export function StockChart({
       const g = p.time ? groups.current.get(String(p.time)) : undefined;
       if (g?.length) onSelectRef.current(g[0].occ_id);
     });
-    const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
+    // a resize callback already queued when the chart is removed would touch a disposed chart ("Object is disposed")
+    let gone = false;
+    const ro = new ResizeObserver(() => {
+      if (!gone) chart.applyOptions({ width: el.clientWidth });
+    });
     ro.observe(el);
     return () => {
+      gone = true;
       ro.disconnect();
-      chart.remove();
+      removeChartSafely(chart);
       chartRef.current = null;
       seriesRef.current = null;
       volRef.current = null;

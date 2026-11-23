@@ -19,7 +19,7 @@ routes in `patterns/scan_api.py`; pages `SectorHistory.tsx`, `SectorOutlook.tsx`
 
 ```
 Price provider (adjusted daily closes, whole history)         NSE feeds (orders, deals, board meetings, holidays, company actions)
-        |                                                       Screener.in quarterly results       US Fed calendar       editorial lists
+        |                                                       Screener.in quarterly results       editorial lists
         v                                                                      |
 data/sector_history/monthly.json  (month-end closes per stock, refreshed when older than 7 days)
         |
@@ -51,7 +51,7 @@ rolling returns, seasons     dated events around them,   tilt against the sector
 * **Tilt** = the situation's chance of a clear rise minus the sector's usual chance (under 5 points: "usual odds"; 5-10 "slightly"; 10 or more "clearly" better or worse). The table is sorted by the 3-month tilt.
 * **Replay (`validation()`).** The method is replayed month by month using only outcomes already known at each month (about 4,700 sector-months). Result on 2026-11-12: over 3 months, when the situation made a rise 10+ points more likely the sector rose in **66.6%** of 1,078 months, against **63.1%** in all tested months, and **61.6%** when it made a rise less likely; for beating all stocks, **50.1%** / **42.9%** against **45.7%**. Plain "up" calls were right about 59% of the time over a month, but the sector rose in about 60% of months anyway - no edge. The edge from the tilt is a few percentage points, and the page says to read it as a lean, not a call.
 * **Facts beside the odds (not blended in):** trend and strength against all stocks, share of stocks above their 50 and 200-day averages, rotation quadrant, this quarter's results (reported, median sales and profit growth, share with higher profit), order and deal flow, results due, dividends/bonus/splits/buy-backs with ex-dates in 30 days, the usual pattern of the next 3 calendar months, and what the sector did in past 10% market rises and falls (from its capture ratios).
-* **Scheduled events ahead (`upcoming.py`):** only events with a published date: US Fed policy decisions (federalreserve.gov, two-day meetings only), NSE trading holidays (NSE holiday-master), dates kept by hand in `patterns/upcoming_events.json` (currently the Union Budget, 1 Feb 2027, marked *expected*), and per-sector company actions (NSE corporate actions) and board meetings. **RBI policy dates are not listed**: RBI does not publish them where we can read them reliably, so the page links to current headlines about the FY27 schedule; add the dates to `upcoming_events.json` once taken from RBI's own calendar. A source that cannot be read is named on the page, never replaced by a guess. The odds are **not adjusted** for these events.
+* **Scheduled events ahead (`upcoming.py`):** only events with a published date: NSE trading holidays (NSE holiday-master), dates kept by hand in `patterns/upcoming_events.json` (currently the Union Budget, 1 Feb 2027, marked *expected*), and per-sector company actions (NSE corporate actions) and board meetings. **RBI policy dates are not listed**: RBI does not publish them where we can read them reliably, so the page links to current headlines about the FY27 schedule; add the dates to `upcoming_events.json` once taken from RBI's own calendar. A source that cannot be read is named on the page, never replaced by a guess. The odds are **not adjusted** for these events.
 * Route: `GET /api/v1/market/sector-outlook`.
 
 ## Limits
@@ -65,4 +65,4 @@ rolling returns, seasons     dated events around them,   tilt against the sector
 ## Maintaining it
 * Refresh the price store: it tops itself up in the background when a page request finds it older than 7 days; by hand use `POST /api/v1/market/sector-history/refresh`, and to rebuild everything run `python -c "from patterns import sector_history as s; s.refresh(max_age_days=0)"`.
 * Edit events: `patterns/sector_events.json` (past), `patterns/upcoming_events.json` (future).
-* Tests: `python -m pytest tests/test_sector_history.py` (made-up price series for the maths; the Fed parser and the "unreadable source is reported" rule).
+* Tests: `python -m pytest tests/test_sector_history.py` (made-up price series for the maths; the dated-events filter and the "unreadable source is reported" rule).

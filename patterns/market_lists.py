@@ -52,6 +52,14 @@ def _weeks(bars: list) -> list:
     return out
 
 
+def _week_traded(bars: list) -> bool:
+    """True when the latest (IST) week has at least one session with volume. Unknown volume counts as not traded."""
+    if not bars:
+        return False
+    key = ((bars[-1][0] + IST) // DAY + 3) // 7
+    return any(isinstance(b[5], (int, float)) and b[5] > 0 for b in bars if ((b[0] + IST) // DAY + 3) // 7 == key)
+
+
 def _change_1d(r):
     b = _bars(r)
     return _pct(b[-1][4], b[-2][4]) if len(b) >= 2 else None
@@ -126,10 +134,13 @@ def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK
 
 def _inside_bar(r, weekly=False, filtered=False):
     if weekly:
-        w = _weeks(_bars(r))
+        bars = _bars(r)
+        w = _weeks(bars)
         if len(w) < 2:
             return None
         (_, ph, pl, _), (_, h, l, _) = w[-2], w[-1]
+        if not _week_traded(bars):         # nothing traded this week (an illiquid stock's flat, filled-in bars): not an inside bar
+            return None
     else:
         b = _bars(r)
         if len(b) < 2:

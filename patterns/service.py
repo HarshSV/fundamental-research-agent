@@ -73,8 +73,27 @@ def build_series(candles: list[dict], timeframe: str, now: float | None = None) 
     )
 
 
+REPLAY_TIMEOUT = 300
+
+
+def _replay_in_process(symbol: str, timeframe: str, candles: list[dict]) -> bool:
+    """Run the replay in a separate Python process (patterns/replay_job.py) so the calling server keeps serving other requests.
+    True when the result is in the store; False means the caller should replay in-process instead."""
+    import json
+    import os
+    import subprocess
+    import sys
+    try:
+        p = subprocess.run([sys.executable, "-m", "patterns.replay_job"], input=json.dumps(
+            {"symbol": symbol, "timeframe": timeframe, "candles": candles}), text=True, capture_output=True, timeout=REPLAY_TIMEOUT,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        return p.returncode == 0
+    except Exception:
+        return False
+
+
 def get_patterns(symbol: str, timeframe: str, fetch: Callable[[str, str, str], list[dict] | None],
-                 status: str | None = None, pattern: str | None = None, refresh: bool = False) -> dict:
+                 status: str | None = None, pattern: str | None = None, refresh: bool = False, offload: bool = False) -> dict:
     if timeframe not in TIMEFRAMES:
         raise ValueError(f"unsupported timeframe {timeframe!r}; use one of {sorted(TIMEFRAMES)}")
     interval, period, _ = TIMEFRAMES[timeframe]
@@ -89,9 +108,14 @@ def get_patterns(symbol: str, timeframe: str, fetch: Callable[[str, str, str], l
         run = store.get_run(symbol, timeframe, DETECTOR_VERSION)
         errors: dict = {}
         if refresh or run is None or run["last_bar_ts"] != int(series.t[-1]):
-            res = replay(series, ALL, groups=GROUPS)
-            store.save(symbol, timeframe, DETECTOR_VERSION, series, res.occurrences, res.errors)
-            errors = res.errors
+            import json
+            if offload and _replay_in_process(symbol, timeframe, candles or []):
+                done = store.get_run(symbol, timeframe, DETECTOR_VERSION)
+                errors = json.loads((done or {}).get("errors_json") or "{}")
+            else:
+                res = replay(series, ALL, groups=GROUPS)
+                store.save(symbol, timeframe, DETECTOR_VERSION, series, res.occurrences, res.errors)
+                errors = res.errors
         else:
             import json
             errors = json.loads(run["errors_json"] or "{}")

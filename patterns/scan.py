@@ -221,7 +221,11 @@ PROGRESS_FILE = os.path.join(DATA_DIR, "progress.json")
 _proc = None
 
 
+BUILD_STALE_SECONDS = 20 * 60     # a scan that has reported nothing for this long is not running any more
+
+
 def _write_progress(**kw) -> None:
+    kw["updated"] = time.time()          # heartbeat: lets status() tell a live scan from one that died with its server
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         with open(PROGRESS_FILE, "w", encoding="utf-8") as fh:
@@ -269,6 +273,15 @@ def status() -> dict:
     running = _proc is not None and _proc.poll() is None
     if prog.get("building") and not running and _proc is not None:   # the scan process died: do not claim it is still working
         prog["building"] = False
+    if prog.get("building") and _proc is None:
+        # After a server restart this process has no handle on the scan it started, and the file still says "building" if that scan was
+        # killed with the server. Trust it only while it keeps reporting; otherwise the banner and the autoscan stay stuck forever.
+        try:
+            last = prog.get("updated") or os.path.getmtime(PROGRESS_FILE)
+        except OSError:
+            last = 0
+        if time.time() - last > BUILD_STALE_SECONDS:
+            prog["building"] = False
     return {"building": bool(prog.get("building")), "done": prog.get("done", 0), "total": prog.get("total", 0),
             "errors": prog.get("errors", 0), "started": prog.get("started"), "finished": prog.get("finished"),
             "have": len(_load_all()), "universe": len(universe()), "prices_as_of": _prices_as_of()}

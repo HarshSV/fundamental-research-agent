@@ -568,7 +568,10 @@ export function StockView({
   //   Debt / equity  at most 0.5 green, 1.5 or more red (the figure is left out for banks and lenders, where it means little)
   //   All time high  within 10% of it green, less than half of it red
   const sectorPe = Number(forecastData?.data?.evidence.find((e) => e.label.startsWith("P/E"))?.label.match(/median ([\d.]+)/)?.[1]);
-  const ttmPe = overview?.pe ?? null;
+  // TTM P/E = the live price over the TTM EPS shown beside it, so the two always agree (a loss gives no P/E). Screener's own P/E is
+  // computed at its price from up to 12 hours earlier, so it is only the fallback when the TTM EPS is unknown.
+  const ttmEps = overview?.eps_ttm ?? null;
+  const ttmPe = ttmEps != null ? (ltp && ttmEps > 0 ? ltp / ttmEps : null) : overview?.pe ?? null;
   const toneOf = (v: number | null): "good" | "bad" | null => (!sectorPe || v == null || v <= 0 ? null : v < 0.8 * sectorPe ? "good" : v > 2 * sectorPe ? "bad" : null);
   // Every two-basis metric: shown on its own basis (set by the cards' switches or the block switch); when only one basis
   // exists that one is shown, with no switch.

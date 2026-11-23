@@ -44,7 +44,7 @@ def make_router(resolve_symbol, require_session, fetch_candles):
         if status and status not in STATUSES:
             raise HTTPException(status_code=400, detail=f"status must be one of {list(STATUSES)}")
         try:
-            return service.get_patterns(sym, timeframe, fetch_candles, status=status, pattern=pattern, refresh=refresh)
+            return service.get_patterns(sym, timeframe, fetch_candles, status=status, pattern=pattern, refresh=refresh, offload=True)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 

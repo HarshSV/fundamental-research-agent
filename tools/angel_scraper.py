@@ -19,6 +19,7 @@ except Exception as _smartapi_import_error:
           f"Angel One live-tick path disabled, yfinance fallback only.")
 import yfinance as yf
 from dotenv import load_dotenv
+from tools import angel_session
 
 # Load env variables from root .env if it exists
 load_dotenv()
@@ -195,16 +196,14 @@ class AngelDataScraper:
         self.authenticated = False
         self.scrip_master = None
 
-        # Reuse a still-fresh session instead of re-authenticating (TOTP +
-        # generateSession network call) on every instantiation.
-        cached = _session_cache
-        if cached["authenticated"] and cached["smart_connect"] is not None \
-                and (time.time() - cached["ts"]) < _SESSION_TTL:
-            self.smart_connect = cached["smart_connect"]
-            self.authenticated = True
-            return
+        self._sess_ts = 0.0
 
-        # Initialize and log in
+        # One Angel login is shared by every process (see tools/angel_session.py). Within this process the client is reused; a dead token is
+        # detected on use (see _angel) and replaced from the shared file or by one new login.
+        cached = _session_cache
+        if cached["authenticated"] and cached["smart_connect"] is not None and (time.time() - cached["ts"]) < _SESSION_TTL:
+            self.smart_connect, self.authenticated, self._sess_ts = cached["smart_connect"], True, cached["ts"]
+            return
         self._login()
 
     def _login(self):
@@ -227,36 +226,25 @@ class AngelDataScraper:
             print("[AngelDataScraper] Warning: One or more Angel One credentials (ANGEL_API_KEY, ANGEL_CLIENT_CODE, ANGEL_PASSWORD, ANGEL_TOTP_SECRET) are missing or set to placeholder values. Sliding over to yfinance fallback.")
             return False
 
-        try:
-            print("[AngelDataScraper] Connecting to SmartConnect...")
-            # Initialize the SmartConnect session using ANGEL_API_KEY
-            self.smart_connect = SmartConnect(api_key=api_key)
-            
-            # Programmatically generate the 2FA token using pyotp.TOTP(os.getenv("ANGEL_TOTP_SECRET")).now()
-            totp = pyotp.TOTP(os.getenv("ANGEL_TOTP_SECRET").strip()).now()
-            
-            print(f"[AngelDataScraper] Generated TOTP: {totp}. Logging in user: {client_code}...")
-            
-            # Initialize the SmartConnect session using client code and password
-            session = self.smart_connect.generateSession(client_code, password, totp)
-            
-            if session.get('status') is True:
-                print("[AngelDataScraper] Authentication successful! Session established.")
-                self.authenticated = True
-                _session_cache["smart_connect"] = self.smart_connect
-                _session_cache["authenticated"] = True
-                _session_cache["ts"] = time.time()
-                return True
-            else:
-                msg = session.get('message', 'Unknown error')
-                print(f"[AngelDataScraper] Warning: Authentication failed (Response: {msg}). Sliding over to yfinance fallback.")
-                return False
-        except Exception as e:
-            if "App Deactive" in str(e) or "auth" in str(e).lower() or "active" in str(e).lower():
-                print(f"[AngelDataScraper] Warning: SmartAPI Authentication failed / App Deactive ({e}). Gracefully sliding over to yfinance fallback.")
-            else:
-                print(f"[AngelDataScraper] Warning during login initialization: {e}. Gracefully sliding over to yfinance fallback.")
+        sc, ts = angel_session.ensure()
+        if sc is None:
+            print("[AngelDataScraper] Warning: Angel One login unavailable. Sliding over to yfinance fallback.")
             return False
+        self.smart_connect, self.authenticated, self._sess_ts = sc, True, ts
+        _session_cache["smart_connect"], _session_cache["authenticated"], _session_cache["ts"] = sc, True, ts
+        return True
+
+    def _angel(self, call):
+        """Run an Angel call; when Angel says the token is invalid (replaced by another login, or expired), adopt or make a fresh shared
+        session and retry once. Returns the reply (a dict with status False when Angel still refuses)."""
+        res = call(self.smart_connect)
+        if angel_session.is_invalid_token(res):
+            sc, ts = angel_session.ensure(bad_ts=self._sess_ts)
+            if sc is not None:
+                self.smart_connect, self._sess_ts = sc, ts
+                _session_cache["smart_connect"], _session_cache["authenticated"], _session_cache["ts"] = sc, True, ts
+                res = call(sc)
+        return res
 
     def _load_scrip_master(self):
         """
@@ -498,7 +486,7 @@ class AngelDataScraper:
                 if inst:
                     token = inst.get('token')
                     exch = inst.get('exch_seg') or 'NSE'
-                    md = self.smart_connect.getMarketData("FULL", {exch: [token]})
+                    md = self._angel(lambda sc: sc.getMarketData("FULL", {exch: [token]}))
                     if md.get('status') is True:
                         items = md.get('data', {}).get('fetched', [])
                         if items:
@@ -613,7 +601,7 @@ class AngelDataScraper:
             
             # Fetch FULL market data (LTP, volume, OHLC info)
             print(f"[AngelDataScraper] Fetching Market Data for Token: {token}")
-            market_data = self.smart_connect.getMarketData("FULL", {"NSE": [token]})
+            market_data = self._angel(lambda sc: sc.getMarketData("FULL", {"NSE": [token]}))
             
             if market_data.get('status') is True:
                 fetched_items = market_data.get('data', {}).get('fetched', [])
@@ -692,7 +680,7 @@ class AngelDataScraper:
             
             # Alternate fallback to ltpData if getMarketData is empty/fails
             print("[AngelDataScraper] getMarketData failed. Attempting ltpData fetch...")
-            ltp_res = self.smart_connect.ltpData("NSE", trading_symbol, token)
+            ltp_res = self._angel(lambda sc: sc.ltpData("NSE", trading_symbol, token))
             if ltp_res.get('status') is True:
                 data = ltp_res.get('data', {})
                 last_price = data.get('ltp')

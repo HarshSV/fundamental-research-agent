@@ -2,7 +2,7 @@
 
 *12 November 2026. For detail see [`PROJECT_DOCUMENTATION.md`](../PROJECT_DOCUMENTATION.md), [`SECTOR_AGENT.md`](SECTOR_AGENT.md) and [`PATTERN_STUDY.md`](PATTERN_STUDY.md).*
 
-**Sources:** **Angel One** (live price) · **Yahoo** (price history) · **NSE** (exchange files) · **BSE** (annual reports) · **Screener** (results, shareholding, peers) · **Google News** · **Fed** (US policy dates) · **Own** (calculated by us) · **Browser** (saved on your device only)
+**Sources:** **Angel One** (live price) · **Yahoo** (price history) · **NSE** (exchange files) · **BSE** (annual reports) · **Screener** (results, shareholding, peers) · **Google News** · **Own** (calculated by us) · **Browser** (saved on your device only)
 
 ---
 
@@ -44,7 +44,7 @@
 |---|---|---|
 | Sector Analytics | Sector returns and strength | Own |
 | Sector History | Each sector since about 1996, and what moved it | Yahoo, Own, Google News |
-| Sector Outlook | 1 and 3 month odds, facts, upcoming events | Own, Fed, NSE |
+| Sector Outlook | 1 and 3 month odds, facts, upcoming events | Own, NSE |
 | Industry Analytics | 143 industry groups ranked | Screener, Own |
 | RRG | Sector rotation quadrants | Own |
 | Market Breadth | Advances, declines, stocks above averages | Own |

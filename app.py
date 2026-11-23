@@ -462,6 +462,22 @@ def startup_event():
         except Exception as e:
             print(f"[HTTP WARNING] table warmup failed: {e}")
     threading.Thread(target=_warm_rows, daemon=True).start()
+
+    def _warm_outlook():
+        # The sector outlook takes ~30 s to build (stored for the day, rebuilt when the sector history or the date changes). Build it in the
+        # background so a visitor never waits for it. Only the process that answers requests keeps this cache.
+        import time as _t
+        _t.sleep(45)
+        while True:
+            try:
+                from patterns import sector_outlook as _so
+                _so.outlook()
+            except Exception as e:
+                print(f"[HTTP] sector outlook warm-up failed: {e}")
+            _t.sleep(900)
+
+    if _ROLE != "worker":
+        threading.Thread(target=_warm_outlook, daemon=True, name="outlook-warm").start()
     if RUNS_BACKGROUND_JOBS:
         start_precompute_jobs()
 
@@ -1292,7 +1308,12 @@ def stock_overview(symbol: str, _: dict = Depends(auth.require_session)):
     # meaningful"), never a made-up number.
     eps_ttm, period_months = _ttm_eps(quarterly)
     price = info.get("currentPrice")
-    pe = screener_pe(info) or (round(price / eps_ttm, 2) if (eps_ttm and eps_ttm > 0 and price) else None)
+    # P/E agrees with the EPS beside it: price / TTM EPS. A loss gives no P/E (Screener's own P/E, taken at its own price and on its own
+    # earnings basis, is only used when the TTM EPS or the price is unknown).
+    if eps_ttm is not None and eps_ttm <= 0:
+        pe = None
+    else:
+        pe = (round(price / eps_ttm, 2) if (eps_ttm and price) else None) or screener_pe(info)
 
     return {
         "symbol": sym,

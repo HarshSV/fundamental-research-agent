@@ -82,17 +82,16 @@ class AngelHistory:
             f.write(f"{time.time():.1f},{outcome},attempt={attempt},delay={self.delay:.1f}\n")
 
     # ---- auth (credentials from .env, never printed) ----
-    def login(self):
-        import pyotp
+    def login(self, bad_ts=None):
+        """Use the one Angel session shared by all Navrist processes (tools/angel_session.py); log in only if none is usable."""
         from dotenv import load_dotenv
-        from SmartApi import SmartConnect
+        from tools import angel_session
         load_dotenv(os.path.join(config.ROOT, ".env"))
-        self.s = SmartConnect(api_key=os.getenv("ANGEL_API_KEY"))
-        r = self.s.generateSession(os.getenv("ANGEL_CLIENT_CODE"), os.getenv("ANGEL_PASSWORD"),
-                                   pyotp.TOTP(os.getenv("ANGEL_TOTP_SECRET").strip()).now())
-        if not r.get("status"):
-            raise RuntimeError(f"Angel login failed: {r.get('message')}")
-        self.log("[collector] Angel session established")
+        sc, ts = angel_session.ensure(bad_ts=bad_ts)
+        if sc is None:
+            raise RuntimeError("Angel login failed: no usable session")
+        self.s, self._sess_ts = sc, ts
+        self.log("[collector] Angel session ready")
 
     # ---- instrument mapping (same scrip master the app already caches) ----
     def scrip_master(self):
@@ -144,7 +143,7 @@ class AngelHistory:
                     if "rate" in msg or d.get("errorcode") in ("AB1010", "AB1004"):
                         raise RateLimited(msg)
                     if ("token" in msg or "session" in msg) and not relogged:
-                        self.login(); relogged = True; continue
+                        self.login(bad_ts=getattr(self, '_sess_ts', None)); relogged = True; continue
                     return None, attempt, f"api error {d.get('errorcode')}: {str(d.get('message'))[:120]}"
                 self.delay = max(self.min_delay, self.delay * 0.97)   # slowly recover speed
                 return (d.get("data") or []), attempt, None
