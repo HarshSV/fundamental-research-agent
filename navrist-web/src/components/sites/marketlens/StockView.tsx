@@ -208,7 +208,7 @@ function BasisToggle({ basis, onChange, title }: { basis: Basis; onChange: (b: B
           key={id}
           onClick={() => onChange(id)}
           aria-pressed={basis === id}
-          className="relative z-10 whitespace-nowrap py-[8px] text-center text-[11px] font-medium leading-none sm:py-[5px] sm:text-[10px]"
+          className="relative z-10 whitespace-nowrap py-[10px] text-center text-[11px] font-medium leading-none sm:py-[5px] sm:text-[10px]"
           style={{ color: basis === id ? "var(--text-primary)" : "var(--text-tertiary)", transition: "color 250ms ease" }}
         >
           {text}
@@ -885,7 +885,7 @@ export function StockView({
                 sw: { m: covM, set: setOne("cov"), title: covM.basis === "ttm" ? "Last 12 months operating profit over interest paid" : `${fy} operating profit over interest paid` } } as Metric]),
             ];
             const card = (c: Metric) => (
-              <Card key={c.id} className={c.sw?.m.both ? "relative" : ""}>
+              <Card key={c.id} className={c.sw?.m.both ? "relative min-h-[84px] sm:min-h-0" : ""}>
                 <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
                   <span>{c.label}</span>
                 </div>
