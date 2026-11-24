@@ -355,7 +355,8 @@ export function StockView({
   // which past the forecast learns from: the stock's whole history, or only the last five years
   const [fcWindow, setFcWindow] = useState<FcWindow>("max");
   // Which lines the chart draws. By default only today's trade plan (entry, stop, two targets); the rest are one tap away in "Chart lines".
-  const DEFAULT_LINES: Record<string, boolean> = { today: true };
+  // opened from a setup / market list: the scanner's own chart (50 / 200-day averages, or 10 / 40-week ones on weekly candles), not the trade plan
+  const DEFAULT_LINES: Record<string, boolean> = scan?.listScan ? { sma50: true, sma200: true } : { today: true };
   const [lineOn, setLineOn] = useState<Record<string, boolean>>(DEFAULT_LINES);
   const toggleLine = (id: string) => setLineOn((m) => ({ ...m, [id]: !m[id] }));
   const showForecastLevels = Boolean(lineOn.today);
@@ -363,7 +364,7 @@ export function StockView({
   // Which basis each two-basis Key Metric shows; the switch beside the section title sets them all at once.
   const [views, setViews] = useState<Record<string, Basis>>({});
   const [showMore, setShowMore] = useState(false);
-  const [showCone, setShowCone] = useState(true);
+  const [showCone, setShowCone] = useState(!scan?.listScan);      // from a setup / market list the chart opens like the scanner's card, without the forecast shading
   const [candleSize, setCandleSize] = useState<CandleSize>(scan?.candle ?? "d");     // one candle per day, week, month or year (daily-based ranges only)
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
   // Until it has some history, longer ranges fall back to the intraday 1D view (and say so).
@@ -630,6 +631,7 @@ export function StockView({
   const has = (g: string) => allLevels.some((l) => l.group === g);
   const noPlan = forecastData?.data ? "No plan for this stock right now" : "Waiting for the forecast";
   const chartLevels = [
+    ...(scan?.levels ?? []).map((l) => ({ price: l.price, title: `${l.label} ${inr(l.price)}`, color: /high/i.test(l.label) ? "#10b981" : "#ef4444", dashed: true, group: "today" as const })),
     ...allLevels.filter((l) => lineOn[l.group]),
     ...(lineOn.wk52 && week52 ? [{ price: week52.high, title: `52-week high ${inr(week52.high)}`, color: "#f59e0b", dashed: true, group: "wk52" as const }, { price: week52.low, title: `52-week low ${inr(week52.low)}`, color: "#f59e0b", dashed: true, group: "wk52" as const }] : []),
   ];

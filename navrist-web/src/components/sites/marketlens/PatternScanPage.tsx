@@ -168,10 +168,8 @@ export function PatternScanPage({
   // the Create Screener limited to chart patterns behaves like a pattern scan: status/breakout columns, status sort, backtest
   const patternMode = !special || (pattern.id === SCREENER_ID && filters.patterns.values.length > 0);
   const [mode, setMode] = useState<"scan" | "backtest">("scan");
-  const [view, setView] = useState<"list" | "charts">("list");
+  const [view, setView] = useState<"list" | "charts">("charts");      // charts open first
   const [colset, setColset] = useState<"technicals" | "fundamentals">("technicals");
-  const [perRow, setPerRow] = useState<1 | 2>(2);
-  const [candleTf, setCandleTf] = useState<"auto" | "1d" | "1w">("auto");      // auto: the scanner's own timeframe (weekly setups draw weekly candles)
   const [exporting, setExporting] = useState(false);
   const [q, setQ] = useState("");
   const [dq, setDq] = useState("");
@@ -179,8 +177,6 @@ export function PatternScanPage({
   const [sort, setSort] = useState(isListScanner(pattern.id) && !SETUP_IDS.has(pattern.id) ? "signal" : patternMode ? "status" : "market_cap");
   const [page, setPage] = useState(1);
   const [res, setRes] = useState<{ key: string; data?: ScanResult; error?: string } | null>(null);
-
-  useEffect(() => { setCandleTf("auto"); }, [pattern.id]);
 
   // debounce the search box; a new search starts again from page 1
   useEffect(() => {
@@ -192,12 +188,12 @@ export function PatternScanPage({
   }, [q]);
 
   const size = view === "charts" ? CHART_SIZE : LIST_SIZE;
-  const key = useMemo(() => JSON.stringify([pattern.id, filters, dq, sort, page, view, candleTf]), [pattern.id, filters, dq, sort, page, view, candleTf]);
+  const key = useMemo(() => JSON.stringify([pattern.id, filters, dq, sort, page, view]), [pattern.id, filters, dq, sort, page, view]);
 
   useEffect(() => {
     if (mode !== "scan") return;
     let alive = true;
-    searchScan(pattern.id, filters, { q: dq, page, page_size: size, sort, ...(view === "charts" && candleTf !== "auto" ? { candle_interval: candleTf } : {}) }, view === "charts")
+    searchScan(pattern.id, filters, { q: dq, page, page_size: size, sort }, view === "charts")
       .then((data) => alive && setRes({ key, data }))
       .catch((e: Error) => alive && setRes({ key, error: e.message }));
     return () => {
@@ -217,7 +213,7 @@ export function PatternScanPage({
   useEffect(() => {
     if (!tick || mode !== "scan") return;
     let alive = true;
-    searchScan(pattern.id, filters, { q: dq, page, page_size: size, sort, ...(view === "charts" && candleTf !== "auto" ? { candle_interval: candleTf } : {}) }, view === "charts")
+    searchScan(pattern.id, filters, { q: dq, page, page_size: size, sort }, view === "charts")
       .then((data) => alive && setRes({ key, data }))
       .catch(() => {});
     return () => {
@@ -235,10 +231,10 @@ export function PatternScanPage({
   const chips = describeFilters(filters, options);
   const drawResistance = filters.resistance.on || pattern.id === RESISTANCE_ID;
   // the stock page opens with this scan's marking on its chart (pattern lines and levels, horizontal resistance)
-  // the stock page opens in the candle size this list is in: a weekly setup opens weekly, a daily one daily (or what the Daily / Weekly switch says)
-  const openCandle: "d" | "w" = (candleTf !== "auto" ? candleTf : (data?.rows[0]?.candle_interval ?? (/-weekly(-filtered)?$/.test(pattern.id) ? "1w" : "1d"))) === "1w" ? "w" : "d";
+  // the stock page opens in the candle size this list is in: a weekly setup opens weekly, a daily one daily
+  const openCandle: "d" | "w" = /-weekly(-filtered)?$/.test(pattern.id) ? "w" : "d";
   const open = (r: ScanRow) =>
-    onOpenStock({ symbol: r.symbol, name: r.name }, { pattern: special ? (r.occurrence?.pattern ?? null) : pattern.id, occurrence: r.occurrence, resistance: r.resistance, showResistance: drawResistance, candle: openCandle });
+    onOpenStock({ symbol: r.symbol, name: r.name }, { pattern: special ? (r.occurrence?.pattern ?? null) : pattern.id, occurrence: r.occurrence, resistance: r.resistance, showResistance: drawResistance, candle: openCandle, listScan: isListScanner(pattern.id), levels: r.signal?.levels });
   const cols = useMemo(() => columns(colset, pattern, drawResistance, patternMode && special, sort === "traded_value"), [colset, pattern, drawResistance, patternMode, special, sort]);
   const sorts: [string, string][] = [...(isListScanner(pattern.id) ? [["signal", "Strongest signal"] as [string, string]] : []), ...SORTS.filter(([k]) => !(!patternMode && k === "status"))];
 
@@ -307,17 +303,10 @@ export function PatternScanPage({
                 value={view}
                 onChange={(id) => { setView(id); setPage(1); }}
                 options={[
-                  { id: "list", label: <span className="flex items-center gap-2"><List className="h-4 w-4" /> List</span> },
                   { id: "charts", label: <span className="flex items-center gap-2"><LineChart className="h-4 w-4" /> Charts</span> },
+                  { id: "list", label: <span className="flex items-center gap-2"><List className="h-4 w-4" /> List</span> },
                 ]}
               />
-              {view === "charts" && (
-                <SlidingTabs ariaLabel="Charts per row" size="lg" value={String(perRow)} onChange={(id) => setPerRow(Number(id) as 1 | 2)} options={[{ id: "1", label: "1 per row" }, { id: "2", label: "2 per row" }]} />
-              )}
-              {view === "charts" && (
-                <SlidingTabs ariaLabel="Candle size" size="lg" value={candleTf === "auto" ? (data?.rows[0]?.candle_interval ?? (/-weekly(-filtered)?$/.test(pattern.id) ? "1w" : "1d")) : candleTf} onChange={(id) => { setCandleTf(id); setPage(1); }}
-                  options={[{ id: "1d", label: "Daily", title: "One candle per day" }, { id: "1w", label: "Weekly", title: "One candle per week" }]} />
-              )}
               {view === "list" && (
                 <SlidingTabs ariaLabel="Columns" size="lg" value={colset} onChange={setColset} options={[{ id: "technicals", label: "Technicals" }, { id: "fundamentals", label: "Fundamentals" }]} />
               )}
@@ -404,7 +393,7 @@ export function PatternScanPage({
                 </table>
               </div>
             ) : (
-              <div className={`grid grid-cols-1 gap-4 ${perRow === 2 ? "lg:grid-cols-2" : ""}`} style={{ opacity: loading ? 0.6 : 1 }}>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" style={{ opacity: loading ? 0.6 : 1 }}>
                 {data.rows.map((r) => (
                   <div
                     key={r.symbol}
@@ -434,7 +423,7 @@ export function PatternScanPage({
                       {(drawResistance || pattern.id === RESISTANCE_ID) && <ResistanceBadge row={r} />}
                     </div>
                     {r.candles && r.candles.length ? (
-                      <TvChart bars={r.candles} occurrence={r.occurrence} resistance={drawResistance ? r.resistance : null} height={perRow === 1 ? 420 : 280} marks={r.signal?.mark} lines={r.lines} levels={r.signal?.levels} />
+                      <TvChart bars={r.candles} occurrence={r.occurrence} resistance={drawResistance ? r.resistance : null} height={280} marks={r.signal?.mark} lines={r.lines} levels={r.signal?.levels} />
                     ) : (
                       <div className="py-20 text-center text-xs" style={{ color: "var(--text-tertiary)" }}>{r.candles === undefined ? "Loading chart…" : "Chart data is unavailable for this stock."}</div>
                     )}

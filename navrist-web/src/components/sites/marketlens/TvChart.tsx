@@ -40,8 +40,10 @@ export function TvChart({
       grid: { vertLines: { color: "transparent" }, horzLines: { color: grid } },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.22 } },
       timeScale: { borderVisible: false, timeVisible: false, fixLeftEdge: true, fixRightEdge: false },
-      handleScroll: false,
-      handleScale: false,
+      // touch: pinch to zoom, drag sideways to move along the chart (a vertical drag still scrolls the page); mouse: drag to move, drag the time axis to zoom.
+      // The mouse wheel is left to scroll the page; a trackpad pinch (a wheel event with ctrl) zooms, below.
+      handleScroll: { pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false, mouseWheel: false },
+      handleScale: { pinch: true, mouseWheel: false, axisPressedMouseMove: { time: true, price: false }, axisDoubleClickReset: { time: true, price: false } },
       crosshair: { horzLine: { labelVisible: true }, vertLine: { labelVisible: true } },
     });
 
@@ -119,8 +121,24 @@ export function TvChart({
     if (flags.length) createSeriesMarkers(candles, flags.sort((a, b) => String(a.time).localeCompare(String(b.time))));
 
     // all the bars, with a little room after the last one so its label ("Inside", "Mother") is not cut off
-    if (flags.length) chart.timeScale().setVisibleLogicalRange({ from: -0.5, to: bars.length - 1 + Math.max(3, Math.round(bars.length * 0.04)) });
-    else chart.timeScale().fitContent();
+    // all the bars, with a little room after the last one so its label ("Inside", "Mother") is not cut off; double-click the chart to come back to this view
+    const showAll = () => {
+      if (flags.length) chart.timeScale().setVisibleLogicalRange({ from: -0.5, to: bars.length - 1 + Math.max(3, Math.round(bars.length * 0.04)) });
+      else chart.timeScale().fitContent();
+    };
+    showAll();
+    // trackpad pinch arrives as a wheel event with ctrl held: zoom towards the latest bars (never closer than 6 bars)
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const r = chart.timeScale().getVisibleLogicalRange();
+      if (!r) return;
+      // anchored at the right edge: the setup is on the latest bars
+      const width = Math.min(bars.length * 1.5, Math.max(6, (r.to - r.from) * Math.exp(e.deltaY * 0.01)));
+      chart.timeScale().setVisibleLogicalRange({ from: r.to - width, to: r.to });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("dblclick", showAll);
     // a resize callback already queued when the chart is removed would touch a disposed chart ("Object is disposed")
     let gone = false;
     const ro = new ResizeObserver(() => {
@@ -130,6 +148,8 @@ export function TvChart({
     return () => {
       gone = true;
       ro.disconnect();
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("dblclick", showAll);
       removeChartSafely(chart);
     };
   }, [bars, occurrence, resistance, height, marks, lines, levels]);

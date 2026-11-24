@@ -277,6 +277,10 @@ export interface ScanContext {
   showResistance: boolean;
   /** the candle size the list was showing (one per day / per week): the stock page opens in the same one */
   candle?: "d" | "w";
+  /** a market-list scanner (a setup, momentum...): the stock page opens like the scanner's chart card, with its averages and levels */
+  listScan?: boolean;
+  /** the horizontal levels the setup is about (the mother bar's high and low, the edges of a tight range) */
+  levels?: SetupLevel[];
 }
 
 export interface ScanStatus {
