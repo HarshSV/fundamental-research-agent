@@ -24,7 +24,7 @@ export const LIST_SCANNERS: ListScanner[] = [
   { id: "inside-bar", name: "Inside Bar (daily)", group: "Setups", definition: "The latest session traded inside the previous session's high and low." },
   { id: "inside-bar-weekly", name: "Inside Bar (weekly)", group: "Setups", definition: "The last finished week traded inside the high and low of the week before it." },
   { id: "inside-bar-filtered", name: "Filtered Inside Bar (daily)", group: "Setups", definition: "An inside bar whose range is at most 60% of the previous session's, with the price above its 50-day average." },
-  { id: "inside-bar-weekly-filtered", name: "Filtered Inside Bar (weekly)", group: "Setups", definition: "A weekly inside bar at most 60% of last week's range, with the price above its 50-day average." },
+  { id: "inside-bar-weekly-filtered", name: "Filtered Inside Bar (weekly)", group: "Setups", definition: "A finished weekly inside bar at most 60% of the prior week's range, with the price above its 50-day average." },
   { id: "tight-setup", name: "Tight Setup (daily)", group: "Setups", definition: "The last 5 closes are within 2.5% of each other and the price is above its 50-day average." },
   { id: "tight-setup-weekly", name: "Tight Setup (weekly)", group: "Setups", definition: "The last 3 finished weekly closes are each within 1.5% of the week before (the \"three weeks tight\" rule) and the price is above its 50-day average." },
   { id: "momentum", name: "Momentum", group: "Strength", definition: "Above the 50 and 200-day averages (50 over 200), RS rating 80+, within 15% of the 52-week high and up 20%+ in 3 months." },
