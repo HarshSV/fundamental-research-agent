@@ -313,7 +313,7 @@ export function PatternScanPage({
                 <SlidingTabs ariaLabel="Charts per row" size="lg" value={String(perRow)} onChange={(id) => setPerRow(Number(id) as 1 | 2)} options={[{ id: "1", label: "1 per row" }, { id: "2", label: "2 per row" }]} />
               )}
               {view === "charts" && (
-                <SlidingTabs ariaLabel="Candle size" size="lg" value={candleTf === "auto" ? (data?.rows[0]?.candle_interval ?? "1d") : candleTf} onChange={(id) => { setCandleTf(id); setPage(1); }}
+                <SlidingTabs ariaLabel="Candle size" size="lg" value={candleTf === "auto" ? (data?.rows[0]?.candle_interval ?? (/-weekly(-filtered)?$/.test(pattern.id) ? "1w" : "1d")) : candleTf} onChange={(id) => { setCandleTf(id); setPage(1); }}
                   options={[{ id: "1d", label: "Daily", title: "One candle per day" }, { id: "1w", label: "Weekly", title: "One candle per week" }]} />
               )}
               {view === "list" && (
@@ -427,7 +427,7 @@ export function PatternScanPage({
                       </div>
                     </div>
                     <div className="mb-2 flex flex-wrap gap-1.5">
-                      <span className="rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: "var(--border-subtle)", color: "var(--text-tertiary)" }}>{r.candle_interval === "1w" ? "Weekly candles" : "Daily candles"}</span>
+                      {r.candle_interval && <span className="rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: "var(--border-subtle)", color: "var(--text-tertiary)" }}>{r.candle_interval === "1w" ? "Weekly candles" : "Daily candles"}</span>}
                       <StatusBadge row={r} />
                       {(drawResistance || pattern.id === RESISTANCE_ID) && <ResistanceBadge row={r} />}
                     </div>
