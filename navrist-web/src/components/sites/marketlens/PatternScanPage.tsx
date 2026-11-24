@@ -235,8 +235,10 @@ export function PatternScanPage({
   const chips = describeFilters(filters, options);
   const drawResistance = filters.resistance.on || pattern.id === RESISTANCE_ID;
   // the stock page opens with this scan's marking on its chart (pattern lines and levels, horizontal resistance)
+  // the stock page opens in the candle size this list is in: a weekly setup opens weekly, a daily one daily (or what the Daily / Weekly switch says)
+  const openCandle: "d" | "w" = (candleTf !== "auto" ? candleTf : (data?.rows[0]?.candle_interval ?? (/-weekly(-filtered)?$/.test(pattern.id) ? "1w" : "1d"))) === "1w" ? "w" : "d";
   const open = (r: ScanRow) =>
-    onOpenStock({ symbol: r.symbol, name: r.name }, { pattern: special ? (r.occurrence?.pattern ?? null) : pattern.id, occurrence: r.occurrence, resistance: r.resistance, showResistance: drawResistance });
+    onOpenStock({ symbol: r.symbol, name: r.name }, { pattern: special ? (r.occurrence?.pattern ?? null) : pattern.id, occurrence: r.occurrence, resistance: r.resistance, showResistance: drawResistance, candle: openCandle });
   const cols = useMemo(() => columns(colset, pattern, drawResistance, patternMode && special, sort === "traded_value"), [colset, pattern, drawResistance, patternMode, special, sort]);
   const sorts: [string, string][] = [...(isListScanner(pattern.id) ? [["signal", "Strongest signal"] as [string, string]] : []), ...SORTS.filter(([k]) => !(!patternMode && k === "status"))];
 

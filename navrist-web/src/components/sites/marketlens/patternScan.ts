@@ -275,6 +275,8 @@ export interface ScanContext {
   occurrence: ScanOccurrence | null;
   resistance: Resistance | null;
   showResistance: boolean;
+  /** the candle size the list was showing (one per day / per week): the stock page opens in the same one */
+  candle?: "d" | "w";
 }
 
 export interface ScanStatus {

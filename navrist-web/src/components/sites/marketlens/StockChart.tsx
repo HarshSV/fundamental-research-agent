@@ -123,7 +123,8 @@ export function StockChart({
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
       handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true },
       kineticScroll: { mouse: false, touch: true },
-      localization: { priceFormatter: (p: number) => price(p) },
+      // the room kept under the candles for the volume can push the axis below zero on a very long history: a price below zero is not shown
+      localization: { priceFormatter: (p: number) => (p < 0 ? "" : price(p)) },
     });
     chartRef.current = chart;
     chart.subscribeCrosshairMove((p) => setHover(p.time ? byTime.current.get(String(p.time)) ?? null : null));

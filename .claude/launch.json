@@ -79,10 +79,7 @@
       ],
       "cwd": "navrist-web",
       "port": 3200,
-      "autoPort": false,
-      "env": {
-        "NAVRIST_BACKEND_URL": "http://127.0.0.1:8001"
-      }
+      "autoPort": false
     },
     {
       "name": "navrist-api-preview",

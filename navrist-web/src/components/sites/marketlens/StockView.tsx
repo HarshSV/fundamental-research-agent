@@ -1,7 +1,7 @@
 "use client";
 
 import { WatchStar } from "./WatchlistPage";
-import { ArrowLeft, ChartCandlestick, ChartLine, ChevronDown, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowLeft, CalendarDays, ChartCandlestick, ChartLine, ChevronDown, TrendingDown, TrendingUp } from "lucide-react";
 import { SlidingTabs, Switch } from "./controls";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson, searchSymbols, type CompanyHit } from "@/lib/api";
@@ -55,12 +55,19 @@ function specFor(range: Range, live: boolean): Spec {
   if (range === "All") return { interval: "1d", period: "max", tf: "1d", everyMs: live ? 30000 : null, days: null, intraday: false };
   return { interval: "1d", period: "5y", tf: "1d", everyMs: live ? 30000 : null, days: RANGE_DAYS[range], intraday: false };
 }
-/** Daily candles folded into one candle per week (Monday to Sunday, IST). The last candle is the current week so far. */
-function foldWeekly(c: Candle[]): Candle[] {
+type CandleSize = "d" | "w" | "m" | "y";
+const SIZE_NAME: Record<CandleSize, string> = { d: "Daily", w: "Weekly", m: "Monthly", y: "Yearly" };
+const SIZE_UNIT: Record<CandleSize, string> = { d: "day", w: "week", m: "month", y: "year" };
+const istDate = (t: number) => new Date((t + 19800) * 1000);
+/** Which week / month / year (IST) a daily bar belongs to: the candles of one period share a key. */
+const periodKey = (size: Exclude<CandleSize, "d">, t: number) =>
+  size === "w" ? Math.floor((Math.floor((t + 19800) / DAY) + 3) / 7) : size === "m" ? istDate(t).getUTCFullYear() * 12 + istDate(t).getUTCMonth() : istDate(t).getUTCFullYear();
+/** Daily candles folded into one candle per week (Monday to Sunday), month or year, in IST. The last candle is the current period so far. */
+function foldBars(c: Candle[], size: Exclude<CandleSize, "d">): Candle[] {
   const out: Candle[] = [];
   let key = -1;
   for (const b of c) {
-    const k = Math.floor((Math.floor((b.time + 19800) / DAY) + 3) / 7);
+    const k = periodKey(size, b.time);
     const last = out[out.length - 1];
     if (k !== key || !last) {
       out.push({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume });
@@ -74,6 +81,65 @@ function foldWeekly(c: Candle[]): Candle[] {
   }
   return out;
 }
+const foldWeekly = (c: Candle[]) => foldBars(c, "w");
+
+/** Calendar button: pick a From and To date and the chart shows that stretch of candles. */
+function RangeCalendar({ value, onApply, onClear }: { value: { from: string; to: string } | null; onApply: (r: { from: string; to: string }) => void; onClear: () => void }) {
+  const [open, setOpen] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const [from, setFrom] = useState(value?.from ?? "");
+  const [to, setTo] = useState(value?.to ?? today);
+  const [err, setErr] = useState("");
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const apply = () => {
+    if (!from || !to) return setErr("Pick both dates");
+    if (from > to) return setErr("The start is after the end");
+    if (to > today) return setErr("The end is in the future");
+    setErr("");
+    onApply({ from, to });
+    setOpen(false);
+  };
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label="Custom date range"
+        title={value ? `${value.from} to ${value.to}` : "Pick a custom date range"}
+        className="flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium sm:min-h-8"
+        style={{ borderColor: value ? "var(--accent-border, var(--border-default))" : "var(--border-default)", color: value ? "var(--accent)" : "var(--text-secondary)", background: value ? "var(--accent-surface, transparent)" : "transparent" }}
+      >
+        <CalendarDays className="h-4 w-4" aria-hidden />
+        {value ? `${value.from} to ${value.to}` : null}
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-2 w-[260px] rounded-xl border p-3 text-xs shadow-xl" style={{ background: "var(--surface-2, var(--surface-1))", borderColor: "var(--border-default)" }} role="dialog" aria-label="Custom date range">
+          <label className="block" style={{ color: "var(--text-secondary)" }}>From
+            <input type="date" value={from} max={today} onChange={(e) => { setFrom(e.target.value); setErr(""); }} className="mt-1 h-10 w-full rounded-lg border px-2 text-sm" style={{ background: "var(--surface-1)", borderColor: "var(--border-default)", color: "var(--text-primary)" }} />
+          </label>
+          <label className="mt-2 block" style={{ color: "var(--text-secondary)" }}>To
+            <input type="date" value={to} max={today} onChange={(e) => { setTo(e.target.value); setErr(""); }} className="mt-1 h-10 w-full rounded-lg border px-2 text-sm" style={{ background: "var(--surface-1)", borderColor: "var(--border-default)", color: "var(--text-primary)" }} />
+          </label>
+          {err && <p className="mt-2" style={{ color: "var(--loss)" }}>{err}</p>}
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <button type="button" onClick={() => { onClear(); setFrom(""); setTo(today); setErr(""); setOpen(false); }} className="min-h-10 px-2 font-medium sm:min-h-8" style={{ color: "var(--text-secondary)" }}>Clear</button>
+            <button type="button" onClick={apply} className="min-h-10 rounded-lg px-4 font-semibold text-white sm:min-h-8" style={{ background: "var(--btn-primary-bg, #635ec8)" }}>Apply</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const BAR_SECONDS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "60m": 3600, "1d": 86400 };
 
 // label shown -> key of the backend's return_bases
@@ -260,7 +326,8 @@ export function StockView({
   const [bars, setBars] = useState<{ key: string; data: Candle[] } | null>(null);
   const [ticks, setTicks] = useState<{ key: string; data: Candle[] }>({ key: "", data: [] });
   const [todayBars, setTodayBars] = useState<Candle[] | null>(null);
-  const [pickedRange, setRange] = useState<Range>("6M");
+  const [pickedRange, setRange] = useState<Range>(scan?.candle === "w" ? "3Y" : "6M");      // opened from a weekly list: weekly candles over about three years
+  const [customRange, setCustomRange] = useState<{ from: string; to: string } | null>(null);      // a From / To picked on the calendar
   // live from the start while the market is open (Mon-Fri 09:15-15:30 IST, not on exchange holidays)
   const [live, setLive] = useState(() => marketOpen());
   // Is the exchange open right now (Mon-Fri 09:15-15:30 IST, not on holidays)? Re-checked every 30s; LIVE switches itself off at the close.
@@ -297,14 +364,14 @@ export function StockView({
   const [views, setViews] = useState<Record<string, Basis>>({});
   const [showMore, setShowMore] = useState(false);
   const [showCone, setShowCone] = useState(true);
-  const [showVolume, setShowVolume] = useState(false);
-  const [candleSize, setCandleSize] = useState<"d" | "w">("d");     // one candle per day or per week (daily-based ranges only)
+  const [candleSize, setCandleSize] = useState<CandleSize>(scan?.candle ?? "d");     // one candle per day, week, month or year (daily-based ranges only)
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
   // Until it has some history, longer ranges fall back to the intraday 1D view (and say so).
   const MIN_DAILY_BARS = 5;
   const thinHistory = daily !== null && daily.length < MIN_DAILY_BARS;
   const range: Range = thinHistory && pickedRange !== "1D" && pickedRange !== "1W" ? "1D" : pickedRange;
-  const spec = useMemo(() => specFor(range, live), [range, live]);
+  // a custom date range loads the whole history and cuts it to the dates picked
+  const spec = useMemo(() => specFor(customRange ? "All" : range, live), [customRange, range, live]);
   const specKey = `${spec.interval}|${spec.period}`;
 
   const [reloadTick, setReloadTick] = useState(0); // bumped by the Retry button
@@ -510,11 +577,18 @@ export function StockView({
   const seriesKey = ownBars ? specKey : `d${spec.days}`;
   const [held, setHeld] = useState<{ key: string; data: Candle[] } | null>(null);
   if (series && series !== held?.data) setHeld({ key: seriesKey, data: series });
-  const shownDaily = series ?? held?.data ?? null;
+  const shownAll = series ?? held?.data ?? null;
+  const shownDaily = useMemo(() => {
+    if (!shownAll || !customRange) return shownAll;
+    const from = Date.parse(`${customRange.from}T00:00:00+05:30`) / 1000;
+    const to = Date.parse(`${customRange.to}T00:00:00+05:30`) / 1000 + DAY;
+    return shownAll.filter((c) => c.time >= from && c.time < to);
+  }, [shownAll, customRange]);
+  const foldedOn = candleSize !== "d" && !isIntraday;            // weekly / monthly / yearly candles
   const weeklyOn = candleSize === "w" && !isIntraday;
-  const shown = useMemo(() => (shownDaily && weeklyOn ? foldWeekly(shownDaily) : shownDaily), [shownDaily, weeklyOn]);
+  const shown = useMemo(() => (shownDaily && foldedOn ? foldBars(shownDaily, candleSize as Exclude<CandleSize, "d">) : shownDaily), [shownDaily, foldedOn, candleSize]);
   const weeklyHistory = useMemo(() => (weeklyOn && daily ? foldWeekly(daily) : undefined), [weeklyOn, daily]);
-  const shownKey = (series ? seriesKey : held?.key ?? seriesKey) + (weeklyOn ? "|w" : "");
+  const shownKey = (series ? seriesKey : held?.key ?? seriesKey) + (foldedOn ? `|${candleSize}` : "") + (customRange ? `|${customRange.from}:${customRange.to}` : "");
   const switching = series === null && held !== null;
 
   // Returns = live price / the close on the latest trading day on or before (today - period), minus 1 - the exchange's
@@ -716,15 +790,39 @@ export function StockView({
                 label="Patterns"
                 title={showPatterns ? "Hide pattern markers" : "Show pattern markers"}
               />
-              <div className="ml-auto flex flex-wrap items-center gap-x-5 gap-y-2">
+              <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">
+                <div className="flex items-center gap-2" role="group" aria-label="Candle size and history">
+                  <SlidingTabs
+                    ariaLabel="Candle size"
+                    size="sm"
+                    value={isIntraday ? "d" : candleSize}
+                    onChange={(id) => {
+                      setCandleSize(id);
+                      if (id === "w" && ["1D", "1W", "1M", "3M", "6M"].includes(range)) setRange("3Y");
+                      if (id === "m" && ["1D", "1W", "1M", "3M", "6M", "1Y", "3Y"].includes(range)) setRange("5Y");
+                      if (id === "y") setRange("All");
+                    }}
+                    options={(Object.keys(SIZE_NAME) as CandleSize[]).map((k) => ({ id: k, label: k.toUpperCase(), title: `${SIZE_NAME[k]}: one candle per ${SIZE_UNIT[k]}` }))}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setRange("All"); setCustomRange(null); }}
+                    aria-pressed={range === "All" && !customRange}
+                    title="Full history"
+                    className="min-h-10 rounded-lg border px-2.5 text-xs font-medium sm:min-h-8"
+                    style={{ borderColor: range === "All" && !customRange ? "var(--text-tertiary)" : "var(--border-default)", color: range === "All" && !customRange ? "var(--text-primary)" : "var(--text-secondary)", background: range === "All" && !customRange ? "var(--overlay)" : "transparent" }}
+                  >
+                    Max
+                  </button>
+                  <RangeCalendar value={customRange} onApply={setCustomRange} onClear={() => setCustomRange(null)} />
+                </div>
                 {!isIntraday && coneData && <Switch on={showCone} onChange={() => setShowCone((v) => !v)} label="Forecast" title="Shade where the price is likely to be over the next 5 and 20 sessions" />}
-                <Switch on={showVolume} onChange={() => setShowVolume((v) => !v)} label="Volume" />
                 <ChartLinesMenu groups={lineGroups} on={lineOn} onToggle={toggleLine} onReset={() => setLineOn(DEFAULT_LINES)} count={Object.entries(lineOn).filter(([k, v]) => v && !(isIntraday && k.startsWith("sma"))).length} />
               </div>
               {showPatterns && (
                 <span className="nv-rise text-xs" style={{ color: "var(--text-tertiary)" }}>
                   {patterns !== null
-                    ? (weeklyOn ? "Pattern flags are drawn on daily candles" : `${shownOccs.length} shown · ${spec.tf} bars`)
+                    ? (foldedOn ? "Pattern flags are drawn on daily candles" : `${shownOccs.length} shown · ${spec.tf} bars`)
                     : patternError
                       ? `Pattern agent unavailable (${patternError}). It will retry; or switch range and back`
                       : `Pattern agent running on ${spec.tf} bars… (first run can take up to ~30s)`}
@@ -780,16 +878,16 @@ export function StockView({
               dataKey={shownKey}
               intraday={isIntraday}
               chartStyle={chartStyle}
-              showVolume={showVolume}
-              occs={showPatterns && !weeklyOn ? shownOccs : []}
+              showVolume
+              occs={showPatterns && !foldedOn ? shownOccs : []}
               selectedId={selectedId}
               onSelect={setSelectedId}
               scan={scanOverlay}
               levels={chartLevels}
-              cone={showCone && !isIntraday && !weeklyOn ? coneData : null}
-              averages={isIntraday ? undefined : weeklyOn ? [10, 40] : SMA_PERIODS.filter((n) => lineOn[`sma${n}`])}      // weekly: the 10 and 40 week averages, as MarketSmith draws them
-              history={weeklyOn ? weeklyHistory : daily ?? undefined}
-              projectFrom={weeklyOn ? null : coneData}
+              cone={showCone && !isIntraday && !foldedOn ? coneData : null}
+              averages={isIntraday || (foldedOn && !weeklyOn) ? undefined : weeklyOn ? [10, 40] : SMA_PERIODS.filter((n) => lineOn[`sma${n}`])}      // weekly: the 10 and 40 week averages, as MarketSmith draws them
+              history={foldedOn ? weeklyHistory : daily ?? undefined}
+              projectFrom={foldedOn ? null : coneData}
             />
             {switching && (
               <span
@@ -817,13 +915,7 @@ export function StockView({
           )}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex max-w-full flex-wrap items-center gap-3">
-              <div className="max-w-full overflow-x-auto"><SlidingTabs ariaLabel="Chart range" options={RANGES.map((r) => ({ id: r, label: r }))} value={range} onChange={(r) => { setRange(r); if (r === "1D" || r === "1W") setCandleSize("d"); }} /></div>
-              <SlidingTabs
-                ariaLabel="Candle size"
-                value={weeklyOn ? "w" : "d"}
-                onChange={(id) => { setCandleSize(id); if (id === "w" && ["1D", "1W", "1M", "3M", "6M"].includes(range)) setRange("3Y"); }}
-                options={[{ id: "d", label: "Daily", title: "One candle per day" }, { id: "w", label: "Weekly", title: "One candle per week (opens on 3Y)" }]}
-              />
+              <div className="max-w-full overflow-x-auto"><SlidingTabs ariaLabel="Chart range" options={RANGES.map((r) => ({ id: r, label: r }))} value={(customRange ? "" : range) as Range} onChange={(r) => { setRange(r); setCustomRange(null); if (r === "1D" || r === "1W") setCandleSize("d"); }} /></div>
               <SlidingTabs
                 ariaLabel="Chart style"
                 size="icon"
