@@ -108,7 +108,9 @@ def bse(symbol: str, name: str | None, days: int = 30) -> list[dict]:
 
 
 # ------------------------------------------------------------------ Google News
-_LEGAL = re.compile(r"\b(limited|ltd|pvt|private|india|industries|corporation|corp|company|co|the)\b\.?", re.I)
+# Only the legal form is dropped. "Industries" and "India" stay: they are part of what tells two companies apart ("Reliance Industries" vs
+# "Reliance Worldwide", "Godrej Industries" vs "Godrej Consumer"; "India Cements" would otherwise shrink to "Cements").
+_LEGAL = re.compile(r"\b(limited|ltd|pvt|private|plc|corporation|corp|company|co|the)\b\.?", re.I)
 
 
 def _name_key(name: str | None, symbol: str) -> str:

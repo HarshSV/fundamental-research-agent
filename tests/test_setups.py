@@ -265,8 +265,21 @@ def test_google_news_keeps_only_headlines_naming_the_company_and_recent_ones():
     now = dt.datetime(2026, 11, 4, tzinfo=dt.timezone.utc)
     out = events.parse_google_news(xml, "hfcl", now=now, days=14)
     assert [o["title"] for o in out] == ["HFCL shares jump on order"] and out[0]["category"] == "Mint"
-    assert events._name_key("Reliance Industries Limited", "RELIANCE") == "reliance"
+    assert events._name_key("Reliance Industries Limited", "RELIANCE") == "reliance industries"
+    assert events._name_key("India Cements Limited", "INDIACEM") == "india cements"
     assert events._name_key(None, "HFCL") == "hfcl"
+
+
+def test_google_news_drops_a_different_company_that_shares_the_first_word():
+    import datetime as dt
+    xml = """<rss><channel>
+      <item><title>Reliance Industries Q2 profit rises - Mint</title><link>http://a</link><pubDate>Tue, 03 Nov 2026 09:00:00 GMT</pubDate><source>Mint</source></item>
+      <item><title>Reliance Worldwide stock surging today - Investing</title><link>http://b</link><pubDate>Tue, 03 Nov 2026 09:00:00 GMT</pubDate><source>Investing</source></item>
+      <item><title>Reliance Option Chain: Live NSE data - Kotak</title><link>http://c</link><pubDate>Tue, 03 Nov 2026 09:00:00 GMT</pubDate><source>Kotak</source></item>
+    </channel></rss>"""
+    key = events._name_key("Reliance Industries Limited", "RELIANCE")
+    out = events.parse_google_news(xml, key, now=dt.datetime(2026, 11, 4, tzinfo=dt.timezone.utc), days=14)
+    assert [o["title"] for o in out] == ["Reliance Industries Q2 profit rises"]
 
 
 def test_collect_survives_a_failing_source_and_reports_which_one(monkeypatch):

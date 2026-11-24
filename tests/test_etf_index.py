@@ -78,3 +78,15 @@ def test_young_facts_count_up_and_down_days():
     bars = [{"time": i * 86400, "open": c, "high": c + 1, "low": c - 1, "close": c} for i, c in enumerate([10, 11, 11, 9, 12])]
     assert o.young_facts(bars)["days"] == {"up": 2, "down": 1, "flat": 1}
     assert o.young_facts(bars[:1])["days"] is None
+
+
+def test_breadth_is_computed_once_until_the_scan_data_changes(monkeypatch):
+    from patterns import market_analytics as ma, scan
+    calls = []
+    monkeypatch.setattr(ma, "_breadth_compute", lambda: calls.append(1) or {"stocks": 5})
+    monkeypatch.setitem(scan._mem, "stamp", ("a", 1))
+    monkeypatch.setitem(ma._BREADTH, "val", None)
+    assert ma.breadth() == {"stocks": 5} and ma.breadth() == {"stocks": 5} and len(calls) == 1
+    monkeypatch.setitem(scan._mem, "stamp", ("a", 2))                    # the scan wrote new files: recomputed
+    ma.breadth()
+    assert len(calls) == 2

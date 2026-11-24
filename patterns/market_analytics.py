@@ -43,7 +43,23 @@ def _latest_rows(rows: dict):
     return latest, [r for r in rows.values() if r.get("as_of") == latest]
 
 
+_BREADTH: dict = {"key": None, "at": 0.0, "val": None}
+
+
 def breadth() -> dict:
+    """breadth_compute(), kept until the scan data changes (or ten minutes pass): the sum over ~2,500 stocks took about 7 seconds per request."""
+    import time as _t
+    scan._load_all()                                          # loads the rows if needed, so the stamp below is the data's current one
+    key = scan._mem.get("stamp")
+    if _BREADTH["val"] is not None and _BREADTH["key"] == key and _t.monotonic() - _BREADTH["at"] < 600:
+        return _BREADTH["val"]
+    val = _breadth_compute()
+    if val.get("stocks", 1):                                  # an empty answer (no data yet) is not kept
+        _BREADTH.update(key=key, at=_t.monotonic(), val=val)
+    return val
+
+
+def _breadth_compute() -> dict:
     """How many stocks take part in the market's move: today's advance/decline, share above the 20/50/200-day averages, new 52-week
     highs and lows, plus a history of the share above the 50/200-day averages and of advancing stocks."""
     rows = scan._load_all()

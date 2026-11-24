@@ -474,6 +474,11 @@ def startup_event():
                 _so.outlook()
             except Exception as e:
                 print(f"[HTTP] sector outlook warm-up failed: {e}")
+            try:                                          # the Breadth tab (about 7 s to work out; kept until the scan data changes)
+                from patterns import market_analytics as _ma
+                _ma.breadth()
+            except Exception as e:
+                print(f"[HTTP] breadth warm-up failed: {e}")
             _t.sleep(900)
 
     if _ROLE != "worker":
