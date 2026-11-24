@@ -24,7 +24,7 @@ def setup(monkeypatch, files):
 def test_parse_prefers_the_eq_row_and_skips_other_series():
     d = nse_prices.parse(HEAD + "AAA, BE, 23-Nov-2026, 10, 10, 11, 9, 10, 10, 10, 500, 1, 1, 1, 1\nAAA, EQ, 23-Nov-2026, 10, 10.5, 12, 9.5, 11, 11, 10, 900, 1, 1, 1, 1\n"
                            "BBB, N1, 23-Nov-2026, 10, 10, 11, 9, 10, 10, 10, 500, 1, 1, 1, 1\n")
-    assert d == {"AAA": (10.5, 12.0, 9.5, 11.0, 900.0)}
+    assert d == {"AAA": (10.5, 12.0, 9.5, 11.0, 900.0, 10.0)}
 
 
 def test_the_newest_bar_takes_nses_figures(monkeypatch):
@@ -77,3 +77,32 @@ def test_extra_nse_companies_are_main_board_named_and_not_already_covered(monkey
     monkeypatch.setattr(nse_extra, "symbols", lambda: {"AAA", "BBB", "ZZZETF"})           # ZZZETF has no company name (a fund): dropped
     out = nse_extra.load({"BBB"})                                                           # BBB is already in the sector-mapped universe
     assert out == [{"symbol": "AAA", "name": "Alpha Ltd", "sector": None, "exchange": "NSE"}]
+
+
+def nse(*lines):
+    """An NSE file body from (symbol, open, high, low, close, volume, previous close) tuples."""
+    return chr(10).join(f"{s}, EQ, 01-Nov-2026, {pc}, {o}, {h}, {low}, {c}, {c}, {c}, {v}, 1, 1, 1, 1" for s, o, h, low, c, v, pc in lines) + chr(10)
+
+
+def test_a_session_the_provider_skipped_is_filled_from_nse(monkeypatch):
+    setup(monkeypatch, {"2026-11-09": nse(("AAA", 99, 101, 98, 100, 1000, 98)), "2026-11-10": nse(("AAA", 100, 112, 98, 105, 7777, 100))})
+    r = row("AAA", [[ts(9), 99, 101, 98, 100, 1000], [ts(11), 105, 108, 104, 107, 2000]])         # no bar for 10 Nov; the 9 Nov bar matches NSE: the anchor
+    r["wcandles"] = [[ts(9), 99, 108, 98, 107, 3000]]
+    assert nse_prices.patch_rows({"AAA": r}) == 1
+    assert [c[0] for c in r["candles"]] == [ts(9), ts(10), ts(11)] and r["candles"][1][2:5] == [112.0, 98.0, 105.0]
+    assert r["wcandles"][0][2] == 112.0 and r["wcandles"][0][5] == 1000 + 7777 + 2000              # the week now includes the filled day
+
+
+def test_a_bar_stamped_with_the_wrong_date_is_corrected(monkeypatch):
+    # the provider's "9 Nov" bar holds 10 Nov's prices (close 389.55) and 10 Nov is missing; NSE's 6 Nov bar matches ours, so it is the anchor
+    setup(monkeypatch, {"2026-11-06": nse(("AAA", 388, 391, 387, 390.6, 900, 386)), "2026-11-09": nse(("AAA", 391, 398, 390, 395.65, 1100, 390.6)),
+                        "2026-11-10": nse(("AAA", 395.7, 396.95, 386, 389.55, 2937929, 395.65))})
+    r = row("AAA", [[ts(6), 388, 391, 387, 390.6, 900], [ts(9), 395.7, 396.95, 386, 389.55, 2937929], [ts(11), 389, 391, 388, 389.8, 1200]])
+    assert nse_prices.patch_rows({"AAA": r}) == 2
+    assert [(c[0], c[4]) for c in r["candles"]] == [(ts(6), 390.6), (ts(9), 395.65), (ts(10), 389.55), (ts(11), 389.8)]
+
+
+def test_a_gap_is_not_filled_across_a_split(monkeypatch):
+    setup(monkeypatch, {"2026-11-09": nse(("AAA", 199, 201, 198, 200, 1000, 196)), "2026-11-10": nse(("AAA", 200, 212, 198, 205, 7777, 200))})
+    r = row("AAA", [[ts(9), 99, 101, 98, 100, 1000], [ts(11), 105, 108, 104, 107, 2000]])         # NSE's closes are double the stored ones: a split, nothing matches
+    assert nse_prices.patch_rows({"AAA": r}) == 0 and len(r["candles"]) == 2

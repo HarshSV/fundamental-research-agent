@@ -32,7 +32,7 @@ def test_registry_has_32_unique_patterns():
 
 
 # -- lifecycle ------------------------------------------------------------------------------------
-DB_PTS = [(0, 120), (40, 100), (55, 112), (70, 100.5), (80, 111), (88, 114), (100, 120)]
+DB_PTS = [(0, 124), (40, 100), (55, 116), (70, 100.5), (80, 115), (88, 118), (100, 124)]      # the rise between the lows is 16% (the published minimum is 10%)
 
 
 def test_double_bottom_goes_forming_awaiting_confirmed_in_order():

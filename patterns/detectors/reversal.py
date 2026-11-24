@@ -43,6 +43,8 @@ def _status_after(v: View, low_idx: int, low_level: float, level_at, inval: floa
 
 
 _SWING = dict(swing_pct=0.04, swing_atr=2.0)
+# double and triple tops / bottoms: the rise between the two (three) points is at least 10% (Bulkowski, thepatternsite.com), or 2 ATR when that is more
+_SWING_TB = dict(swing_pct=0.10, swing_atr=2.0)
 
 
 class DoubleBottom(Detector):
@@ -50,8 +52,8 @@ class DoubleBottom(Detector):
     display = "Double Bottom"
     category = "reversal"
     min_bars = 40
-    defaults = dict(_SWING, tol_pct=0.03, tol_atr=1.0, min_gap=8, max_gap=80, max_wait=40, inval_pct=0.015)
-    definition = ("Two CONSECUTIVE significant swing lows (a rally of >=4% / 2 ATR between them) within a "
+    defaults = dict(_SWING_TB, tol_pct=0.03, tol_atr=1.0, min_gap=8, max_gap=80, max_wait=40, inval_pct=0.015)
+    definition = ("Two CONSECUTIVE significant swing lows (a rally of >=10% / 2 ATR between them: Bulkowski's minimum) within a "
                   "volatility-scaled tolerance, 8-80 bars apart. Forming while the second low develops; awaiting "
                   "breakout once it is a confirmed swing low; confirmed on a close above the intervening swing "
                   "high (the neckline); invalidated by a close more than 1.5% under the lows or 40 bars without "
@@ -106,9 +108,9 @@ class TripleBottom(Detector):
     display = "Triple Bottom"
     category = "reversal"
     min_bars = 50
-    defaults = dict(_SWING, tol_pct=0.03, tol_atr=1.0, min_gap=5, max_span=120, max_wait=40, inval_pct=0.015)
+    defaults = dict(_SWING_TB, tol_pct=0.03, tol_atr=1.0, min_gap=5, max_span=120, max_wait=40, inval_pct=0.015)
     definition = ("Three consecutive significant swing lows within tolerance, >=5 bars apart over <=120 bars, "
-                  "each separated by a rally of >=4% / 2 ATR. Resistance = the higher of the two rally peaks. "
+                  "each separated by a rally of >=10% / 2 ATR. Resistance = the higher of the two rally peaks. "
                   "Forming while the third low develops; awaiting breakout once it is a confirmed swing low; "
                   "confirmed on a close above resistance; invalidated by a close >1.5% under the lows.")
 

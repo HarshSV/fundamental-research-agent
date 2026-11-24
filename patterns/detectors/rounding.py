@@ -161,8 +161,8 @@ def _cup(v: View, p, a: int, ra: float, r: int, rr: float):
     return dict(a=a, ra=ra, r=r, rr=rr, low=low, low_i=low_i, depth=depth)
 
 
-_CUP_DEFAULTS = dict(min_len=30, max_len=250, rim_match=0.10, rim_tol=0.03, depth_min=0.12, depth_max=0.35,
-                     u_share=0.40, prior_advance=0.10, handle_min_len=5, handle_max_len=25, handle_min_depth=0.01,
+_CUP_DEFAULTS = dict(min_len=30, max_len=250, rim_match=0.10, rim_tol=0.03, depth_min=0.12, depth_max=0.33,
+                     u_share=0.40, prior_advance=0.30, handle_min_len=5, handle_max_len=20, handle_min_depth=0.01,
                      handle_max_depth=0.15, handle_start=0.03, max_wait=10)
 
 
@@ -172,7 +172,7 @@ class CupAndHandle(Detector):
     category = "base"
     min_bars = 100
     defaults = _CUP_DEFAULTS
-    definition = ("A rounded cup (rims within 10%, 12-35% deep, U-shaped, after an advance) followed by a 5-25 bar "
+    definition = ("A rounded cup (rims within 10%, 12-33% deep, U-shaped, after an advance of >=30%: IBD) followed by a 5-20 bar "
                   "handle that pulls back 1% to min(15%, half the cup depth). Forming while the handle develops "
                   "(started, shorter than 5 bars); awaiting breakout once the handle is valid; confirmed on the "
                   "first close above the higher rim; invalidated if the handle is too deep/long or price loses "

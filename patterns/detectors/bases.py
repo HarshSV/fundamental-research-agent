@@ -48,10 +48,10 @@ class VCP(Detector):
     name = "vcp"
     display = "VCP (Volatility Contraction Pattern)"
     category = "base"
-    min_bars = 150
+    min_bars = 200
     defaults = dict(window=120, first_min=0.08, first_max=0.40, last_max=0.12, near_pivot=0.08, min_span=15,
                     max_span=120, min_contractions=2, dev_min=0.03, inval_pct=0.01)
-    definition = ("Stage-2 uptrend (close > 50-day SMA > 150-day SMA) with >=2 successive pullbacks that each get "
+    definition = ("Stage-2 uptrend (close > 50-day SMA > 150-day SMA > 200-day SMA, Minervini's trend template; needs 200 bars of history) with >=2 successive pullbacks that each get "
                   "shallower (first 8-40%, last <=12%) and, where volume is known, quieter volume. Forming while "
                   "a contraction is still developing; awaiting breakout once the last contraction is <=12% and "
                   "price is within 8% of the pivot (latest swing high); confirmed on a close above the pivot; "
@@ -60,9 +60,9 @@ class VCP(Detector):
     def detect(self, v: View, p) -> list[Candidate]:
         t = v.t
         c = v.c
-        s50, s150 = sma(c, 50), sma(c, 150)
-        if s50 is None or s150 is None or not (c[t] > s50 > s150):
-            return []
+        s50, s150, s200 = sma(c, 50), sma(c, 150), sma(c, 200)
+        if s50 is None or s150 is None or s200 is None or not (c[t] > s50 > s150 > s200):
+            return []      # fewer than 200 bars: the trend cannot be judged, so nothing is reported
         pbs = _pullbacks(v, t - p["window"], p["dev_min"])[-6:]
         seq: list = []
         for pb in reversed(pbs):  # trailing run of strictly shrinking pullbacks
@@ -159,9 +159,9 @@ class AscendingBase(Detector):
     display = "Ascending Base"
     category = "base"
     min_bars = 100
-    defaults = dict(window=150, depth_min=0.08, depth_max=0.25, min_span=45, near_high=0.10, max_wait=30,
+    defaults = dict(window=150, depth_min=0.10, depth_max=0.20, min_span=45, near_high=0.10, max_wait=30,
                     inval_pct=0.01)
-    definition = ("Three CONSECUTIVE pullbacks of 8-25% over >=45 bars, each with a higher high and a higher low "
+    definition = ("Three CONSECUTIVE pullbacks of 10-20% (IBD) over >=45 bars, each with a higher high and a higher low "
                   "than the one before. Forming with two complete pullbacks and a third developing; awaiting "
                   "breakout once the third is complete and price is within 10% of its high; confirmed on a close "
                   "above the latest high; invalidated by a close under the latest higher low.")
@@ -259,9 +259,9 @@ class HighTightFlag(Detector):
     display = "High Tight Flag"
     category = "continuation"
     min_bars = 50
-    defaults = dict(pole_gain=1.0, pole_window=40, min_flag=3, ok_flag=5, max_flag=25, max_depth=0.25)
-    definition = ("A >=100% advance within <=40 bars, then a short, shallow flag: <=25% from its high, 5-25 bars. "
-                  "Forming for the first 3-4 bars of the flag; awaiting breakout from 5 bars; confirmed on a close "
+    defaults = dict(pole_gain=1.0, pole_window=40, min_flag=3, ok_flag=15, max_flag=25, max_depth=0.25)
+    definition = ("A >=100% advance within <=40 bars, then a short, shallow flag: <=25% from its high, 3-5 weeks (15-25 bars, IBD). "
+                  "Forming for the first 3-14 bars of the flag; awaiting breakout from 15 bars; confirmed on a close "
                   "above the flag's high; invalidated if the flag gets deeper than 25% or lasts past 25 bars.")
 
     def detect(self, v: View, p) -> list[Candidate]:

@@ -28,7 +28,7 @@ TERMINAL = (CONFIRMED, INVALIDATED)
 BULLISH = "bullish"
 BEARISH = "bearish"
 
-DETECTOR_VERSION = "1.0.0"
+DETECTOR_VERSION = "1.1.0"      # 1.1.0: published-rule parameters (double/triple tops and bottoms, ascending base, cup, high tight flag, VCP trend template)
 
 
 def slug(name: str) -> str:
