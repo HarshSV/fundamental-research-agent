@@ -223,6 +223,10 @@ export interface Resistance {
   touch_ts: number[];
 }
 
+/** A horizontal level a setup is about (the mother bar's high and low, the edges of a tight range), from the bar `t0` to the last bar. */
+export interface SetupLevel { label: string; price: number; t0: number | null; t1: number | null }
+export interface ChartLine { label: string; pts: [number, number][] }
+
 export interface ScanRow {
   symbol: string;
   name: string;
@@ -252,14 +256,17 @@ export interface ScanRow {
   as_of: number;
   occurrence: ScanOccurrence | null; // null for the pattern-less scanners
   /** market-list scanners: what the scanner measured for this stock */
-  signal?: { value: number; text: string; note: string } | null;
+  signal?: { value: number; text: string; note: string; mark?: { t: number; label: string }[]; levels?: SetupLevel[] } | null;
   /** Multiple Scans: the scanners this stock appears in */
   matched?: string[] | null;
   occurrence_count: number;
   industry?: string | null;
   listed?: string | null;
   markers?: { k: string; label: string }[];
-  candles?: [number, number, number, number, number, number][]; // t, o, h, l, c, v
+  candles?: [number, number, number, number, number, number][]; // t, o, h, l, c, v (one candle per day, or per week when candle_interval is "1w")
+  candle_interval?: "1d" | "1w";
+  /** the lines drawn with the candles: fast / slow moving average and the volume's own average (MarketSmith-style: 50 / 200 day, or 10 / 40 week) */
+  lines?: { fast?: ChartLine; slow?: ChartLine; vol?: ChartLine };
 }
 
 /** What a scanner row tells the stock page it opens: the pattern, its own lines and levels, and any horizontal resistance. */
@@ -356,7 +363,7 @@ const post = (body: unknown) => ({ method: "POST", headers: { "Content-Type": "a
 export const searchScan = (
   pattern: string,
   filters: ScanFilters,
-  extra: { q: string; page: number; page_size: number; sort: string },
+  extra: { q: string; page: number; page_size: number; sort: string; candle_interval?: "1d" | "1w" },
   includeCandles: boolean,
 ) =>
   fetchJson<ScanResult>(`/api/v1/pattern-scan/${pattern}/search?include_candles=${includeCandles}`, {

@@ -1,8 +1,8 @@
 "use client";
 
-import { CandlestickSeries, ColorType, HistogramSeries, LineSeries, LineStyle, createChart, type Time } from "lightweight-charts";
+import { CandlestickSeries, ColorType, HistogramSeries, LineSeries, LineStyle, createChart, createSeriesMarkers, type SeriesMarker, type Time } from "lightweight-charts";
 import { useEffect, useRef } from "react";
-import type { Resistance, ScanOccurrence } from "./patternScan";
+import type { ChartLine, Resistance, ScanOccurrence, SetupLevel } from "./patternScan";
 import { removeChartSafely } from "./chartDispose";
 
 type Bar = [number, number, number, number, number, number]; // t, o, h, l, c, v
@@ -19,8 +19,11 @@ const css = (name: string, fallback: string) =>
  * scrolling page); the full interactive chart is one click away on the stock page.
  */
 export function TvChart({
-  bars, occurrence, resistance, height = 300,
-}: { bars: Bar[]; occurrence: ScanOccurrence | null; resistance?: Resistance | null; height?: number }) {
+  bars, occurrence, resistance, height = 300, marks, lines, levels,
+}: {
+  bars: Bar[]; occurrence: ScanOccurrence | null; resistance?: Resistance | null; height?: number; marks?: { t: number; label: string }[];
+  lines?: { fast?: ChartLine; slow?: ChartLine; vol?: ChartLine }; levels?: SetupLevel[];
+}) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,7 +39,7 @@ export function TvChart({
       layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: text, fontFamily: "inherit", attributionLogo: false },
       grid: { vertLines: { color: "transparent" }, horzLines: { color: grid } },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.22 } },
-      timeScale: { borderVisible: false, timeVisible: false, fixLeftEdge: true, fixRightEdge: true },
+      timeScale: { borderVisible: false, timeVisible: false, fixLeftEdge: true, fixRightEdge: false },
       handleScroll: false,
       handleScale: false,
       crosshair: { horzLine: { labelVisible: true }, vertLine: { labelVisible: true } },
@@ -81,7 +84,43 @@ export function TvChart({
       }
     }
 
-    chart.timeScale().fitContent();
+    // moving averages (MarketSmith-style: 50 / 200 day, or 10 / 40 week) and the volume's own average, each only where it is really worked out
+    const ma = (l: ChartLine | undefined, color: string, scale?: string) => {
+      if (!l || l.pts.length < 2) return;
+      const s = chart.addSeries(LineSeries, { color, lineWidth: scale ? 1 : 2, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, ...(scale ? { priceScaleId: scale } : {}) });
+      s.setData(l.pts.map(([t, v]) => ({ time: day(t), value: v })));
+    };
+    ma(lines?.slow, "#d4a72c");
+    ma(lines?.fast, "#f0613d");
+    ma(lines?.vol, "#f59e0b", "vol");
+
+    // the levels the setup is about, as real lines from the bar they start at to the last bar
+    const lastT = bars[bars.length - 1][0];
+    for (const lv of levels ?? []) {
+      const from = Math.max(lv.t0 ?? bars[0][0], bars[0][0]);
+      if (lastT <= from) continue;
+      const hi = /high|breakout/i.test(lv.label);
+      const ln = chart.addSeries(LineSeries, { color: hi ? gain : loss, lineWidth: 2, lineStyle: LineStyle.Dashed, lastValueVisible: true, priceLineVisible: false, crosshairMarkerVisible: false, title: lv.label });
+      ln.setData([{ time: day(from), value: lv.price }, { time: day(lastT), value: lv.price }]);
+    }
+
+    // the bars a setup scanner is about (the mother and inside bar of an inside bar, the closes of a tight setup): a dot under each, labelled;
+    // and the highest high / lowest low shown, with their prices (as MarketSmith labels its swing points)
+    const have = new Set(bars.map((b) => b[0]));
+    const flags: SeriesMarker<Time>[] = (marks ?? []).filter((m) => have.has(m.t)).map((m) => ({ time: day(m.t), position: m.label === "Inside" ? "aboveBar" : "belowBar", shape: "circle", color: "#a78bfa", text: m.label || undefined }));
+    const priceText = (v: number) => v.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    let hiBar = bars[0], loBar = bars[0];
+    for (const b of bars) {
+      if (b[2] > hiBar[2]) hiBar = b;
+      if (b[3] < loBar[3]) loBar = b;
+    }
+    flags.push({ time: day(hiBar[0]), position: "aboveBar", shape: "square", color: text, size: 0.1, text: priceText(hiBar[2]) });
+    flags.push({ time: day(loBar[0]), position: "belowBar", shape: "square", color: text, size: 0.1, text: priceText(loBar[3]) });
+    if (flags.length) createSeriesMarkers(candles, flags.sort((a, b) => String(a.time).localeCompare(String(b.time))));
+
+    // all the bars, with a little room after the last one so its label ("Inside", "Mother") is not cut off
+    if (flags.length) chart.timeScale().setVisibleLogicalRange({ from: -0.5, to: bars.length - 1 + Math.max(3, Math.round(bars.length * 0.04)) });
+    else chart.timeScale().fitContent();
     // a resize callback already queued when the chart is removed would touch a disposed chart ("Object is disposed")
     let gone = false;
     const ro = new ResizeObserver(() => {
@@ -93,7 +132,7 @@ export function TvChart({
       ro.disconnect();
       removeChartSafely(chart);
     };
-  }, [bars, occurrence, resistance, height]);
+  }, [bars, occurrence, resistance, height, marks, lines, levels]);
 
   return <div ref={ref} style={{ height }} />;
 }

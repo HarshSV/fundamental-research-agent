@@ -55,6 +55,25 @@ function specFor(range: Range, live: boolean): Spec {
   if (range === "All") return { interval: "1d", period: "max", tf: "1d", everyMs: live ? 30000 : null, days: null, intraday: false };
   return { interval: "1d", period: "5y", tf: "1d", everyMs: live ? 30000 : null, days: RANGE_DAYS[range], intraday: false };
 }
+/** Daily candles folded into one candle per week (Monday to Sunday, IST). The last candle is the current week so far. */
+function foldWeekly(c: Candle[]): Candle[] {
+  const out: Candle[] = [];
+  let key = -1;
+  for (const b of c) {
+    const k = Math.floor((Math.floor((b.time + 19800) / DAY) + 3) / 7);
+    const last = out[out.length - 1];
+    if (k !== key || !last) {
+      out.push({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume });
+      key = k;
+    } else {
+      last.high = Math.max(last.high, b.high);
+      last.low = Math.min(last.low, b.low);
+      last.close = b.close;
+      if (b.volume != null) last.volume = (last.volume ?? 0) + b.volume;
+    }
+  }
+  return out;
+}
 const BAR_SECONDS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "60m": 3600, "1d": 86400 };
 
 // label shown -> key of the backend's return_bases
@@ -279,6 +298,7 @@ export function StockView({
   const [showMore, setShowMore] = useState(false);
   const [showCone, setShowCone] = useState(true);
   const [showVolume, setShowVolume] = useState(false);
+  const [candleSize, setCandleSize] = useState<"d" | "w">("d");     // one candle per day or per week (daily-based ranges only)
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
   // Until it has some history, longer ranges fall back to the intraday 1D view (and say so).
   const MIN_DAILY_BARS = 5;
@@ -490,8 +510,11 @@ export function StockView({
   const seriesKey = ownBars ? specKey : `d${spec.days}`;
   const [held, setHeld] = useState<{ key: string; data: Candle[] } | null>(null);
   if (series && series !== held?.data) setHeld({ key: seriesKey, data: series });
-  const shown = series ?? held?.data ?? null;
-  const shownKey = series ? seriesKey : held?.key ?? seriesKey;
+  const shownDaily = series ?? held?.data ?? null;
+  const weeklyOn = candleSize === "w" && !isIntraday;
+  const shown = useMemo(() => (shownDaily && weeklyOn ? foldWeekly(shownDaily) : shownDaily), [shownDaily, weeklyOn]);
+  const weeklyHistory = useMemo(() => (weeklyOn && daily ? foldWeekly(daily) : undefined), [weeklyOn, daily]);
+  const shownKey = (series ? seriesKey : held?.key ?? seriesKey) + (weeklyOn ? "|w" : "");
   const switching = series === null && held !== null;
 
   // Returns = live price / the close on the latest trading day on or before (today - period), minus 1 - the exchange's
@@ -701,7 +724,7 @@ export function StockView({
               {showPatterns && (
                 <span className="nv-rise text-xs" style={{ color: "var(--text-tertiary)" }}>
                   {patterns !== null
-                    ? `${shownOccs.length} shown · ${spec.tf} bars`
+                    ? (weeklyOn ? "Pattern flags are drawn on daily candles" : `${shownOccs.length} shown · ${spec.tf} bars`)
                     : patternError
                       ? `Pattern agent unavailable (${patternError}). It will retry; or switch range and back`
                       : `Pattern agent running on ${spec.tf} bars… (first run can take up to ~30s)`}
@@ -758,15 +781,15 @@ export function StockView({
               intraday={isIntraday}
               chartStyle={chartStyle}
               showVolume={showVolume}
-              occs={showPatterns ? shownOccs : []}
+              occs={showPatterns && !weeklyOn ? shownOccs : []}
               selectedId={selectedId}
               onSelect={setSelectedId}
               scan={scanOverlay}
               levels={chartLevels}
-              cone={showCone && !isIntraday ? coneData : null}
-              averages={isIntraday ? undefined : SMA_PERIODS.filter((n) => lineOn[`sma${n}`])}
-              history={daily ?? undefined}
-              projectFrom={coneData}
+              cone={showCone && !isIntraday && !weeklyOn ? coneData : null}
+              averages={isIntraday ? undefined : weeklyOn ? [10, 40] : SMA_PERIODS.filter((n) => lineOn[`sma${n}`])}      // weekly: the 10 and 40 week averages, as MarketSmith draws them
+              history={weeklyOn ? weeklyHistory : daily ?? undefined}
+              projectFrom={weeklyOn ? null : coneData}
             />
             {switching && (
               <span
@@ -794,7 +817,13 @@ export function StockView({
           )}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex max-w-full flex-wrap items-center gap-3">
-              <div className="max-w-full overflow-x-auto"><SlidingTabs ariaLabel="Chart range" options={RANGES.map((r) => ({ id: r, label: r }))} value={range} onChange={setRange} /></div>
+              <div className="max-w-full overflow-x-auto"><SlidingTabs ariaLabel="Chart range" options={RANGES.map((r) => ({ id: r, label: r }))} value={range} onChange={(r) => { setRange(r); if (r === "1D" || r === "1W") setCandleSize("d"); }} /></div>
+              <SlidingTabs
+                ariaLabel="Candle size"
+                value={weeklyOn ? "w" : "d"}
+                onChange={(id) => { setCandleSize(id); if (id === "w" && ["1D", "1W", "1M", "3M", "6M"].includes(range)) setRange("3Y"); }}
+                options={[{ id: "d", label: "Daily", title: "One candle per day" }, { id: "w", label: "Weekly", title: "One candle per week (opens on 3Y)" }]}
+              />
               <SlidingTabs
                 ariaLabel="Chart style"
                 size="icon"

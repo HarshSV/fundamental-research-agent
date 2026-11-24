@@ -20,7 +20,7 @@ export interface ScanOverlay {
 }
 
 const IST = 19800;
-const SMA_COLORS: Record<number, string> = { 20: "#f59e0b", 50: "#3b82f6", 100: "#a855f7", 200: "#ec4899" };
+const SMA_COLORS: Record<number, string> = { 10: "#f0613d", 20: "#f59e0b", 40: "#d4a72c", 50: "#3b82f6", 100: "#a855f7", 200: "#ec4899" };      // 10 / 40 are the weekly view's averages (in weeks)
 const KIND_COLOR: Record<MarkerKind, string> = {
   forming: STATUS_COLOR.forming,
   awaiting: STATUS_COLOR.awaiting_breakout,

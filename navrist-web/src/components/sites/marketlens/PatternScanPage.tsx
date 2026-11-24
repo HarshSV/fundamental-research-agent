@@ -150,7 +150,7 @@ const SORTS: [string, string][] = [
 /**
  * Stocks currently showing one scanner's setup (a chart pattern, Horizontal Resistance, or the plain screener) after the
  * filters picked in the popup, with a Backtest tab for real patterns. List shows Technicals or Fundamentals columns; Charts
- * draws each stock's daily candles with TradingView's Lightweight Charts, the pattern's lines and, where there is one, its
+ * draws each stock's candles (daily, or weekly for the weekly setups; a Daily / Weekly switch changes them) with TradingView's Lightweight Charts, the pattern's lines and, where there is one, its
  * horizontal resistance. A click on any row or card opens that stock.
  */
 export function PatternScanPage({
@@ -170,12 +170,15 @@ export function PatternScanPage({
   const [view, setView] = useState<"list" | "charts">("list");
   const [colset, setColset] = useState<"technicals" | "fundamentals">("technicals");
   const [perRow, setPerRow] = useState<1 | 2>(2);
+  const [candleTf, setCandleTf] = useState<"auto" | "1d" | "1w">("auto");      // auto: the scanner's own timeframe (weekly setups draw weekly candles)
   const [exporting, setExporting] = useState(false);
   const [q, setQ] = useState("");
   const [dq, setDq] = useState("");
   const [sort, setSort] = useState(isListScanner(pattern.id) ? "signal" : patternMode ? "status" : "market_cap");
   const [page, setPage] = useState(1);
   const [res, setRes] = useState<{ key: string; data?: ScanResult; error?: string } | null>(null);
+
+  useEffect(() => { setCandleTf("auto"); }, [pattern.id]);
 
   // debounce the search box; a new search starts again from page 1
   useEffect(() => {
@@ -187,12 +190,12 @@ export function PatternScanPage({
   }, [q]);
 
   const size = view === "charts" ? CHART_SIZE : LIST_SIZE;
-  const key = useMemo(() => JSON.stringify([pattern.id, filters, dq, sort, page, view]), [pattern.id, filters, dq, sort, page, view]);
+  const key = useMemo(() => JSON.stringify([pattern.id, filters, dq, sort, page, view, candleTf]), [pattern.id, filters, dq, sort, page, view, candleTf]);
 
   useEffect(() => {
     if (mode !== "scan") return;
     let alive = true;
-    searchScan(pattern.id, filters, { q: dq, page, page_size: size, sort }, view === "charts")
+    searchScan(pattern.id, filters, { q: dq, page, page_size: size, sort, ...(view === "charts" && candleTf !== "auto" ? { candle_interval: candleTf } : {}) }, view === "charts")
       .then((data) => alive && setRes({ key, data }))
       .catch((e: Error) => alive && setRes({ key, error: e.message }));
     return () => {
@@ -212,7 +215,7 @@ export function PatternScanPage({
   useEffect(() => {
     if (!tick || mode !== "scan") return;
     let alive = true;
-    searchScan(pattern.id, filters, { q: dq, page, page_size: size, sort }, view === "charts")
+    searchScan(pattern.id, filters, { q: dq, page, page_size: size, sort, ...(view === "charts" && candleTf !== "auto" ? { candle_interval: candleTf } : {}) }, view === "charts")
       .then((data) => alive && setRes({ key, data }))
       .catch(() => {});
     return () => {
@@ -288,7 +291,7 @@ export function PatternScanPage({
             <p className="mt-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
               {data.scan.building
                 ? `Scanning the market… ${data.scan.done}/${data.scan.total} stocks analysed. Results fill in as it progresses.`
-                : `Scanned ${data.scan.have.toLocaleString("en-IN")} of ${data.scan.universe.toLocaleString("en-IN")} stocks (Nifty Total Market) on their daily charts. Prices are the close of ${new Date((data.scan.prices_as_of ?? 0) * 1000 + 19800000).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}.`}
+                : `Scanned ${data.scan.have.toLocaleString("en-IN")} of ${data.scan.universe.toLocaleString("en-IN")} stocks (Nifty Total Market) on their ${pattern.id.endsWith("-weekly") || pattern.id.endsWith("-weekly-filtered") ? "weekly" : "daily"} charts. Prices are the close of ${new Date((data.scan.prices_as_of ?? 0) * 1000 + 19800000).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}.`}
             </p>
           )}
 
@@ -306,6 +309,10 @@ export function PatternScanPage({
               />
               {view === "charts" && (
                 <SlidingTabs ariaLabel="Charts per row" size="lg" value={String(perRow)} onChange={(id) => setPerRow(Number(id) as 1 | 2)} options={[{ id: "1", label: "1 per row" }, { id: "2", label: "2 per row" }]} />
+              )}
+              {view === "charts" && (
+                <SlidingTabs ariaLabel="Candle size" size="lg" value={candleTf === "auto" ? (data?.rows[0]?.candle_interval ?? "1d") : candleTf} onChange={(id) => { setCandleTf(id); setPage(1); }}
+                  options={[{ id: "1d", label: "Daily", title: "One candle per day" }, { id: "1w", label: "Weekly", title: "One candle per week" }]} />
               )}
               {view === "list" && (
                 <SlidingTabs ariaLabel="Columns" size="lg" value={colset} onChange={setColset} options={[{ id: "technicals", label: "Technicals" }, { id: "fundamentals", label: "Fundamentals" }]} />
@@ -418,11 +425,12 @@ export function PatternScanPage({
                       </div>
                     </div>
                     <div className="mb-2 flex flex-wrap gap-1.5">
+                      <span className="rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: "var(--border-subtle)", color: "var(--text-tertiary)" }}>{r.candle_interval === "1w" ? "Weekly candles" : "Daily candles"}</span>
                       <StatusBadge row={r} />
                       {(drawResistance || pattern.id === RESISTANCE_ID) && <ResistanceBadge row={r} />}
                     </div>
                     {r.candles && r.candles.length ? (
-                      <TvChart bars={r.candles} occurrence={r.occurrence} resistance={drawResistance ? r.resistance : null} height={perRow === 1 ? 420 : 280} />
+                      <TvChart bars={r.candles} occurrence={r.occurrence} resistance={drawResistance ? r.resistance : null} height={perRow === 1 ? 420 : 280} marks={r.signal?.mark} lines={r.lines} levels={r.signal?.levels} />
                     ) : (
                       <div className="py-20 text-center text-xs" style={{ color: "var(--text-tertiary)" }}>{r.candles === undefined ? "Loading chart…" : "Chart data is unavailable for this stock."}</div>
                     )}
