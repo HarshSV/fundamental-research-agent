@@ -324,9 +324,11 @@ function Stat({ label, value, sub, color }: { label: string; value: string; sub?
 type HistRow = NonNullable<BreadthRes["history"]>[number];
 type HistKey = Exclude<keyof HistRow, "date">;
 
-/** A small multi-line history chart (SVG). Points where a series has no value are skipped, never drawn as zero. */
+/** A small multi-line history chart (SVG). Points where a series has no value are skipped, never drawn as zero. Hover (or touch) shows the
+ *  day's date and every plotted value; a series with no value that day shows a dash. */
 function HistChart({ title, hist, series, unit }: { title: string; hist: HistRow[]; series: { k: HistKey; label: string; color: string }[]; unit?: string }) {
   const W = 560, H = 220, PX = 38, PY = 14;
+  const [hf, setHf] = useState<number | null>(null);          // where the pointer is, as a fractional index along the days (so the marker glides)
   const vals = series.flatMap((s) => hist.map((h) => h[s.k]).filter((v): v is number => typeof v === "number"));
   if (vals.length === 0) return null;
   const top = unit === "%" ? 100 : Math.max(1, ...vals) * 1.08;
@@ -343,6 +345,24 @@ function HistChart({ title, hist, series, unit }: { title: string; hist: HistRow
     return d;
   };
   const ticks = unit === "%" ? [20, 50, 80] : [0.25, 0.5, 0.75].map((f) => Math.round(top * f));
+  const at = (e: React.PointerEvent<SVGSVGElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * W;
+    setHf(Math.max(0, Math.min(hist.length - 1, ((px - PX) / (W - PX - 8)) * (hist.length - 1))));
+  };
+  const hi = hf == null ? null : Math.round(hf);                // the day whose real numbers are shown
+  const row = hi == null ? null : hist[hi];
+  // the dot slides along the line between two days; where one of the two has no value it sits on the nearest day (or is left out)
+  const dotAt = (k: HistKey): { cx: number; cy: number } | null => {
+    if (hf == null || hi == null) return null;
+    const a = Math.floor(hf), b = Math.min(hist.length - 1, a + 1), t = hf - a;
+    const va = hist[a][k], vb = hist[b][k];
+    if (typeof va === "number" && typeof vb === "number") return { cx: x(hf), cy: y(va + (vb - va) * t) };
+    const vn = hist[hi][k];
+    return typeof vn === "number" ? { cx: x(hi), cy: y(vn) } : null;
+  };
+  const fmtV = (v: number | null | undefined) => (typeof v === "number" ? `${v.toLocaleString("en-IN", { maximumFractionDigits: 1 })}${unit ?? ""}` : "—");
+  const leftPct = hf == null ? 0 : (x(hf) / W) * 100;
   return (
     <div className="rounded-xl border p-3" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
       <div className="mb-1 text-sm font-semibold">{title}</div>
@@ -350,14 +370,49 @@ function HistChart({ title, hist, series, unit }: { title: string; hist: HistRow
         {series.map((s) => <span key={s.k} className="flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}><span className="h-2 w-2 rounded-full" style={{ background: s.color }} />{s.label}</span>)}
       </div>
       <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full min-w-[360px]" role="img" aria-label={title}>
-          {ticks.map((g) => (
-            <g key={g}><line x1={PX} x2={W - 8} y1={y(g)} y2={y(g)} stroke="var(--border-subtle)" strokeDasharray="3 4" /><text x={4} y={y(g) + 4} fontSize="10" fill="var(--text-tertiary)">{g}{unit ?? ""}</text></g>
-          ))}
-          {series.map((s) => <path key={s.k} d={path(s.k)} fill="none" stroke={s.color} strokeWidth="1.8" strokeLinejoin="round" />)}
-          <text x={PX} y={H - 1} fontSize="10" fill="var(--text-tertiary)">{hist[0].date}</text>
-          <text x={W - 8} y={H - 1} fontSize="10" textAnchor="end" fill="var(--text-tertiary)">{hist[hist.length - 1].date}</text>
-        </svg>
+        <div className="relative min-w-[360px]">
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            className="block h-auto w-full touch-pan-y"
+            role="img"
+            aria-label={title}
+            onPointerMove={at}
+            onPointerDown={at}
+            onPointerLeave={() => setHf(null)}
+            onPointerCancel={() => setHf(null)}
+          >
+            {ticks.map((g) => (
+              <g key={g}><line x1={PX} x2={W - 8} y1={y(g)} y2={y(g)} stroke="var(--border-subtle)" strokeDasharray="3 4" /><text x={4} y={y(g) + 4} fontSize="10" fill="var(--text-tertiary)">{g}{unit ?? ""}</text></g>
+            ))}
+            {series.map((s) => <path key={s.k} d={path(s.k)} fill="none" stroke={s.color} strokeWidth="1.8" strokeLinejoin="round" />)}
+            <text x={PX} y={H - 1} fontSize="10" fill="var(--text-tertiary)">{hist[0].date}</text>
+            <text x={W - 8} y={H - 1} fontSize="10" textAnchor="end" fill="var(--text-tertiary)">{hist[hist.length - 1].date}</text>
+            {hf != null && row && (
+              <g pointerEvents="none">
+                <line x1={x(hf)} x2={x(hf)} y1={PY} y2={H - PY} stroke="var(--text-tertiary)" strokeWidth="1" />
+                {series.map((s) => {
+                  const d = dotAt(s.k);
+                  return d ? <circle key={s.k} cx={d.cx} cy={d.cy} r="3.5" fill={s.color} stroke="var(--surface-1)" strokeWidth="1.5" /> : null;
+                })}
+              </g>
+            )}
+          </svg>
+          {hi != null && row && (
+            <div
+              className="pointer-events-none absolute top-1 z-10 rounded-lg border px-2.5 py-1.5 text-xs shadow-lg"
+              style={{ left: `${leftPct}%`, transform: leftPct > 55 ? "translateX(calc(-100% - 10px))" : "translateX(10px)", transition: "left 70ms linear", background: "var(--surface-2, var(--surface-1))", borderColor: "var(--border-default, var(--border-subtle))" }}
+              role="status"
+            >
+              <div className="mb-1 font-semibold" style={{ color: "var(--text-primary)" }}>{row.date}</div>
+              {series.map((s) => (
+                <div key={s.k} className="flex items-center justify-between gap-4 whitespace-nowrap">
+                  <span className="flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}><span className="h-2 w-2 rounded-full" style={{ background: s.color }} />{s.label}</span>
+                  <span className="nv-num font-semibold" style={{ color: "var(--text-primary)" }}>{fmtV(row[s.k])}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
