@@ -178,7 +178,7 @@ function BasisSwitch({ value, onChange }: { value: Basis | null; onChange: (b: B
           key={id}
           onClick={() => onChange(id)}
           aria-pressed={value === id}
-          className="relative z-10 py-1.5 text-center text-xs font-medium leading-none"
+          className="relative z-10 py-3 text-center text-xs font-medium leading-none sm:py-1.5"
           style={{ color: value === id ? "var(--text-primary)" : "var(--text-tertiary)", transition: "color 250ms ease" }}
         >
           {text}
@@ -208,7 +208,7 @@ function BasisToggle({ basis, onChange, title }: { basis: Basis; onChange: (b: B
           key={id}
           onClick={() => onChange(id)}
           aria-pressed={basis === id}
-          className="relative z-10 whitespace-nowrap py-[5px] text-center text-[10px] font-medium leading-none"
+          className="relative z-10 whitespace-nowrap py-[8px] text-center text-[11px] font-medium leading-none sm:py-[5px] sm:text-[10px]"
           style={{ color: basis === id ? "var(--text-primary)" : "var(--text-tertiary)", transition: "color 250ms ease" }}
         >
           {text}
@@ -889,7 +889,7 @@ export function StockView({
                 <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
                   <span>{c.label}</span>
                 </div>
-                <div className="mt-1 text-lg font-semibold" style={{ color: c.tone === "good" ? GAIN : c.tone === "bad" ? LOSS : undefined, transition: "color 350ms ease" }}>{c.value ?? "—"}</div>
+                <div className="mt-1 text-[15px] font-semibold sm:text-lg" style={{ color: c.tone === "good" ? GAIN : c.tone === "bad" ? LOSS : undefined, transition: "color 350ms ease" }}>{c.value ?? "—"}</div>
                 {c.id === "pe" && peM.value == null && epsM.value != null && epsM.value <= 0 && (
                   <div className="mt-0.5 text-xs" style={{ color: "var(--text-tertiary)" }}>Negative earnings, so no P/E</div>
                 )}
@@ -914,7 +914,7 @@ export function StockView({
                   <button
                     onClick={() => setShowMore((v) => !v)}
                     aria-expanded={showMore}
-                    className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
+                    className="flex min-h-10 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium sm:min-h-0"
                     style={{ color: "var(--text-secondary)", background: "var(--overlay-weak)" }}
                   >
                     {showMore ? "Show less" : "Show more"}

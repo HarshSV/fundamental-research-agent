@@ -807,7 +807,7 @@ export function About({ profile, fallbackText }: { profile: Profile | null; fall
           <p key={i}>{p}</p>
         ))}
         {paragraphs.length > 1 && (
-          <button onClick={() => setOpen((v) => !v)} className="text-xs font-medium" style={{ color: "var(--accent-text, #b7b4e7)" }}>
+          <button onClick={() => setOpen((v) => !v)} className="min-h-10 text-xs font-medium sm:min-h-0" style={{ color: "var(--accent-text, #b7b4e7)" }}>
             {open ? "Show less" : "Read more"}
           </button>
         )}

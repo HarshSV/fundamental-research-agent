@@ -299,7 +299,7 @@ export function PatternFilterModal({
           onClick={onClose}
           aria-label="Close filters"
           title="Close (Esc)"
-          className="absolute -right-3 -top-3 z-10 flex h-7 w-7 items-center justify-center rounded-full text-white transition-transform duration-150 hover:scale-110"
+          className="absolute -right-2 -top-3 z-10 flex h-10 w-10 items-center sm:-right-3 sm:h-7 sm:w-7 justify-center rounded-full text-white transition-transform duration-150 hover:scale-110"
           style={{ background: "#ef6c35", boxShadow: "0 4px 14px rgba(239, 108, 53, 0.45)" }}
         >
           <X className="h-4 w-4" strokeWidth={2.5} />
@@ -731,7 +731,7 @@ export function PatternFilterModal({
           </div>
 
           <div className="flex items-center justify-between gap-3 border-t px-6 py-4" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
-            <button type="button" onClick={() => setF(emptyFilters())} className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+            <button type="button" onClick={() => setF(emptyFilters())} className="min-h-10 px-2 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
               Reset
             </button>
             <button

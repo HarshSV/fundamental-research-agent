@@ -307,7 +307,7 @@ function Trade({ title, b, daily, onAlert, hasAlerts }: { title: string; b: Trad
               <li key={w} style={{ color: LOSS }}>{w}</li>
             ))}
           </ul>
-          <button onClick={onAlert} disabled={hasAlerts} className="mt-4 self-start rounded-full border px-3.5 py-1.5 text-xs font-medium enabled:hover:border-[var(--accent-border)] disabled:opacity-60"
+          <button onClick={onAlert} disabled={hasAlerts} className="mt-4 min-h-10 self-start rounded-full border px-3.5 py-2 text-xs font-medium sm:min-h-0 sm:py-1.5 enabled:hover:border-[var(--accent-border)] disabled:opacity-60"
             style={{ borderColor: "var(--border-default)", color: SOFT }}>
             {hasAlerts ? "Alerts set for this stock" : "Alert me at the entry, stop and target"}
           </button>
@@ -359,7 +359,7 @@ export function News({ symbol }: { symbol: string }) {
   const down = ev ? Object.entries(ev.sources).filter(([, v]) => v === "unavailable").map(([k]) => k) : [];
   return (
     <div ref={box}>
-      <button onClick={toggle} aria-expanded={open} className="flex items-center gap-1.5 text-sm hover:opacity-80" style={{ color: SOFT }}>
+      <button onClick={toggle} aria-expanded={open} className="flex min-h-10 items-center gap-1.5 text-sm hover:opacity-80 sm:min-h-0" style={{ color: SOFT }}>
         <Newspaper className="h-4 w-4" aria-hidden />
         News
       </button>
@@ -574,7 +574,7 @@ function ForecastBody({
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="mt-8 flex items-center gap-1.5 text-sm font-medium hover:opacity-80"
+        className="mt-8 flex min-h-10 items-center gap-1.5 text-sm font-medium hover:opacity-80 sm:min-h-0"
         style={{ color: SOFT }}
       >
         {open ? "Hide the reasoning" : "See the reasoning"}

@@ -45,11 +45,11 @@ export function Ticker() {
     const Arrow = up ? ArrowUpRight : ArrowDownRight;
     return (
       <div key={r.name} className="flex shrink-0 items-center gap-3">
-        <span className="text-[10.5px] tracking-wide" style={{ color: "var(--text-tertiary)" }}>{r.name}</span>
+        <span className="text-[11px] tracking-wide" style={{ color: "var(--text-tertiary)" }}>{r.name}</span>
         <span className="nv-num text-[12px]" style={{ color: "var(--text-primary)" }}>
           {r.value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </span>
-        <span className="nv-num flex items-center gap-0.5 text-[10.5px]" style={{ color: up ? "var(--gain)" : "var(--loss)" }}>
+        <span className="nv-num flex items-center gap-0.5 text-[11px]" style={{ color: up ? "var(--gain)" : "var(--loss)" }}>
           <Arrow className="h-3 w-3" />
           {up ? "+" : ""}
           {r.change_pct.toFixed(2)}%
@@ -75,7 +75,7 @@ export function Ticker() {
               <div className="flex shrink-0 items-center gap-5 pr-5" aria-hidden="true">{group}</div>
             </div>
           ) : (
-            <div className="text-center text-[10.5px]" style={{ color: "var(--text-tertiary)" }}>
+            <div className="text-center text-[11px]" style={{ color: "var(--text-tertiary)" }}>
               {failed ? "Market index data is unavailable right now." : "Loading market indices…"}
             </div>
           )}

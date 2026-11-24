@@ -29,7 +29,7 @@ export function Switch({ on, onChange, label, title }: { on: boolean; onChange: 
 }
 
 const SIZE = {
-  sm: "px-2.5 py-2 text-[11px] sm:py-1",
+  sm: "px-2.5 py-3 text-[11px] sm:py-1",
   md: "px-2 py-2.5 text-xs sm:px-3.5 sm:py-1.5",
   lg: "px-4 py-2.5 text-sm sm:py-2",
   icon: "px-3 py-2.5 sm:px-2.5 sm:py-1.5",

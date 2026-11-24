@@ -38,7 +38,7 @@ function YoungFacts({ y }: { y: NonNullable<Forecast["young"]> }) {
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium hover:opacity-80"
+          className="inline-flex min-h-8 items-center gap-1 rounded-md border px-3 py-1 text-xs font-medium hover:opacity-80"
           style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
         >
           Facts
@@ -51,7 +51,7 @@ function YoungFacts({ y }: { y: NonNullable<Forecast["young"]> }) {
             <div className="h-full rounded-full" style={{ width: `${Math.min(100, (y.sessions / y.needed) * 100)}%`, background: "var(--accent)" }} />
           </div>
           <div className="mt-1 flex justify-between text-[11px]" style={{ color: "var(--text-tertiary)" }}><span>{y.sessions} sessions</span><span>{y.needed} needed</span></div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
             {cards.map((c) => (
               <div key={c.label} className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border-subtle)" }}>
                 <div className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>{c.label}</div>
