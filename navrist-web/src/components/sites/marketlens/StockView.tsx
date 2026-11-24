@@ -640,6 +640,8 @@ export function StockView({
 
       <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
+          <SectionTitle>Forecast Highlights</SectionTitle>
+          <ForecastStrip data={forecastData?.data ?? null} loading={forecastData === null} error={Boolean(forecastData?.error)} />
           <SectionTitle
             aside={
               <div className="flex gap-1 rounded-full p-1" style={{ background: "var(--surface-1)" }}>
@@ -666,15 +668,13 @@ export function StockView({
               </div>
             }
           >
-            Forecast Highlights
+            Price Chart
             {live && (
               <span className="ml-3 align-middle text-xs font-normal" style={{ color: "#f87171" }}>
                 ● Live · {liveAt ? `updated ${liveAt.toLocaleTimeString("en-IN", { hour12: false })}` : "connecting…"}
               </span>
             )}
           </SectionTitle>
-          <ForecastStrip data={forecastData?.data ?? null} loading={forecastData === null} error={Boolean(forecastData?.error)} />
-          <SectionTitle>Price Chart</SectionTitle>
           {thinHistory && daily && (
             <p className="mb-3 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "#f59e0b55", background: "#f59e0b12", color: "#f5c46a" }}>
               Recently listed: only {daily.length} trading day{daily.length === 1 ? "" : "s"} of price history so far, so
