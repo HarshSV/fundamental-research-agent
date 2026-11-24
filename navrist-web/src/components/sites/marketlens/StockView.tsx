@@ -15,6 +15,7 @@ import {
 import { marketOpen } from "./marketHours";
 import { ForecastCard, News } from "./ForecastCard";
 import { ForecastStrip } from "./ForecastStrip";
+import { CandleLoader } from "./CandleLoader";
 import { ChartLinesMenu, type LineGroup } from "./ChartLinesMenu";
 import { fetchForecast, forecastCone, forecastLevels, type FcWindow, type Forecast } from "./forecast";
 import type { ScanContext } from "./patternScan";
@@ -672,7 +673,7 @@ export function StockView({
               </span>
             )}
           </SectionTitle>
-          <ForecastStrip data={forecastData?.data ?? null} />
+          <ForecastStrip data={forecastData?.data ?? null} loading={forecastData === null} error={Boolean(forecastData?.error)} />
           <SectionTitle>Price Chart</SectionTitle>
           {thinHistory && daily && (
             <p className="mb-3 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "#f59e0b55", background: "#f59e0b12", color: "#f5c46a" }}>
@@ -748,7 +749,7 @@ export function StockView({
             )}
           </div>
           {shown === null && !error ? (
-            <div className="flex h-[320px] items-center justify-center text-sm" style={{ color: "var(--text-tertiary)" }}>Loading chart…</div>
+            <div className="flex h-[320px] items-center justify-center"><CandleLoader label="Loading chart…" /></div>
           ) : shown && shown.length > 1 ? (
             <div className="relative">
             <StockChart

@@ -66,6 +66,20 @@
       "cwd": "navrist-web",
       "port": 3100,
       "autoPort": false
+    },
+    {
+      "name": "navrist-web-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3200"
+      ],
+      "cwd": "navrist-web",
+      "port": 3200,
+      "autoPort": false
     }
   ]
 }

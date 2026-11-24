@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
+import { CandleLoader } from "./CandleLoader";
 import type { Forecast } from "./forecast";
 
 const SPAN = { session: "Next session", week: "Next 5 sessions", month: "Next 20 sessions" } as const;
@@ -8,9 +9,31 @@ const price = (v: number | undefined, d: number) => (v == null ? "—" : `₹${v
 
 /** The forecast in one line per horizon, above the price chart: the lean, the odds of a clear rise and fall, and where the price is likely to
  *  land. It reads the same data as the Forecast section below (so it follows its Full history / Last 5 years setting). */
-export function ForecastStrip({ data }: { data: Forecast | null }) {
+export function ForecastStrip({ data, loading = false, error = false }: { data: Forecast | null; loading?: boolean; error?: boolean }) {
   const rows = (data?.outlook ?? []).filter((h) => h.up != null);
-  if (!rows.length) return null;
+  if (!rows.length) {
+    // Never leave the heading empty: say whether the forecast is still loading, could not be read, or cannot be made for this stock (and why).
+    const reasons = [...new Set((data?.outlook ?? []).map((h) => h.reason).filter((r): r is string => Boolean(r)))];
+    if (!error && (loading || !data)) {
+      return (
+        <div className="mb-8" aria-label="Forecast">
+          <CandleLoader label="Loading the forecast…" height={64} />
+        </div>
+      );
+    }
+    const text = error
+      ? "The forecast could not be read right now."
+      : loading || !data
+        ? "Loading the forecast…"
+        : reasons.length
+          ? `No forecast for this stock yet. ${reasons.filter((r) => r !== "Not enough history.").join(" ") || reasons[0]}`
+          : "No forecast is available for this stock right now.";
+    return (
+      <p className="mb-8 rounded-lg border px-3 py-2.5 text-sm" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)", color: "var(--text-secondary)" }} aria-label="Forecast">
+        {text}
+      </p>
+    );
+  }
   const dp = (rows[0].price_mid ?? data?.price ?? 1000) < 100 ? 2 : 0;
   return (
     <div className="mb-8 grid gap-2 sm:grid-cols-3" aria-label="Forecast">
