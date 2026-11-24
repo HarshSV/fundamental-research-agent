@@ -37,7 +37,7 @@ export function ForecastStrip({ data, loading = false, error = false }: { data: 
   const dp = (rows[0].price_mid ?? data?.price ?? 1000) < 100 ? 2 : 0;
   return (
     <div className="mb-8" aria-label="Forecast">
-    {data?.forecast_basis && <p className="mb-2 text-xs" style={{ color: "var(--text-tertiary)" }}>{basisNote(data)}</p>}
+    {basisNote(data) && <p className="mb-2 text-xs" style={{ color: "var(--text-tertiary)" }}>{basisNote(data)}</p>}
     <div className="grid gap-2 sm:grid-cols-3">
       {rows.map((h) => {
         const call = h.call;

@@ -560,7 +560,7 @@ function ForecastBody({
   return (
     <div>
       <Verdict data={data} />
-      {data.forecast_basis && <p className="mt-3 text-xs" style={{ color: MUTED }}>{basisNote(data)} The odds are the index's, applied to this fund's price; a trade plan needs the fund's own history.</p>}
+      {basisNote(data) && <p className="mt-3 text-xs" style={{ color: MUTED }}>{basisNote(data)}{data.forecast_basis ? " The odds are the index's, applied to this fund's price; a trade plan needs the fund's own history." : ""}</p>}
 
       <div className="mt-10">
         <Label>When to buy and when to get out</Label>

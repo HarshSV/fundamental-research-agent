@@ -22,7 +22,11 @@ from .plan import plan_for
 
 SIMS = 10_000
 SEED = 19
-MIN_HISTORY = 250           # daily bars needed before a daily-horizon call is made
+MIN_HISTORY = 250           # daily bars for a full forecast, trade plans and the Time Machine
+# Fewer sessions still give odds (flagged "short_history"), per horizon. tests/short_history_probe.py cut the history of 20 to 30 large stocks to the
+# last N sessions at many past dates: the share of leans that proved right at 70 to 90 sessions (40 % / 43 % over 5 / 20 sessions) matched the
+# 250-session figure. Below these a horizon has too few past days to measure (it needs 60 past outcomes).
+SHORT_MIN = {1: 70, 5: 70, 20: 90}
 MIN_STATE_SAMPLES = 30      # past days in the same state needed to use the state; else the stock's whole history
 STRONG, MODERATE, EVEN = 0.25, 0.12, 0.03     # lead of the likelier side over the other (as a share): strong / moderate / slight; under EVEN it is even
 HORIZONS = (("session", None), ("week", 5), ("month", 20))
@@ -73,11 +77,11 @@ def lean(up: float, down: float) -> dict:
             "conviction": "strong" if gap >= STRONG else "moderate" if gap >= MODERATE else "slight"}
 
 
-def horizon_outlook(daily: list[dict], h: int) -> dict:
+def horizon_outlook(daily: list[dict], h: int, min_history: int = MIN_HISTORY) -> dict:
     """Odds that the close h sessions ahead is clearly up / flat / clearly down, from this stock's own past days in the same
     state. 'Clearly' is a move of more than a quarter of the typical h-session swing."""
-    if len(daily) < MIN_HISTORY:
-        return {"call": None, "reason": f"Only {len(daily)} sessions of history; at least {MIN_HISTORY} are needed."}
+    if len(daily) < min_history:
+        return {"call": None, "reason": f"Only {len(daily)} sessions of history; at least {min_history} are needed."}
     closes, states = _states(daily)
     n = len(closes)
     fwd = {i: closes[i + h] / closes[i] - 1.0 for i in range(n - h) if closes[i] > 0}
@@ -354,7 +358,11 @@ def build(symbol: str, intraday: list[dict] | None, daily: list[dict] | None, ro
         if hid == "session":
             hs.append({"id": "session", "label": "Rest of today" if live else "Next session", **_session_outlook(daily, sessions, day, bars, live)})
         else:
-            hs.append({"id": hid, "label": f"Next {h} sessions", "sessions": h, **horizon_outlook(daily, h)})
+            hs.append({"id": hid, "label": f"Next {h} sessions", "sessions": h, **horizon_outlook(daily, h, SHORT_MIN[h])})
+    if len(daily) < MIN_HISTORY:                       # odds from a short history are flagged so the page can say so
+        for x in hs:
+            if x.get("up") is not None:
+                x["short_history"] = len(daily)
     out["outlook"] = hs
 
     # ---------------- trend state decides which side a waiting breakout is traded on
@@ -411,9 +419,9 @@ def key_levels(daily: list[dict], price: float | None, session: dict) -> list[di
 
 def _session_outlook(daily, sessions, day, bars, open_now) -> dict:
     """Odds for the session close vs the current price (live) or vs the last close (market shut), from the stock's own sessions."""
-    if len(daily) < MIN_HISTORY:
-        return {"call": None, "reason": "Not enough history."}
-    h = horizon_outlook(daily, 1)
+    h = horizon_outlook(daily, 1, SHORT_MIN[1])
+    if h.get("call") is None:
+        return h
     if open_now and bars:
         first = len(bars)
         steps = intraday_steps(sessions, day, first)

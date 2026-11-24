@@ -9,6 +9,8 @@ export interface Horizon {
   label: string;
   call: Call;
   conviction?: "strong" | "moderate" | "slight" | null;
+  /** Set when the odds rest on fewer than 250 sessions: the number of sessions the stock has. */
+  short_history?: number;
   price_low?: number;
   price_mid?: number;
   price_high?: number;
@@ -121,8 +123,11 @@ export interface Forecast {
 }
 
 /** The sentence that says whose history a borrowed forecast rests on (empty for a stock's own). */
-export const basisNote = (f: Forecast | null | undefined) =>
-  f?.forecast_basis ? `Based on the ${f.forecast_basis.index} index (${f.forecast_basis.sessions.toLocaleString("en-IN")} sessions), which this fund tracks, not on the fund's own short price history.` : "";
+export const basisNote = (f: Forecast | null | undefined) => {
+  if (f?.forecast_basis) return `Based on the ${f.forecast_basis.index} index (${f.forecast_basis.sessions.toLocaleString("en-IN")} sessions), which this fund tracks, not on the fund's own short price history.`;
+  const n = f?.outlook?.find((h) => h.short_history != null)?.short_history;
+  return n != null ? `Based on only ${n} sessions of price history (a full forecast uses 250), so treat it as a rough guide. The 20-session view and the trade plans wait for more history.` : "";
+};
 
 export type FcWindow = "max" | "5y";
 export const fetchForecast = (symbol: string, window: FcWindow = "max") => fetchJson<Forecast>(`/api/v1/outlook/${symbol}?window=${window}`, { retries: 1 });

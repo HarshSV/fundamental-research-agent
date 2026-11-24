@@ -48,3 +48,15 @@ def test_index_with_too_little_history_gives_no_odds():
     base = {"outlook": [{"id": "session", "label": "Next session"}]}
     out = etf_index.with_index_forecast(base, _bars(outlook.MIN_HISTORY - 1), "Nifty 50", "^NSEI", 250.0)
     assert out["outlook"][0]["call"] is None and "price_low" not in out["outlook"][0]
+
+
+def test_short_history_gives_flagged_odds_but_no_trade_plan():
+    from setups import outlook as o
+    daily = _bars(120)
+    out = o.build("X", [], daily, None, [])
+    week = next(h for h in out["outlook"] if h["id"] == "week")
+    assert week["up"] is not None and week["short_history"] == 120
+    assert next(h for h in out["outlook"] if h["id"] == "month")["up"] is not None      # 120 >= 90
+    assert o.build("X", [], _bars(80), None, [])["outlook"][2]["call"] is None            # 80 < 90: the 20-session view waits
+    assert o.build("X", [], _bars(40), None, [])["outlook"][1]["call"] is None            # 40 is too few for any horizon
+    assert out["swing"].get("plan") is None
