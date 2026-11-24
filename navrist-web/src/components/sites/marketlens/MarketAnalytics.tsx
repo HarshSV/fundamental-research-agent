@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fetchJson } from "@/lib/api";
 import { SlidingTabs } from "./controls";
 import { navigateTo } from "./scanners";
@@ -327,7 +327,21 @@ type HistKey = Exclude<keyof HistRow, "date">;
 /** A small multi-line history chart (SVG). Points where a series has no value are skipped, never drawn as zero. Hover (or touch) shows the
  *  day's date and every plotted value; a series with no value that day shows a dash. */
 function HistChart({ title, hist, series, unit }: { title: string; hist: HistRow[]; series: { k: HistKey; label: string; color: string }[]; unit?: string }) {
-  const W = 560, H = 220, PX = 38, PY = 14;
+  const H = 220, PX = 38, PY = 14;
+  // drawn at the width it is shown at, so text stays 10 px on a phone instead of shrinking with the picture
+  const box = useRef<HTMLDivElement>(null);
+  const [W, setW] = useState(560);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const fit = () => setW(Math.max(280, Math.round(el.clientWidth)));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const tip = useRef<HTMLDivElement>(null);
+  const [tw, setTw] = useState(180);                                // the readout's measured width, so it can be kept inside the chart
   const [hf, setHf] = useState<number | null>(null);          // where the pointer is, as a fractional index along the days (so the marker glides)
   const vals = series.flatMap((s) => hist.map((h) => h[s.k]).filter((v): v is number => typeof v === "number"));
   if (vals.length === 0) return null;
@@ -362,18 +376,19 @@ function HistChart({ title, hist, series, unit }: { title: string; hist: HistRow
     return typeof vn === "number" ? { cx: x(hi), cy: y(vn) } : null;
   };
   const fmtV = (v: number | null | undefined) => (typeof v === "number" ? `${v.toLocaleString("en-IN", { maximumFractionDigits: 1 })}${unit ?? ""}` : "—");
-  const leftPct = hf == null ? 0 : (x(hf) / W) * 100;
+  useLayoutEffect(() => { if (tip.current) setTw(tip.current.offsetWidth); }, [hi]);
+  const tipLeft = hf == null ? 0 : Math.max(0, Math.min(W - tw, x(hf) + 10 + tw > W ? x(hf) - 10 - tw : x(hf) + 10));
   return (
     <div className="rounded-xl border p-3" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
       <div className="mb-1 text-sm font-semibold">{title}</div>
       <div className="mb-2 flex flex-wrap gap-4 text-xs">
         {series.map((s) => <span key={s.k} className="flex items-center gap-1.5" style={{ color: "var(--text-secondary)" }}><span className="h-2 w-2 rounded-full" style={{ background: s.color }} />{s.label}</span>)}
       </div>
-      <div className="overflow-x-auto">
-        <div className="relative min-w-[360px]">
+      <div>
+        <div ref={box} className="relative">
           <svg
             viewBox={`0 0 ${W} ${H}`}
-            className="block h-auto w-full touch-pan-y"
+            className="block h-auto w-full touch-pan-y select-none"
             role="img"
             aria-label={title}
             onPointerMove={at}
@@ -400,7 +415,8 @@ function HistChart({ title, hist, series, unit }: { title: string; hist: HistRow
           {hi != null && row && (
             <div
               className="pointer-events-none absolute top-1 z-10 rounded-lg border px-2.5 py-1.5 text-xs shadow-lg"
-              style={{ left: `${leftPct}%`, transform: leftPct > 55 ? "translateX(calc(-100% - 10px))" : "translateX(10px)", transition: "left 70ms linear", background: "var(--surface-2, var(--surface-1))", borderColor: "var(--border-default, var(--border-subtle))" }}
+              ref={tip}
+              style={{ left: `${tipLeft}px`, transition: "left 70ms linear", background: "var(--surface-2, var(--surface-1))", borderColor: "var(--border-default, var(--border-subtle))" }}
               role="status"
             >
               <div className="mb-1 font-semibold" style={{ color: "var(--text-primary)" }}>{row.date}</div>
