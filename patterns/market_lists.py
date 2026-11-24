@@ -17,8 +17,9 @@ GAP_MIN = 0.02            # a gap is an open at least 2% away from the previous 
 GAP_LOOKBACK = 15         # gap-filling looks for a gap in the last 15 sessions
 VOLUME_SURGE = 2.0        # volume gainers: latest volume at least 2x the average of the 20 sessions before it
 TIGHT_DAYS, TIGHT_RANGE = 5, 0.025          # tight setup (daily): last 5 closes within 2.5% of each other
-TIGHT_WEEKS, TIGHT_WEEK_RANGE = 3, 0.04     # tight setup (weekly): last 3 weekly closes within 4%
+TIGHT_WEEKS, TIGHT_WEEK_STEP = 3, 0.015     # tight setup (weekly): 3 finished weekly closes, each within 1.5% of the week before (O'Neil / IBD)
 RS_LINE_BARS = 252        # RS line at a 52-week high
+WEEKLY_SCANNERS = {"inside-bar-weekly", "inside-bar-weekly-filtered", "tight-setup-weekly"}      # their charts draw one candle per week
 
 
 def _num(v) -> bool:
@@ -38,18 +39,90 @@ def _pct(a: float, b: float):
     return (a / b - 1.0) * 100.0 if b else None
 
 
-def _weeks(bars: list) -> list:
-    """Daily bars folded into IST weeks: [open, high, low, close] per week, oldest first (the last week may be incomplete)."""
+def _week_groups(bars: list) -> list:
+    """Daily bars grouped into IST weeks (Monday to Sunday), oldest first. The last group may be an unfinished week."""
     out, key = [], None
-    for t, o, h, l, c, _v in (b[:6] for b in bars):
-        k = ((t + IST) // DAY + 3) // 7
+    for b in bars:
+        k = ((b[0] + IST) // DAY + 3) // 7
         if k != key:
-            out.append([o, h, l, c])
+            out.append([b])
             key = k
         else:
-            w = out[-1]
-            w[1], w[2], w[3] = max(w[1], h), min(w[2], l), c
+            out[-1].append(b)
     return out
+
+
+def _weeks(bars: list) -> list:
+    """Daily bars folded into IST weeks: [open, high, low, close] per week, oldest first (the last week may be incomplete)."""
+    return [[g[0][1], max(b[2] for b in g), min(b[3] for b in g), g[-1][4]] for g in _week_groups(bars)]
+
+
+def sma_points(times: list, values: list, n: int, only_times: set | None = None) -> list:
+    """[[time, simple moving average of the last n values]] wherever n values exist, oldest first; only for `only_times` when given."""
+    out, run = [], 0.0
+    for i, v in enumerate(values):
+        run += v
+        if i >= n:
+            run -= values[i - n]
+        if i >= n - 1 and (only_times is None or times[i] in only_times):
+            out.append([times[i], round(run / n, 2)])
+    return out
+
+
+def chart_lines(row: dict, candles: list, weekly: bool) -> dict:
+    """The lines drawn on a setup chart, as on MarketSmith: daily 50-day and 200-day averages, weekly 10-week and 40-week averages, and the
+    volume's own average (50 days / 10 weeks). Each average is worked out over all the stored history, then cut to the bars shown, so the line
+    is real from the first bar. A line the history cannot support is left out (never drawn from too few bars)."""
+    vis = {c[0] for c in candles}
+    if weekly:
+        full = row.get("wcandles") or candles
+        t, cl, vol = [c[0] for c in full], [c[4] for c in full], [c[5] for c in full]
+        fast, slow, vn = (10, "10-week"), (40, "40-week"), (10, "10-week average volume")
+    else:
+        cs = [c for c in (row.get("closes") or []) if len(c) == 2 and _num(c[1])]
+        t, cl = [c[0] for c in cs], [c[1] for c in cs]
+        vol = None
+        fast, slow, vn = (50, "50-day"), (200, "200-day"), (50, "50-day average volume")
+    out: dict = {}
+    for key, (n, label) in (("fast", fast), ("slow", slow)):
+        pts = sma_points(t, cl, n, vis) if len(cl) >= n else []
+        if pts:
+            out[key] = {"label": label, "pts": pts}
+    vt, vv = (t, vol) if weekly else ([c[0] for c in candles], [c[5] for c in candles])
+    vp = sma_points(vt, vv, vn[0], vis) if len(vv) >= vn[0] and all(_num(x) for x in vv) else []
+    if vp:
+        out["vol"] = {"label": vn[1], "pts": vp}
+    return out
+
+
+def weekly_candles(bars: list) -> list:
+    """Daily candles folded into one candle per week: [time of the week's first session, open, high, low, close, volume]. The last candle
+    is the current week so far."""
+    return [[g[0][0], g[0][1], max(b[2] for b in g), min(b[3] for b in g), g[-1][4], sum(b[5] for b in g)] for g in _week_groups(bars)]
+
+
+def _week_key(t: float) -> int:
+    return int(((t + IST) // DAY + 3) // 7)
+
+
+def _weekday(t: float) -> int:
+    """0 = Monday ... 6 = Sunday, in IST."""
+    return int(((t + IST) // DAY + 3) % 7)
+
+
+def _finished_weeks(bars: list, now: float | None = None) -> list:
+    """The daily bars with an unfinished trailing week removed. A weekly setup is judged on completed weeks: on a Tuesday the "current week" is
+    one session, and a one-day range is almost always inside last week's range (which made hundreds of stocks look like weekly inside bars).
+    The last week counts as finished when the last bar is a Friday, when a later week has begun, or when it is the weekend."""
+    if not bars:
+        return bars
+    import time as _time
+    now = _time.time() if now is None else now
+    last_t = bars[-1][0]
+    last_key = _week_key(last_t)
+    if last_key < _week_key(now) or _weekday(now) >= 5 or _weekday(last_t) == 4:
+        return bars
+    return [b for b in bars if _week_key(b[0]) != last_key]
 
 
 def _week_traded(bars: list) -> bool:
@@ -134,18 +207,21 @@ def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK
 
 def _inside_bar(r, weekly=False, filtered=False):
     if weekly:
-        bars = _bars(r)
+        bars = _finished_weeks(_bars(r))
+        groups = _week_groups(bars)
         w = _weeks(bars)
         if len(w) < 2:
             return None
         (_, ph, pl, _), (_, h, l, _) = w[-2], w[-1]
-        if not _week_traded(bars):         # nothing traded this week (an illiquid stock's flat, filled-in bars): not an inside bar
+        mark = [{"t": groups[-2][0][0], "label": "Mother"}, {"t": groups[-1][0][0], "label": "Inside"}]
+        if not _week_traded(bars):         # nothing traded that week (an illiquid stock's flat, filled-in bars): not an inside bar
             return None
     else:
         b = _bars(r)
         if len(b) < 2:
             return None
         ph, pl, h, l = b[-2][2], b[-2][3], b[-1][2], b[-1][3]
+        mark = [{"t": b[-2][0], "label": "Mother"}, {"t": b[-1][0], "label": "Inside"}]
         if not (b[-1][5] > 0):             # nothing traded in the latest session (an illiquid stock's flat, filled-in bar): not an inside bar
             return None
     if not (h <= ph and l >= pl) or ph <= pl or h <= l:       # h <= l: a bar with no range at all is not "inside" anything
@@ -155,7 +231,8 @@ def _inside_bar(r, weekly=False, filtered=False):
         sma50, price = (r.get("sma") or {}).get("50"), r.get("price")
         if ratio > 60 or not _num(sma50) or not _num(price) or price <= sma50:
             return None
-    return {"value": ratio, "text": f"Range {ratio:.0f}% of prior", "note": ("this week" if weekly else "latest session") + " traded inside the prior " + ("week" if weekly else "session") + "'s high and low"}
+    return {"value": ratio, "text": f"Range {ratio:.0f}% of prior", "note": ("the last finished week" if weekly else "the latest session") + " traded inside the prior " + ("week" if weekly else "session") + "'s high and low", "mark": mark,
+            "levels": [{"label": "Mother high", "price": ph, "t0": mark[0]["t"], "t1": None}, {"label": "Mother low", "price": pl, "t0": mark[0]["t"], "t1": None}]}
 
 
 def _tight_setup(r, weekly=False):
@@ -164,11 +241,17 @@ def _tight_setup(r, weekly=False):
     if not _num(sma50) or not _num(price) or price <= sma50:
         return None                                   # only consolidations above the 50-day average
     if weekly:
-        w = _weeks(_bars(r))
+        # "Three weeks tight" (O'Neil / IBD): three finished weekly closes, each within 1.5% of the week before it
+        groups = _week_groups(_finished_weeks(_bars(r)))
+        w = _weeks([b for g in groups for b in g])
         closes = [x[3] for x in w[-TIGHT_WEEKS:]]
-        limit, label = TIGHT_WEEK_RANGE, f"last {TIGHT_WEEKS} weekly closes"
-        if len(w) < TIGHT_WEEKS:
+        if len(w) < TIGHT_WEEKS or any(c <= 0 for c in closes):
             return None
+        step = max(abs(b / a - 1.0) for a, b in zip(closes, closes[1:]))
+        if step > TIGHT_WEEK_STEP:
+            return None
+        last3 = groups[-TIGHT_WEEKS:]
+        return {"mark": [{"t": g[0][0], "label": ""} for g in last3], "levels": [{"label": "Tight high", "price": max(closes), "t0": last3[0][0][0], "t1": None}, {"label": "Tight low", "price": min(closes), "t0": last3[0][0][0], "t1": None}], "value": step * 100.0, "text": f"{step * 100:.1f}% week to week", "note": f"last {TIGHT_WEEKS} finished weekly closes, each within {TIGHT_WEEK_STEP * 100:.1f}% of the week before, price above the 50-day average"}
     else:
         closes = [x[4] for x in _bars(r)[-TIGHT_DAYS:]]
         limit, label = TIGHT_RANGE, f"last {TIGHT_DAYS} closes"
@@ -177,7 +260,9 @@ def _tight_setup(r, weekly=False):
     rng = (max(closes) - min(closes)) / (sum(closes) / len(closes))
     if rng > limit:
         return None
-    return {"value": rng * 100.0, "text": f"{rng * 100:.1f}% range", "note": f"{label} within {limit * 100:.1f}%, price above the 50-day average"}
+    return {"value": rng * 100.0, "text": f"{rng * 100:.1f}% range", "note": f"{label} within {limit * 100:.1f}%, price above the 50-day average",
+            "mark": [{"t": x[0], "label": ""} for x in _bars(r)[-TIGHT_DAYS:]],
+            "levels": [{"label": "Tight high", "price": max(closes), "t0": _bars(r)[-TIGHT_DAYS][0], "t1": None}, {"label": "Tight low", "price": min(closes), "t0": _bars(r)[-TIGHT_DAYS][0], "t1": None}]}
 
 
 def _momentum(r):
@@ -471,12 +556,15 @@ def check_tight(r: dict, spec: dict) -> bool:
     """The last `bars` closes (daily or weekly; the current, possibly unfinished, week counts) sit within `max_spread` % of each other:
     (highest close - lowest close) / average close x 100."""
     n, limit = _num_or((spec or {}).get("bars")), _num_or((spec or {}).get("max_spread"))
-    if n is None or n < 2 or limit is None:
+    step = _num_or((spec or {}).get("step"))          # optional: each close within `step` % of the one before it (the "three weeks tight" form)
+    if n is None or n < 2 or (limit is None and step is None):
         return True
     n = int(n)
-    closes = [w[3] for w in _weeks(_bars(r))[-n:]] if (spec or {}).get("timeframe") == "weekly" else [x[4] for x in _bars(r)[-n:]]
+    closes = [w[3] for w in _weeks(_finished_weeks(_bars(r)))[-n:]] if (spec or {}).get("timeframe") == "weekly" else [x[4] for x in _bars(r)[-n:]]
     if len(closes) < n:
         return False
+    if step is not None:
+        return all(a > 0 and abs(b / a - 1.0) * 100.0 <= step for a, b in zip(closes, closes[1:]))
     mean = sum(closes) / n
     return mean > 0 and (max(closes) - min(closes)) / mean * 100.0 <= limit
 
@@ -485,7 +573,7 @@ def check_inside(r: dict, spec: dict) -> bool:
     """The latest bar (daily or weekly) traded inside the one before it: high at or under the prior high, low at or over the prior low, both
     bars with a real range (and, daily, the latest bar with volume). `max_ratio` also caps its range as a % of the prior bar's range."""
     if (spec or {}).get("timeframe") == "weekly":
-        w = _weeks(_bars(r))
+        w = _weeks(_finished_weeks(_bars(r)))
         if len(w) < 2:
             return False
         ph, pl, h, l = w[-2][1], w[-2][2], w[-1][1], w[-1][2]
@@ -550,11 +638,11 @@ SCANNERS = {
     "gap-up": ("Gap Up", "Gaps", "Opened at least 2% above the previous close in the latest session.", -1),
     "gap-filling": ("Gap Filling", "Gaps", "Gapped up at least 2% in the last 15 sessions and has since come back into the gap without closing it completely.", -1),
     "inside-bar": ("Inside Bar (daily)", "Setups", "The latest session traded inside the previous session's high and low.", 1),
-    "inside-bar-weekly": ("Inside Bar (weekly)", "Setups", "This week has traded inside last week's high and low.", 1),
+    "inside-bar-weekly": ("Inside Bar (weekly)", "Setups", "The last finished week traded inside the high and low of the week before it.", 1),
     "inside-bar-filtered": ("Filtered Inside Bar (daily)", "Setups", "An inside bar whose range is at most 60% of the previous session's, with the price above its 50-day average.", 1),
-    "inside-bar-weekly-filtered": ("Filtered Inside Bar (weekly)", "Setups", "A weekly inside bar at most 60% of last week's range, with the price above its 50-day average.", 1),
+    "inside-bar-weekly-filtered": ("Filtered Inside Bar (weekly)", "Setups", "A finished weekly inside bar at most 60% of the prior week's range, with the price above its 50-day average.", 1),
     "tight-setup": ("Tight Setup (daily)", "Setups", "The last 5 closes are within 2.5% of each other and the price is above its 50-day average.", 1),
-    "tight-setup-weekly": ("Tight Setup (weekly)", "Setups", "The last 3 weekly closes are within 4% of each other and the price is above its 50-day average.", 1),
+    "tight-setup-weekly": ("Tight Setup (weekly)", "Setups", "The last 3 finished weekly closes are each within 1.5% of the week before (the \"three weeks tight\" rule) and the price is above its 50-day average.", 1),
     "momentum": ("Momentum", "Strength", "Above the 50 and 200-day averages (50 over 200), RS rating 80+, within 15% of the 52-week high and up 20%+ in 3 months.", -1),
     "rs-high-before-price-high": ("RS High Before Price High", "Strength", "The relative-strength line (against the Nifty 500) is at a 52-week high while the price is still at least 2% under its own 52-week high.", -1),
     "earnings-gap-up": ("Earnings Gap Up (latest quarter)", "Earnings", "Opened at least 3% above the pre-results close on the first session after the latest quarter's results.", -1),

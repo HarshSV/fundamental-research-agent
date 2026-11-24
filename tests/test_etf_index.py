@@ -84,6 +84,7 @@ def test_breadth_is_computed_once_until_the_scan_data_changes(monkeypatch):
     from patterns import market_analytics as ma, scan
     calls = []
     monkeypatch.setattr(ma, "_breadth_compute", lambda: calls.append(1) or {"stocks": 5})
+    monkeypatch.setattr(scan, "_load_all", lambda: {})                          # the real rows (and a scan writing them) are not part of this test
     monkeypatch.setitem(scan._mem, "stamp", ("a", 1))
     monkeypatch.setitem(ma._BREADTH, "val", None)
     assert ma.breadth() == {"stocks": 5} and ma.breadth() == {"stocks": 5} and len(calls) == 1

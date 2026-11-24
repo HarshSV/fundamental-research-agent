@@ -114,7 +114,7 @@ The universe is the 751 stocks of the Nifty Total Market list, not ChartsMaze's 
 | Gap Up | **Built** | Open at least 2% above the previous close in the latest session |
 | Gap Filling | **Built** | A 2%+ gap up in the last 15 sessions that price has since come back into without fully closing it |
 | Inside Bar (daily, weekly) | **Built** | Latest session (or week) inside the previous one's high and low |
-| Tight Setup (daily, weekly) | **Built** | Last 5 closes within 2.5% (3 weekly closes within 4%), price above the 50-day average |
+| Tight Setup (daily, weekly) | **Built** | Last 5 closes within 2.5% (our own daily rule); weekly: 3 finished weekly closes, each within 1.5% of the week before (O'Neil / IBD three weeks tight); price above the 50-day average. Weekly setups use finished weeks only |
 | Momentum | **Built** | Price > 50-day > 200-day average, RS 80+, within 15% of the 52-week high, 3-month return 20%+ |
 | RS High Before Price High | **Built** | Stock/Nifty 500 relative-strength line at a 52-week high while price is 2%+ below its own 52-week high |
 | Shorting Scanner | **Built** | Price < 50-day < 200-day average, RS 30 or less, within 15% of the 52-week low |

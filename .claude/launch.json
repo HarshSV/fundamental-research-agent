@@ -79,7 +79,23 @@
       ],
       "cwd": "navrist-web",
       "port": 3200,
-      "autoPort": false
+      "autoPort": false,
+      "env": {
+        "NAVRIST_BACKEND_URL": "http://127.0.0.1:8001"
+      }
+    },
+    {
+      "name": "navrist-api-preview",
+      "runtimeExecutable": "venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "app.py"
+      ],
+      "port": 8001,
+      "autoPort": false,
+      "env": {
+        "NAVRIST_ROLE": "api",
+        "PORT": "8001"
+      }
     }
   ]
 }

@@ -12,7 +12,7 @@ RESIST = {"require": True, "states": ["near", "breakout"]}
 # preset id -> the Create Screener filters that should give the same stocks
 RECIPES = {
     "tight-setup": {"dma": DMA50, "tight": {"timeframe": "daily", "bars": 5, "max_spread": 2.5}},
-    "tight-setup-weekly": {"dma": DMA50, "tight": {"timeframe": "weekly", "bars": 3, "max_spread": 4}},
+    "tight-setup-weekly": {"dma": DMA50, "tight": {"timeframe": "weekly", "bars": 3, "step": 1.5}},
     "inside-bar": {"inside_bar": {"timeframe": "daily"}},
     "inside-bar-weekly": {"inside_bar": {"timeframe": "weekly"}},
     "inside-bar-filtered": {"dma": DMA50, "inside_bar": {"timeframe": "daily", "max_ratio": 60}},

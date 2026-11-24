@@ -71,6 +71,13 @@ def universe() -> list[dict]:
         for s in syms:
             out.append({"symbol": s, "name": names.get(s) or s, "sector": sector})
     seen = {o["symbol"] for o in out}
+    try:        # the rest of the NSE main board (outside the Nifty Total Market): no sector map for them, so the sector stays None
+        from . import nse_extra
+        extra = nse_extra.load(seen)
+        out.extend(extra)
+        seen |= {e["symbol"] for e in extra}
+    except Exception as e:
+        print(f"[pattern_scan] NSE extra universe not loaded: {e}", flush=True)
     try:        # BSE-only companies (tools/bse_universe.py): no NSE sector or index, so those fields stay None, never guessed
         from tools import bse_universe
         for b in bse_universe.load():
@@ -176,6 +183,16 @@ def _current(occs: list[dict], times: list[int]) -> list[dict]:
     return keep
 
 
+WEEKLY_BARS = 160           # weekly candles kept per stock (about three years): a weekly chart shows ~2 years and its 40-week average needs the weeks before
+
+
+def weekly_history(full: list[dict]) -> list:
+    """One candle per week, [time of the week's first session, open, high, low, close, volume], for the last WEEKLY_BARS weeks."""
+    from . import market_lists
+    bars = [[c["time"], c["open"], c["high"], c["low"], c["close"], c.get("volume") or 0] for c in full[-(WEEKLY_BARS * 6):]]
+    return [[w[0]] + [round(x, 2) for x in w[1:5]] + [round(w[5])] for w in market_lists.weekly_candles(bars)][-WEEKLY_BARS:]
+
+
 def scan_one(item: dict) -> dict:
     """Analyse one stock and write its file. Safe to run in a worker process; never raises."""
     sym = item["symbol"]
@@ -204,6 +221,7 @@ def scan_one(item: dict) -> dict:
             "closes": [[c["time"], round(c["close"], 2)] for c in full[-CLOSE_BARS:]],
             "candles": [[c["time"], round(c["open"], 2), round(c["high"], 2), round(c["low"], 2), round(c["close"], 2),
                          round(c.get("volume") or 0)] for c in full[-CHART_BARS:]],
+            "wcandles": weekly_history(full),
             "scanned_at": int(time.time()),
         }
         os.makedirs(SYMBOL_DIR, exist_ok=True)
@@ -440,6 +458,11 @@ def _overlay(rows: dict) -> None:
     """Lay the fundamentals over the rows: Screener's row (data/screens/universe.json) where it has a usable one, else Yahoo's headline
     figures from tools/yahoo_industry.py, marked as Yahoo's (Screener rate-limits us, so most BSE-only companies have no Screener row yet).
     A figure that is not given stays None and never matches a filter. One cheap pass over the rows, redone only when either file changed."""
+    try:                                 # the newest sessions' bars from NSE's own files (the stored ones can be a mid-session snapshot)
+        from . import nse_prices
+        nse_prices.patch_rows(rows)
+    except Exception as e:
+        print(f"[pattern_scan] NSE price overlay failed: {e}", flush=True)
     try:
         fmt = os.path.getmtime(FUNDAMENTALS_FILE) if os.path.exists(FUNDAMENTALS_FILE) else 0.0
         ymt = os.path.getmtime(YAHOO_FUND_FILE) if os.path.exists(YAHOO_FUND_FILE) else 0.0

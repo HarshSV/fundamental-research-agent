@@ -359,6 +359,9 @@ def _rows() -> dict:
     return rows
 
 
+WEEKLY_SHOWN = 104           # weekly candles drawn on a chart card (two years, like MarketSmith's weekly view)
+
+
 def search(pattern, f: dict, include_candles: bool = False) -> dict:
     """See the module docstring; `pattern` may be a chart pattern id, "all", "horizontal-resistance", "multi" (f["scans"]["values"]) or a market-list scanner id."""
     rows = _rows()
@@ -456,8 +459,25 @@ def search(pattern, f: dict, include_candles: bool = False) -> dict:
     size = min(100, max(1, int(f.get("page_size") or 50)))
     page_rows = out[(page - 1) * size: page * size]
     if include_candles:
+        # one candle per day, or one per week: the scanner's own timeframe unless the page asks for the other one
+        native = lst in market_lists.WEEKLY_SCANNERS or any((f.get(k) or {}).get("timeframe") == "weekly" for k in ("tight", "inside_bar"))
+        weekly = native
+        want = f.get("candle_interval")
+        if want in ("1d", "1w"):
+            weekly = want == "1w"
         for row in page_rows:
-            row["candles"] = rows[row["symbol"]]["candles"]
+            if weekly != native and row.get("signal"):      # the setup's bars were marked for its own timeframe: not on the other one
+                row["signal"] = {k: v for k, v in row["signal"].items() if k not in ("mark", "levels")}
+            src = rows[row["symbol"]]
+            if weekly:
+                # the weekly history kept at scan time (about three years); older scans have none, so the daily bars are folded instead
+                bars = [b for b in (src.get("wcandles") or []) if len(b) >= 6] or market_lists.weekly_candles(market_lists._bars(src))
+                bars = bars[-WEEKLY_SHOWN:]
+            else:
+                bars = src["candles"]
+            row["candles"] = bars
+            row["candle_interval"] = "1w" if weekly else "1d"
+            row["lines"] = market_lists.chart_lines(src, bars, weekly)
     quad_default = rrg_quadrants(rows) if scan.benchmarks() else {}
     for row in page_rows:
         row["quadrant"] = (quad_default.get(row["sector"]) or {}).get("quadrant")
