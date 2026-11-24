@@ -60,3 +60,21 @@ def test_short_history_gives_flagged_odds_but_no_trade_plan():
     assert o.build("X", [], _bars(80), None, [])["outlook"][2]["call"] is None            # 80 < 90: the 20-session view waits
     assert o.build("X", [], _bars(40), None, [])["outlook"][1]["call"] is None            # 40 is too few for any horizon
     assert out["swing"].get("plan") is None
+
+
+def test_young_stock_gets_facts_with_unmeasured_values_left_empty():
+    from setups import outlook as o
+    out = o.build("X", [], _bars(17), None, [])
+    y = out["young"]
+    assert y["sessions"] == 17 and y["starts_in"] == 53 and out["outlook"][1]["call"] is None
+    assert y["typical_move_pct"] is not None and y["volume"] is None            # no volume in these bars: unknown, not 0
+    one = o.young_facts(_bars(1))
+    assert one["since_listing"] is None and one["typical_move_pct"] is None and one["support"] is None
+    assert "young" not in o.build("X", [], _bars(120), None, [])
+
+
+def test_young_facts_count_up_and_down_days():
+    from setups import outlook as o
+    bars = [{"time": i * 86400, "open": c, "high": c + 1, "low": c - 1, "close": c} for i, c in enumerate([10, 11, 11, 9, 12])]
+    assert o.young_facts(bars)["days"] == {"up": 2, "down": 1, "flat": 1}
+    assert o.young_facts(bars[:1])["days"] is None

@@ -364,6 +364,8 @@ def build(symbol: str, intraday: list[dict] | None, daily: list[dict] | None, ro
             if x.get("up") is not None:
                 x["short_history"] = len(daily)
     out["outlook"] = hs
+    if len(daily) < SHORT_MIN[1]:
+        out["young"] = young_facts(daily)
 
     # ---------------- trend state decides which side a waiting breakout is traded on
     trend = None
@@ -387,6 +389,46 @@ def build(symbol: str, intraday: list[dict] | None, daily: list[dict] | None, ro
     out["levels"] = key_levels(daily, price, hs[0])
     ref = _trend_plan(daily, len(daily) - 1, adr) if daily else None
     out["sizing"] = ({"entry": ref["entry"], "stop": ref["stop"], "risk_per_share": ref["risk_per_share"], "basis": ref["stop_basis"]} if ref else None)
+    return out
+
+
+def _add_sessions(start: _dt.date, n: int) -> _dt.date:
+    """The date n weekdays after start (holidays are not known, so it is an estimate)."""
+    d = start
+    while n > 0:
+        d += _dt.timedelta(days=1)
+        if d.weekday() < 5:
+            n -= 1
+    return d
+
+
+def young_facts(daily: list[dict]) -> dict:
+    """What the data of a stock under SHORT_MIN[1] sessions does show, with no odds. A value that cannot be measured yet is None (never 0)."""
+    n = len(daily)
+    need = SHORT_MIN[1] - n
+    out: dict = {"sessions": n, "needed": SHORT_MIN[1], "starts_in": need,
+                 "starts_around": _add_sessions(_dt.datetime.now(engine.IST).date(), need).isoformat()}
+    if not daily:
+        return out
+    cl = [b["close"] for b in daily]
+    last = daily[-1]
+    out["since_listing"] = {"from": cl[0], "to": cl[-1], "pct": round((cl[-1] / cl[0] - 1) * 100, 1)} if n >= 2 and cl[0] > 0 else None
+    moves = [abs(b / a - 1) * 100 for a, b in zip(cl, cl[1:]) if a > 0]
+    out["typical_move_pct"] = round(sum(moves) / len(moves), 1) if len(moves) >= 5 else None
+    out["today"] = {"low": last["low"], "high": last["high"], "width_pct": round((last["high"] / last["low"] - 1) * 100, 1) if last["low"] > 0 else None}
+    lo, hi = min(b["low"] for b in daily), max(b["high"] for b in daily)
+    pos = (cl[-1] - lo) / (hi - lo) if hi > lo else None
+    out["range"] = {"low": lo, "high": hi, "where": None if pos is None else "near the low" if pos < 0.25 else "near the high" if pos > 0.75 else "in the middle"} if n >= 2 else None
+    if n >= 2:
+        d = [b - a for a, b in zip(cl, cl[1:])]
+        out["days"] = {"up": sum(1 for x in d if x > 0), "down": sum(1 for x in d if x < 0), "flat": sum(1 for x in d if x == 0)}
+    else:
+        out["days"] = None
+    out["support"] = min(cl) if n >= 2 else None
+    out["resistance"] = max(cl) if n >= 2 else None
+    vols = [b.get("volume") for b in daily[:-1] if b.get("volume")]
+    v = last.get("volume")
+    out["volume"] = {"today": v, "average": round(sum(vols) / len(vols)) if len(vols) >= 5 else None} if v else None
     return out
 
 

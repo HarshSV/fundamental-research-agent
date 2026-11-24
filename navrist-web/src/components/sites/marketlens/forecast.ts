@@ -119,6 +119,17 @@ export interface Forecast {
   liquidity: { turnover_cr: number | null; max_position_inr: number | null };
   source?: string;
   /** Set when the odds come from another series: a young index fund borrows the history of the index it tracks. */
+  /** Set for a stock too new for any odds: what its few sessions do show. A value that cannot be measured yet is null, never 0. */
+  young?: {
+    sessions: number; needed: number; starts_in: number; starts_around: string;
+    since_listing?: { from: number; to: number; pct: number } | null;
+    typical_move_pct?: number | null;
+    today?: { low: number; high: number; width_pct: number | null } | null;
+    range?: { low: number; high: number; where: string | null } | null;
+    support?: number | null; resistance?: number | null;
+    days?: { up: number; down: number; flat: number } | null;
+    volume?: { today: number; average: number | null } | null;
+  };
   forecast_basis?: { kind: "index"; index: string; symbol: string; sessions: number };
 }
 
