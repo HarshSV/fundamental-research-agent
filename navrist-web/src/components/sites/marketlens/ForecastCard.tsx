@@ -8,7 +8,7 @@ import {
   ALERTS_EVENT, alertsForPlan, connectTelegram, fetchAlerts, removeAlerts, saveAlertsFor, testTelegram,
   type Alert, type TelegramStatus,
 } from "./alerts";
-import type { Events, Forecast, Horizon, Odds, Plan, Replay, TradeBlock } from "./forecast";
+import { basisNote, type Events, type Forecast, type Horizon, type Odds, type Plan, type Replay, type TradeBlock } from "./forecast";
 
 const GAIN = "var(--gain)";
 const LOSS = "var(--loss)";
@@ -560,6 +560,7 @@ function ForecastBody({
   return (
     <div>
       <Verdict data={data} />
+      {data.forecast_basis && <p className="mt-3 text-xs" style={{ color: MUTED }}>{basisNote(data)} The odds are the index's, applied to this fund's price; a trade plan needs the fund's own history.</p>}
 
       <div className="mt-10">
         <Label>When to buy and when to get out</Label>
@@ -603,7 +604,7 @@ function ForecastBody({
           <div className="mt-5">
             <Panel title="What the forecast rests on">
               <div className="md:columns-2 md:gap-x-12">
-                {data.evidence.map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
+                {(data.evidence ?? []).map((e) => <Fact key={e.label} label={e.label} value={e.value} tone={e.tone} />)}
               </div>
             </Panel>
           </div>

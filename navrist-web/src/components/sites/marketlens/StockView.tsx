@@ -568,7 +568,7 @@ export function StockView({
   //   EPS            positive earnings green, a loss red
   //   Debt / equity  at most 0.5 green, 1.5 or more red (the figure is left out for banks and lenders, where it means little)
   //   All time high  within 10% of it green, less than half of it red
-  const sectorPe = Number(forecastData?.data?.evidence.find((e) => e.label.startsWith("P/E"))?.label.match(/median ([\d.]+)/)?.[1]);
+  const sectorPe = Number(forecastData?.data?.evidence?.find((e) => e.label.startsWith("P/E"))?.label.match(/median ([\d.]+)/)?.[1]);
   // TTM P/E = the live price over the TTM EPS shown beside it, so the two always agree (a loss gives no P/E). Screener's own P/E is
   // computed at its price from up to 12 hours earlier, so it is only the fallback when the TTM EPS is unknown.
   const ttmEps = overview?.eps_ttm ?? null;

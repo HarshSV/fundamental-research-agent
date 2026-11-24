@@ -116,7 +116,13 @@ export interface Forecast {
   sizing?: { entry: number; stop: number; risk_per_share: number; basis: string } | null;
   liquidity: { turnover_cr: number | null; max_position_inr: number | null };
   source?: string;
+  /** Set when the odds come from another series: a young index fund borrows the history of the index it tracks. */
+  forecast_basis?: { kind: "index"; index: string; symbol: string; sessions: number };
 }
+
+/** The sentence that says whose history a borrowed forecast rests on (empty for a stock's own). */
+export const basisNote = (f: Forecast | null | undefined) =>
+  f?.forecast_basis ? `Based on the ${f.forecast_basis.index} index (${f.forecast_basis.sessions.toLocaleString("en-IN")} sessions), which this fund tracks, not on the fund's own short price history.` : "";
 
 export type FcWindow = "max" | "5y";
 export const fetchForecast = (symbol: string, window: FcWindow = "max") => fetchJson<Forecast>(`/api/v1/outlook/${symbol}?window=${window}`, { retries: 1 });

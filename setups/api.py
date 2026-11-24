@@ -58,6 +58,16 @@ def make_router(require_session, resolve_symbol):
         if hit and time.time() - hit[0] < 120:
             return hit[1]
         out = outlook.build(sym, intraday, daily, row, peers, _quarters(sym))
+        if len(daily) < outlook.MIN_HISTORY:
+            # a young index fund: borrow the history of the index it tracks (named on the page), if its name says which one
+            try:
+                from . import etf_index
+                hit_idx = etf_index.underlying_index(etf_index.fund_name(sym))
+                idx_bars = etf_index.index_daily(hit_idx[1]) if hit_idx else []
+                if hit_idx and len(idx_bars) >= outlook.MIN_HISTORY:
+                    out = etf_index.with_index_forecast(out, idx_bars, hit_idx[0], hit_idx[1], out.get("price"))
+            except Exception as e:
+                print(f"[outlook] index fallback failed for {sym}: {e}", flush=True)
         res = {**out, "source": "yfinance", "window": window, "sessions_used": len(daily)}
         if len(_OUTLOOK_CACHE) > 300:
             _OUTLOOK_CACHE.clear()

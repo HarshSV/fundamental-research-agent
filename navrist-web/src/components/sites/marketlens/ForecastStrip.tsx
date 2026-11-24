@@ -2,7 +2,7 @@
 
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { CandleLoader } from "./CandleLoader";
-import type { Forecast } from "./forecast";
+import { basisNote, type Forecast } from "./forecast";
 
 const SPAN = { session: "Next session", week: "Next 5 sessions", month: "Next 20 sessions" } as const;
 const price = (v: number | undefined, d: number) => (v == null ? "—" : `₹${v.toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d })}`);
@@ -36,7 +36,9 @@ export function ForecastStrip({ data, loading = false, error = false }: { data: 
   }
   const dp = (rows[0].price_mid ?? data?.price ?? 1000) < 100 ? 2 : 0;
   return (
-    <div className="mb-8 grid gap-2 sm:grid-cols-3" aria-label="Forecast">
+    <div className="mb-8" aria-label="Forecast">
+    {data?.forecast_basis && <p className="mb-2 text-xs" style={{ color: "var(--text-tertiary)" }}>{basisNote(data)}</p>}
+    <div className="grid gap-2 sm:grid-cols-3">
       {rows.map((h) => {
         const call = h.call;
         const color = call === "up" ? "var(--gain)" : call === "down" ? "var(--loss)" : "var(--text-secondary)";
@@ -63,6 +65,7 @@ export function ForecastStrip({ data, loading = false, error = false }: { data: 
           </div>
         );
       })}
+    </div>
     </div>
   );
 }
