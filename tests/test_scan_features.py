@@ -202,7 +202,7 @@ def test_options_report_when_fundamentals_were_last_read(monkeypatch):
     import time as _t
     from patterns import scan, screen_engine
     now = int(_t.time())
-    rows = {"A": {"pe": 10, "fund_at": now - 3600}, "B": {"pe": 20, "fund_at": now - 7200}, "C": {"pe": None, "fund_at": now - 200 * 3600}}
+    rows = {"A": {"symbol": "A", "pe": 10, "fund_at": now - 3600}, "B": {"symbol": "B", "pe": 20, "fund_at": now - 7200}, "C": {"symbol": "C", "pe": None, "fund_at": now - 200 * 3600}}
     monkeypatch.setattr(scan, "_load_all", lambda: rows)
     monkeypatch.setattr(scan, "benchmarks", lambda: {})
     opts = screen_engine.options()

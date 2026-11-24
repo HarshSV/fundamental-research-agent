@@ -11,6 +11,7 @@ import { RESISTANCE_ID, SCREENER_ID, describeFilters, isSpecial, searchScan, typ
 import { TvChart } from "./TvChart";
 import { MULTI_ID, isListScanner, scannerName } from "./scanners";
 
+const SETUP_IDS = new Set(["inside-bar", "inside-bar-weekly", "inside-bar-filtered", "inside-bar-weekly-filtered", "tight-setup", "tight-setup-weekly"]);
 const LIST_SIZE = 50;
 const CHART_SIZE = 20;
 const GAIN = "var(--gain)";
@@ -174,7 +175,8 @@ export function PatternScanPage({
   const [exporting, setExporting] = useState(false);
   const [q, setQ] = useState("");
   const [dq, setDq] = useState("");
-  const [sort, setSort] = useState(isListScanner(pattern.id) ? "signal" : patternMode ? "status" : "market_cap");
+  // the setups rank by "strongest signal" (the narrowest bar), which puts barely traded stocks first: they open by market cap, the signal sort is one click away
+  const [sort, setSort] = useState(isListScanner(pattern.id) && !SETUP_IDS.has(pattern.id) ? "signal" : patternMode ? "status" : "market_cap");
   const [page, setPage] = useState(1);
   const [res, setRes] = useState<{ key: string; data?: ScanResult; error?: string } | null>(null);
 
