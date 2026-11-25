@@ -174,9 +174,9 @@ async function getCandles(sym: string, interval: string, period: string): Promis
   return d.candles ?? [];
 }
 
-function SectionTitle({ children, aside, beside }: { children: React.ReactNode; aside?: React.ReactNode; beside?: React.ReactNode }) {
+function SectionTitle({ children, aside, beside, tight }: { children: React.ReactNode; aside?: React.ReactNode; beside?: React.ReactNode; tight?: boolean }) {
   return (
-    <div className="relative mb-5 flex flex-wrap items-center justify-between gap-3">
+    <div className={`relative ${tight ? "mb-2" : "mb-5"} flex flex-wrap items-center justify-between gap-3`}>
       <div className="flex items-center gap-3">
         <div className="h-6 w-1 rounded-full" style={{ background: "var(--accent-muted, #635ec8)" }} />
         <h2 className="text-xl font-semibold">{children}</h2>
@@ -379,6 +379,9 @@ export function StockView({
   const specKey = `${spec.interval}|${spec.period}`;
 
   const [reloadTick, setReloadTick] = useState(0); // bumped by the Retry button
+  const chartBox = useRef<HTMLDivElement>(null);
+  const [chartH, setChartH] = useState(440);      // the chart is as tall as the window allows, from its top to just above the range row
+
 
   useEffect(() => {
     let live = true;
@@ -707,6 +710,28 @@ export function StockView({
   const athTone: "good" | "bad" | null =
     allTime && ltp ? (ltp >= 0.9 * allTime.high ? "good" : ltp < 0.5 * allTime.high ? "bad" : null) : null;
 
+  // the chart is sized to the window: from where it starts to just above the range row (about 100 px with its margins), so the chart and its row
+  // are on screen together without scrolling
+  const chartShown = Boolean(shown && shown.length > 1);
+  useEffect(() => {
+    const calc = () => {
+      const el = chartBox.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      const h = Math.max(300, Math.min(920, Math.round(window.innerHeight - top - 100)));
+      setChartH((p) => (Math.abs(h - p) < 3 ? p : h));
+    };
+    calc();
+    const raf = requestAnimationFrame(calc);
+    const t = window.setTimeout(calc, 500);
+    window.addEventListener("resize", calc);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+      window.removeEventListener("resize", calc);
+    };
+  }, [chartShown, quote != null]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="w-full">
       <section className="relative mx-auto w-full max-w-7xl px-4 pb-4 pt-4">
@@ -740,9 +765,10 @@ export function StockView({
         {error && <p className="mt-3 text-sm" style={{ color: "#f5a9a9" }}>{error}</p>}
       </section>
 
-      <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
+      <section className="border-t py-3" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
           <SectionTitle
+            tight
             aside={
               <div className="flex gap-1 rounded-full p-1" style={{ background: "var(--surface-1)" }}>
                 {open ? (
@@ -782,7 +808,7 @@ export function StockView({
               they fill in as history builds up.
             </p>
           )}
-          <div className="mb-3">
+          <div className="mb-2">
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <Switch
                 on={showPatterns}
@@ -864,8 +890,8 @@ export function StockView({
           {shown === null && !error ? (
             <div className="flex h-[320px] items-center justify-center"><CandleLoader label="Loading chart…" /></div>
           ) : shown && shown.length > 1 ? (
-            <div className="flex flex-col gap-2 sm:flex-row">
-            <DrawToolbar state={drawState} onChange={setDrawState} layer={drawLayer} />
+            <div ref={chartBox} className="flex flex-col gap-2 sm:flex-row">
+            <DrawToolbar state={drawState} onChange={setDrawState} layer={drawLayer} height={chartH} />
             <div className="relative min-w-0 flex-1">
             <StockChart
               candles={shown}
@@ -882,6 +908,7 @@ export function StockView({
               history={foldedOn ? weeklyHistory : daily ?? undefined}
               cone={showCone && !isIntraday && !foldedOn ? coneData : null}
               projectFrom={foldedOn ? null : coneData}
+              height={chartH}
               drawKey={stock.symbol}
               draw={drawState}
               onDrawTool={(t) => setDrawState((d) => (d.tool === t ? d : { ...d, tool: t }))}
