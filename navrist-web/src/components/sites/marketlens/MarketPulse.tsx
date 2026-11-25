@@ -11,7 +11,7 @@ interface PulseRes { as_of?: string; stocks: number; rows: PulseRow[] }
 const RANGE = 8;          // the strip spans -8% .. +8%; a bigger move is pinned to the edge
 const R = 1.7;            // dot radius
 const STEP = 3.9;         // horizontal width of one column of dots
-const SWEEP_MS = 1900;
+const SWEEP_MS = 4800;
 const css = (name: string, fallback: string) =>
   (typeof document !== "undefined" && getComputedStyle(document.documentElement).getPropertyValue(name).trim()) || fallback;
 const pct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
@@ -86,7 +86,7 @@ function Strip({ rows, focus }: { rows: PulseRow[]; focus: string | null }) {
     s.t0 = performance.now();
     s.done = reducedMotion();
     let raf = 0;
-    const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+    const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);      // gentle start and finish
 
     const frame = (now: number) => {
       const t = s.done ? 1 : Math.min(1, (now - s.t0) / SWEEP_MS);
@@ -124,7 +124,7 @@ function Strip({ rows, focus }: { rows: PulseRow[]; focus: string | null }) {
       const fo = s.focus;
       for (let i = 0; i < dots.length; i++) {
         const d = dots[i];
-        const age = (front - d.delay) * 9;           // 0..1 while the dot pops as the bright edge passes it
+        const age = (front - d.delay) * 6;           // 0..1 while the dot pops as the bright edge passes it
         if (age <= 0) continue;
         const k = Math.min(1, age);
         const pop = k < 1 ? 1 + Math.sin(k * Math.PI) * 0.7 : 1;
@@ -265,7 +265,7 @@ function Tiles({ rows, focus, setFocus }: { rows: PulseRow[]; focus: string | nu
         <button key={s.name} type="button" onMouseEnter={() => setFocus(s.name)} onMouseLeave={() => setFocus(null)} onFocus={() => setFocus(s.name)} onBlur={() => setFocus(null)}
           onClick={() => navigateTo({ type: "sector", name: s.name })}
           className="pulse-tile rounded-lg border px-3 py-2 text-left transition-colors hover:bg-[var(--overlay-weak)]"
-          style={{ borderColor: focus === s.name ? "var(--border-strong)" : "var(--border-subtle)", backgroundColor: "var(--surface-1)", animationDelay: `${1500 + i * 40}ms` }}>
+          style={{ borderColor: focus === s.name ? "var(--border-strong)" : "var(--border-subtle)", backgroundColor: "var(--surface-1)", animationDelay: `${3200 + i * 70}ms` }}>
           <div className="flex items-baseline justify-between gap-2">
             <span className="truncate text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{s.name}</span>
             <span className="text-xs font-semibold tabular-nums" style={{ color: s.avg >= 0 ? "var(--gain)" : "var(--loss)" }}>{pct(s.avg)}</span>

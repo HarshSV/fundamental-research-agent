@@ -20,6 +20,7 @@ export interface Cone {
 export interface ConeStyle {
   fill: string; // "r, g, b"
   text: string;
+  bg: string; // the chart's own background, as a soft backing for labels drawn over candles
 }
 
 const inr = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -47,7 +48,7 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
   private param: SeriesAttachedParameter<Time> | null = null;
   private cone: Cone | null = null;
   private lastIndex = 0;
-  private style: ConeStyle = { fill: "148, 163, 184", text: "#94a3b8" };
+  private style: ConeStyle = { fill: "148, 163, 184", text: "#94a3b8", bg: "rgba(255,255,255,0.0)" };
   private readonly view: IPrimitivePaneView = { zOrder: () => "bottom", renderer: () => this.renderer };
 
   private readonly renderer: IPrimitivePaneRenderer = {
@@ -63,6 +64,31 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
       const Y = (v: number) => p.series.priceToCoordinate(v);
       target.useMediaCoordinateSpace(({ context: ctx, mediaSize }) => {
         ctx.save();
+        // every label is placed through here: it is nudged down until it clears the labels already drawn, and gets a soft backing so it stays
+        // readable over candles and lines. Nothing overlaps, so a crowded forecast simply stacks its labels.
+        const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
+        const label = (text: string, font: string, color: string, ax: number, cy: number, align: "left" | "right" | "center") => {
+          ctx.font = font;
+          const tw = ctx.measureText(text).width;
+          const h = 14;
+          const left = align === "left" ? ax : align === "right" ? ax - tw : ax - tw / 2;
+          let top = cy - h / 2;
+          for (let tries = 0; tries < 8; tries++) {
+            const hit = placed.some((r) => left < r.x1 + 2 && left + tw > r.x0 - 2 && top < r.y1 + 1 && top + h > r.y0 - 1);
+            if (!hit) break;
+            top += h + 1;
+          }
+          if (top + h > mediaSize.height - 2) return;
+          placed.push({ x0: left, y0: top, x1: left + tw, y1: top + h });
+          ctx.fillStyle = this.style.bg;
+          ctx.fillRect(left - 3, top, tw + 6, h);
+          ctx.fillStyle = color;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText(text, left, top + h / 2 + 0.5);
+        };
+        const quiet = "rgba(148, 163, 184, 0.98)";
+        const blocks: { q: ConePoint; x0: number; x1: number; yh: number; yl: number; ym: number }[] = [];
         let prev = 0;
         for (const q of pts) {
           const x0 = X(prev);
@@ -72,6 +98,7 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
           const ym = Y(q.mid);
           prev = q.k;
           if (x0 == null || x1 == null || yh == null || yl == null || ym == null) continue;
+          blocks.push({ q, x0, x1, yh, yl, ym });
           const w = x1 - x0;
           // the grey future column, full height, with a hairline where it starts
           ctx.fillStyle = "rgba(148, 163, 184, 0.10)";
@@ -92,34 +119,10 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
           ctx.lineTo(x1, ym);
           ctx.stroke();
           ctx.setLineDash([]);
-
-          // prices inside the right edge of the block
-          ctx.font = "600 11px system-ui, sans-serif";
-          ctx.fillStyle = this.style.text;
-          ctx.textAlign = "right";
-          // inside the band, so the high price never runs into the title above the block
-          ctx.textBaseline = "top";
-          ctx.fillText(inr(q.high), x1 - 6, yh + 3);
-          ctx.textBaseline = "bottom";
-          ctx.fillText(inr(q.mid), x1 - 6, ym - 3);
-          ctx.fillText(inr(q.low), x1 - 6, yl - 3);
-
-          // the title and the odds at the top of the block
-          ctx.textAlign = "center";
-          ctx.textBaseline = "top";
-          ctx.font = "600 11px system-ui, sans-serif";
-          ctx.fillStyle = "rgba(148, 163, 184, 0.95)";
-          const cx = x0 + w / 2;
-          const narrow = w < 110; // the 5-session block is only a few bars wide: shorter title, odds on two lines
-          ctx.fillText(narrow ? `Next ${q.k}` : `Next ${q.k} sessions`, cx, 8);
-          if (q.up != null && q.down != null) {
-            ctx.font = "500 10px system-ui, sans-serif";
-            if (narrow) {
-              ctx.fillText(`${q.up}% up`, cx, 22);
-              ctx.fillText(`${q.down}% down`, cx, 34);
-            } else ctx.fillText(`${q.up}% up · ${q.down}% down`, cx, 22);
-          }
         }
+        // The blocks are only a few bars wide, so no text goes inside them but a small tag; each horizon's odds, range and middle price are
+        // written in the line above the chart (StockView), where nothing can sit on top of the candles.
+        for (const b of blocks) label(String(b.q.k), "600 11px system-ui, sans-serif", quiet, b.x0 + (b.x1 - b.x0) / 2, 10, "center");
         ctx.restore();
       });
     },

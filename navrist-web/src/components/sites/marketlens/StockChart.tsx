@@ -354,7 +354,7 @@ export function StockChart({
     const gain = css("--gain", "#10b981");
     const loss = css("--loss", "#ef4444");
     const rgb = cone.tone === "up" ? "16, 185, 129" : cone.tone === "down" ? "239, 68, 68" : "148, 163, 184";
-    prim.set(cone, lastIndex, { fill: rgb, text: cone.tone === "up" ? gain : cone.tone === "down" ? loss : css("--text-secondary", "#94a3b8") });
+    prim.set(cone, lastIndex, { fill: rgb, text: cone.tone === "up" ? gain : cone.tone === "down" ? loss : css("--text-secondary", "#94a3b8"), bg: `color-mix(in srgb, ${css("--surface-1", "#ffffff")} 80%, transparent)` });
     return () => {
       try {
         series.detachPrimitive(prim);
@@ -369,11 +369,11 @@ export function StockChart({
     if (!chart) return;
     const room = coneOn ? 26 : 6;
     chart.timeScale().applyOptions({ rightOffset: room });
-    const r = chart.timeScale().getVisibleLogicalRange();
-    if (coneOn && r && r.to < lastIndex + room) chart.timeScale().setVisibleLogicalRange({ from: r.from, to: lastIndex + room });
-    // only when the fan appears or the dataset changes: a live tick must not undo the user's panning
+    // the chart always starts at its left edge: the first bar sits at the left and the forecast room at the right, never an empty stretch on the left
+    chart.timeScale().setVisibleLogicalRange({ from: -0.5, to: lastIndex + room });
+    // only when the forecast appears or goes, or the dataset changes: a live tick must not undo the user's panning
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coneOn, dataKey, intraday, height]);
+  }, [coneOn, dataKey, intraday]);
 
   // 6. moving averages, and where each would go if the price follows the middle of the forecast
   useEffect(() => {

@@ -13,8 +13,7 @@ import {
   type CatalogueEntry, type EvidenceRes, type PatternOcc, type PatternStatus, type PatternsResponse,
 } from "./patterns";
 import { marketOpen } from "./marketHours";
-import { ForecastCard, News } from "./ForecastCard";
-import { ForecastStrip } from "./ForecastStrip";
+import { ForecastCard, Highlights, News } from "./ForecastCard";
 import { CandleLoader } from "./CandleLoader";
 import { ChartLinesMenu, type LineGroup } from "./ChartLinesMenu";
 import { fetchForecast, forecastCone, forecastLevels, type FcWindow, type Forecast } from "./forecast";
@@ -739,8 +738,6 @@ export function StockView({
 
       <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
-          <SectionTitle>Forecast Highlights</SectionTitle>
-          <ForecastStrip data={forecastData?.data ?? null} loading={forecastData === null} error={Boolean(forecastData?.error)} />
           <SectionTitle
             aside={
               <div className="flex gap-1 rounded-full p-1" style={{ background: "var(--surface-1)" }}>
@@ -806,16 +803,6 @@ export function StockView({
                     }}
                     options={(Object.keys(SIZE_NAME) as CandleSize[]).map((k) => ({ id: k, label: k.toUpperCase(), title: `${SIZE_NAME[k]}: one candle per ${SIZE_UNIT[k]}` }))}
                   />
-                  <button
-                    type="button"
-                    onClick={() => { setRange("All"); setCustomRange(null); }}
-                    aria-pressed={range === "All" && !customRange}
-                    title="Full history"
-                    className="min-h-10 rounded-lg border px-2.5 text-xs font-medium sm:min-h-8"
-                    style={{ borderColor: range === "All" && !customRange ? "var(--text-tertiary)" : "var(--border-default)", color: range === "All" && !customRange ? "var(--text-primary)" : "var(--text-secondary)", background: range === "All" && !customRange ? "var(--overlay)" : "transparent" }}
-                  >
-                    Max
-                  </button>
                   <RangeCalendar value={customRange} onApply={setCustomRange} onClear={() => setCustomRange(null)} />
                 </div>
                 {!isIntraday && coneData && <Switch on={showCone} onChange={() => setShowCone((v) => !v)} label="Forecast" title="Shade where the price is likely to be over the next 5 and 20 sessions" />}
@@ -949,7 +936,7 @@ export function StockView({
       <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
           <SectionTitle
-            beside={<News symbol={stock.symbol} />}
+            beside={<span className="flex items-center gap-4"><News symbol={stock.symbol} /><Highlights data={forecastData?.data ?? null} loading={forecastData === null} error={Boolean(forecastData?.error)} /></span>}
             aside={
               <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
                 <span className="hidden sm:inline">Learns from</span>

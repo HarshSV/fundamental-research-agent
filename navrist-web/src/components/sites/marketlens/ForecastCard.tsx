@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { SlidingTabs, Switch } from "./controls";
-import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, Newspaper } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, Newspaper, Sparkles } from "lucide-react";
+import { ForecastStrip } from "./ForecastStrip";
 import { fetchJson } from "@/lib/api";
 import {
   ALERTS_EVENT, alertsForPlan, connectTelegram, fetchAlerts, removeAlerts, saveAlertsFor, testTelegram,
@@ -608,6 +609,53 @@ function ForecastBody({
               </div>
             </Panel>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A small "Highlights" button beside News: the next-session, 5-session and 20-session forecasts in a light popup. */
+export function Highlights({ data, loading, error }: { data: Forecast | null; loading: boolean; error: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const close = () => {
+    setShown(false);
+    setTimeout(() => setOpen(false), 200);
+  };
+  const toggle = () => {
+    if (open) return close();
+    setOpen(true);
+    requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
+  };
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => box.current && !box.current.contains(e.target as Node) && close();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && close();
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  });
+  return (
+    <div ref={box}>
+      <button onClick={toggle} aria-expanded={open} className="flex min-h-10 items-center gap-1.5 text-sm hover:opacity-80 sm:min-h-0" style={{ color: SOFT }}>
+        <Sparkles className="h-4 w-4" aria-hidden />
+        Highlights
+      </button>
+      {open && (
+        <div
+          className="absolute inset-x-0 top-full z-30 mt-2 max-h-[34rem] overflow-y-auto overflow-x-hidden rounded-lg border p-3 shadow-xl sm:left-0 sm:right-auto sm:w-[46rem] sm:max-w-full"
+          style={{
+            background: "var(--surface-1)", borderColor: "var(--border-default)",
+            opacity: shown ? 1 : 0, transform: shown ? "none" : "translateY(-6px) scale(0.98)", transformOrigin: "top left",
+            transition: reduced() ? "none" : `opacity 220ms ${EASE}, transform 220ms ${EASE}`,
+          }}
+        >
+          <ForecastStrip data={data} loading={loading} error={error} />
         </div>
       )}
     </div>
