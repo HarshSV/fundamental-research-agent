@@ -111,8 +111,6 @@ export interface Forecast {
   adr20_pct: number | null;
   segment: string | null;
   outlook: Horizon[];
-  /** What really happened after this stock's own similar past days: closes for the next h sessions as % from that day. */
-  fan?: { h: number; basis: "state" | "all"; paths: number[][]; dates: string[] } | null;
   today: TradeBlock;
   swing: TradeBlock;
   evidence: EvidenceRow[];

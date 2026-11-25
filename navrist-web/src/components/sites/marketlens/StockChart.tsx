@@ -118,7 +118,7 @@ export function StockChart({
       layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: css("--text-tertiary", "#8b8b9a"), fontFamily: "inherit", attributionLogo: false },
       grid: { vertLines: { color: "transparent" }, horzLines: { color: css("--grid", "rgba(255,255,255,0.06)") } },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.18 } },
-      timeScale: { borderVisible: false, timeVisible: intraday, secondsVisible: false, rightOffset: 6, minBarSpacing: 0.02 },
+      timeScale: { borderVisible: false, timeVisible: intraday, secondsVisible: false, rightOffset: 6, minBarSpacing: 0.02, fixLeftEdge: true },
       crosshair: { mode: CrosshairMode.Normal },
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
       handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true },
@@ -353,9 +353,27 @@ export function StockChart({
     series.attachPrimitive(prim);
     const gain = css("--gain", "#10b981");
     const loss = css("--loss", "#ef4444");
-    const rgb = cone.tone === "up" ? "16, 185, 129" : cone.tone === "down" ? "239, 68, 68" : "148, 163, 184";
-    prim.set(cone, lastIndex, { fill: rgb, text: cone.tone === "up" ? gain : cone.tone === "down" ? loss : css("--text-secondary", "#94a3b8"), bg: `color-mix(in srgb, ${css("--surface-1", "#ffffff")} 80%, transparent)` });
+    prim.set(cone, lastIndex, { gain: "16, 185, 129", loss: "239, 68, 68", mid: cone.tone === "down" ? "239, 68, 68" : cone.tone === "up" ? "16, 185, 129" : "148, 163, 184", text: css("--text-secondary", "#94a3b8"), bg: `color-mix(in srgb, ${css("--surface-1", "#ffffff")} 85%, transparent)` });
+    // the three forecast prices as tags on the price axis (like TradingView's Max / Avg / Min), so no text is written over the candles
+    const far = [...cone.points].filter((q) => q.k >= 5).pop();
+    const tags: IPriceLine[] = [];
+    if (far) {
+      const tag = (label: string, price: number, color: string) => {
+        const ch = (price / cone.anchor - 1) * 100;
+        tags.push(series.createPriceLine({ price, color, lineVisible: false, axisLabelVisible: true, title: `${label} ${ch >= 0 ? "+" : ""}${ch.toFixed(2)}%` }));
+      };
+      tag("High", far.high, gain);
+      tag("Middle", far.mid, far.mid >= cone.anchor ? gain : loss);
+      tag("Low", far.low, loss);
+    }
     return () => {
+      for (const t of tags) {
+        try {
+          series.removePriceLine(t);
+        } catch {
+          /* the series was already removed */
+        }
+      }
       try {
         series.detachPrimitive(prim);
       } catch {

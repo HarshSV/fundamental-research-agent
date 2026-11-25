@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { SlidingTabs, Switch } from "./controls";
 import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, Newspaper, Sparkles } from "lucide-react";
-import { ForecastFan } from "./ForecastFan";
 import { ForecastStrip } from "./ForecastStrip";
 import { fetchJson } from "@/lib/api";
 import { basisNote, type Events, type Forecast, type Horizon, type Odds, type Plan, type Replay, type TradeBlock } from "./forecast";
@@ -403,30 +402,9 @@ const SPAN: Record<Horizon["id"], string> = { session: "the next session", week:
 const SPAN_TAB: Record<Horizon["id"], string> = { session: "1 day", week: "1 week", month: "1 month" };
 
 /** The answer first: one sentence, how sure we are, and where the price should land. Everything else sits behind "See the reasoning". */
-function Verdict({ data, chart }: { data: Forecast; chart: boolean }) {
+function Verdict({ data }: { data: Forecast }) {
   const [hid, setHid] = useState<Horizon["id"]>("week");
   const { ref, seen } = useInView<HTMLDivElement>();
-  // the forecast chart (switched on beside "Highlights") slides in over this block from the left, and slides back out to the left when switched off
-  const [mounted, setMounted] = useState(false);
-  const [slideIn, setSlideIn] = useState(false);
-  const [plays, setPlays] = useState(0);
-  const hasFan = Boolean(data.fan && data.fan.paths.length >= 20);
-  useEffect(() => {
-    // mount the panel off to the left first, then let it slide in on the next frame (and out again when switched off)
-    let id2 = 0;
-    const id1 = requestAnimationFrame(() => {
-      if (chart && hasFan) {
-        setMounted(true);
-        setPlays((n) => n + 1);
-        id2 = requestAnimationFrame(() => setSlideIn(true));
-      } else setSlideIn(false);
-    });
-    return () => {
-      cancelAnimationFrame(id1);
-      cancelAnimationFrame(id2);
-    };
-  }, [chart, hasFan]);
-  const slide = reduced() ? "none" : `transform 640ms ${EASE}, opacity 420ms ease`;
   const h = data.outlook.find((x) => x.id === hid) ?? data.outlook[0];
   const span = SPAN[h.id];
   const dp = (h.price_mid ?? data.price ?? 1000) < 100 ? 2 : 0;      // a ₹16 stock needs its paise
@@ -437,8 +415,8 @@ function Verdict({ data, chart }: { data: Forecast; chart: boolean }) {
   const headline = h.up == null ? `Not enough history to forecast ${span}` : call === "up" ? `Leans up over ${span}${odds}` : call === "down" ? `Leans down over ${span}${odds}` : `Too close to call over ${span}${odds}`;
   const lean = h.up == null ? null : call === "even" || call == null ? "The odds are about even" : `${h.conviction ? h.conviction[0].toUpperCase() + h.conviction.slice(1) : "Clear"} lean`;
   return (
-    <div ref={ref} className="relative overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
-      <div className="p-6 md:p-8" style={{ transform: slideIn ? "translateX(7%)" : "none", opacity: slideIn ? 0 : 1, transition: slide, pointerEvents: slideIn ? "none" : "auto" }} aria-hidden={slideIn}>
+    <div ref={ref} className="rounded-2xl border" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+      <div className="p-6 md:p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full" style={{ background: "var(--overlay-weak)", color, transition: "color 300ms ease" }}>
@@ -478,20 +456,15 @@ function Verdict({ data, chart }: { data: Forecast; chart: boolean }) {
         </div>
       )}
       </div>
-      {mounted && hasFan && (
-        <div className="absolute inset-0 p-4 md:px-8 md:py-6" style={{ transform: slideIn ? "none" : "translateX(-104%)", opacity: slideIn ? 1 : 0, transition: slide, pointerEvents: slideIn ? "auto" : "none", background: "var(--surface-1)" }} aria-hidden={!slideIn}>
-          <ForecastFan data={data} play={plays} />
-        </div>
-      )}
     </div>
   );
 }
 
 /** The one Forecast section on the stock page: outlook, trade plan with replay odds, levels, evidence and position size. */
 export function ForecastCard({
-  data, error, showLevels, onToggleLevels, chart = false,
-}: { data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void; chart?: boolean }) {
-  return <ForecastBody data={data} error={error} showLevels={showLevels} onToggleLevels={onToggleLevels} chart={chart} />;
+  data, error, showLevels, onToggleLevels,
+}: { data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void }) {
+  return <ForecastBody data={data} error={error} showLevels={showLevels} onToggleLevels={onToggleLevels} />;
 }
 
 /** One folding line: a label with a down arrow that turns over when it is open. */
@@ -505,8 +478,8 @@ function FoldRow({ label, open, onClick }: { label: string; open: boolean; onCli
 }
 
 function ForecastBody({
-  data, error, showLevels, onToggleLevels, chart,
-}: { data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void; chart: boolean }) {
+  data, error, showLevels, onToggleLevels,
+}: { data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void }) {
   // two folding lines under the verdict; opening one closes the other, so only one is on show at a time
   const [panel, setPanel] = useState<"plan" | "why" | null>(null);
   const pick = (p: "plan" | "why") => setPanel((cur) => (cur === p ? null : p));
@@ -516,7 +489,7 @@ function ForecastBody({
   const hasLevels = Boolean(data.today.setup?.range_high != null || data.today.plan || data.swing.plan);
   return (
     <div>
-      <Verdict data={data} chart={chart} />
+      <Verdict data={data} />
       {basisNote(data) && <p className="mt-3 text-xs" style={{ color: MUTED }}>{basisNote(data)}{data.forecast_basis ? " The odds are the index's, applied to this fund's price; a trade plan needs the fund's own history." : ""}</p>}
 
       <div className="mt-5 border-b" style={{ borderColor: "var(--border-subtle)" }}>

@@ -12,123 +12,134 @@ export interface ConePoint {
 }
 
 export interface Cone {
-  anchor: number; // the price the fan starts from (the last price)
+  anchor: number; // the price the forecast starts from (the last price)
   tone: "up" | "down" | "even";
   points: ConePoint[];
 }
 
 export interface ConeStyle {
-  fill: string; // "r, g, b"
+  gain: string; // "r, g, b"
+  loss: string;
+  mid: string;  // the middle line's colour, "r, g, b"
   text: string;
-  bg: string; // the chart's own background, as a soft backing for labels drawn over candles
-}
-
-const inr = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
-
-/** Value of an edge at `k` sessions: between the known horizons it follows the square root of time, the way a spread of
- *  prices really widens, so the fan is a smooth curve rather than straight segments. */
-function at(pts: { k: number; v: number }[], k: number): number {
-  for (let i = 1; i < pts.length; i++) {
-    if (k <= pts[i].k) {
-      const a = pts[i - 1];
-      const b = pts[i];
-      const t = (Math.sqrt(k) - Math.sqrt(a.k)) / (Math.sqrt(b.k) - Math.sqrt(a.k));
-      return a.v + (b.v - a.v) * t;
-    }
-  }
-  return pts[pts.length - 1].v;
+  bg: string; // the chart's own background, as a soft backing for the numbers written on the fan
 }
 
 /**
- * A chart primitive that draws the forecast as a fan to the right of the last bar: a shaded band between the realistic best
- * and worst price, a dashed middle line and the prices at its far end. It lives on the price series, so it moves and zooms
- * with the chart and widens the price axis to fit itself.
+ * The forecast drawn the way TradingView draws a price target: from the last price a fan opens to the right, three dotted lines going to the
+ * high, middle and low of where the price ended up 20 sessions after similar past days, green between the current price and the high, red
+ * between it and the low, and a solid line at the current price. The three prices are tagged on the price axis (StockChart adds those), so no
+ * text sits over the candles. It lives on the price series, so it moves and zooms with the chart and widens the price axis to fit itself.
  */
 export class ConePrimitive implements ISeriesPrimitive<Time> {
   private param: SeriesAttachedParameter<Time> | null = null;
   private cone: Cone | null = null;
   private lastIndex = 0;
-  private style: ConeStyle = { fill: "148, 163, 184", text: "#94a3b8", bg: "rgba(255,255,255,0.0)" };
+  private style: ConeStyle = { gain: "16, 185, 129", loss: "239, 68, 68", mid: "148, 163, 184", text: "#94a3b8", bg: "rgba(255,255,255,0)" };
   private readonly view: IPrimitivePaneView = { zOrder: () => "bottom", renderer: () => this.renderer };
+
+  /** the horizon the fan reaches: the furthest one of 5 sessions or more */
+  private far(): ConePoint | null {
+    const pts = (this.cone?.points ?? []).filter((q) => q.k >= 5);
+    return pts.length ? pts[pts.length - 1] : null;
+  }
 
   private readonly renderer: IPrimitivePaneRenderer = {
     draw: (target: CanvasRenderingTarget2D) => {
       const p = this.param;
       const c = this.cone;
-      if (!p || !c) return;
-      // one block per horizon of 5 sessions or more: the first runs from the last bar to +5, the next from +5 to +20
-      const pts = c.points.filter((q) => q.k >= 5);
-      if (pts.length === 0) return;
+      const q = this.far();
+      if (!p || !c || !q) return;
       const ts = p.chart.timeScale();
-      const X = (k: number) => ts.logicalToCoordinate((this.lastIndex + k) as Logical);
-      const Y = (v: number) => p.series.priceToCoordinate(v);
+      const x0 = ts.logicalToCoordinate(this.lastIndex as Logical);
+      const x1 = ts.logicalToCoordinate((this.lastIndex + q.k) as Logical);
+      const y0 = p.series.priceToCoordinate(c.anchor);
+      const yh = p.series.priceToCoordinate(q.high);
+      const ym = p.series.priceToCoordinate(q.mid);
+      const yl = p.series.priceToCoordinate(q.low);
+      if (x0 == null || x1 == null || y0 == null || yh == null || ym == null || yl == null) return;
       target.useMediaCoordinateSpace(({ context: ctx, mediaSize }) => {
         ctx.save();
-        // every label is placed through here: it is nudged down until it clears the labels already drawn, and gets a soft backing so it stays
-        // readable over candles and lines. Nothing overlaps, so a crowded forecast simply stacks its labels.
-        const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
-        const label = (text: string, font: string, color: string, ax: number, cy: number, align: "left" | "right" | "center") => {
-          ctx.font = font;
-          const tw = ctx.measureText(text).width;
-          const h = 14;
-          const left = align === "left" ? ax : align === "right" ? ax - tw : ax - tw / 2;
-          let top = cy - h / 2;
-          for (let tries = 0; tries < 8; tries++) {
-            const hit = placed.some((r) => left < r.x1 + 2 && left + tw > r.x0 - 2 && top < r.y1 + 1 && top + h > r.y0 - 1);
-            if (!hit) break;
-            top += h + 1;
-          }
-          if (top + h > mediaSize.height - 2) return;
-          placed.push({ x0: left, y0: top, x1: left + tw, y1: top + h });
-          ctx.fillStyle = this.style.bg;
-          ctx.fillRect(left - 3, top, tw + 6, h);
-          ctx.fillStyle = color;
-          ctx.textAlign = "left";
-          ctx.textBaseline = "middle";
-          ctx.fillText(text, left, top + h / 2 + 0.5);
-        };
-        const quiet = "rgba(148, 163, 184, 0.98)";
-        const blocks: { q: ConePoint; x0: number; x1: number; yh: number; yl: number; ym: number }[] = [];
-        let prev = 0;
-        for (const q of pts) {
-          const x0 = X(prev);
-          const x1 = X(q.k);
-          const yh = Y(q.high);
-          const yl = Y(q.low);
-          const ym = Y(q.mid);
-          prev = q.k;
-          if (x0 == null || x1 == null || yh == null || yl == null || ym == null) continue;
-          blocks.push({ q, x0, x1, yh, yl, ym });
-          const w = x1 - x0;
-          // the grey future column, full height, with a hairline where it starts
-          ctx.fillStyle = "rgba(148, 163, 184, 0.10)";
-          ctx.fillRect(x0, 0, w, mediaSize.height);
-          ctx.fillStyle = "rgba(148, 163, 184, 0.35)";
-          ctx.fillRect(x0, 0, 1, mediaSize.height);
-          // the likely range, flat across the block, and the middle price dashed
-          ctx.fillStyle = `rgba(${this.style.fill}, 0.22)`;
-          ctx.fillRect(x0, yh, w, yl - yh);
-          ctx.strokeStyle = `rgba(${this.style.fill}, 0.6)`;
-          ctx.lineWidth = 1;
-          ctx.strokeRect(x0 + 0.5, yh, w - 1, yl - yh);
-          ctx.setLineDash([5, 4]);
-          ctx.lineWidth = 1.5;
-          ctx.strokeStyle = `rgba(${this.style.fill}, 0.95)`;
+        // green between the current price and the high, red between it and the low
+        ctx.fillStyle = `rgba(${this.style.gain}, 0.16)`;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, yh);
+        ctx.lineTo(x1, y0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = `rgba(${this.style.loss}, 0.16)`;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, yl);
+        ctx.lineTo(x1, y0);
+        ctx.closePath();
+        ctx.fill();
+        // the solid line at the current price, and the three dotted lines of the fan
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "rgba(59, 130, 246, 0.95)";
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y0);
+        ctx.stroke();
+        ctx.setLineDash([2, 3]);
+        ctx.lineWidth = 1.4;
+        for (const [y, rgb] of [[yh, this.style.gain], [ym, this.style.mid], [yl, this.style.loss]] as [number, string][]) {
+          ctx.strokeStyle = `rgba(${rgb}, 0.95)`;
           ctx.beginPath();
-          ctx.moveTo(x0, ym);
-          ctx.lineTo(x1, ym);
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(x1, y);
           ctx.stroke();
-          ctx.setLineDash([]);
         }
-        // The blocks are only a few bars wide, so no text goes inside them but a small tag; each horizon's odds, range and middle price are
-        // written in the line above the chart (StockView), where nothing can sit on top of the candles.
-        for (const b of blocks) label(String(b.q.k), "600 11px system-ui, sans-serif", quiet, b.x0 + (b.x1 - b.x0) / 2, 10, "center");
+        ctx.setLineDash([]);
+        ctx.fillStyle = "rgba(59, 130, 246, 1)";
+        ctx.beginPath();
+        ctx.arc(x0, y0, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        // the numbers of the range, written at the end of each line inside the fan (never over the candles): the price and how far from today it is.
+        // They are nudged apart so none sits on another; a fan too narrow to hold them leaves them to the tags on the price axis.
+        if (x1 - x0 > 84) {
+          const placed: { y0: number; y1: number }[] = [];
+          const fp = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })} · ${v >= c.anchor ? "+" : "-"}${Math.abs((v / c.anchor - 1) * 100).toFixed(1)}%`;
+          ctx.font = "600 10px system-ui, sans-serif";
+          ctx.textAlign = "right";
+          ctx.textBaseline = "middle";
+          const rows: [number, number, string, string][] = [
+            [q.high, yh + 11, this.style.gain, "high"],
+            [q.low, yl - 11, this.style.loss, "low"],
+            [q.mid, ym + (ym < y0 ? -10 : 10), this.style.mid, "mid"],
+          ];
+          for (const [v, yy, rgb] of rows) {
+            let y = yy;
+            for (let t = 0; t < 6 && placed.some((r) => y - 8 < r.y1 && y + 8 > r.y0); t++) y += yy > y0 ? 16 : -16;
+            const txt = fp(v);
+            const w = ctx.measureText(txt).width;
+            placed.push({ y0: y - 8, y1: y + 8 });
+            ctx.fillStyle = this.style.bg;
+            ctx.fillRect(x1 - 6 - w - 3, y - 8, w + 6, 16);
+            ctx.fillStyle = `rgb(${rgb})`;
+            ctx.fillText(txt, x1 - 6, y);
+          }
+        }
+        // the small caption at the foot of the forecast, so it is clear where the past ends and the forecast begins
+        const cap = `NEXT ${q.k} SESSIONS`;
+        ctx.font = "600 10px system-ui, sans-serif";
+        const tw = ctx.measureText(cap).width;
+        const cx = x0 + (x1 - x0) / 2;
+        if (x1 - x0 > tw + 8) {
+          ctx.fillStyle = "rgba(148, 163, 184, 0.16)";
+          ctx.fillRect(cx - tw / 2 - 6, mediaSize.height - 44, tw + 12, 16);
+          ctx.fillStyle = this.style.text;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(cap, cx, mediaSize.height - 36);
+        }
         ctx.restore();
       });
     },
   };
 
-  /** Hand the fan its data. `lastIndex` is the logical index of the last bar on the series. */
+  /** Hand the forecast its data. `lastIndex` is the logical index of the last bar on the series. */
   set(cone: Cone | null, lastIndex: number, style: ConeStyle) {
     this.cone = cone;
     this.lastIndex = lastIndex;
@@ -151,18 +162,9 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
   }
 
   autoscaleInfo(_start: Logical, end: Logical): AutoscaleInfo | null {
+    const q = this.far();
     const c = this.cone;
-    if (!c || c.points.length === 0 || end < this.lastIndex) return null;
-    return {
-      priceRange: {
-        minValue: Math.min(c.anchor, ...c.points.map((q) => q.low)),
-        // headroom above the highest price for the block titles
-        maxValue: (() => {
-          const hi = Math.max(c.anchor, ...c.points.map((q) => q.high));
-          const lo = Math.min(c.anchor, ...c.points.map((q) => q.low));
-          return hi + (hi - lo) * 0.14;
-        })(),
-      },
-    };
+    if (!q || !c || end < this.lastIndex) return null;
+    return { priceRange: { minValue: Math.min(c.anchor, q.low), maxValue: Math.max(c.anchor, q.high) } };
   }
 }

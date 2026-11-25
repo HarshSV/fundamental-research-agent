@@ -363,7 +363,7 @@ export function StockView({
   // Which basis each two-basis Key Metric shows; the switch beside the section title sets them all at once.
   const [views, setViews] = useState<Record<string, Basis>>({});
   const [showMore, setShowMore] = useState(false);
-  const [forecastChart, setForecastChart] = useState(false);      // the forecast chart slides over the Forecast block when this is on
+  const [showCone, setShowCone] = useState(true);      // the forecast drawn ahead of the last candle, like TradingView's price target
   const [candleSize, setCandleSize] = useState<CandleSize>(scan?.candle ?? "d");     // one candle per day, week, month or year (daily-based ranges only)
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
   // Until it has some history, longer ranges fall back to the intraday 1D view (and say so).
@@ -874,6 +874,7 @@ export function StockView({
               levels={chartLevels}
               averages={isIntraday || (foldedOn && !weeklyOn) ? undefined : weeklyOn ? [10, 40] : SMA_PERIODS.filter((n) => lineOn[`sma${n}`])}      // weekly: the 10 and 40 week averages, as MarketSmith draws them
               history={foldedOn ? weeklyHistory : daily ?? undefined}
+              cone={showCone && !isIntraday && !foldedOn ? coneData : null}
               projectFrom={foldedOn ? null : coneData}
             />
             {switching && (
@@ -903,6 +904,7 @@ export function StockView({
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex max-w-full flex-wrap items-center gap-3">
               <div className="max-w-full overflow-x-auto"><SlidingTabs ariaLabel="Chart range" options={RANGES.map((r) => ({ id: r, label: r }))} value={(customRange ? "" : range) as Range} onChange={(r) => { setRange(r); setCustomRange(null); if (r === "1D" || r === "1W") setCandleSize("d"); }} /></div>
+              {!isIntraday && coneData && <Switch on={showCone} onChange={() => setShowCone((v) => !v)} label="Forecast" title="Show where the price ended up 20 sessions after similar past days: the high, the middle and the low" />}
               <SlidingTabs
                 ariaLabel="Chart style"
                 size="icon"
@@ -934,7 +936,7 @@ export function StockView({
       <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
           <SectionTitle
-            beside={<span className="flex items-center gap-4"><News symbol={stock.symbol} /><Highlights data={forecastData?.data ?? null} loading={forecastData === null} error={Boolean(forecastData?.error)} />{(forecastData?.data?.fan?.paths.length ?? 0) >= 20 && <Switch on={forecastChart} onChange={() => setForecastChart((v) => !v)} label="Forecast chart" title="Slide in a chart of how this stock's similar past days played out, with the forecast range over it" />}</span>}
+            beside={<span className="flex items-center gap-4"><News symbol={stock.symbol} /><Highlights data={forecastData?.data ?? null} loading={forecastData === null} error={Boolean(forecastData?.error)} /></span>}
             aside={
               <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
                 <span className="hidden sm:inline">Learns from</span>
@@ -955,7 +957,6 @@ export function StockView({
             error={Boolean(forecastData?.error)}
             showLevels={showForecastLevels}
             onToggleLevels={() => setShowForecastLevels((v) => !v)}
-            chart={forecastChart}
           />
         </div>
       </section>

@@ -102,30 +102,6 @@ def horizon_outlook(daily: list[dict], h: int, min_history: int = MIN_HISTORY) -
             "samples": len(use), "basis": basis, "flat_band_pct": round(band * 100, 2)}
 
 
-FAN_PATHS = 160             # how many past outcomes are drawn in the small fan chart
-
-
-def analog_fan(daily: list[dict], h: int = 20, max_paths: int = FAN_PATHS) -> dict | None:
-    """What actually happened after this stock's own past days in the same state as today (the very days the odds above are measured on):
-    each one's closes for the next h sessions as a % change from that day, up to max_paths of them spread evenly through the history.
-    Real prices only; None where the odds themselves have no call (too short a history)."""
-    if len(daily) < SHORT_MIN[20]:
-        return None
-    closes, states = _states(daily)
-    n = len(closes)
-    fwd = {i: closes[i + h] / closes[i] - 1.0 for i in range(n - h) if closes[i] > 0}
-    if len(fwd) < 60:
-        return None
-    today = states[-1]
-    same = [i for i in fwd if states[i] is not None and states[i] == today] if today is not None else []
-    use, basis = (same, "state") if len(same) >= MIN_STATE_SAMPLES else (list(fwd), "all")
-    if len(use) > max_paths:
-        use = [use[round(k * (len(use) - 1) / (max_paths - 1))] for k in range(max_paths)]
-    paths = [[round((closes[i + k] / closes[i] - 1.0) * 100, 2) for k in range(h + 1)] for i in use]
-    dates = [engine._ist(daily[i]["time"]).strftime("%Y-%m-%d") for i in use]
-    return {"h": h, "basis": basis, "paths": paths, "dates": dates}
-
-
 # ------------------------------------------------------------------ the Time Machine
 def _bar_ratios(bars: list[dict]) -> list[tuple[int, tuple[float, float, float]]]:
     """(slot, (high, low, close) as multiples of the previous bar's close) for the bars of one session."""
@@ -388,7 +364,6 @@ def build(symbol: str, intraday: list[dict] | None, daily: list[dict] | None, ro
             if x.get("up") is not None:
                 x["short_history"] = len(daily)
     out["outlook"] = hs
-    out["fan"] = analog_fan(daily)
     if len(daily) < SHORT_MIN[1]:
         out["young"] = young_facts(daily)
 
