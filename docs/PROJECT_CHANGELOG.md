@@ -99,6 +99,15 @@ Sankey -> icicle diagrams, multi-year comparison, segment-revenue extraction and
 ### 2026-10-09 - Documentation pass (this change set)
 * Added `PROJECT_DOCUMENTATION.md`, `docs/FINANCIAL_RATIO_AUDIT.md`, `docs/PROJECT_CHANGELOG.md`; no application code changed. Findings recorded as new open issues: **M-13** Bharti Airtel DPS 0 `verified`, **M-14** unextracted bank balances as 0, **M-15** broken `tests/final_validation.py`, **M-18** password in history, **M-19** live price for historical years.
 
+### 2026-11-25 - Forecast fan on the chart, drawing tools, market dot strip, chart sized to the window
+* *Historical:* the stock chart drew a plain forecast fan or none; no drawing tools; Sector Analytics opened on a table. *Change:* TradingView-style forecast fan with axis tags (`6aa0339`); drawing tools ported from HeatCharting (`92987fb`); "Market today" dot strip with sector tiles (`0bcdb87`); Highlights popup and two folding lines in the Forecast section, alert buttons removed (`a90fc0e`, `088f76a`); one-line header, chart sized to the window, drawing toolbar in two columns (`e53225a`). *Current:* live on ai.navrist.com. *Unresolved:* M-41 to M-45. [B.21](../PROJECT_DOCUMENTATION.md#b21-stage-20---setups-checked-against-nse-forecasts-on-the-chart-the-market-dot-strip-and-drawing-tools-2026-11-20---11-25)
+
+### 2026-11-24 - Setups verified against NSE, weekly candles, pattern rules aligned, stock page controls
+* *Change:* weekly setups on finished weeks; NSE official bars for the newest sessions and the NSE main board in the scan; Daily / Weekly candles with 50/200-day and 10/40-week lines; pattern rules aligned with published definitions (`DETECTOR_VERSION` 1.1.0) and a full rescan; D / W / M / Y candle size and date-range calendar; Charts-first scan pages (`a0488f0` to `7cbb235`). Also: forecasts for 70+ sessions and for young index funds, a Facts view under 70 sessions, a mobile pass, wrong-company news fixed, Breadth hover (`14725e7` to `c970600`). [B.21](../PROJECT_DOCUMENTATION.md#b21-stage-20---setups-checked-against-nse-forecasts-on-the-chart-the-market-dot-strip-and-drawing-tools-2026-11-20---11-25)
+
+### 2026-11-20 - API and worker split
+* *Change:* background jobs run in `worker.py`; the screener no longer re-annotates every stock per request (`59157e7`, `5c294ea`); one shared Angel session (`cbb50e0`). [B.21](../PROJECT_DOCUMENTATION.md#b21-stage-20---setups-checked-against-nse-forecasts-on-the-chart-the-market-dot-strip-and-drawing-tools-2026-11-20---11-25)
+
 ### 2026-11-13 - Journal link hidden
 * *Change:* at the owner's request the **Journal** link was removed from the top bar and the phone drawer for now (`Header.tsx`, the `DIRECT` list; the unused icon import went with it). The Journal page, its browser-stored trades and the code behind it are unchanged; restoring the one `DIRECT` entry brings the link back. Nothing else linked to it. The Watchlist link stays.
 
