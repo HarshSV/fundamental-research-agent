@@ -186,7 +186,7 @@ export function forecastCone(f: Forecast | null): Cone | null {
   if (!f || f.price == null || !f.outlook) return null;
   const points = f.outlook
     .filter((h) => h.price_low != null && h.price_mid != null && h.price_high != null)
-    .map((h) => ({ k: HORIZON_SESSIONS[h.id], low: h.price_low as number, mid: h.price_mid as number, high: h.price_high as number }))
+    .map((h) => ({ k: HORIZON_SESSIONS[h.id], low: h.price_low as number, mid: h.price_mid as number, high: h.price_high as number, up: h.up, down: h.down }))
     .sort((a, b) => a.k - b.k);
   if (points.length === 0 || points[points.length - 1].k < 5) return null;
   const lead = f.outlook.find((h) => h.id === "week" && h.call) ?? f.outlook.find((h) => h.id === "month" && h.call);

@@ -367,7 +367,7 @@ export function StockChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    const room = coneOn ? 24 : 6;
+    const room = coneOn ? 26 : 6;
     chart.timeScale().applyOptions({ rightOffset: room });
     const r = chart.timeScale().getVisibleLogicalRange();
     if (coneOn && r && r.to < lastIndex + room) chart.timeScale().setVisibleLogicalRange({ from: r.from, to: lastIndex + room });

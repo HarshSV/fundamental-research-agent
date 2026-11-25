@@ -7,6 +7,8 @@ export interface ConePoint {
   low: number;
   mid: number;
   high: number;
+  up?: number; // chance of closing higher, percent
+  down?: number;
 }
 
 export interface Cone {
@@ -52,79 +54,71 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
     draw: (target: CanvasRenderingTarget2D) => {
       const p = this.param;
       const c = this.cone;
-      if (!p || !c || c.points.length === 0) return;
+      if (!p || !c) return;
+      // one block per horizon of 5 sessions or more: the first runs from the last bar to +5, the next from +5 to +20
+      const pts = c.points.filter((q) => q.k >= 5);
+      if (pts.length === 0) return;
       const ts = p.chart.timeScale();
-      const kMax = c.points[c.points.length - 1].k;
-      const hi = [{ k: 0, v: c.anchor }, ...c.points.map((q) => ({ k: q.k, v: q.high }))];
-      const mid = [{ k: 0, v: c.anchor }, ...c.points.map((q) => ({ k: q.k, v: q.mid }))];
-      const lo = [{ k: 0, v: c.anchor }, ...c.points.map((q) => ({ k: q.k, v: q.low }))];
-      // the chart only converts whole bar indexes; the points in between are interpolated along the bar spacing
-      const xa = ts.logicalToCoordinate(this.lastIndex as Logical);
-      const xb = ts.logicalToCoordinate((this.lastIndex + kMax) as Logical);
-      if (xa == null || xb == null) return;
-      const X = (k: number) => xa + ((xb - xa) * k) / kMax;
+      const X = (k: number) => ts.logicalToCoordinate((this.lastIndex + k) as Logical);
       const Y = (v: number) => p.series.priceToCoordinate(v);
-      const steps: number[] = [];
-      for (let k = 0; k <= kMax; k += 0.5) steps.push(k);
-      const top = steps.map((k) => ({ x: X(k), y: Y(at(hi, k)) }));
-      const bot = steps.map((k) => ({ x: X(k), y: Y(at(lo, k)) }));
-      const med = steps.map((k) => ({ x: X(k), y: Y(at(mid, k)) }));
-      if ([...top, ...bot, ...med].some((q) => q.x == null || q.y == null)) return;
-      target.useMediaCoordinateSpace(({ context: ctx }) => {
-        const T = top as { x: number; y: number }[];
-        const B = bot as { x: number; y: number }[];
-        const M = med as { x: number; y: number }[];
-        const x0 = T[0].x;
-        const x1 = T[T.length - 1].x;
-        const g = ctx.createLinearGradient(x0, 0, x1, 0);
-        g.addColorStop(0, `rgba(${this.style.fill}, 0.34)`);
-        g.addColorStop(1, `rgba(${this.style.fill}, 0.08)`);
+      target.useMediaCoordinateSpace(({ context: ctx, mediaSize }) => {
         ctx.save();
-        ctx.beginPath();
-        T.forEach((q, i) => (i === 0 ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y)));
-        for (let i = B.length - 1; i >= 0; i--) ctx.lineTo(B[i].x, B[i].y);
-        ctx.closePath();
-        ctx.fillStyle = g;
-        ctx.fill();
-
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = `rgba(${this.style.fill}, 0.55)`;
-        for (const edge of [T, B]) {
+        let prev = 0;
+        for (const q of pts) {
+          const x0 = X(prev);
+          const x1 = X(q.k);
+          const yh = Y(q.high);
+          const yl = Y(q.low);
+          const ym = Y(q.mid);
+          prev = q.k;
+          if (x0 == null || x1 == null || yh == null || yl == null || ym == null) continue;
+          const w = x1 - x0;
+          // the grey future column, full height, with a hairline where it starts
+          ctx.fillStyle = "rgba(148, 163, 184, 0.10)";
+          ctx.fillRect(x0, 0, w, mediaSize.height);
+          ctx.fillStyle = "rgba(148, 163, 184, 0.35)";
+          ctx.fillRect(x0, 0, 1, mediaSize.height);
+          // the likely range, flat across the block, and the middle price dashed
+          ctx.fillStyle = `rgba(${this.style.fill}, 0.22)`;
+          ctx.fillRect(x0, yh, w, yl - yh);
+          ctx.strokeStyle = `rgba(${this.style.fill}, 0.6)`;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x0 + 0.5, yh, w - 1, yl - yh);
+          ctx.setLineDash([5, 4]);
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = `rgba(${this.style.fill}, 0.95)`;
           ctx.beginPath();
-          edge.forEach((q, i) => (i === 0 ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y)));
+          ctx.moveTo(x0, ym);
+          ctx.lineTo(x1, ym);
           ctx.stroke();
-        }
-        ctx.setLineDash([5, 4]);
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = `rgba(${this.style.fill}, 0.95)`;
-        ctx.beginPath();
-        M.forEach((q, i) => (i === 0 ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y)));
-        ctx.stroke();
-        ctx.setLineDash([]);
+          ctx.setLineDash([]);
 
-        // the prices where the fan ends, inside its right edge
-        const last = c.points[c.points.length - 1];
-        ctx.font = "600 11px system-ui, sans-serif";
-        ctx.fillStyle = this.style.text;
-        ctx.textAlign = "right";
-        ctx.textBaseline = "bottom";
-        ctx.fillText(inr(last.high), x1 - 6, T[T.length - 1].y - 3);
-        ctx.textBaseline = "middle";
-        ctx.fillText(inr(last.mid), x1 - 6, M[M.length - 1].y);
-        ctx.textBaseline = "top";
-        ctx.fillText(inr(last.low), x1 - 6, B[B.length - 1].y + 3);
+          // prices inside the right edge of the block
+          ctx.font = "600 11px system-ui, sans-serif";
+          ctx.fillStyle = this.style.text;
+          ctx.textAlign = "right";
+          // inside the band, so the high price never runs into the title above the block
+          ctx.textBaseline = "top";
+          ctx.fillText(inr(q.high), x1 - 6, yh + 3);
+          ctx.textBaseline = "bottom";
+          ctx.fillText(inr(q.mid), x1 - 6, ym - 3);
+          ctx.fillText(inr(q.low), x1 - 6, yl - 3);
 
-        // faint markers for the horizons in between
-        ctx.font = "500 10px system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
-        ctx.fillStyle = `rgba(${this.style.fill}, 0.9)`;
-        for (const q of c.points) {
-          if (q.k === kMax || q.k < 3) continue;
-          const xx = X(q.k);
-          const yy = Y(q.low);
-          if (xx == null || yy == null) continue;
-          ctx.fillText(`${q.k} sessions`, xx, yy + 5);
+          // the title and the odds at the top of the block
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          ctx.font = "600 11px system-ui, sans-serif";
+          ctx.fillStyle = "rgba(148, 163, 184, 0.95)";
+          const cx = x0 + w / 2;
+          const narrow = w < 110; // the 5-session block is only a few bars wide: shorter title, odds on two lines
+          ctx.fillText(narrow ? `Next ${q.k}` : `Next ${q.k} sessions`, cx, 8);
+          if (q.up != null && q.down != null) {
+            ctx.font = "500 10px system-ui, sans-serif";
+            if (narrow) {
+              ctx.fillText(`${q.up}% up`, cx, 22);
+              ctx.fillText(`${q.down}% down`, cx, 34);
+            } else ctx.fillText(`${q.up}% up · ${q.down}% down`, cx, 22);
+          }
         }
         ctx.restore();
       });
@@ -159,7 +153,12 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
     return {
       priceRange: {
         minValue: Math.min(c.anchor, ...c.points.map((q) => q.low)),
-        maxValue: Math.max(c.anchor, ...c.points.map((q) => q.high)),
+        // headroom above the highest price for the block titles
+        maxValue: (() => {
+          const hi = Math.max(c.anchor, ...c.points.map((q) => q.high));
+          const lo = Math.min(c.anchor, ...c.points.map((q) => q.low));
+          return hi + (hi - lo) * 0.14;
+        })(),
       },
     };
   }

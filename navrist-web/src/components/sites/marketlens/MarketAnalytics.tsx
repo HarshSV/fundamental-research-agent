@@ -6,6 +6,7 @@ import { fetchJson } from "@/lib/api";
 import { SlidingTabs } from "./controls";
 import { navigateTo } from "./scanners";
 import { AnalyticsTabs } from "./AnalyticsTabs";
+import { MarketPulse } from "./MarketPulse";
 import { SectorHistory } from "./SectorHistory";
 import { SectorOutlook } from "./SectorOutlook";
 
@@ -79,6 +80,7 @@ function Sectors() {
   ];
   return (
     <div>
+      <MarketPulse />
       <p className="mb-4 max-w-3xl text-sm" style={{ color: "var(--text-secondary)" }}>
         Each sector is the equal-weighted average of its scanned stocks ({data.stocks} stocks up to date). Strong sectors are where money is flowing; even average
         stocks in them tend to follow. Click a column to sort, a sector to see its companies.

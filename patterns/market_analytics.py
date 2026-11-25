@@ -171,6 +171,32 @@ def sectors() -> dict:
     return {"stocks": len(group), "benchmark": "Nifty 500", "benchmark_returns": bret, "sectors": out}
 
 
+_PULSE: dict = {"at": 0.0, "val": None}
+
+
+def pulse() -> dict:
+    """Every stock's move today, grouped for the Sector Analytics dot strip: [symbol, name, sector, 1-day change %]. A stock whose
+    1-day change cannot be worked out is left out (never counted as flat); BSE-only stocks without an NSE sector are not put in a made-up one."""
+    import time
+    if _PULSE["val"] is not None and time.time() - _PULSE["at"] < 120:
+        return _PULSE["val"]
+    rows = scan._load_all()
+    if not rows:
+        return {"stocks": 0, "rows": []}
+    latest, group = _latest_rows(rows)
+    out = []
+    for r in group:
+        ch = _change(r.get("closes") or [], 1)
+        if ch is None:
+            continue
+        if not r.get("sector") and r.get("exchange") == "BSE":
+            continue
+        out.append([r.get("symbol"), r.get("name"), r.get("sector") or "Unclassified", round(ch, 2)])
+    val = {"as_of": _iso((latest + IST) // DAY), "stocks": len(out), "rows": out}
+    _PULSE.update(at=time.time(), val=val)
+    return val
+
+
 def rrg(timeframe: str = "weekly", benchmark: str = "nifty50", trail: int = 8) -> dict:
     """Sector rotation graph data: each sector's current quadrant, RS-Ratio and RS-Momentum, and its recent path."""
     rows = scan._load_all()

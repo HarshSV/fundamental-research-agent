@@ -36,6 +36,11 @@ def make_router(require_session):
         """Sector strength table: returns over several periods against the Nifty 500, breadth inside the sector, RS and quadrant."""
         return market_analytics.sectors()
 
+    @r.get("/api/v1/market/pulse")
+    def market_pulse(_: dict = Depends(require_session)):
+        """Every stock's move today with its sector, for the Sector Analytics dot strip."""
+        return market_analytics.pulse()
+
     @r.get("/api/v1/market/rrg")
     def market_rrg(timeframe: str = "weekly", benchmark: str = "nifty50", trail: int = 8, _: dict = Depends(require_session)):
         """Sector rotation graph: quadrant, RS-Ratio, RS-Momentum and the recent path of every sector."""
