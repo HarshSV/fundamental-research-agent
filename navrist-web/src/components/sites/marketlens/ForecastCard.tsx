@@ -3,12 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { SlidingTabs, Switch } from "./controls";
 import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, Newspaper, Sparkles } from "lucide-react";
+import { ForecastFan } from "./ForecastFan";
 import { ForecastStrip } from "./ForecastStrip";
 import { fetchJson } from "@/lib/api";
-import {
-  ALERTS_EVENT, alertsForPlan, connectTelegram, fetchAlerts, removeAlerts, saveAlertsFor, testTelegram,
-  type Alert, type TelegramStatus,
-} from "./alerts";
 import { basisNote, type Events, type Forecast, type Horizon, type Odds, type Plan, type Replay, type TradeBlock } from "./forecast";
 
 const GAIN = "var(--gain)";
@@ -20,10 +17,6 @@ const n = (v: number | null | undefined, d = 2) =>
   v == null ? "—" : v.toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const inr = (v: number | null | undefined, d = 2) => (v == null ? "—" : `₹${n(v, d)}`);
 const sgn = (v: number | undefined) => (v == null ? "—" : `${v > 0 ? "+" : ""}${n(v, 1)}%`);
-
-function Label({ children }: { children: React.ReactNode }) {
-  return <div className="mb-3 text-xs font-medium uppercase tracking-wider" style={{ color: MUTED }}>{children}</div>;
-}
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -276,7 +269,7 @@ function Tile({ label, value, sub, color }: { label: string; value: string; sub?
   );
 }
 
-function Trade({ title, b, daily, onAlert, hasAlerts }: { title: string; b: TradeBlock; daily: boolean; onAlert: () => void; hasAlerts: boolean }) {
+function Trade({ title, b, daily }: { title: string; b: TradeBlock; daily: boolean }) {
   const p: Plan | null | undefined = b.plan;
   const t1 = p?.targets[0];
   const long = p?.side === "long";
@@ -308,10 +301,6 @@ function Trade({ title, b, daily, onAlert, hasAlerts }: { title: string; b: Trad
               <li key={w} style={{ color: LOSS }}>{w}</li>
             ))}
           </ul>
-          <button onClick={onAlert} disabled={hasAlerts} className="mt-4 min-h-10 self-start rounded-full border px-3.5 py-2 text-xs font-medium sm:min-h-0 sm:py-1.5 enabled:hover:border-[var(--accent-border)] disabled:opacity-60"
-            style={{ borderColor: "var(--border-default)", color: SOFT }}>
-            {hasAlerts ? "Alerts set for this stock" : "Alert me at the entry, stop and target"}
-          </button>
         </>
       ) : (
         <p className="mt-4 text-sm leading-relaxed" style={{ color: SOFT }}>{b.decision.reason}</p>
@@ -410,59 +399,34 @@ export function News({ symbol }: { symbol: string }) {
   );
 }
 
-/** Telegram link status and the alerts set for this stock. */
-function Alerts({ symbol, alerts, tg }: { symbol: string; alerts: Alert[]; tg: TelegramStatus | null }) {
-  const [msg, setMsg] = useState("");
-  const [busy, setBusy] = useState(false);
-  const run = async (f: () => Promise<unknown>) => {
-    setBusy(true);
-    setMsg("");
-    try {
-      const r = (await f()) as { connected?: boolean; reason?: string } | undefined;
-      if (r && r.connected === false) setMsg(r.reason ?? "Not connected yet.");
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "That did not work.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="border-t pt-4 text-sm" style={{ borderColor: "var(--border-subtle)" }}>
-      <div className="mb-2 flex items-baseline justify-between">
-        <span className="font-medium">Your alerts</span>
-        {alerts.length > 0 && <button className="text-xs underline" style={{ color: MUTED }} onClick={() => removeAlerts(symbol)}>Remove all</button>}
-      </div>
-      {alerts.map((a) => (
-        <div key={a.id} className="flex justify-between py-0.5">
-          <span style={{ color: SOFT }}>{a.kind === "exit" ? "Close the trade" : a.kind === "entry" ? "Entry reached" : a.kind === "stop" ? "Stop hit" : "Target hit"}</span>
-          <span className="nv-num" style={{ color: a.kind === "stop" ? LOSS : a.kind === "target" ? GAIN : undefined }}>{a.price != null ? `${a.dir === "above" ? "at or above" : "at or below"} ${inr(a.price)}` : "15:25"}</span>
-        </div>
-      ))}
-      {tg?.configured && !tg.connected && (
-        <div className="mt-2 text-xs" style={{ color: MUTED }}>
-          {tg.bot ? <>Open <a className="underline" href={`https://t.me/${tg.bot}`} target="_blank" rel="noopener noreferrer">@{tg.bot}</a> in Telegram and press Start, then </> : "Press Start on your bot in Telegram, then "}
-          <button disabled={busy} onClick={() => run(connectTelegram)} className="underline" style={{ color: SOFT }}>connect</button>.
-        </div>
-      )}
-      {tg?.connected && (
-        <p className="mt-2 text-xs" style={{ color: MUTED }}>
-          Alerts are also sent to your Telegram, even when this site is closed.{" "}
-          <button disabled={busy} onClick={() => run(testTelegram)} className="underline" style={{ color: SOFT }}>Send a test message</button>
-        </p>
-      )}
-      {msg && <p className="mt-1 text-xs" style={{ color: LOSS }}>{msg}</p>}
-    </div>
-  );
-}
-
-
 const SPAN: Record<Horizon["id"], string> = { session: "the next session", week: "the next 5 sessions", month: "the next 20 sessions" };
 const SPAN_TAB: Record<Horizon["id"], string> = { session: "1 day", week: "1 week", month: "1 month" };
 
 /** The answer first: one sentence, how sure we are, and where the price should land. Everything else sits behind "See the reasoning". */
-function Verdict({ data }: { data: Forecast }) {
+function Verdict({ data, chart }: { data: Forecast; chart: boolean }) {
   const [hid, setHid] = useState<Horizon["id"]>("week");
   const { ref, seen } = useInView<HTMLDivElement>();
+  // the forecast chart (switched on beside "Highlights") slides in over this block from the left, and slides back out to the left when switched off
+  const [mounted, setMounted] = useState(false);
+  const [slideIn, setSlideIn] = useState(false);
+  const [plays, setPlays] = useState(0);
+  const hasFan = Boolean(data.fan && data.fan.paths.length >= 20);
+  useEffect(() => {
+    // mount the panel off to the left first, then let it slide in on the next frame (and out again when switched off)
+    let id2 = 0;
+    const id1 = requestAnimationFrame(() => {
+      if (chart && hasFan) {
+        setMounted(true);
+        setPlays((n) => n + 1);
+        id2 = requestAnimationFrame(() => setSlideIn(true));
+      } else setSlideIn(false);
+    });
+    return () => {
+      cancelAnimationFrame(id1);
+      cancelAnimationFrame(id2);
+    };
+  }, [chart, hasFan]);
+  const slide = reduced() ? "none" : `transform 640ms ${EASE}, opacity 420ms ease`;
   const h = data.outlook.find((x) => x.id === hid) ?? data.outlook[0];
   const span = SPAN[h.id];
   const dp = (h.price_mid ?? data.price ?? 1000) < 100 ? 2 : 0;      // a ₹16 stock needs its paise
@@ -473,7 +437,8 @@ function Verdict({ data }: { data: Forecast }) {
   const headline = h.up == null ? `Not enough history to forecast ${span}` : call === "up" ? `Leans up over ${span}${odds}` : call === "down" ? `Leans down over ${span}${odds}` : `Too close to call over ${span}${odds}`;
   const lean = h.up == null ? null : call === "even" || call == null ? "The odds are about even" : `${h.conviction ? h.conviction[0].toUpperCase() + h.conviction.slice(1) : "Clear"} lean`;
   return (
-    <div ref={ref} className="rounded-2xl border p-6 md:p-8" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+    <div ref={ref} className="relative overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
+      <div className="p-6 md:p-8" style={{ transform: slideIn ? "translateX(7%)" : "none", opacity: slideIn ? 0 : 1, transition: slide, pointerEvents: slideIn ? "none" : "auto" }} aria-hidden={slideIn}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full" style={{ background: "var(--overlay-weak)", color, transition: "color 300ms ease" }}>
@@ -512,78 +477,63 @@ function Verdict({ data }: { data: Forecast }) {
           )}
         </div>
       )}
-
+      </div>
+      {mounted && hasFan && (
+        <div className="absolute inset-0 p-4 md:px-8 md:py-6" style={{ transform: slideIn ? "none" : "translateX(-104%)", opacity: slideIn ? 1 : 0, transition: slide, pointerEvents: slideIn ? "auto" : "none", background: "var(--surface-1)" }} aria-hidden={!slideIn}>
+          <ForecastFan data={data} play={plays} />
+        </div>
+      )}
     </div>
   );
 }
 
 /** The one Forecast section on the stock page: outlook, trade plan with replay odds, levels, evidence and position size. */
 export function ForecastCard({
-  data, error, showLevels, onToggleLevels,
-}: { data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void }) {
-  return <ForecastBody data={data} error={error} showLevels={showLevels} onToggleLevels={onToggleLevels} />;
+  data, error, showLevels, onToggleLevels, chart = false,
+}: { data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void; chart?: boolean }) {
+  return <ForecastBody data={data} error={error} showLevels={showLevels} onToggleLevels={onToggleLevels} chart={chart} />;
+}
+
+/** One folding line: a label with a down arrow that turns over when it is open. */
+function FoldRow({ label, open, onClick }: { label: string; open: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} aria-expanded={open} className="flex w-full min-h-12 items-center justify-between gap-3 border-t py-3 text-left text-sm font-medium hover:opacity-80" style={{ borderColor: "var(--border-subtle)", color: SOFT }}>
+      <span>{label}</span>
+      <ChevronDown className="h-4 w-4 shrink-0" style={{ transform: open ? "rotate(180deg)" : "none", transition: reduced() ? "none" : "transform 400ms ease" }} aria-hidden />
+    </button>
+  );
 }
 
 function ForecastBody({
-  data, error, showLevels, onToggleLevels,
-}: { data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void }) {
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [tg, setTg] = useState<TelegramStatus | null>(null);
-  const [open, setOpen] = useState(false);
-  const sym = data?.symbol;
-  useEffect(() => {
-    if (!sym) return;
-    let alive = true;
-    const read = () =>
-      fetchAlerts()
-        .then((r) => {
-          if (!alive) return;
-          setAlerts(r.alerts.filter((a) => a.sym === sym && !a.fired));
-          setTg(r.telegram);
-        })
-        .catch(() => {});
-    read();
-    window.addEventListener(ALERTS_EVENT, read);
-    return () => {
-      alive = false;
-      window.removeEventListener(ALERTS_EVENT, read);
-    };
-  }, [sym]);
-  const setFor = (plan: Plan, sameDay: boolean) => {
-    if (!data) return;
-    if (typeof Notification !== "undefined" && Notification.permission === "default") Notification.requestPermission().catch(() => {});
-    saveAlertsFor(alertsForPlan(data.symbol, data.symbol, plan, data.price, sameDay)).catch(() => {});
-  };
+  data, error, showLevels, onToggleLevels, chart,
+}: { data: Forecast | null; error: boolean; showLevels: boolean; onToggleLevels: () => void; chart: boolean }) {
+  // two folding lines under the verdict; opening one closes the other, so only one is on show at a time
+  const [panel, setPanel] = useState<"plan" | "why" | null>(null);
+  const pick = (p: "plan" | "why") => setPanel((cur) => (cur === p ? null : p));
   if (error) return <p className="text-sm" style={{ color: MUTED }}>The forecast could not be worked out for this stock right now.</p>;
   if (data === null) return <div className="h-40 animate-pulse rounded-lg" style={{ background: "var(--overlay-weak)" }} aria-label="Working out the forecast" />;
   if (!data.outlook) return <p className="text-sm" style={{ color: MUTED }}>No price history could be read for this stock under this symbol (it may be newly listed or have been renamed), so no forecast can be made. News is still available above.</p>;
   const hasLevels = Boolean(data.today.setup?.range_high != null || data.today.plan || data.swing.plan);
   return (
     <div>
-      <Verdict data={data} />
+      <Verdict data={data} chart={chart} />
       {basisNote(data) && <p className="mt-3 text-xs" style={{ color: MUTED }}>{basisNote(data)}{data.forecast_basis ? " The odds are the index's, applied to this fund's price; a trade plan needs the fund's own history." : ""}</p>}
 
-      <div className="mt-10">
-        <Label>When to buy and when to get out</Label>
-        <div className="grid items-stretch gap-5 lg:grid-cols-2">
-          <Trade title={data.market_open && !data.session_late ? "Today" : "Next session"} b={data.today} daily={false} hasAlerts={alerts.length > 0} onAlert={() => data.today.plan && setFor(data.today.plan, true)} />
-          <Trade title="Swing, up to 10 sessions" b={data.swing} daily hasAlerts={alerts.length > 0} onAlert={() => data.swing.plan && setFor(data.swing.plan, false)} />
-        </div>
-        {(alerts.length > 0 || tg?.configured) && <div className="mt-6"><Alerts symbol={data.symbol} alerts={alerts} tg={tg} /></div>}
+      <div className="mt-5 border-b" style={{ borderColor: "var(--border-subtle)" }}>
+        <FoldRow label="When to buy and when to get out" open={panel === "plan"} onClick={() => pick("plan")} />
+        {panel === "plan" && (
+          <div className="nv-rise pb-6 pt-2">
+            <div className="grid items-stretch gap-5 lg:grid-cols-2">
+              <Trade title={data.market_open && !data.session_late ? "Today" : "Next session"} b={data.today} daily={false} />
+              <Trade title="Swing, up to 10 sessions" b={data.swing} daily />
+            </div>
+          </div>
+        )}
+        <FoldRow label="See the reasoning" open={panel === "why"} onClick={() => pick("why")} />
       </div>
 
-      <button
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="mt-8 flex min-h-10 items-center gap-1.5 text-sm font-medium hover:opacity-80 sm:min-h-0"
-        style={{ color: SOFT }}
-      >
-        {open ? "Hide the reasoning" : "See the reasoning"}
-        <ChevronDown className="h-4 w-4" style={{ transform: open ? "rotate(180deg)" : "none", transition: reduced() ? "none" : "transform 400ms ease" }} aria-hidden />
-      </button>
-
-      {open && (
-        <div className="nv-rise mt-8">
+      {panel === "why" && (
+        <div className="nv-rise mt-6">
           <div className="relative mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" style={{ color: MUTED }}>
             <span>{data.market_open ? "Market open" : "Market closed"}</span>
             {data.segment && <span>{data.segment}</span>}

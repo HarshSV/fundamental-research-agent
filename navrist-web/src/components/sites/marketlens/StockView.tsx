@@ -363,7 +363,7 @@ export function StockView({
   // Which basis each two-basis Key Metric shows; the switch beside the section title sets them all at once.
   const [views, setViews] = useState<Record<string, Basis>>({});
   const [showMore, setShowMore] = useState(false);
-  const [showCone, setShowCone] = useState(!scan?.listScan);      // from a setup / market list the chart opens like the scanner's card, without the forecast shading
+  const [forecastChart, setForecastChart] = useState(false);      // the forecast chart slides over the Forecast block when this is on
   const [candleSize, setCandleSize] = useState<CandleSize>(scan?.candle ?? "d");     // one candle per day, week, month or year (daily-based ranges only)
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
   // Until it has some history, longer ranges fall back to the intraday 1D view (and say so).
@@ -805,7 +805,6 @@ export function StockView({
                   />
                   <RangeCalendar value={customRange} onApply={setCustomRange} onClear={() => setCustomRange(null)} />
                 </div>
-                {!isIntraday && coneData && <Switch on={showCone} onChange={() => setShowCone((v) => !v)} label="Forecast" title="Shade where the price is likely to be over the next 5 and 20 sessions" />}
                 <ChartLinesMenu groups={lineGroups} on={lineOn} onToggle={toggleLine} onReset={() => setLineOn(DEFAULT_LINES)} count={Object.entries(lineOn).filter(([k, v]) => v && !(isIntraday && k.startsWith("sma"))).length} />
               </div>
               {showPatterns && (
@@ -873,7 +872,6 @@ export function StockView({
               onSelect={setSelectedId}
               scan={scanOverlay}
               levels={chartLevels}
-              cone={showCone && !isIntraday && !foldedOn ? coneData : null}
               averages={isIntraday || (foldedOn && !weeklyOn) ? undefined : weeklyOn ? [10, 40] : SMA_PERIODS.filter((n) => lineOn[`sma${n}`])}      // weekly: the 10 and 40 week averages, as MarketSmith draws them
               history={foldedOn ? weeklyHistory : daily ?? undefined}
               projectFrom={foldedOn ? null : coneData}
@@ -936,7 +934,7 @@ export function StockView({
       <section className="border-t py-10" style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto w-full max-w-7xl px-4">
           <SectionTitle
-            beside={<span className="flex items-center gap-4"><News symbol={stock.symbol} /><Highlights data={forecastData?.data ?? null} loading={forecastData === null} error={Boolean(forecastData?.error)} /></span>}
+            beside={<span className="flex items-center gap-4"><News symbol={stock.symbol} /><Highlights data={forecastData?.data ?? null} loading={forecastData === null} error={Boolean(forecastData?.error)} />{(forecastData?.data?.fan?.paths.length ?? 0) >= 20 && <Switch on={forecastChart} onChange={() => setForecastChart((v) => !v)} label="Forecast chart" title="Slide in a chart of how this stock's similar past days played out, with the forecast range over it" />}</span>}
             aside={
               <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
                 <span className="hidden sm:inline">Learns from</span>
@@ -957,6 +955,7 @@ export function StockView({
             error={Boolean(forecastData?.error)}
             showLevels={showForecastLevels}
             onToggleLevels={() => setShowForecastLevels((v) => !v)}
+            chart={forecastChart}
           />
         </div>
       </section>
