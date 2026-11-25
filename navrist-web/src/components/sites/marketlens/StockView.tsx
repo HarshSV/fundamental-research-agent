@@ -14,6 +14,8 @@ import {
 } from "./patterns";
 import { marketOpen } from "./marketHours";
 import { ForecastCard, Highlights, News } from "./ForecastCard";
+import { DrawToolbar, type DrawState } from "./DrawToolbar";
+import { COLORS, type DrawLayer } from "./drawLayer";
 import { CandleLoader } from "./CandleLoader";
 import { ChartLinesMenu, type LineGroup } from "./ChartLinesMenu";
 import { fetchForecast, forecastCone, forecastLevels, type FcWindow, type Forecast } from "./forecast";
@@ -363,6 +365,8 @@ export function StockView({
   // Which basis each two-basis Key Metric shows; the switch beside the section title sets them all at once.
   const [views, setViews] = useState<Record<string, Basis>>({});
   const [showMore, setShowMore] = useState(false);
+  const [drawState, setDrawState] = useState<DrawState>({ tool: "cursor", magnet: false, hidden: false, color: COLORS[0] });      // the drawing tools bar
+  const [drawLayer, setDrawLayer] = useState<DrawLayer | null>(null);
   const [showCone, setShowCone] = useState(true);      // the forecast drawn ahead of the last candle, like TradingView's price target
   const [candleSize, setCandleSize] = useState<CandleSize>(scan?.candle ?? "d");     // one candle per day, week, month or year (daily-based ranges only)
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
@@ -705,12 +709,12 @@ export function StockView({
 
   return (
     <div className="w-full">
-      <section className="relative mx-auto w-full max-w-7xl px-4 pb-8 pt-8">
-        <button onClick={onBack} className="mb-3 flex min-h-[44px] items-center gap-2 text-sm hover:text-[var(--accent)] sm:mb-5 sm:min-h-0 min-[1440px]:absolute min-[1440px]:right-full min-[1440px]:top-8 min-[1440px]:mb-0 min-[1440px]:mr-3 min-[1440px]:min-h-0 min-[1440px]:whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+      <section className="relative mx-auto w-full max-w-7xl px-4 pb-4 pt-4">
+        <button onClick={onBack} className="mb-2 flex min-h-[44px] items-center gap-2 text-sm hover:text-[var(--accent)] sm:mb-3 sm:min-h-0 min-[1440px]:absolute min-[1440px]:right-full min-[1440px]:top-8 min-[1440px]:mb-0 min-[1440px]:mr-3 min-[1440px]:min-h-0 min-[1440px]:whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
           <ArrowLeft className="h-4 w-4" /> Back
         </button>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-3xl font-bold tracking-tight">{name}</h1>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="text-2xl font-bold tracking-tight">{name}</h1>
           {stock.primary_exchange ? (
             <span className="rounded-full border px-3 py-0.5 text-xs" style={{ color: "var(--text-tertiary)", borderColor: "var(--border-default)" }}>
               {String(stock.primary_exchange)}
@@ -722,16 +726,16 @@ export function StockView({
             </span>
           ) : null}
           <WatchStar symbol={stock.symbol} name={String(name)} />
-        </div>
-        <div className="mt-2 text-sm" style={{ color: "var(--text-tertiary)" }}>{stock.symbol}</div>
-        <div className="mt-6 flex flex-wrap items-center gap-4">
-          <span className="text-4xl font-bold">{quote ? inr(ltp) : "Loading…"}</span>
+          <span className="text-sm" style={{ color: "var(--text-tertiary)" }}>{stock.symbol}</span>
+          <div className="flex flex-wrap items-center gap-x-3 sm:ml-auto">
+          <span className="text-2xl font-bold">{quote ? inr(ltp) : "Loading…"}</span>
           {pct != null && (
             <span className="flex items-center gap-1 text-base font-medium" style={{ color: up ? GAIN : LOSS }}>
               {up ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
               {up ? "+" : ""}{fmt(quote?.change)} ({up ? "+" : ""}{fmt(pct)}%)
             </span>
           )}
+          </div>
         </div>
         {error && <p className="mt-3 text-sm" style={{ color: "#f5a9a9" }}>{error}</p>}
       </section>
@@ -860,7 +864,9 @@ export function StockView({
           {shown === null && !error ? (
             <div className="flex h-[320px] items-center justify-center"><CandleLoader label="Loading chart…" /></div>
           ) : shown && shown.length > 1 ? (
-            <div className="relative">
+            <div className="flex flex-col gap-2 sm:flex-row">
+            <DrawToolbar state={drawState} onChange={setDrawState} layer={drawLayer} />
+            <div className="relative min-w-0 flex-1">
             <StockChart
               candles={shown}
               dataKey={shownKey}
@@ -876,6 +882,10 @@ export function StockView({
               history={foldedOn ? weeklyHistory : daily ?? undefined}
               cone={showCone && !isIntraday && !foldedOn ? coneData : null}
               projectFrom={foldedOn ? null : coneData}
+              drawKey={stock.symbol}
+              draw={drawState}
+              onDrawTool={(t) => setDrawState((d) => (d.tool === t ? d : { ...d, tool: t }))}
+              onDrawLayer={setDrawLayer}
             />
             {switching && (
               <span
@@ -885,6 +895,7 @@ export function StockView({
                 aria-label="Loading chart"
               />
             )}
+            </div>
             </div>
           ) : (
             <div className="flex h-[320px] flex-col items-center justify-center gap-3 text-sm" style={{ color: "var(--text-tertiary)" }}>

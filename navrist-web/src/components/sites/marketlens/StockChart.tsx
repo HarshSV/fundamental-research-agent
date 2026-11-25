@@ -6,6 +6,8 @@ import {
 } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ConePrimitive, type Cone } from "./cone";
+import { DrawLayer, type Drawing, type Tool } from "./drawLayer";
+import type { DrawState } from "./DrawToolbar";
 import { OUTCOME_COLOR, STATUS_COLOR, markerOf, measuredTarget, type MarkerKind, type PatternOcc } from "./patterns";
 import type { Resistance, ScanOccurrence } from "./patternScan";
 import type { Candle } from "./PriceChart";
@@ -66,7 +68,7 @@ function toBars(cs: Candle[], intraday: boolean) {
  * the stock was opened from a scanner, that scan's pattern lines, levels and horizontal resistance.
  */
 export function StockChart({
-  candles, dataKey, intraday, chartStyle, showVolume, occs, selectedId, onSelect, scan, levels, cone, averages, history, projectFrom, height = 440,
+  candles, dataKey, intraday, chartStyle, showVolume, occs, selectedId, onSelect, scan, levels, cone, averages, history, projectFrom, height = 440, drawKey, draw, onDrawTool, onDrawLayer,
 }: {
   candles: Candle[];
   dataKey: string; // changes when the DATASET changes (range switch), not on live updates: refits the view
@@ -83,8 +85,21 @@ export function StockChart({
   history?: Candle[]; // the full daily history the averages are worked out from (the shown range alone is too short for a 200-day average)
   projectFrom?: Cone | null; // when set, each average continues to the right as a dashed line, assuming the price follows the forecast's middle
   height?: number;
+  /** drawing tools: the stock the drawings belong to, the toolbar's state, and where the layer is handed back to the toolbar */
+  drawKey?: string;
+  draw?: DrawState;
+  onDrawTool?: (t: Tool) => void;
+  onDrawLayer?: (l: DrawLayer | null) => void;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
+  const drawCv = useRef<HTMLCanvasElement>(null);
+  const layerRef = useRef<DrawLayer | null>(null);
+  const onDrawToolRef = useRef(onDrawTool);
+  const onDrawLayerRef = useRef(onDrawLayer);
+  useEffect(() => {
+    onDrawToolRef.current = onDrawTool;
+    onDrawLayerRef.current = onDrawLayer;
+  }, [onDrawTool, onDrawLayer]);
   const chartRef = useRef<IChartApi | null>(null);
   const savedRange = useRef<{ from: number; to: number } | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null>(null);
@@ -151,6 +166,57 @@ export function StockChart({
     };
   }, [intraday, height]);
 
+  // 1b. the drawing layer over the chart: drawings are kept per stock in this browser, in time and price
+  useEffect(() => {
+    const el = boxRef.current;
+    const cv = drawCv.current;
+    const chart = chartRef.current;
+    if (!el || !cv || !chart || !drawKey) return;
+    const storeKey = `navrist.drawings.${drawKey}`;
+    const layer = new DrawLayer(cv, el, chart, {
+      changed: (list) => {
+        try {
+          localStorage.setItem(storeKey, JSON.stringify(list));
+        } catch {
+          /* storage is full or blocked: the drawings stay for this visit */
+        }
+      },
+      tool: (t) => onDrawToolRef.current?.(t),
+      askText: () => window.prompt("Note text") || null,
+      ohlcAt: (t) => {
+        const bars = dataRef.current.bars;
+        if (!bars.length) return null;
+        const secs = (b: Time) => (typeof b === "number" ? b : Date.parse(`${b}T00:00:00Z`) / 1000);
+        let lo = 0;
+        let hi = bars.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if (secs(bars[mid].time) <= t) lo = mid;
+          else hi = mid - 1;
+        }
+        const b = bars[lo];
+        return [b.open, b.high, b.low, b.close];
+      },
+    });
+    try {
+      const saved = JSON.parse(localStorage.getItem(storeKey) ?? "[]") as Drawing[];
+      layer.setDrawings(Array.isArray(saved) ? saved : []);
+    } catch {
+      layer.setDrawings([]);
+    }
+    layer.resize(el.clientWidth, height);
+    const ro = new ResizeObserver(() => layer.resize(el.clientWidth, height));
+    ro.observe(el);
+    layerRef.current = layer;
+    onDrawLayerRef.current?.(layer);
+    return () => {
+      ro.disconnect();
+      layer.destroy();
+      layerRef.current = null;
+      onDrawLayerRef.current?.(null);
+    };
+  }, [intraday, height, drawKey]);
+
   // 2. the price series (candles or line) and the volume bars, rebuilt when the style or volume toggles
   useEffect(() => {
     const chart = chartRef.current;
@@ -167,6 +233,7 @@ export function StockChart({
     if (chartStyle === "candles") (series as ISeriesApi<"Candlestick">).setData(bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
     else (series as ISeriesApi<"Line">).setData([...bars.map((b) => ({ time: b.time, value: b.close })), ...ticks]);
     seriesRef.current = series;
+    layerRef.current?.setSeries(series);
     markersRef.current = createSeriesMarkers(series, []);
     if (showVolume) {
       const vol = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
@@ -189,6 +256,27 @@ export function StockChart({
       markersRef.current = null;
     };
   }, [intraday, height, chartStyle, showVolume]);
+
+  // 2b. the drawings follow the data (their time axis is the bars') and the toolbar
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    const secs = (b: Time) => (typeof b === "number" ? b : Date.parse(`${b}T00:00:00Z`) / 1000);
+    const times = data.bars.map((b) => secs(b.time));
+    if (chartStyle === "line") for (const t of data.ticks) times.push(secs(t.time));
+    layer.tm.set(times);
+    layer.invalidate();
+  }, [data, chartStyle, intraday, height, drawKey]);
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer || !draw) return;
+    layer.magnet = draw.magnet;
+    layer.setHidden(draw.hidden);
+    if (layer.tool !== draw.tool) layer.setTool(draw.tool);
+  }, [draw?.magnet, draw?.hidden, draw?.tool, intraday, height, drawKey]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (draw) layerRef.current?.setColor(draw.color);
+  }, [draw?.color, intraday, height, drawKey]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // 3. data changes: a new range refits the view; a live refresh only touches the newest bars so zoom and position are kept
   useEffect(() => {
@@ -487,6 +575,7 @@ export function StockChart({
         </div>
       )}
       <div ref={boxRef} style={{ height }} />
+      {drawKey && <canvas ref={drawCv} className="absolute left-0 top-0" style={{ pointerEvents: "none", zIndex: 20 }} />}
     </div>
   );
 }
