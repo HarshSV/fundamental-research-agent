@@ -87,7 +87,7 @@ export interface DrawHooks {
   ohlcAt(t: number): number[] | null;
 }
 
-const HIT = 7;
+const HIT = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches ? 14 : 7;
 
 export class DrawLayer {
   tool: Tool = "cursor";
@@ -113,9 +113,14 @@ export class DrawLayer {
 
   constructor(private canvas: HTMLCanvasElement, private host: HTMLElement, private chart: IChartApi, private hooks: DrawHooks) {
     this.ctx = canvas.getContext("2d")!;
-    const on = (el: HTMLElement | Window | Document, type: string, fn: (e: never) => void, capture = false) => {
-      el.addEventListener(type, fn as EventListener, capture);
+    const on = (el: HTMLElement | Window | Document, type: string, fn: (e: never) => void, capture = false, passive = true) => {
+      el.addEventListener(type, fn as EventListener, { capture, passive });
       this.off.push(() => el.removeEventListener(type, fn as EventListener, capture));
+    };
+    // a touch is turned into the same call a mouse press makes, so one set of rules serves both
+    const tp = (e: TouchEvent) => {
+      const t = e.touches[0] ?? e.changedTouches[0];
+      return { clientX: t.clientX, clientY: t.clientY, button: 0, target: e.target, preventDefault: () => e.preventDefault(), stopPropagation: () => e.stopPropagation() } as unknown as MouseEvent;
     };
     // the time axis moves (pan, zoom, new bars): repaint inside the same frame, so the drawings never trail the candles
     const rangeCb = () => this.draw();
@@ -146,6 +151,20 @@ export class DrawLayer {
     on(window, "mousemove", (e: MouseEvent) => this.onMove(e));
     on(window, "mouseup", () => this.onUp());
     on(document, "keydown", (e: KeyboardEvent) => this.onKey(e));
+    // touch: a finger on a drawing picks it up (the chart does not pan), a finger on the chart with a tool chosen draws; otherwise the chart pans and pinches as usual
+    on(host, "touchstart", (e: TouchEvent) => { if (e.touches.length === 1) this.onHostDown(tp(e)); }, true, false);
+    on(canvas, "touchstart", (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      e.preventDefault();      // no scrolling and no echoed mouse press
+      this.onDown(tp(e));
+    }, false, false);
+    on(window, "touchmove", (e: TouchEvent) => {
+      if (!this.drag && !this.draft) return;
+      e.preventDefault();
+      this.onMove(tp(e));
+    }, false, false);
+    on(window, "touchend", () => this.onUp());
+    on(window, "touchcancel", () => this.onUp());
   }
 
   destroy() {
@@ -194,6 +213,7 @@ export class DrawLayer {
     this.draft = null;
     if (t !== "measure") this.measureShown = null;
     this.canvas.style.pointerEvents = t === "cursor" ? "none" : "auto";
+    this.canvas.style.touchAction = t === "cursor" ? "auto" : "none";
     this.canvas.style.cursor = t === "cursor" ? "default" : "crosshair";
     if (t !== "cursor") this.selected = null;
     this.invalidate();
@@ -352,6 +372,7 @@ export class DrawLayer {
     }
     e.stopPropagation(); // the press is for the drawing, not for the chart
     e.preventDefault();
+    this.canvas.style.touchAction = "none";
     this.grab(d, h != null && d === sel ? h : null, px);
   }
   private grab(d: Drawing, handle: number | null, px: Px) {
@@ -423,6 +444,7 @@ export class DrawLayer {
     }
   }
   private onUp() {
+    this.canvas.style.touchAction = this.tool === "cursor" ? "auto" : "none";
     if (this.drag) {
       this.drag = null;
       this.save();

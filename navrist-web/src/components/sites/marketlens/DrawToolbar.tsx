@@ -25,7 +25,7 @@ export interface DrawState {
 
 /** The drawing tools' bar that sits to the left of the price chart (a row above it on a narrow screen). */
 export function DrawToolbar({ state, onChange, layer }: { state: DrawState; onChange: (s: DrawState) => void; layer: DrawLayer | null }) {
-  const btn = "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--overlay-weak)]";
+  const btn = "flex h-7 w-7 shrink-0 pointer-coarse:h-9 pointer-coarse:w-9 items-center justify-center rounded-md transition-colors hover:bg-[var(--overlay-weak)]";
   const on = (active: boolean): React.CSSProperties => ({ background: active ? "var(--overlay)" : "transparent", color: active ? "var(--text-primary)" : "var(--text-secondary)" });
   const next = () => COLORS[(COLORS.indexOf(state.color) + 1) % COLORS.length];
   return (
