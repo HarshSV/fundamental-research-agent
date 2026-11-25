@@ -68,7 +68,7 @@ function toBars(cs: Candle[], intraday: boolean) {
  * the stock was opened from a scanner, that scan's pattern lines, levels and horizontal resistance.
  */
 export function StockChart({
-  candles, dataKey, intraday, chartStyle, showVolume, occs, selectedId, onSelect, scan, levels, cone, averages, history, projectFrom, height = 440, drawKey, draw, onDrawTool, onDrawLayer,
+  candles, dataKey, intraday, chartStyle, showVolume, occs, selectedId, onSelect, scan, levels, cone, averages, history, projectFrom, coneShow = true, height = 440, drawKey, draw, onDrawTool, onDrawLayer,
 }: {
   candles: Candle[];
   dataKey: string; // changes when the DATASET changes (range switch), not on live updates: refits the view
@@ -80,7 +80,8 @@ export function StockChart({
   onSelect: (id: string | null) => void;
   scan?: ScanOverlay | null;
   levels?: { price: number; title: string; color: string; dashed?: boolean }[];
-  cone?: Cone | null; // the forecast fan drawn to the right of the last bar (daily charts only)
+  cone?: Cone | null; // the forecast fan drawn to the right of the last bar (daily charts only); room is kept for it whenever it exists
+  coneShow?: boolean; // the fan is open or closed (it animates; the chart does not move)
   averages?: number[]; // simple moving averages to draw, in days (daily charts only)
   history?: Candle[]; // the full daily history the averages are worked out from (the shown range alone is too short for a 200-day average)
   projectFrom?: Cone | null; // when set, each average continues to the right as a dashed line, assuming the price follows the forecast's middle
@@ -433,42 +434,68 @@ export function StockChart({
   // 5. the forecast fan: a primitive on the price series, with room on the right of the last bar for it
   const coneOn = Boolean(cone) && !intraday && data.bars.length > 0;
   const lastIndex = data.bars.length - 1 + (chartStyle === "line" ? data.ticks.length : 0);
-  useEffect(() => {
-    const chart = chartRef.current;
+  const primRef = useRef<ConePrimitive | null>(null);
+  const tagsRef = useRef<IPriceLine[]>([]);
+  const dropTags = () => {
     const series = seriesRef.current;
-    if (!chart || !series || !coneOn || !cone) return;
+    for (const t of tagsRef.current) {
+      try {
+        series?.removePriceLine(t);
+      } catch {
+        /* the series was already removed */
+      }
+    }
+    tagsRef.current = [];
+  };
+  // the primitive lives as long as the price series does
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || !coneOn) return;
     const prim = new ConePrimitive();
     series.attachPrimitive(prim);
-    const gain = css("--gain", "#10b981");
-    const loss = css("--loss", "#ef4444");
-    prim.set(cone, lastIndex, { gain: "16, 185, 129", loss: "239, 68, 68", mid: cone.tone === "down" ? "239, 68, 68" : cone.tone === "up" ? "16, 185, 129" : "148, 163, 184", text: css("--text-secondary", "#94a3b8"), bg: `color-mix(in srgb, ${css("--surface-1", "#ffffff")} 85%, transparent)` });
-    // the three forecast prices as tags on the price axis (like TradingView's Max / Avg / Min), so no text is written over the candles
-    const far = [...cone.points].filter((q) => q.k >= 5).pop();
-    const tags: IPriceLine[] = [];
-    if (far) {
-      const tag = (label: string, price: number, color: string) => {
-        const ch = (price / cone.anchor - 1) * 100;
-        tags.push(series.createPriceLine({ price, color, lineVisible: false, axisLabelVisible: true, title: `${label} ${ch >= 0 ? "+" : ""}${ch.toFixed(2)}%` }));
-      };
-      tag("High", far.high, gain);
-      tag("Middle", far.mid, far.mid >= cone.anchor ? gain : loss);
-      tag("Low", far.low, loss);
-    }
+    primRef.current = prim;
     return () => {
-      for (const t of tags) {
-        try {
-          series.removePriceLine(t);
-        } catch {
-          /* the series was already removed */
-        }
-      }
+      dropTags();
+      primRef.current = null;
       try {
         series.detachPrimitive(prim);
       } catch {
         /* the series was already removed */
       }
     };
-  }, [cone, coneOn, lastIndex, chartStyle, showVolume, intraday, height]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coneOn, chartStyle, showVolume, intraday, height]);
+  // its data (a live bar moves the starting point)
+  useEffect(() => {
+    const prim = primRef.current;
+    if (!prim || !cone) return;
+    prim.set(cone, lastIndex, { gain: "16, 185, 129", loss: "239, 68, 68", mid: cone.tone === "down" ? "239, 68, 68" : cone.tone === "up" ? "16, 185, 129" : "148, 163, 184", text: css("--text-secondary", "#94a3b8"), bg: `color-mix(in srgb, ${css("--surface-1", "#ffffff")} 85%, transparent)` });
+  }, [cone, lastIndex, coneOn, chartStyle, showVolume, intraday, height]);
+  // open or close the fan; the three prices are tagged on the price axis once it is open and taken off as it starts to close
+  useEffect(() => {
+    const prim = primRef.current;
+    const series = seriesRef.current;
+    if (!prim || !series || !cone) return;
+    dropTags();
+    if (!coneShow) {
+      prim.setVisible(false);
+      return;
+    }
+    prim.setVisible(true, () => {
+      const far = [...cone.points].filter((q) => q.k >= 5).pop();
+      if (!far || !seriesRef.current) return;
+      const gain = css("--gain", "#10b981");
+      const loss = css("--loss", "#ef4444");
+      const tag = (label: string, price: number, color: string) => {
+        const ch = (price / cone.anchor - 1) * 100;
+        tagsRef.current.push(seriesRef.current!.createPriceLine({ price, color, lineVisible: false, axisLabelVisible: true, title: `${label} ${ch >= 0 ? "+" : ""}${ch.toFixed(2)}%` }));
+      };
+      tag("High", far.high, gain);
+      tag("Middle", far.mid, far.mid >= cone.anchor ? gain : loss);
+      tag("Low", far.low, loss);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coneShow, cone, coneOn, chartStyle, showVolume, intraday, height]);
 
   useEffect(() => {
     const chart = chartRef.current;

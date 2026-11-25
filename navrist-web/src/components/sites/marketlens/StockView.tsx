@@ -160,7 +160,8 @@ const LOSS = "#f93c65";
 function fmt(v: number | null | undefined, digits = 2) {
   return v == null ? "—" : v.toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
-const SMA_PERIODS = [20, 50, 100, 200];
+const SMA_PERIODS = [10, 20, 40, 50, 100, 200];
+const SIZE_UNIT_NAME: Record<string, string> = { d: "day", w: "week", m: "month", y: "year" };
 const SMA_COLORS: Record<number, string> = { 20: "#f59e0b", 50: "#3b82f6", 100: "#a855f7", 200: "#ec4899" };
 const inr = (v: number | null | undefined) => (v == null ? "—" : `₹${fmt(v)}`);
 
@@ -357,7 +358,7 @@ export function StockView({
   const [fcWindow, setFcWindow] = useState<FcWindow>("max");
   // Which lines the chart draws. By default only today's trade plan (entry, stop, two targets); the rest are one tap away in "Chart lines".
   // opened from a setup / market list: the scanner's own chart (50 / 200-day averages, or 10 / 40-week ones on weekly candles), not the trade plan
-  const DEFAULT_LINES: Record<string, boolean> = scan?.listScan ? { sma50: true, sma200: true } : { today: true };
+  const DEFAULT_LINES: Record<string, boolean> = scan?.listScan ? (scan.candle === "w" ? { sma10: true, sma40: true } : { sma50: true, sma200: true }) : {};
   const [lineOn, setLineOn] = useState<Record<string, boolean>>(DEFAULT_LINES);
   const toggleLine = (id: string) => setLineOn((m) => ({ ...m, [id]: !m[id] }));
   const showForecastLevels = Boolean(lineOn.today);
@@ -595,6 +596,8 @@ export function StockView({
   const weeklyOn = candleSize === "w" && !isIntraday;
   const shown = useMemo(() => (shownDaily && foldedOn ? foldBars(shownDaily, candleSize as Exclude<CandleSize, "d">) : shownDaily), [shownDaily, foldedOn, candleSize]);
   const weeklyHistory = useMemo(() => (weeklyOn && daily ? foldWeekly(daily) : undefined), [weeklyOn, daily]);
+  // the full history in the candle size on show (weeks, months or years), the averages are worked out from it
+  const foldedHistory = useMemo(() => (foldedOn && daily ? foldBars(daily, candleSize as Exclude<CandleSize, "d">) : undefined), [foldedOn, daily, candleSize]);
   const shownKey = (series ? seriesKey : held?.key ?? seriesKey) + (foldedOn ? `|${candleSize}` : "") + (customRange ? `|${customRange.from}:${customRange.to}` : "");
   const switching = series === null && held !== null;
 
@@ -652,9 +655,9 @@ export function StockView({
     },
     { title: "Price levels", options: [{ id: "wk52", label: "52-week high/low", color: "#f59e0b", disabled: week52 ? undefined : "Not enough history" }] },
     {
-      title: "Moving averages (daily chart)",
-      note: "Dashed continuation: where the average goes if the price follows the middle of the forecast.",
-      options: SMA_PERIODS.map((n) => ({ id: `sma${n}`, label: `${n}-day`, color: SMA_COLORS[n], disabled: isIntraday ? "Switch to a daily range" : !daily || daily.length < n ? "Not enough history" : undefined })),
+      title: `Moving averages (${SIZE_UNIT_NAME[candleSize]} candles)`,
+      note: candleSize === "d" ? "Dashed continuation: where the average goes if the price follows the middle of the forecast." : `Averages of the last N ${SIZE_UNIT_NAME[candleSize]}s' closes.`,
+      options: SMA_PERIODS.map((n) => ({ id: `sma${n}`, label: `${n}-${SIZE_UNIT_NAME[candleSize]}`, color: SMA_COLORS[n], disabled: isIntraday ? "Switch to a daily range" : !(foldedOn ? foldedHistory : daily) || (foldedOn ? foldedHistory : daily)!.length < n ? "Not enough history" : undefined })),
     },
   ];
 
@@ -819,6 +822,7 @@ export function StockView({
                 label="Patterns"
                 title={showPatterns ? "Hide pattern markers" : "Show pattern markers"}
               />
+              <DrawToolbar state={drawState} onChange={setDrawState} layer={drawLayer} />
               <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">
                 <div className="flex items-center gap-2" role="group" aria-label="Candle size and history">
                   <SlidingTabs
@@ -890,9 +894,8 @@ export function StockView({
           {shown === null && !error ? (
             <div className="flex h-[320px] items-center justify-center"><CandleLoader label="Loading chart…" /></div>
           ) : shown && shown.length > 1 ? (
-            <div ref={chartBox} className="flex flex-col gap-2 sm:flex-row">
-            <DrawToolbar state={drawState} onChange={setDrawState} layer={drawLayer} height={chartH} />
-            <div className="relative min-w-0 flex-1">
+            <div className="flex flex-col gap-2">
+            <div ref={chartBox} className="relative min-w-0">
             <StockChart
               candles={shown}
               dataKey={shownKey}
@@ -904,9 +907,10 @@ export function StockView({
               onSelect={setSelectedId}
               scan={scanOverlay}
               levels={chartLevels}
-              averages={isIntraday || (foldedOn && !weeklyOn) ? undefined : weeklyOn ? [10, 40] : SMA_PERIODS.filter((n) => lineOn[`sma${n}`])}      // weekly: the 10 and 40 week averages, as MarketSmith draws them
-              history={foldedOn ? weeklyHistory : daily ?? undefined}
-              cone={showCone && !isIntraday && !foldedOn ? coneData : null}
+              averages={isIntraday ? undefined : SMA_PERIODS.filter((n) => lineOn[`sma${n}`])}      // weekly: the 10 and 40 week averages, as MarketSmith draws them
+              history={foldedOn ? foldedHistory : daily ?? undefined}
+              cone={!isIntraday && !foldedOn ? coneData : null}
+              coneShow={showCone}
               projectFrom={foldedOn ? null : coneData}
               height={chartH}
               drawKey={stock.symbol}

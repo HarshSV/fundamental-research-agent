@@ -25,17 +25,23 @@ export interface ConeStyle {
   bg: string; // the chart's own background, as a soft backing for the numbers written on the fan
 }
 
+const SHOW_MS = 900;      // the fan opens from the last price to the right
+const HIDE_MS = 650;      // and closes the same way, back to the last price
+
 /**
  * The forecast drawn the way TradingView draws a price target: from the last price a fan opens to the right, three dotted lines going to the
  * high, middle and low of where the price ended up 20 sessions after similar past days, green between the current price and the high, red
- * between it and the low, and a solid line at the current price. The three prices are tagged on the price axis (StockChart adds those), so no
- * text sits over the candles. It lives on the price series, so it moves and zooms with the chart and widens the price axis to fit itself.
+ * between it and the low, and a solid line at the current price. The prices are tagged on the price axis (StockChart adds those) and written at
+ * the line ends. It lives on the price series, so it moves and zooms with the chart. Switching it on or off only animates the fan, left to right
+ * and back: the price scale always has room for it, so the chart itself never moves when it is switched.
  */
 export class ConePrimitive implements ISeriesPrimitive<Time> {
   private param: SeriesAttachedParameter<Time> | null = null;
   private cone: Cone | null = null;
   private lastIndex = 0;
   private style: ConeStyle = { gain: "16, 185, 129", loss: "239, 68, 68", mid: "148, 163, 184", text: "#94a3b8", bg: "rgba(255,255,255,0)" };
+  private open = 0;           // 0 closed .. 1 fully open
+  private raf = 0;
   private readonly view: IPrimitivePaneView = { zOrder: () => "bottom", renderer: () => this.renderer };
 
   /** the horizon the fan reaches: the furthest one of 5 sessions or more */
@@ -49,7 +55,7 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
       const p = this.param;
       const c = this.cone;
       const q = this.far();
-      if (!p || !c || !q) return;
+      if (!p || !c || !q || this.open <= 0) return;
       const ts = p.chart.timeScale();
       const x0 = ts.logicalToCoordinate(this.lastIndex as Logical);
       const x1 = ts.logicalToCoordinate((this.lastIndex + q.k) as Logical);
@@ -58,8 +64,13 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
       const ym = p.series.priceToCoordinate(q.mid);
       const yl = p.series.priceToCoordinate(q.low);
       if (x0 == null || x1 == null || y0 == null || yh == null || ym == null || yl == null) return;
+      const e = this.open < 0.5 ? 4 * this.open ** 3 : 1 - (-2 * this.open + 2) ** 3 / 2;      // eased, so it starts and ends softly
+      const reach = x0 - 6 + (x1 - x0 + 12) * e;                                              // the fan is shown up to here
       target.useMediaCoordinateSpace(({ context: ctx, mediaSize }) => {
         ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, reach, mediaSize.height);
+        ctx.clip();
         // green between the current price and the high, red between it and the low
         ctx.fillStyle = `rgba(${this.style.gain}, 0.16)`;
         ctx.beginPath();
@@ -96,18 +107,22 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
         ctx.beginPath();
         ctx.arc(x0, y0, 3.5, 0, Math.PI * 2);
         ctx.fill();
-        // the numbers of the range, written at the end of each line inside the fan (never over the candles): the price and how far from today it is.
-        // They are nudged apart so none sits on another; a fan too narrow to hold them leaves them to the tags on the price axis.
+        ctx.restore();
+        // the numbers of the range and the caption appear once the fan has opened (and go as it starts to close)
+        const a = Math.max(0, Math.min(1, (this.open - 0.8) / 0.2));
+        if (a <= 0) return;
+        ctx.save();
+        ctx.globalAlpha = a;
         if (x1 - x0 > 84) {
           const placed: { y0: number; y1: number }[] = [];
           const fp = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })} · ${v >= c.anchor ? "+" : "-"}${Math.abs((v / c.anchor - 1) * 100).toFixed(1)}%`;
           ctx.font = "600 10px system-ui, sans-serif";
           ctx.textAlign = "right";
           ctx.textBaseline = "middle";
-          const rows: [number, number, string, string][] = [
-            [q.high, yh + 11, this.style.gain, "high"],
-            [q.low, yl - 11, this.style.loss, "low"],
-            [q.mid, ym + (ym < y0 ? -10 : 10), this.style.mid, "mid"],
+          const rows: [number, number, string][] = [
+            [q.high, yh + 11, this.style.gain],
+            [q.low, yl - 11, this.style.loss],
+            [q.mid, ym + (ym < y0 ? -10 : 10), this.style.mid],
           ];
           for (const [v, yy, rgb] of rows) {
             let y = yy;
@@ -121,7 +136,6 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
             ctx.fillText(txt, x1 - 6, y);
           }
         }
-        // the small caption at the foot of the forecast, so it is clear where the past ends and the forecast begins
         const cap = `NEXT ${q.k} SESSIONS`;
         ctx.font = "600 10px system-ui, sans-serif";
         const tw = ctx.measureText(cap).width;
@@ -147,11 +161,36 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
     this.param?.requestUpdate();
   }
 
+  /** Open the fan from the last price to the right, or close it back the same way. `done` runs when the move has finished. */
+  setVisible(v: boolean, done?: () => void) {
+    cancelAnimationFrame(this.raf);
+    const from = this.open;
+    const to = v ? 1 : 0;
+    const reduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced || from === to) {
+      this.open = to;
+      this.param?.requestUpdate();
+      done?.();
+      return;
+    }
+    const ms = (v ? SHOW_MS : HIDE_MS) * Math.abs(to - from);
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const k = Math.min(1, (now - t0) / ms);
+      this.open = from + (to - from) * k;
+      this.param?.requestUpdate();
+      if (k < 1) this.raf = requestAnimationFrame(step);
+      else done?.();
+    };
+    this.raf = requestAnimationFrame(step);
+  }
+
   attached(param: SeriesAttachedParameter<Time>) {
     this.param = param;
   }
 
   detached() {
+    cancelAnimationFrame(this.raf);
     this.param = null;
   }
 
@@ -161,6 +200,7 @@ export class ConePrimitive implements ISeriesPrimitive<Time> {
     return [this.view];
   }
 
+  /** The price scale always has room for the whole fan, shown or not, so switching the forecast never rescales the chart. */
   autoscaleInfo(_start: Logical, end: Logical): AutoscaleInfo | null {
     const q = this.far();
     const c = this.cone;

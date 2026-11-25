@@ -87,7 +87,7 @@ export function ChartLinesMenu({ groups, on, onToggle, onReset, count }: { group
               {g.note && <p className="mt-1.5 text-[11px] leading-snug" style={{ color: "var(--text-tertiary)" }}>{g.note}</p>}
             </div>
           ))}
-          <button type="button" onClick={onReset} className="w-full rounded-md py-1 text-xs underline" style={{ color: "var(--text-secondary)" }}>Back to the default (today&apos;s plan only)</button>
+          <button type="button" onClick={onReset} className="w-full rounded-md py-1 text-xs underline" style={{ color: "var(--text-secondary)" }}>Clear all lines</button>
         </div>
       )}
     </div>
