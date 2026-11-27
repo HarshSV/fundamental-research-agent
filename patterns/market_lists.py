@@ -308,13 +308,23 @@ def _tight_setup(r, weekly=False):
 
 
 def _momentum(r):
-    sma, rs = r.get("sma") or {}, r.get("rs")
-    price, r3, off = r.get("price"), r.get("ret_3m"), r.get("pct_from_52w_high")
-    if not all(_num(x) for x in (sma.get("50"), sma.get("200"), rs, price, r3, off)):
+    """Momentum, as Chartink's "Momentum Stocks" scan: price 30 or more; price above its 50-day and 200-day exponential averages with the 50 over
+    the 200; price at least 2x its 52-week low; within 25% of its 52-week high; market cap Rs 1,000 to 20,000 Cr; and the latest session's volume at
+    least 1.3x the average volume of the last 50 sessions (that average includes the latest session, as Chartink's SMA does). Anything that
+    cannot be worked out (no market cap, too few sessions, no volume) means no match, never a zero."""
+    ema, price = r.get("ema") or {}, r.get("price")
+    above_low, off_high, mc = r.get("pct_from_52w_low"), r.get("pct_from_52w_high"), r.get("market_cap_cr")
+    b = _bars(r)
+    if len(b) < 50 or not all(_num(x) for x in (ema.get("50"), ema.get("200"), price, above_low, off_high, mc)):
         return None
-    if not (price > sma["50"] > sma["200"] and rs >= 80 and off <= 15 and r3 >= 20):
+    vols = [x[5] for x in b[-50:]]
+    avg_vol = sum(vols) / 50
+    if avg_vol <= 0 or not (b[-1][5] >= 1.3 * avg_vol):
         return None
-    return {"value": rs, "text": f"RS {rs}", "note": f"above 50 and 200-day averages, within {off:.0f}% of the 52-week high, 3-month return {r3:+.0f}%"}
+    if not (price >= 30 and price > ema["50"] and price > ema["200"] and ema["50"] > ema["200"] and above_low >= 100 and off_high <= 25 and 1000 <= mc <= 20000):
+        return None
+    mult = 1.0 + above_low / 100.0
+    return {"value": mult, "text": f"{mult:.1f}x the 52-week low", "note": f"{off_high:.0f}% below the 52-week high, volume {b[-1][5] / avg_vol:.1f}x its 50-day average, market cap Rs {mc:,.0f} Cr"}
 
 
 def _shorting(r):
@@ -687,7 +697,7 @@ SCANNERS = {
     "inside-bar-weekly-filtered": ("Filtered Inside Bar (weekly)", "Setups", "A finished weekly inside bar at most 60% of the prior week's range, with the price above its 50-day average.", 1),
     "tight-setup": ("Tight Setup (daily)", "Setups", "The last 5 closes are within 2.5% of each other and the price is above its 50-day average.", 1),
     "tight-setup-weekly": ("Tight Setup (weekly)", "Setups", "The last 3 finished weekly closes are each within 1.5% of the week before (the \"three weeks tight\" rule) and the price is above its 50-day average.", 1),
-    "momentum": ("Momentum", "Strength", "Above the 50 and 200-day averages (50 over 200), RS rating 80+, within 15% of the 52-week high and up 20%+ in 3 months.", -1),
+    "momentum": ("Momentum", "Strength", "As Chartink's Momentum Stocks: price 30 or more, above its 50-day and 200-day averages (50 over 200), at least 2x its 52-week low, within 25% of its 52-week high, market cap Rs 1,000 to 20,000 Cr, and the latest volume at least 1.3x its 50-day average.", -1),
     "rs-high-before-price-high": ("RS High Before Price High", "Strength", "The relative-strength line (against the Nifty 500) is at a 52-week high while the price is still at least 2% under its own 52-week high.", -1),
     "earnings-gap-up": ("Earnings Gap Up (latest quarter)", "Earnings", "Opened at least 3% above the pre-results close on the first session after the latest quarter's results.", -1),
     "earnings-gap-up-prev": ("Earnings Gap Up (previous quarter)", "Earnings", "The same, for the quarter before the latest.", -1),
