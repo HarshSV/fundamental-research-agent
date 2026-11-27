@@ -214,6 +214,14 @@ def _high_volume(r):
     return {"value": val, "text": f"₹{val:,.1f} Cr traded", "note": f"latest session's value traded (volume x price); {b[-1][5] / 1e5:,.2f} lakh shares"}
 
 
+def _gap_marks(b, i, prev_close, open_):
+    """What the chart shows for a gap formed on bar i: the previous bar and the gap bar shaded, and the two edges of the gap (the previous close and
+    the gap bar's open) drawn from the gap bar on."""
+    lo, hi = min(prev_close, open_), max(prev_close, open_)
+    return {"mark": [{"t": b[i - 1][0], "label": ""}, {"t": b[i][0], "label": ""}],
+            "levels": [{"label": "Gap high", "price": hi, "t0": b[i - 1][0], "t1": None}, {"label": "Gap low", "price": lo, "t0": b[i - 1][0], "t1": None}]}
+
+
 def _gap(r, sign):
     """Gap Up (sign 1) / Gap Down (sign -1), as Chartink's scan: the latest session opened at least 1% above (up) or at least 1% below (down) the
     previous session's close. The latest stored daily candle is used, so it is as fresh as the scan's last refresh of that stock (during the
@@ -225,7 +233,8 @@ def _gap(r, sign):
     if g is None or g * sign < GAP_UPDOWN * 100 or not _prev_session_ok(b[-2][0], b[-1][0]) or not (b[-1][5] > 0 and b[-2][5] > 0):
         return None                                    # a bar with no traded volume is a filled-in day (its price is an older close), not a session
     filled = b[-1][3] <= b[-2][4] if sign > 0 else b[-1][2] >= b[-2][4]
-    return {"value": abs(g), "text": f"Gap {g:+.2f}%", "note": ("opened above" if sign > 0 else "opened below") + " the previous close" + ("; gap already filled in the session" if filled else "")}
+    return {"value": abs(g), "text": f"Gap {g:+.2f}%", "note": ("opened above" if sign > 0 else "opened below") + " the previous close" + ("; gap already filled in the session" if filled else ""),
+            **_gap_marks(b, len(b) - 1, b[-2][4], b[-1][1])}
 
 
 def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK - 1, sign: int = 1):
@@ -251,7 +260,7 @@ def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK
             if low_since < top and last[4] > floor:
                 filled = (top - max(low_since, floor)) / (top - floor) * 100.0
                 filled = min(filled, 99.0)                     # a gap not fully closed never reads "100%"
-                return {"value": filled, "text": f"{filled:.0f}% of gap filled", "note": f"gap of {g:+.1f}% on session {n - i} sessions ago"}
+                return {"value": filled, "text": f"{filled:.0f}% of gap filled", "note": f"gap of {g:+.1f}% on session {n - i} sessions ago", **_gap_marks(b, i, prev_close, open_)}
             return None
         floor, top = open_, prev_close                     # the gap zone of a gap down: gap-day open .. previous close
         high_since = max(x[2] for x in b[i + 1:])
@@ -259,7 +268,7 @@ def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK
             return None                                    # fully closed
         if high_since > floor and last[4] < top:
             filled = min((min(high_since, top) - floor) / (top - floor) * 100.0, 99.0)
-            return {"value": filled, "text": f"{filled:.0f}% of gap filled", "note": f"gap of {g:+.1f}% on session {n - i} sessions ago"}
+            return {"value": filled, "text": f"{filled:.0f}% of gap filled", "note": f"gap of {g:+.1f}% on session {n - i} sessions ago", **_gap_marks(b, i, prev_close, open_)}
         return None
     return None
 
