@@ -24,8 +24,8 @@ def day(path):
 
 
 def main():
-    DIR = os.path.join("out", "nse_check")
-    files = sorted(f for f in os.listdir(DIR) if f.endswith(".csv"))[-22:]
+    DIR = os.path.join("data", "exchange", "bhavcopy") if os.path.isdir(os.path.join("data", "exchange", "bhavcopy")) else os.path.join("out", "nse_check")      # the files patterns/nse_prices.py keeps (the newest sessions)
+    files = sorted(f for f in os.listdir(DIR) if f.endswith(".csv") and f[:8].isdigit())[-22:]
     days = [day(os.path.join(DIR, f)) for f in files]
     last = days[-1]
     rows = {s: r for s, r in scan._load_all().items() if r.get("exchange") in (None, "NSE") and s in last}
@@ -34,7 +34,7 @@ def main():
         "top-gainers": lambda s, d: d["c"] > d["p"],
         "top-losers": lambda s, d: d["c"] < d["p"],
         "gap-up": lambda s, d: d["o"] >= d["p"] * 1.02,
-        "volume-gainers": lambda s, d: (lambda base: base and d["v"] >= 2 * (sum(base) / len(base)))([x[s]["v"] for x in days[-21:-1] if s in x][:20]) if len([x for x in days[-21:-1] if s in x]) >= 20 else False,
+        "volume-gainers": lambda s, d: (lambda base: len(base) == 5 and sum(base) > 0 and d["v"] >= 2 * (sum(base) / 5))([x[s]["v"] for x in days[-6:-1] if s in x]),      # NSE: today against the average of the 5 sessions before it
     }
     for kind, rule in kinds.items():
         ours = {s for s, r in rows.items() if ml._EVAL[kind](r, None)}

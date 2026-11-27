@@ -15,7 +15,8 @@ DAY = 86400
 
 GAP_MIN = 0.02            # a gap is an open at least 2% away from the previous close
 GAP_LOOKBACK = 15         # gap-filling looks for a gap in the last 15 sessions
-VOLUME_SURGE = 2.0        # volume gainers: latest volume at least 2x the average of the 20 sessions before it
+VOLUME_SURGE = 2.0        # volume gainers (NSE's way): latest volume at least 2x the average of the 5 sessions before it (NSE's 1-week average)
+WEEK_SESSIONS, TWO_WEEK_SESSIONS = 5, 10      # NSE compares with the 1-week and the 2-week average volume
 TIGHT_DAYS, TIGHT_RANGE = 5, 0.025          # tight setup (daily): last 5 closes within 2.5% of each other
 TIGHT_WEEKS, TIGHT_WEEK_STEP = 3, 0.015     # tight setup (weekly): 3 finished weekly closes, each within 1.5% of the week before (O'Neil / IBD)
 RS_LINE_BARS = 252        # RS line at a 52-week high
@@ -154,12 +155,32 @@ def _volume_ratio(r):
     return (b[-1][5] / avg, avg) if avg > 0 and b[-1][5] >= 0 else None
 
 
+def _volume_times(r):
+    """How many times the latest session's volume is of the average daily volume of the 5 sessions before it (1 week) and of the 10 before it
+    (2 weeks): the two columns NSE's Volume Gainers page shows ("change, no. of times"). None for a measure that cannot be worked out (too few
+    sessions, an unknown volume, an average of zero), never zero."""
+    b = _bars(r)
+    if len(b) < TWO_WEEK_SESSIONS + 1 or not _num(b[-1][5]) or b[-1][5] < 0:
+        return None
+    out = []
+    for n in (WEEK_SESSIONS, TWO_WEEK_SESSIONS):
+        base = [x[5] for x in b[-n - 1:-1]]
+        avg = sum(base) / len(base)
+        out.append((b[-1][5] / avg, avg) if avg > 0 else None)
+    return out
+
+
 def _volume_gainers(r):
-    vr = _volume_ratio(r)
-    if not vr or vr[0] < VOLUME_SURGE:
+    """NSE's Volume Gainers: the latest session's volume at least 2x the average of the 5 sessions before it (the 1-week measure NSE ranks by).
+    The 2-week measure (10 sessions) is reported beside it."""
+    if r.get("exchange") not in (None, "NSE"):      # NSE-listed stocks only, as on NSE's own page (many BSE-only stocks trade a few shares a day, so their ratios are meaningless)
+        return None
+    vt = _volume_times(r)
+    if not vt or not vt[0] or vt[0][0] < VOLUME_SURGE:
         return None
     ch = _change_1d(r)
-    return {"value": vr[0], "text": f"{vr[0]:.1f}x volume", "note": f"latest volume vs the average of the 20 sessions before"
+    two = f"; {vt[1][0]:.1f}x the 2-week average" if vt[1] else ""
+    return {"value": vt[0][0], "text": f"{vt[0][0]:.1f}x 1-week volume", "note": f"latest volume vs the average of the 5 sessions before it (NSE's 1-week measure){two}"
             + (f"; price {ch:+.2f}%" if ch is not None else "")}
 
 
@@ -633,7 +654,7 @@ def check_earnings(r: dict, spec: dict) -> bool:
 SCANNERS = {
     "top-gainers": ("Top Gainers", "Market lists", "Stocks that rose in the latest session, biggest gain first.", -1),
     "top-losers": ("Top Losers", "Market lists", "Stocks that fell in the latest session, biggest fall first.", 1),
-    "volume-gainers": ("Volume Gainers", "Volume", "Latest session's volume at least 2x the average of the 20 sessions before it.", -1),
+    "volume-gainers": ("Volume Gainers", "Volume", "As NSE (NSE-listed stocks): the latest session's volume at least 2x the average of the 5 sessions before it (the 1-week measure); the 2-week measure (10 sessions) is shown too. Biggest first.", -1),
     "high-volume": ("High Volume Stocks", "Volume", "Stocks ranked by the value traded in the latest session (price x volume).", -1),
     "gap-up": ("Gap Up", "Gaps", "Opened at least 2% above the previous close in the latest session.", -1),
     "gap-filling": ("Gap Filling", "Gaps", "Gapped up at least 2% in the last 15 sessions and has since come back into the gap without closing it completely.", -1),

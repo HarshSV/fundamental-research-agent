@@ -17,7 +17,7 @@ export interface ListScanner {
 export const LIST_SCANNERS: ListScanner[] = [
   { id: "top-gainers", name: "Top Gainers", group: "Market lists", definition: "Stocks that rose in the latest session, biggest gain first." },
   { id: "top-losers", name: "Top Losers", group: "Market lists", definition: "Stocks that fell in the latest session, biggest fall first." },
-  { id: "volume-gainers", name: "Volume Gainers", group: "Volume", definition: "Latest session's volume at least 2x the average of the 20 sessions before it." },
+  { id: "volume-gainers", name: "Volume Gainers", group: "Volume", definition: "As NSE (NSE-listed stocks): the latest session's volume at least 2x the average of the 5 sessions before it (the 1-week measure); the 2-week measure (10 sessions) is shown too. Biggest first." },
   { id: "high-volume", name: "High Volume Stocks", group: "Volume", definition: "Stocks ranked by the value traded in the latest session (price x volume)." },
   { id: "gap-up", name: "Gap Up", group: "Gaps", definition: "Opened at least 2% above the previous close in the latest session." },
   { id: "gap-filling", name: "Gap Filling", group: "Gaps", definition: "Gapped up at least 2% in the last 15 sessions and has since come back into the gap without closing it completely." },
