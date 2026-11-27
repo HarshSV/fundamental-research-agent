@@ -198,24 +198,25 @@ def _high_volume(r):
     return {"value": val, "text": f"₹{val:,.1f} Cr traded", "note": f"latest session's value traded (volume x price); {b[-1][5] / 1e5:,.2f} lakh shares"}
 
 
-def _gap_up(r):
-    """Gap Up / Gap Down, as Chartink's scan: the latest session opened at least 1% above (gap up) or at least 1% below (gap down) the previous
-    session's close. The latest stored daily candle is used, so it is as fresh as the scan's last refresh of that stock (during the session a
-    refreshed stock shows today's open, one not yet refreshed shows the last finished session). `value` is the size of the gap, up or down."""
+def _gap(r, sign):
+    """Gap Up (sign 1) / Gap Down (sign -1), as Chartink's scan: the latest session opened at least 1% above (up) or at least 1% below (down) the
+    previous session's close. The latest stored daily candle is used, so it is as fresh as the scan's last refresh of that stock (during the
+    session a refreshed stock shows today's open, one not yet refreshed shows the last finished session). `value` is the size of the gap."""
     b = _bars(r)
     if len(b) < 2:
         return None
     g = _pct(b[-1][1], b[-2][4])
-    if g is None or abs(g) < GAP_UPDOWN * 100:
+    if g is None or g * sign < GAP_UPDOWN * 100:
         return None
-    up = g > 0
-    filled = b[-1][3] <= b[-2][4] if up else b[-1][2] >= b[-2][4]
-    return {"value": abs(g), "text": f"Gap {g:+.2f}%", "note": ("opened above" if up else "opened below") + " the previous close" + ("; gap already filled in the session" if filled else "")}
+    filled = b[-1][3] <= b[-2][4] if sign > 0 else b[-1][2] >= b[-2][4]
+    return {"value": abs(g), "text": f"Gap {g:+.2f}%", "note": ("opened above" if sign > 0 else "opened below") + " the previous close" + ("; gap already filled in the session" if filled else "")}
 
 
-def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK - 1):
-    """A gap up of at least `min_gap` % within the `lookback` sessions before today (14 = what the scanner has always used, though its
-    menu says 15) that price has since come back into, without closing it completely. The most recent qualifying gap is the one judged."""
+def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK - 1, sign: int = 1):
+    """A gap of at least `min_gap` % within the `lookback` sessions before today (14 = what the scanner has always used, though its menu says
+    15) that price has since come back into, without closing it completely. sign 1: a gap up (price has fallen back down into it); sign -1: a
+    gap down (price has bounced back up into it). The gap is the space between the previous close and the gap day's open. The most recent
+    qualifying gap is the one judged."""
     b = _bars(r)
     n = len(b)
     if lookback < 1 or n < lookback + 3:
@@ -223,14 +224,24 @@ def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK
     last = b[-1]
     for i in range(n - 2, n - 2 - lookback, -1):
         g = _pct(b[i][1], b[i - 1][4])
-        if g is None or g < min_gap:
+        if g is None or g * sign < min_gap:
             continue
-        floor, top = b[i - 1][4], b[i][1]            # the gap zone: previous close .. gap-day open
-        low_since = min(x[3] for x in b[i + 1:])
-        if low_since <= floor:
-            return None                              # fully closed: not "filling" any more
-        if low_since < top and last[4] > floor:
-            filled = (top - max(low_since, floor)) / (top - floor) * 100.0
+        prev_close, open_ = b[i - 1][4], b[i][1]
+        if sign > 0:
+            floor, top = prev_close, open_                 # the gap zone of a gap up: previous close .. gap-day open
+            low_since = min(x[3] for x in b[i + 1:])
+            if low_since <= floor:
+                return None                                # fully closed: not "filling" any more
+            if low_since < top and last[4] > floor:
+                filled = (top - max(low_since, floor)) / (top - floor) * 100.0
+                return {"value": filled, "text": f"{filled:.0f}% of gap filled", "note": f"gap of {g:+.1f}% on session {n - i} sessions ago"}
+            return None
+        floor, top = open_, prev_close                     # the gap zone of a gap down: gap-day open .. previous close
+        high_since = max(x[2] for x in b[i + 1:])
+        if high_since >= top:
+            return None                                    # fully closed
+        if high_since > floor and last[4] < top:
+            filled = (min(high_since, top) - floor) / (top - floor) * 100.0
             return {"value": filled, "text": f"{filled:.0f}% of gap filled", "note": f"gap of {g:+.1f}% on session {n - i} sessions ago"}
         return None
     return None
@@ -666,8 +677,10 @@ SCANNERS = {
     "top-losers": ("Top Losers", "Market lists", "Stocks that fell in the latest session, biggest fall first.", 1),
     "volume-gainers": ("Volume Gainers", "Volume", "As NSE (NSE-listed stocks): the latest session's volume at least 2x the average of the 5 sessions before it (the 1-week measure); the 2-week measure (10 sessions) is shown too. Biggest first.", -1),
     "high-volume": ("High Volume Stocks", "Volume", "As NSE's Most Active Equities (by value): NSE-listed stocks ranked by the value traded in the latest session (volume x price, in crores); the shares traded are shown beside it.", -1),
-    "gap-up": ("Gap Up / Gap Down", "Gaps", "As Chartink: the latest session opened at least 1% above (gap up) or at least 1% below (gap down) the previous close. Biggest gap first.", -1),
-    "gap-filling": ("Gap Filling", "Gaps", "Gapped up at least 2% in the last 15 sessions and has since come back into the gap without closing it completely.", -1),
+    "gap-up": ("Gap Up", "Gaps", "As Chartink: the latest session opened at least 1% above the previous close. Biggest gap first.", -1),
+    "gap-down": ("Gap Down", "Gaps", "As Chartink: the latest session opened at least 1% below the previous close. Biggest gap first.", -1),
+    "gap-filling": ("Gap Filling (Up)", "Gaps", "Gapped up at least 2% in the last 15 sessions and has since come back down into the gap without closing it completely.", -1),
+    "gap-filling-down": ("Gap Filling (Down)", "Gaps", "Gapped down at least 2% in the last 15 sessions and has since bounced back up into the gap without closing it completely.", -1),
     "inside-bar": ("Inside Bar (daily)", "Setups", "The latest session traded inside the previous session's high and low.", 1),
     "inside-bar-weekly": ("Inside Bar (weekly)", "Setups", "The last finished week traded inside the high and low of the week before it.", 1),
     "inside-bar-filtered": ("Filtered Inside Bar (daily)", "Setups", "An inside bar whose range is at most 60% of the previous session's, with the price above its 50-day average.", 1),
@@ -690,8 +703,10 @@ _EVAL = {
     "top-losers": lambda r, b: _gainers(r, -1),
     "volume-gainers": lambda r, b: _volume_gainers(r),
     "high-volume": lambda r, b: _high_volume(r),
-    "gap-up": lambda r, b: _gap_up(r),
+    "gap-up": lambda r, b: _gap(r, 1),
+    "gap-down": lambda r, b: _gap(r, -1),
     "gap-filling": lambda r, b: _gap_filling(r),
+    "gap-filling-down": lambda r, b: _gap_filling(r, sign=-1),
     "inside-bar": lambda r, b: _inside_bar(r),
     "inside-bar-weekly": lambda r, b: _inside_bar(r, True),
     "inside-bar-filtered": lambda r, b: _inside_bar(r, False, True),
