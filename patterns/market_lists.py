@@ -185,11 +185,16 @@ def _volume_gainers(r):
 
 
 def _high_volume(r):
+    """As NSE's Most Active Equities sorted by value: the value traded in the latest session (volume x the session's price, in crores), for
+    NSE-listed stocks. NSE adds up each trade at its own price; the stored candle only holds the close, so volume x close is used (within about 1%
+    of NSE's figure on a quiet day). The shares traded (in lakhs) are shown beside it."""
+    if r.get("exchange") not in (None, "NSE"):
+        return None
     b = _bars(r)
     if not b or b[-1][5] <= 0:
         return None
     val = b[-1][4] * b[-1][5] / 1e7
-    return {"value": val, "text": f"₹{val:,.1f} Cr traded", "note": "latest session's traded value (price x volume)"}
+    return {"value": val, "text": f"₹{val:,.1f} Cr traded", "note": f"latest session's value traded (volume x price); {b[-1][5] / 1e5:,.2f} lakh shares"}
 
 
 def _gap_up(r):
@@ -655,7 +660,7 @@ SCANNERS = {
     "top-gainers": ("Top Gainers", "Market lists", "Stocks that rose in the latest session, biggest gain first.", -1),
     "top-losers": ("Top Losers", "Market lists", "Stocks that fell in the latest session, biggest fall first.", 1),
     "volume-gainers": ("Volume Gainers", "Volume", "As NSE (NSE-listed stocks): the latest session's volume at least 2x the average of the 5 sessions before it (the 1-week measure); the 2-week measure (10 sessions) is shown too. Biggest first.", -1),
-    "high-volume": ("High Volume Stocks", "Volume", "Stocks ranked by the value traded in the latest session (price x volume).", -1),
+    "high-volume": ("High Volume Stocks", "Volume", "As NSE's Most Active Equities (by value): NSE-listed stocks ranked by the value traded in the latest session (volume x price, in crores); the shares traded are shown beside it.", -1),
     "gap-up": ("Gap Up", "Gaps", "Opened at least 2% above the previous close in the latest session.", -1),
     "gap-filling": ("Gap Filling", "Gaps", "Gapped up at least 2% in the last 15 sessions and has since come back into the gap without closing it completely.", -1),
     "inside-bar": ("Inside Bar (daily)", "Setups", "The latest session traded inside the previous session's high and low.", 1),
