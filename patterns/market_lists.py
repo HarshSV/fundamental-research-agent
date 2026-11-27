@@ -222,8 +222,8 @@ def _gap(r, sign):
     if len(b) < 2:
         return None
     g = _pct(b[-1][1], b[-2][4])
-    if g is None or g * sign < GAP_UPDOWN * 100:
-        return None
+    if g is None or g * sign < GAP_UPDOWN * 100 or not _prev_session_ok(b[-2][0], b[-1][0]) or not (b[-1][5] > 0 and b[-2][5] > 0):
+        return None                                    # a bar with no traded volume is a filled-in day (its price is an older close), not a session
     filled = b[-1][3] <= b[-2][4] if sign > 0 else b[-1][2] >= b[-2][4]
     return {"value": abs(g), "text": f"Gap {g:+.2f}%", "note": ("opened above" if sign > 0 else "opened below") + " the previous close" + ("; gap already filled in the session" if filled else "")}
 
@@ -240,7 +240,7 @@ def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK
     last = b[-1]
     for i in range(n - 2, n - 2 - lookback, -1):
         g = _pct(b[i][1], b[i - 1][4])
-        if g is None or g * sign < min_gap:
+        if g is None or g * sign < min_gap or not _prev_session_ok(b[i - 1][0], b[i][0]) or not (b[i][5] > 0 and b[i - 1][5] > 0):
             continue
         prev_close, open_ = b[i - 1][4], b[i][1]
         if sign > 0:
@@ -827,7 +827,19 @@ _EVAL = {
 }
 
 
-_ref = {"at": 0.0, "date": None}
+_ref = {"at": 0.0, "date": None, "sessions": []}
+
+
+def _prev_session_ok(t_prev, t_cur) -> bool:
+    """True when the bar at t_prev is the market session right before the bar at t_cur. A stock that did not trade on some days has no bar for them,
+    so its previous stored bar can be weeks old; a gap measured against that is not a session-to-session gap. When the market sessions are not
+    known the plain calendar rule (at most 5 days apart) applies."""
+    dp, dc = _bar_date(t_prev), _bar_date(t_cur)
+    ss = _ref.get("sessions") or []
+    if ss:
+        before = [d for d in ss if d < dc]
+        return bool(before) and before[-1] == dp
+    return 0 < dc - dp <= 5
 MAX_ONE_DAY_MOVE = 0.5            # a close more than 50% away from the one before is not trusted (an unadjusted split or bad print): unknown
 
 
@@ -843,11 +855,17 @@ def _reference_session():
         return _ref["date"]
     from . import scan
     count: dict = {}
+    seen: dict = {}
     for row in scan._load_all().values():
         b = _bars(row)
         if b:
             d = _bar_date(b[-1][0])
             count[d] = count.get(d, 0) + 1
+            for x in b[-30:]:
+                seen[_bar_date(x[0])] = seen.get(_bar_date(x[0]), 0) + 1
+    # a market session is a date on which a real share of the stocks have a bar (an illiquid stock's missing days are not market holidays)
+    top = max(seen.values(), default=0)
+    _ref["sessions"] = sorted(d for d, n in seen.items() if n >= 0.3 * top)
     _ref["date"] = max(count, key=count.get) if count else None
     _ref["at"] = time.monotonic()
     return _ref["date"]
