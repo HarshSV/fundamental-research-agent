@@ -235,7 +235,7 @@ export function PatternScanPage({
   // the stock page opens in the candle size this list is in: a weekly setup opens weekly, a daily one daily
   const openCandle: "d" | "w" = /-weekly(-filtered)?$/.test(pattern.id) ? "w" : "d";
   const open = (r: ScanRow) =>
-    onOpenStock({ symbol: r.symbol, name: r.name }, { pattern: special ? (r.occurrence?.pattern ?? null) : pattern.id, occurrence: r.occurrence, resistance: r.resistance, showResistance: drawResistance, candle: openCandle, listScan: isListScanner(pattern.id), levels: r.signal?.levels });
+    onOpenStock({ symbol: r.symbol, name: r.name }, { pattern: special ? (r.occurrence?.pattern ?? null) : pattern.id, occurrence: r.occurrence, resistance: r.resistance, showResistance: drawResistance, candle: openCandle, listScan: isListScanner(pattern.id), levels: r.signal?.levels, marks: r.signal?.mark });
   const cols = useMemo(() => columns(colset, pattern, drawResistance, patternMode && special, sort === "traded_value"), [colset, pattern, drawResistance, patternMode, special, sort]);
   const sorts: [string, string][] = [...(isListScanner(pattern.id) ? [["signal", "Strongest signal"] as [string, string]] : []), ...SORTS.filter(([k]) => !(!patternMode && k === "status"))];
 

@@ -122,8 +122,17 @@ export function TvChart({
 
     // all the bars, with a little room after the last one so its label ("Inside", "Mother") is not cut off
     // all the bars, with a little room after the last one so its label ("Inside", "Mother") is not cut off; double-click the chart to come back to this view
+    // the formed setup: a soft violet band behind its bars, and the view opened on it (about 40 bars of lead-in) instead of the whole history
+    const markIdx = (marks ?? []).map((m) => bars.findIndex((b) => b[0] === m.t)).filter((i) => i >= 0);
+    if (markIdx.length) {
+      const set = new Set(markIdx);
+      const band = chart.addSeries(HistogramSeries, { priceScaleId: "setup-band", priceLineVisible: false, lastValueVisible: false, base: 0 });
+      chart.priceScale("setup-band").applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
+      band.setData(bars.map((b, i) => (set.has(i) ? { time: day(b[0]), value: 1, color: "rgba(167,139,250,0.07)" } : { time: day(b[0]) })));
+    }
     const showAll = () => {
-      if (flags.length) chart.timeScale().setVisibleLogicalRange({ from: -0.5, to: bars.length - 1 + Math.max(3, Math.round(bars.length * 0.04)) });
+      if (markIdx.length) chart.timeScale().setVisibleLogicalRange({ from: Math.max(-0.5, Math.min(...markIdx) - 40), to: bars.length - 1 + 6 });
+      else if (flags.length) chart.timeScale().setVisibleLogicalRange({ from: -0.5, to: bars.length - 1 + Math.max(3, Math.round(bars.length * 0.04)) });
       else chart.timeScale().fitContent();
     };
     showAll();

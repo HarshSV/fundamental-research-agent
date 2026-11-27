@@ -281,6 +281,8 @@ export interface ScanContext {
   listScan?: boolean;
   /** the horizontal levels the setup is about (the mother bar's high and low, the edges of a tight range) */
   levels?: SetupLevel[];
+  /** the bars the setup is about (the mother and inside bar, the closes of a tight setup): a dot under each on the chart */
+  marks?: { t: number; label: string }[];
 }
 
 export interface ScanStatus {

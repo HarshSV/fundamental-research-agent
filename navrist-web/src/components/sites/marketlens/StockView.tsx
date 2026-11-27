@@ -368,7 +368,7 @@ export function StockView({
   const [showMore, setShowMore] = useState(false);
   const [drawState, setDrawState] = useState<DrawState>({ tool: "cursor", magnet: false, hidden: false, color: COLORS[0] });      // the drawing tools bar
   const [drawLayer, setDrawLayer] = useState<DrawLayer | null>(null);
-  const [showCone, setShowCone] = useState(true);      // the forecast drawn ahead of the last candle, like TradingView's price target
+  const [showCone, setShowCone] = useState(!scan?.listScan);      // the forecast drawn ahead of the last candle, like TradingView's price target
   const [candleSize, setCandleSize] = useState<CandleSize>(scan?.candle ?? "d");     // one candle per day, week, month or year (daily-based ranges only)
   // A newly listed stock has only a handful of daily bars, so a multi-month chart has nothing to draw.
   // Until it has some history, longer ranges fall back to the intraday 1D view (and say so).
@@ -633,7 +633,7 @@ export function StockView({
       ? { low: overview.all_time_low.price, high: overview.all_time_high.price }
       : null;
 
-  const scanOverlay: ScanOverlay | null = scan ? { occurrence: scan.occurrence, resistance: scan.showResistance ? scan.resistance : null } : null;
+  const scanOverlay: ScanOverlay | null = scan ? { occurrence: scan.occurrence, resistance: scan.showResistance ? scan.resistance : null, marks: scan.marks } : null;
 
   // the lines the chart can draw, and the ones switched on
   const allLevels = forecastLevels(forecastData?.data ?? null);

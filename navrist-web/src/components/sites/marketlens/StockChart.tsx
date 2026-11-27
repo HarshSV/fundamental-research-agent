@@ -19,6 +19,7 @@ export type ChartStyle = "candles" | "line";
 export interface ScanOverlay {
   occurrence: ScanOccurrence | null;
   resistance: Resistance | null;
+  marks?: { t: number; label: string }[];
 }
 
 const IST = 19800;
@@ -392,6 +393,21 @@ export function StockChart({
         size: live || picked ? 3 : recent ? 2 : 1,
         text: live ? `${nice(lead.pattern)}${lead.status === "forming" ? " (forming)" : " (waiting)"}` : items.length > 1 ? String(items.length) : "",
       });
+    }
+    // the bars a setup scanner is about, as on the scanner's small chart: a violet dot under each (above for an inside bar), labelled
+    const bandIdx: number[] = [];
+    for (const m of scan?.marks ?? []) {
+      const bar = bars.find((x) => tsOf(x) === m.t);
+      if (bar) bandIdx.push(bars.indexOf(bar));
+    }
+    if (bandIdx.length) {
+      const set = new Set(bandIdx);
+      const band = chart.addSeries(HistogramSeries, { priceScaleId: "setup-band", priceLineVisible: false, lastValueVisible: false, base: 0 });
+      chart.priceScale("setup-band").applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
+      band.setData(bars.map((b, i) => (set.has(i) ? { time: b.time, value: 1, color: "rgba(167,139,250,0.07)" } : { time: b.time })));
+      extraRef.current.series.push(band as unknown as ISeriesApi<"Line">);
+      // open on the formed setup: about 40 bars of lead-in and a little room after it
+      chart.timeScale().setVisibleLogicalRange({ from: Math.max(-0.5, Math.min(...bandIdx) - 40), to: bars.length - 1 + 6 });
     }
     list.sort((a, b) => (after(a.time, b.time) ? 1 : -1));
     markers.setMarkers(list);
