@@ -33,7 +33,7 @@ def main():
     kinds = {
         "top-gainers": lambda s, d: d["c"] > d["p"],
         "top-losers": lambda s, d: d["c"] < d["p"],
-        "gap-up": lambda s, d: d["o"] >= d["p"] * 1.02,
+        "gap-up": lambda s, d: d["p"] > 0 and abs(d["o"] / d["p"] - 1) >= 0.01,
         "volume-gainers": lambda s, d: (lambda base: len(base) == 5 and sum(base) > 0 and d["v"] >= 2 * (sum(base) / 5))([x[s]["v"] for x in days[-6:-1] if s in x]),      # NSE: today against the average of the 5 sessions before it
     }
     for kind, rule in kinds.items():

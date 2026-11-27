@@ -13,7 +13,8 @@ from datetime import date, datetime, timedelta, timezone
 IST = 19800
 DAY = 86400
 
-GAP_MIN = 0.02            # a gap is an open at least 2% away from the previous close
+GAP_MIN = 0.02            # gap filling: a gap is an open at least 2% away from the previous close
+GAP_UPDOWN = 0.01         # Gap Up / Gap Down (as Chartink's scan): an open at least 1% above or below the previous close
 GAP_LOOKBACK = 15         # gap-filling looks for a gap in the last 15 sessions
 VOLUME_SURGE = 2.0        # volume gainers (NSE's way): latest volume at least 2x the average of the 5 sessions before it (NSE's 1-week average)
 WEEK_SESSIONS, TWO_WEEK_SESSIONS = 5, 10      # NSE compares with the 1-week and the 2-week average volume
@@ -198,14 +199,18 @@ def _high_volume(r):
 
 
 def _gap_up(r):
+    """Gap Up / Gap Down, as Chartink's scan: the latest session opened at least 1% above (gap up) or at least 1% below (gap down) the previous
+    session's close. The latest stored daily candle is used, so it is as fresh as the scan's last refresh of that stock (during the session a
+    refreshed stock shows today's open, one not yet refreshed shows the last finished session). `value` is the size of the gap, up or down."""
     b = _bars(r)
     if len(b) < 2:
         return None
     g = _pct(b[-1][1], b[-2][4])
-    if g is None or g < GAP_MIN * 100:
+    if g is None or abs(g) < GAP_UPDOWN * 100:
         return None
-    filled = b[-1][3] <= b[-2][4]
-    return {"value": g, "text": f"Gap {g:+.2f}%", "note": "opened above the previous close" + ("; gap already filled in the session" if filled else "")}
+    up = g > 0
+    filled = b[-1][3] <= b[-2][4] if up else b[-1][2] >= b[-2][4]
+    return {"value": abs(g), "text": f"Gap {g:+.2f}%", "note": ("opened above" if up else "opened below") + " the previous close" + ("; gap already filled in the session" if filled else "")}
 
 
 def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK - 1):
@@ -661,7 +666,7 @@ SCANNERS = {
     "top-losers": ("Top Losers", "Market lists", "Stocks that fell in the latest session, biggest fall first.", 1),
     "volume-gainers": ("Volume Gainers", "Volume", "As NSE (NSE-listed stocks): the latest session's volume at least 2x the average of the 5 sessions before it (the 1-week measure); the 2-week measure (10 sessions) is shown too. Biggest first.", -1),
     "high-volume": ("High Volume Stocks", "Volume", "As NSE's Most Active Equities (by value): NSE-listed stocks ranked by the value traded in the latest session (volume x price, in crores); the shares traded are shown beside it.", -1),
-    "gap-up": ("Gap Up", "Gaps", "Opened at least 2% above the previous close in the latest session.", -1),
+    "gap-up": ("Gap Up / Gap Down", "Gaps", "As Chartink: the latest session opened at least 1% above (gap up) or at least 1% below (gap down) the previous close. Biggest gap first.", -1),
     "gap-filling": ("Gap Filling", "Gaps", "Gapped up at least 2% in the last 15 sessions and has since come back into the gap without closing it completely.", -1),
     "inside-bar": ("Inside Bar (daily)", "Setups", "The latest session traded inside the previous session's high and low.", 1),
     "inside-bar-weekly": ("Inside Bar (weekly)", "Setups", "The last finished week traded inside the high and low of the week before it.", 1),
