@@ -85,10 +85,7 @@ const MENUS: Menu[] = [
         items: [
           { label: "Volume Gainers", run: scanner("volume-gainers") },
           { label: "High Volume Stocks", run: scanner("high-volume") },
-          { label: "Gap Up", run: scanner("gap-up") },
-          { label: "Gap Down", run: scanner("gap-down") },
-          { label: "Gap Filling (Up)", run: scanner("gap-filling") },
-          { label: "Gap Filling (Down)", run: scanner("gap-filling-down") },
+          { label: "Gaps", run: scanner("gap-up") },
         ],
       },
       {

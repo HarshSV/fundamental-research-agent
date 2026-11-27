@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CompanyHit } from "@/lib/api";
 import { BacktestPanel } from "./BacktestPanel";
 import { AnalyticsTabs } from "./AnalyticsTabs";
+import { GapTabs, isGapId } from "./GapTabs";
 import { STATUS_COLOR, STATUS_LABEL, type CatalogueEntry } from "./patterns";
 import { RESISTANCE_ID, SCREENER_ID, describeFilters, isSpecial, searchScan, type ScanContext, type ScanFilters, type ScanOptions, type ScanResult, type ScanRow } from "./patternScan";
 import { TvChart } from "./TvChart";
@@ -245,6 +246,7 @@ export function PatternScanPage({
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
       {(pattern.id === "top-gainers" || pattern.id === "top-losers") && <AnalyticsTabs value={pattern.id === "top-gainers" ? "gainers" : "losers"} />}
+      {isGapId(pattern.id) && <GapTabs value={pattern.id} />}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{pattern.name}</h1>
