@@ -455,7 +455,12 @@ def startup_event():
             from patterns import scan as _scan
             from screens import quarterly as _qq
             from tools import yahoo_industry as _yi
-            _scan._load_all()
+            rows = _scan._load_all()
+            from patterns import market_lists as _ml
+            _ml._reference_session()          # the common session and each stock's cleaned bars are worked out now, not by the first list opened
+            bench = _scan.benchmarks().get("nifty500")
+            for r in rows.values():
+                _ml.evaluate("gap-up", r, bench)
             _qq.load()
             _yi.load()
             print("[HTTP] Scanned-stock table warmed.")
