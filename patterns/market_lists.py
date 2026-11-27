@@ -364,6 +364,81 @@ def rs_high_before_price_high(r, bench):
     return {"value": off, "text": f"{off:.1f}% below high", "note": "relative strength line at a 52-week high while the price is below its 52-week high"}
 
 
+def _rsi(values: list, n: int = 14):
+    """Wilder's RSI of the last value in `values` (None when there are not n + 1 values)."""
+    if len(values) < n + 1:
+        return None
+    gains = losses = 0.0
+    for i in range(1, n + 1):
+        d = values[i] - values[i - 1]
+        gains, losses = gains + max(d, 0.0), losses + max(-d, 0.0)
+    ag, al = gains / n, losses / n
+    for i in range(n + 1, len(values)):
+        d = values[i] - values[i - 1]
+        ag, al = (ag * (n - 1) + max(d, 0.0)) / n, (al * (n - 1) + max(-d, 0.0)) / n
+    return 100.0 if al == 0 else 100.0 - 100.0 / (1.0 + ag / al)
+
+
+def _supertrend_up(bars: list, period: int = 1, mult: float = 1.8):
+    """True when the latest close is above the Supertrend line (an up-trend), False below it, None with too few bars. Bars are [t, o, h, l, c, v].
+    Chartink's Supertrend(1, 1.8): the band is half the bar's high plus low, give or take 1.8 average true ranges over 1 bar (the true range itself)."""
+    if len(bars) < period + 2:
+        return None
+    tr = [bars[0][2] - bars[0][3]] + [max(bars[i][2] - bars[i][3], abs(bars[i][2] - bars[i - 1][4]), abs(bars[i][3] - bars[i - 1][4])) for i in range(1, len(bars))]
+    atr = [None] * len(bars)
+    for i in range(period - 1, len(bars)):
+        atr[i] = sum(tr[i - period + 1:i + 1]) / period
+    fu = fl = st = None
+    for i in range(period - 1, len(bars)):
+        hl2 = (bars[i][2] + bars[i][3]) / 2.0
+        bu, bl = hl2 + mult * atr[i], hl2 - mult * atr[i]
+        if fu is None:
+            fu, fl, st = bu, bl, bl if bars[i][4] >= bl else bu
+            continue
+        pc = bars[i - 1][4]
+        fu_new = bu if (bu < fu or pc > fu) else fu
+        fl_new = bl if (bl > fl or pc < fl) else fl
+        if st == fu:
+            st = fu_new if bars[i][4] <= fu_new else fl_new
+        else:
+            st = fl_new if bars[i][4] >= fl_new else fu_new
+        fu, fl = fu_new, fl_new
+    return bars[-1][4] > st
+
+
+def _high_low_rs(r, bench=None):
+    """High Low RS, as Chartink's "High Low RS Scan", with our own rules where Chartink's scan is unclear:
+    price above its 50-day and 200-day exponential averages, the 50 over the 200 (our trend rule; Chartink's Supertrend(1, 1.8) has settings
+    that cannot be read with certainty); daily RSI(14) above 60; market cap above Rs 2,000 Cr; weekly and monthly RSI(14) both above 50 (worked
+    out from the stored closes, the current week and month counting as they stand); and the stock ahead of the Nifty 500 over Chartink's stretch:
+    (close 104 sessions ago / close 161 sessions ago) divided by the same ratio for the index is above 1 (Chartink's own clause says "above 0",
+    which any price passes). Anything that cannot be worked out means no match, never a zero."""
+    ema, price, mc = r.get("ema") or {}, r.get("price"), r.get("market_cap_cr")
+    cl = [(t, c) for t, c in (r.get("closes") or []) if _num(c) and c > 0]
+    if not all(_num(x) for x in (ema.get("50"), ema.get("200"), price, mc)) or len(cl) < 162 or not bench:
+        return None
+    if not (mc > 2000 and price > ema["50"] > ema["200"]):
+        return None
+    d_rsi = _rsi([c for _, c in cl])
+    if d_rsi is None or d_rsi <= 60:
+        return None
+    bd = _benchmark_by_day(bench)
+    (t1, s1), (t2, s2) = cl[-1 - 104], cl[-1 - 161]
+    b1, b2 = bd.get((t1 + IST) // DAY), bd.get((t2 + IST) // DAY)
+    if not b1 or not b2 or (s1 / s2) / (b1 / b2) <= 1.0:
+        return None
+    weeks: dict = {}
+    months: dict = {}
+    for t, c in cl:
+        weeks[_week_key(t)] = c
+        dt = datetime.fromtimestamp(t + IST, timezone.utc)
+        months[(dt.year, dt.month)] = c
+    w_rsi, m_rsi = _rsi(list(weeks.values())), _rsi(list(months.values()))
+    if w_rsi is None or m_rsi is None or w_rsi <= 50 or m_rsi <= 50:
+        return None
+    return {"value": d_rsi, "text": f"RSI {d_rsi:.0f}", "note": f"daily RSI {d_rsi:.0f}, weekly {w_rsi:.0f}, monthly {m_rsi:.0f}; above the 50 and 200-day averages; ahead of the Nifty 500; market cap Rs {mc:,.0f} Cr"}
+
+
 # ------------------------------------------------------------------ derived per-stock measures used as screener filters
 RANGE_DAYS = 20
 
@@ -698,7 +773,7 @@ SCANNERS = {
     "tight-setup": ("Tight Setup (daily)", "Setups", "The last 5 closes are within 2.5% of each other and the price is above its 50-day average.", 1),
     "tight-setup-weekly": ("Tight Setup (weekly)", "Setups", "The last 3 finished weekly closes are each within 1.5% of the week before (the \"three weeks tight\" rule) and the price is above its 50-day average.", 1),
     "momentum": ("Momentum", "Strength", "As Chartink's Momentum Stocks: price 30 or more, above its 50-day and 200-day averages (50 over 200), at least 2x its 52-week low, within 25% of its 52-week high, market cap Rs 1,000 to 20,000 Cr, and the latest volume at least 1.3x its 50-day average.", -1),
-    "rs-high-before-price-high": ("RS High Before Price High", "Strength", "The relative-strength line (against the Nifty 500) is at a 52-week high while the price is still at least 2% under its own 52-week high.", -1),
+    "rs-high-before-price-high": ("High Low RS Scan", "Strength", "As Chartink's High Low RS Scan, with our own rules where its scan is unclear: price above its 50-day and 200-day averages with the 50 over the 200, daily RSI(14) above 60, market cap above Rs 2,000 Cr, weekly and monthly RSI(14) both above 50, and the stock ahead of the Nifty 500 over the same stretch (its close 104 sessions ago against 161 sessions ago, better than the index's).", -1),
     "earnings-gap-up": ("Earnings Gap Up (latest quarter)", "Earnings", "Opened at least 3% above the pre-results close on the first session after the latest quarter's results.", -1),
     "earnings-gap-up-prev": ("Earnings Gap Up (previous quarter)", "Earnings", "The same, for the quarter before the latest.", -1),
     "positive-earnings-reaction": ("Positive Earnings Reaction (latest quarter)", "Earnings", "Closed at least 5% above the pre-results close within 5 sessions of the latest quarter's results, and is still above it.", -1),
@@ -724,7 +799,7 @@ _EVAL = {
     "tight-setup": lambda r, b: _tight_setup(r),
     "tight-setup-weekly": lambda r, b: _tight_setup(r, True),
     "momentum": lambda r, b: _momentum(r),
-    "rs-high-before-price-high": lambda r, b: rs_high_before_price_high(r, b),
+    "rs-high-before-price-high": lambda r, b: _high_low_rs(r, b),
     "shorting": lambda r, b: _shorting(r),
     "earnings-gap-up": _earnings_gap("er"),
     "earnings-gap-up-prev": _earnings_gap("er2"),

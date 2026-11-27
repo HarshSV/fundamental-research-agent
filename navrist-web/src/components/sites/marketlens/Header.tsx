@@ -92,7 +92,7 @@ const MENUS: Menu[] = [
         title: "Strength and weakness",
         items: [
           { label: "Momentum", run: scanner("momentum") },
-          { label: "RS High Before Price High", run: scanner("rs-high-before-price-high") },
+          { label: "High Low RS Scan", run: scanner("rs-high-before-price-high") },
           { label: "Shorting Scanner", run: scanner("shorting") },
         ],
       },
