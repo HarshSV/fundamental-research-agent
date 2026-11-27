@@ -28,12 +28,28 @@ def _num(v) -> bool:
     return isinstance(v, (int, float)) and v == v
 
 
+def _clean_bars(candles: list) -> list:
+    """Only bars that can be real: numbers throughout, prices above zero, high at or above low, open and close inside the high-low range
+    (a little slack for rounding), one bar per date, oldest first. A bar that fails is dropped, not repaired."""
+    out, seen = [], set()
+    for c in sorted((c for c in candles if len(c) >= 6 and all(_num(x) for x in c[:6])), key=lambda c: c[0]):
+        t, o, h, l, cl, v = c[:6]
+        if min(o, h, l, cl) <= 0 or h < l or v < 0 or t in seen:
+            continue
+        tol = h * 1e-6 + 0.005
+        if not (l - tol <= o <= h + tol and l - tol <= cl <= h + tol):
+            continue
+        seen.add(t)
+        out.append(c)
+    return out
+
+
 def _bars(r: dict) -> list:
     """The row's valid daily bars. Kept on the row object: every scanner and measure asks for them (several times per stock, for about
     3,000 stocks, on every search), and rows are shared between refreshes, so this is worked out once per stock and not per search."""
     b = r.get("_bars")
     if b is None:
-        b = r["_bars"] = [c for c in (r.get("candles") or []) if len(c) >= 6 and all(_num(x) for x in c[:6])]
+        b = r["_bars"] = _clean_bars(r.get("candles") or [])
     return b
 
 
@@ -234,6 +250,7 @@ def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK
                 return None                                # fully closed: not "filling" any more
             if low_since < top and last[4] > floor:
                 filled = (top - max(low_since, floor)) / (top - floor) * 100.0
+                filled = min(filled, 99.0)                     # a gap not fully closed never reads "100%"
                 return {"value": filled, "text": f"{filled:.0f}% of gap filled", "note": f"gap of {g:+.1f}% on session {n - i} sessions ago"}
             return None
         floor, top = open_, prev_close                     # the gap zone of a gap down: gap-day open .. previous close
@@ -241,7 +258,7 @@ def _gap_filling(r, min_gap: float = GAP_MIN * 100, lookback: int = GAP_LOOKBACK
         if high_since >= top:
             return None                                    # fully closed
         if high_since > floor and last[4] < top:
-            filled = (min(high_since, top) - floor) / (top - floor) * 100.0
+            filled = min((min(high_since, top) - floor) / (top - floor) * 100.0, 99.0)
             return {"value": filled, "text": f"{filled:.0f}% of gap filled", "note": f"gap of {g:+.1f}% on session {n - i} sessions ago"}
         return None
     return None
@@ -810,12 +827,65 @@ _EVAL = {
 }
 
 
+_ref = {"at": 0.0, "date": None}
+MAX_ONE_DAY_MOVE = 0.5            # a close more than 50% away from the one before is not trusted (an unadjusted split or bad print): unknown
+
+
+def _bar_date(t):
+    return int((t + IST) // DAY)
+
+
+def _reference_session():
+    """The session most stocks' newest bar is on. During the trading day only some stocks have been refreshed to today's partial bar; the rest
+    still hold the last finished session, so the common session is the last finished one until most stocks have today's."""
+    import time
+    if time.monotonic() - _ref["at"] < 120 and _ref["date"] is not None:
+        return _ref["date"]
+    from . import scan
+    count: dict = {}
+    for row in scan._load_all().values():
+        b = _bars(row)
+        if b:
+            d = _bar_date(b[-1][0])
+            count[d] = count.get(d, 0) + 1
+    _ref["date"] = max(count, key=count.get) if count else None
+    _ref["at"] = time.monotonic()
+    return _ref["date"]
+
+
+def _as_of_reference(r: dict):
+    """The row as of the common session: a stock with a newer partial bar is read on its last finished session; a stock whose newest bar is older
+    than the common session is left out (unknown, not guessed); a stock whose latest close jumped by more than 50% is left out as unverified."""
+    b = _bars(r)
+    if len(b) < 2:
+        return r
+    ref = _reference_session()
+    if ref is None:
+        return r
+    d = _bar_date(b[-1][0])
+    if d > ref:
+        r = dict(r)
+        r["_bars"] = b = b[:-1]
+        r["price"] = b[-1][4]
+        d = _bar_date(b[-1][0])
+        if len(b) < 2:
+            return None
+    if d < ref:
+        return None
+    if b[-2][4] > 0 and abs(b[-1][4] / b[-2][4] - 1.0) > MAX_ONE_DAY_MOVE:
+        return None
+    return r
+
+
 def evaluate(kind: str, r: dict, bench=None):
     """The scanner's reading for this stock, or None when it does not match or cannot be computed."""
     fn = _EVAL.get(kind)
     if fn is None:
         return None
     try:
+        r = _as_of_reference(r)
+        if r is None:
+            return None
         return fn(r, bench)
     except (TypeError, ValueError, ZeroDivisionError, KeyError, IndexError):
         return None

@@ -85,7 +85,8 @@ def main():
     rows = scan._load_all()
     kinds = {"inside-bar": "daily inside", "inside-bar-weekly": "weekly inside", "tight-setup": "daily tight", "tight-setup-weekly": "weekly tight",
              "inside-bar-filtered": "daily filtered inside", "inside-bar-weekly-filtered": "weekly filtered inside"}
-    common = [s for s in bars if s in rows]
+    # only stocks whose newest stored candle is the session being checked: a stock already holding a later, partial session is not comparable
+    common = [s for s in bars if s in rows and rows[s].get("candles") and datetime.utcfromtimestamp(rows[s]["candles"][-1][0] + 19800).date() == today]
     print("stocks in both NSE files and our scan:", len(common), "(NSE:", len(bars), "ours:", len(rows), ")")
     for kind, label in kinds.items():
         ours = {s for s in common if ml._EVAL[kind](rows[s], None)}

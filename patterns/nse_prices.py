@@ -57,6 +57,20 @@ def parse(text: str) -> dict:
     return {s: r for s, (_, r) in best.items()}
 
 
+def file_date(text: str):
+    """The session a bhavcopy file really holds (its DATE1 column). On a market holiday NSE serves the previous session's file under the holiday's name,
+    so the name alone cannot be trusted. None when it cannot be read."""
+    import re
+    lines = text[:3000].splitlines()
+    m = re.search(r"(\d{2})-([A-Za-z]{3})-(\d{4})", lines[1] if len(lines) > 1 else "")
+    if not m:
+        return None
+    try:
+        return datetime.strptime(f"{m.group(1)}-{m.group(2).title()}-{m.group(3)}", "%d-%b-%Y").date()
+    except ValueError:
+        return None
+
+
 def dated_files() -> list[str]:
     """The saved daily price files (YYYYMMDD.csv), oldest first; the symbol-change list sits in the same folder."""
     import re
@@ -73,7 +87,11 @@ def _load_from_disk() -> None:
             continue
         try:
             with open(os.path.join(DIR, f), encoding="utf-8") as fh:
-                _days[iso] = parse(fh.read())
+                text = fh.read()
+            if file_date(text) not in (None, date.fromisoformat(iso)):
+                _days[iso] = {}                    # a holiday's file that repeats the previous session: not a session
+                continue
+            _days[iso] = parse(text)
         except Exception:
             continue
 
@@ -126,7 +144,7 @@ def fetch_recent() -> int:
             r = requests.get(URL.format(d=f"{d:%d%m%Y}"), headers={"User-Agent": "Mozilla/5.0", "Accept": "*/*"}, timeout=40)
         except Exception:
             continue
-        if r.status_code == 200 and r.text.startswith("SYMBOL"):
+        if r.status_code == 200 and r.text.startswith("SYMBOL") and file_date(r.text) == d:
             tmp = _path(d) + ".tmp"
             with open(tmp, "w", encoding="utf-8") as fh:
                 fh.write(r.text)
@@ -228,7 +246,7 @@ def patch_rows(rows: dict) -> int:
             sym = r["symbol"]
             new_sym = alias.get(sym)
             sess = [(iso, _days[iso].get(sym) or (_days[iso].get(new_sym) if new_sym else None)) for iso in dates]
-            sess = [(iso, o) for iso, o in sess if o is not None and o[3] > 0]
+            sess = [(iso, o) for iso, o in sess if o is not None and o[3] > 0 and _days[iso]]
             if not sess:
                 continue
             ours = {datetime.fromtimestamp(c[0], IST).date().isoformat(): c for c in r["candles"][-(KEEP_DAYS + 6):]}

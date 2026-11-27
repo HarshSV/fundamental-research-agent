@@ -25,15 +25,22 @@ def day(path):
 
 def main():
     DIR = os.path.join("data", "exchange", "bhavcopy") if os.path.isdir(os.path.join("data", "exchange", "bhavcopy")) else os.path.join("out", "nse_check")      # the files patterns/nse_prices.py keeps (the newest sessions)
-    files = sorted(f for f in os.listdir(DIR) if f.endswith(".csv") and f[:8].isdigit())[-22:]
+    files = sorted(f for f in os.listdir(DIR) if f.endswith(".csv") and f[:8].isdigit()
+                   and nse_prices.file_date(open(os.path.join(DIR, f), encoding="utf-8").read()) is not None
+                   and nse_prices.file_date(open(os.path.join(DIR, f), encoding="utf-8").read()).strftime("%Y%m%d") == f[:8])[-22:]      # a holiday's file repeating the last session is not a session
     days = [day(os.path.join(DIR, f)) for f in files]
     last = days[-1]
-    rows = {s: r for s, r in scan._load_all().items() if r.get("exchange") in (None, "NSE") and s in last}
+    import datetime as _dt
+    day_of_file = _dt.datetime.strptime(files[-1][:8], "%Y%m%d").date()
+    # only stocks whose newest stored candle is the file's own session: a stock already holding a later, partial session is not comparable
+    rows = {s: r for s, r in scan._load_all().items() if r.get("exchange") in (None, "NSE") and s in last
+            and r.get("candles") and _dt.datetime.utcfromtimestamp(r["candles"][-1][0] + 19800).date() == day_of_file}
     print("NSE trading days used:", len(days), files[-1], "| NSE-listed stocks compared:", len(rows))
     kinds = {
         "top-gainers": lambda s, d: d["c"] > d["p"],
         "top-losers": lambda s, d: d["c"] < d["p"],
-        "gap-up": lambda s, d: d["p"] > 0 and abs(d["o"] / d["p"] - 1) >= 0.01,
+        "gap-up": lambda s, d: d["p"] > 0 and d["o"] / d["p"] - 1 >= 0.01,
+        "gap-down": lambda s, d: d["p"] > 0 and d["o"] / d["p"] - 1 <= -0.01,
         "volume-gainers": lambda s, d: (lambda base: len(base) == 5 and sum(base) > 0 and d["v"] >= 2 * (sum(base) / 5))([x[s]["v"] for x in days[-6:-1] if s in x]),      # NSE: today against the average of the 5 sessions before it
     }
     for kind, rule in kinds.items():
